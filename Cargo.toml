@@ -1,5 +1,5 @@
 [workspace]
-members = ["krillnotes-core"]
+members = ["krillnotes-core", "krillnotes-desktop/src-tauri"]
 resolver = "2"
 
 [workspace.dependencies]
