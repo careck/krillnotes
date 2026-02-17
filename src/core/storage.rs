@@ -16,6 +16,10 @@ impl Storage {
     pub fn connection(&self) -> &Connection {
         &self.conn
     }
+
+    pub fn connection_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
 }
 
 #[cfg(test)]
