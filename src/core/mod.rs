@@ -1,3 +1,4 @@
+pub mod device;
 pub mod error;
 pub mod note;
 pub mod operation;
@@ -6,6 +7,7 @@ pub mod scripting;
 pub mod storage;
 pub mod workspace;
 
+pub use device::get_device_id;
 pub use error::{KrillnotesError, Result};
 pub use note::{FieldValue, Note};
 pub use operation::Operation;

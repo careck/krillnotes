@@ -1,5 +1,5 @@
 use crate::{
-    Note, OperationLog, PurgeStrategy, Result, SchemaRegistry, Storage,
+    get_device_id, Note, OperationLog, PurgeStrategy, Result, SchemaRegistry, Storage,
 };
 use rusqlite::Connection;
 use std::path::Path;
@@ -19,8 +19,8 @@ impl Workspace {
         let registry = SchemaRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 
-        // Generate device ID
-        let device_id = Uuid::new_v4().to_string();
+        // Get hardware-based device ID
+        let device_id = get_device_id()?;
 
         // Store metadata
         storage.connection().execute(
