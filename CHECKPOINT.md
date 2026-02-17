@@ -1,154 +1,88 @@
-# Krillnotes MVP Implementation Checkpoint
+# Krillnotes Tauri Migration Checkpoint
 
 **Date:** 2026-02-17
-**Session:** Plan Execution - Batch 1 Complete
+**Session:** Tauri v2 Migration Complete
 **Branch:** master
 
-## ✅ Completed (Tasks 1-12)
+## ✅ Completed Migration
 
-### Tasks 1-9 (Previous Session)
-- Project setup with Cargo dependencies
-- Core error types and data structures
-- SQLite schema with operation log
-- Rhai scripting system with TextNote schema
-- Workspace core structure with device ID
-- All core backend complete and tested
+### Backend (Unchanged)
+- ✅ Core library (13 tests passing)
+- ✅ SQLite storage
+- ✅ Rhai scripting system
+- ✅ Operation logging
+- ✅ CRUD operations
 
-### Tasks 10-12 (This Session)
-**✅ Task 10:** Workspace CRUD Operations
-- Added `AddPosition` enum (AsChild, AsSibling)
-- Implemented `get_note()`, `create_note()`, `update_note_title()`, `list_all_notes()`
-- All methods include operation logging
-- 4/4 tests passing
-- Commit: `688a7a9`
+### Architecture Changes
+- ✅ Converted to Cargo workspace
+- ✅ Created krillnotes-core library crate
+- ✅ Created krillnotes-desktop Tauri app
+- ✅ Removed iced UI code
 
-**✅ Task 11:** Basic iced App Shell
-- Created UI module structure
-- Implemented functional app with iced 0.13
-- Commit: `f6c7750`
-
-**✅ Task 12:** Menu Bar with Dropdown Menus
-- **UPGRADED to iced 0.13** from 0.12
-- **Added iced_aw 0.10** for menu widget
-- **Refactored to iced 0.13 functional API** (no more trait implementation)
-- Implemented proper dropdown menus (File, Edit, Help)
-- Commit: `ccaf0c4`
-
-### Key Changes from Plan
-1. **iced 0.13 upgrade**: Plan called for iced 0.12, but we upgraded to 0.13 to get proper menu support via iced_aw 0.10
-2. **Functional API**: iced 0.13 uses `iced::application(title, update, view)` instead of implementing `Application` trait
-3. **API changes**: `Command` → `Task`, `center_x()` → `center_x(Length::Fill)`
+### Tauri Desktop App
+- ✅ React 18 + TypeScript frontend
+- ✅ Vite build tool
+- ✅ Tailwind CSS v4 with theme variables
+- ✅ Native OS menu bar (File, Edit, View, Help)
+- ✅ Menu event communication (Rust → React)
+- ✅ Minimal UI (status message display)
 
 ## 📊 Current State
 
-### Files Modified This Session
-- `Cargo.toml` - iced 0.13 + iced_aw 0.10
-- `src/core/workspace.rs` - CRUD operations
-- `src/core/mod.rs` - Export AddPosition
-- `src/ui/app.rs` - Functional API pattern
-- `src/ui/menu.rs` - iced_aw dropdown menus
-- `src/ui/mod.rs` - Remove KrillnotesApp export
+### Project Structure
+```
+krillnotes/
+├── krillnotes-core/          # Shared library
+│   ├── src/core/             # All backend logic
+│   └── src/system_scripts/   # Rhai schemas
+└── krillnotes-desktop/       # Tauri desktop app
+    ├── src/                  # React frontend
+    └── src-tauri/            # Rust backend
+```
 
 ### Test Status
 ```bash
-cargo test
-# All tests passing (13 tests total)
+cargo test -p krillnotes-core
+# All 13 tests passing
 ```
 
-### App Status
+### Development
 ```bash
-cargo run
-# Launches successfully with dropdown menus
-# File, Edit, Help menus functional
-# Menu clicks update status message
+cd krillnotes-desktop
+npm run tauri dev
+# Launches app with hot reload
 ```
 
-## 🎯 Next Up: Tasks 13-15
+### Production Build
+```bash
+cd krillnotes-desktop
+npm run tauri build
+# Creates native installer
+```
 
-**Task 13:** Integrate Workspace into App
-- Add workspace to app state
-- Handle FileNew with temp workspace creation
-- Display workspace status
+## 🎯 Next Steps: Functional Features
 
-**Task 14:** Tree View - Basic List
-- Create tree_view module
-- Display notes hierarchy with indentation
+**Phase 2: Workspace Integration (Next)**
+- Add Tauri commands for workspace operations
+- File picker integration (create/open .db files)
+- Display workspace info in UI
+
+**Phase 3: Tree View**
+- Display hierarchical note list
 - Note selection handling
+- Tree view component
 
-**Task 15:** Detail View - Title and Fields
-- Create detail_view module
-- Show selected note title + fields
-- Auto-save on edit
+**Phase 4: Detail View**
+- Edit note title and fields
+- Auto-save functionality
+- Schema-driven field rendering
 
-## 🔄 How to Resume
+## 🔗 References
 
-### Start New Session
-```bash
-cd /Users/careck/Source/Krillnotes
-/superpowers:execute-plan
-```
-
-Or provide the plan path directly:
-```
-Plan Location: /Users/careck/Source/Krillnotes/docs/plans/2026-02-17-mvp-implementation.md
-```
-
-### Quick Context for Next Agent
-- On **master** branch (user approved working directly on master)
-- All tests passing
-- Core backend complete (Tasks 1-10)
-- Basic UI with menus complete (Tasks 11-12)
-- **Ready for Task 13:** Integrate Workspace into App
-- iced 0.13 uses functional API pattern (not trait-based)
-
-## 📝 Important Notes
-
-### iced 0.13 Patterns
-```rust
-// App structure (functional, not trait-based)
-fn update(state: &mut AppState, message: Message) { }
-fn view(state: &AppState) -> Element<Message> { }
-pub fn run() -> iced::Result {
-    iced::application("Title", update, view).run()
-}
-```
-
-### iced_aw 0.10 Menu Pattern
-```rust
-let items = vec![Item::new(button("Label").on_press(Message))];
-let menu = Item::with_menu(button("Menu"), Menu::new(items));
-MenuBar::new(vec![menu1, menu2]).into()
-```
-
-### Dependencies
-- iced = "0.13"
-- iced_aw = "0.10" (features = ["menu"])
-- All other deps unchanged from plan
-
-## 🎓 Lessons Learned
-
-1. **iced version matters**: 0.12 → 0.13 had breaking API changes
-2. **iced_aw compatibility**: Version 0.10 works with iced 0.13
-3. **Menu implementation**: More complex than simple buttons but worth it for UX
-4. **Functional API**: Cleaner than trait-based for simple apps
-
-## ✍️ Commits This Session
-
-```
-688a7a9 - feat(core): add note CRUD operations to Workspace
-f6c7750 - feat(ui): add basic iced application shell
-ccaf0c4 - feat(ui): upgrade to iced 0.13 and add dropdown menu bar
-```
-
-## 🔗 Plan Reference
-
-Full plan: `docs/plans/2026-02-17-mvp-implementation.md`
-
-Tasks remaining: 13-20 (8 tasks)
-- Tasks 13-15: UI integration (next batch)
-- Tasks 16-18: Add note dialog, file picker, integration tests
-- Tasks 19-20: Documentation and final verification
+- Design: `docs/plans/2026-02-17-tauri-migration-design.md`
+- Implementation: `docs/plans/2026-02-17-tauri-migration.md`
+- Original MVP Plan: `docs/plans/2026-02-17-mvp-implementation.md`
 
 ---
 
-**Resume command:** `/superpowers:execute-plan`
+**Resume command:** Continue with Phase 2 implementation
