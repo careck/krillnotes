@@ -1,15 +1,16 @@
+use crate::ui::menu::{menu_bar, MenuMessage};
 use iced::{
-    widget::{column, text},
-    Application, Command, Element, Settings, Theme,
+    widget::{column, container, text},
+    Application, Command, Element, Length, Settings, Theme,
 };
 
 pub struct KrillnotesApp {
-    // Will add fields later
+    status_message: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    // Will add variants later
+    Menu(MenuMessage),
 }
 
 impl Application for KrillnotesApp {
@@ -19,19 +20,43 @@ impl Application for KrillnotesApp {
     type Flags = ();
 
     fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        (Self {}, Command::none())
+        (
+            Self {
+                status_message: "Welcome to Krillnotes".to_string(),
+            },
+            Command::none(),
+        )
     }
 
     fn title(&self) -> String {
         "Krillnotes".to_string()
     }
 
-    fn update(&mut self, _message: Self::Message) -> Command<Self::Message> {
+    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+        match message {
+            Message::Menu(menu_msg) => {
+                self.status_message = match menu_msg {
+                    MenuMessage::FileNew => "File > New clicked".to_string(),
+                    MenuMessage::FileOpen => "File > Open clicked".to_string(),
+                    MenuMessage::EditAddNote => "Edit > Add Note clicked".to_string(),
+                    MenuMessage::EditDeleteNote => "Edit > Delete Note clicked".to_string(),
+                    MenuMessage::HelpAbout => "Help > About clicked".to_string(),
+                };
+            }
+        }
         Command::none()
     }
 
     fn view(&self) -> Element<Self::Message> {
-        column![text("Krillnotes").size(32),].into()
+        let menu = menu_bar().map(Message::Menu);
+
+        let content = container(text(&self.status_message))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x()
+            .center_y();
+
+        column![menu, content].into()
     }
 
     fn theme(&self) -> Self::Theme {
