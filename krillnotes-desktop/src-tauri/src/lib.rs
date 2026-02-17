@@ -1,7 +1,7 @@
+pub mod menu;
+
 // Re-export core library
 pub use krillnotes_core::*;
-
-// Tauri plugins and other desktop-specific code
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
