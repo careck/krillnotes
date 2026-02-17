@@ -51,7 +51,7 @@ impl SchemaRegistry {
         let mut registry = Self { engine, schemas };
 
         // Load system scripts
-        registry.load_script(include_str!("../../../system_scripts/text_note.rhai"))?;
+        registry.load_script(include_str!("../system_scripts/text_note.rhai"))?;
 
         Ok(registry)
     }
