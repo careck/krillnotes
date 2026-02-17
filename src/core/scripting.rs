@@ -48,7 +48,12 @@ impl SchemaRegistry {
             schemas_clone.lock().unwrap().insert(name, schema);
         });
 
-        Ok(Self { engine, schemas })
+        let mut registry = Self { engine, schemas };
+
+        // Load system scripts
+        registry.load_script(include_str!("../../system_scripts/text_note.rhai"))?;
+
+        Ok(registry)
     }
 
     pub fn load_script(&mut self, script: &str) -> Result<()> {
@@ -160,5 +165,16 @@ mod tests {
         assert_eq!(defaults.len(), 2);
         assert!(matches!(defaults.get("body"), Some(FieldValue::Text(_))));
         assert!(matches!(defaults.get("count"), Some(FieldValue::Number(_))));
+    }
+
+    #[test]
+    fn test_text_note_schema_loaded() {
+        let registry = SchemaRegistry::new().unwrap();
+        let schema = registry.get_schema("TextNote").unwrap();
+
+        assert_eq!(schema.name, "TextNote");
+        assert_eq!(schema.fields.len(), 1);
+        assert_eq!(schema.fields[0].name, "body");
+        assert_eq!(schema.fields[0].field_type, "text");
     }
 }
