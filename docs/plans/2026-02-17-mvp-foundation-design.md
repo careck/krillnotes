@@ -1,7 +1,13 @@
 # Krillnotes MVP Foundation - Design Document
 
+> **SUPERSEDED:** This iced-based design was implemented but then superseded by Tauri v2.
+> **See:** [2026-02-17-tauri-migration-design.md](./2026-02-17-tauri-migration-design.md) for current architecture.
+> **Status:** ✅ Core backend complete, UI migrated to Tauri + React + TypeScript
+
+---
+
 **Date:** 2026-02-17
-**Status:** Approved
+**Status:** Superseded (Core implemented, UI migrated to Tauri)
 **Scope:** Minimum viable product - desktop shell, core data structure, local storage, Rhai scripting
 
 ---

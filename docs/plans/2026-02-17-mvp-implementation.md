@@ -1,5 +1,11 @@
 # Krillnotes MVP Implementation Plan
 
+> **SUPERSEDED:** This iced-based plan was completed but then superseded by the Tauri v2 migration.
+> **See:** [2026-02-17-tauri-migration.md](./2026-02-17-tauri-migration.md) for the current implementation.
+> **Status:** ✅ Core functionality complete (13 tests passing), UI migrated to Tauri + React
+
+---
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a functional local-first note-taking desktop app with hierarchical notes, Rhai-defined schemas, and auto-save.
