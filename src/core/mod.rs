@@ -14,4 +14,4 @@ pub use operation::Operation;
 pub use operation_log::{OperationLog, PurgeStrategy};
 pub use scripting::{FieldDefinition, Schema, SchemaRegistry};
 pub use storage::Storage;
-pub use workspace::Workspace;
+pub use workspace::{AddPosition, Workspace};
