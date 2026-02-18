@@ -1,22 +1,50 @@
+//! SQLite connection management and schema migration for Krillnotes workspaces.
+
 use crate::Result;
 use rusqlite::Connection;
 use std::path::Path;
 
+/// Manages the SQLite connection for a Krillnotes workspace file.
+///
+/// `Storage` validates the database structure on open and applies
+/// any pending column-level migrations before handing off the connection.
 pub struct Storage {
     conn: Connection,
 }
 
 impl Storage {
+    /// Creates a new workspace database at `path` and initialises the schema.
+    ///
+    /// The schema is loaded from the bundled `schema.sql` file. If a file
+    /// already exists at `path` it will be opened and the schema re-applied
+    /// (SQLite `CREATE TABLE IF NOT EXISTS` semantics).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the file cannot be
+    /// created or the schema SQL fails to execute.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(Self { conn })
     }
 
+    /// Opens an existing workspace database at `path` and runs pending migrations.
+    ///
+    /// Validates that the file contains all three required tables (`notes`,
+    /// `operations`, `workspace_meta`) before returning. Currently performs
+    /// one migration: adds the `is_expanded` column to `notes` if absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::InvalidWorkspace`] if the file does not
+    /// contain the expected tables (i.e. it is not a Krillnotes database), or
+    /// [`crate::KrillnotesError::Database`] for any other SQLite error.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;
 
-        // Validate database structure
+        // All three tables must exist; any other count means this is not a
+        // valid Krillnotes workspace.
         let table_count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master
              WHERE type='table'
@@ -31,7 +59,7 @@ impl Storage {
             ));
         }
 
-        // Migrate: add is_expanded column if it doesn't exist
+        // Migration: add is_expanded column if it was created before this column existed.
         let column_exists: bool = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='is_expanded'",
@@ -49,10 +77,12 @@ impl Storage {
         Ok(Self { conn })
     }
 
+    /// Returns a shared reference to the underlying SQLite connection.
     pub fn connection(&self) -> &Connection {
         &self.conn
     }
 
+    /// Returns an exclusive reference to the underlying SQLite connection.
     pub fn connection_mut(&mut self) -> &mut Connection {
         &mut self.conn
     }
@@ -68,7 +98,6 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let storage = Storage::create(temp.path()).unwrap();
 
-        // Verify tables exist
         let tables: Vec<String> = storage
             .connection()
             .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -86,14 +115,9 @@ mod tests {
     #[test]
     fn test_open_existing_storage() {
         let temp = NamedTempFile::new().unwrap();
-
-        // Create database first
         Storage::create(temp.path()).unwrap();
-
-        // Open it
         let storage = Storage::open(temp.path()).unwrap();
 
-        // Verify tables exist
         let tables: Vec<String> = storage
             .connection()
             .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -111,10 +135,7 @@ mod tests {
     #[test]
     fn test_open_invalid_database() {
         let temp = NamedTempFile::new().unwrap();
-
-        // Create empty file (not a valid Krillnotes DB)
         std::fs::write(temp.path(), "not a database").unwrap();
-
         let result = Storage::open(temp.path());
         assert!(result.is_err());
     }
@@ -123,7 +144,6 @@ mod tests {
     fn test_migration_adds_is_expanded_column() {
         let temp = NamedTempFile::new().unwrap();
 
-        // Create database with old schema (without is_expanded)
         {
             let conn = Connection::open(temp.path()).unwrap();
             conn.execute(
@@ -145,10 +165,8 @@ mod tests {
             conn.execute("CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT)", []).unwrap();
         }
 
-        // Open storage (should trigger migration)
         let storage = Storage::open(temp.path()).unwrap();
 
-        // Verify is_expanded column exists
         let column_exists: bool = storage
             .connection()
             .query_row(
