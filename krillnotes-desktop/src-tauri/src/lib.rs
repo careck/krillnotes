@@ -82,6 +82,21 @@ fn create_workspace_window(
     .map_err(|e| format!("Failed to create window: {}", e))
 }
 
+fn store_workspace(
+    state: &AppState,
+    label: String,
+    workspace: Workspace,
+    path: PathBuf,
+) {
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let mut paths = state.workspace_paths.lock()
+        .expect("Mutex poisoned");
+
+    workspaces.insert(label.clone(), workspace);
+    paths.insert(label, path);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
