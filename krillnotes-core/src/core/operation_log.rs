@@ -1,3 +1,6 @@
+/// Seconds in one day; used to convert `retention_days` to a Unix timestamp cutoff.
+const SECONDS_PER_DAY: i64 = 86_400;
+
 use crate::{Operation, Result};
 use rusqlite::Transaction;
 
@@ -44,7 +47,7 @@ impl OperationLog {
                 )?;
             }
             PurgeStrategy::WithSync { retention_days } => {
-                let cutoff = chrono::Utc::now().timestamp() - (retention_days as i64 * 86400);
+                let cutoff = chrono::Utc::now().timestamp() - (retention_days as i64 * SECONDS_PER_DAY);
                 tx.execute(
                     "DELETE FROM operations WHERE synced = 1 AND timestamp < ?",
                     [cutoff],

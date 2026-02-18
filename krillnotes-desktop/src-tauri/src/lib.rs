@@ -25,12 +25,6 @@ pub struct WorkspaceInfo {
     pub selected_note_id: Option<String>,
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
     let filename = path.file_stem()
         .and_then(|s| s.to_str())
@@ -368,7 +362,6 @@ pub fn run() {
         })
         .on_menu_event(handle_menu_event)
         .invoke_handler(tauri::generate_handler![
-            greet,
             create_workspace,
             open_workspace,
             get_workspace_info,
