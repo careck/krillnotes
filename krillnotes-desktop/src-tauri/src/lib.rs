@@ -216,6 +216,20 @@ fn get_workspace_info(
     get_workspace_info_internal(&*state, window.label())
 }
 
+#[tauri::command]
+fn list_notes(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<Note>, String> {
+    let label = window.label();
+    state.workspaces.lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .list_all_notes()
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
