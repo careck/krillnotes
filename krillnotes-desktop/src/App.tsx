@@ -87,6 +87,28 @@ function App() {
     if (welcomed === 'true') {
       setShowWelcome(false);
     }
+
+    // If this is a workspace window (not "main"), fetch workspace info immediately
+    import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) => {
+      const window = getCurrentWebviewWindow();
+      const label = window.label;
+
+      console.log('Window label:', label);
+
+      if (label !== 'main') {
+        console.log('Non-main window detected, fetching workspace info');
+        // This is a workspace window, fetch its info
+        invoke<WorkspaceInfoType>('get_workspace_info')
+          .then(info => {
+            console.log('Workspace info fetched:', info);
+            setWorkspace(info);
+            setShowWelcome(false); // Don't show welcome on workspace windows
+          })
+          .catch(err => {
+            console.error('Failed to fetch workspace info:', err);
+          });
+      }
+    });
   }, []);
 
   useEffect(() => {
