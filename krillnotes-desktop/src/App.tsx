@@ -123,8 +123,19 @@ function App() {
       }
     );
 
-    const unlisten = listen<string>('menu-action', (event) => {
+    const unlisten = listen<string>('menu-action', async (event) => {
       console.log('Menu event received:', event.payload);
+
+      // Only handle menu events if this window is focused
+      const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const window = getCurrentWebviewWindow();
+      const isFocused = await window.isFocused();
+
+      if (!isFocused) {
+        console.log('Window not focused, ignoring menu event');
+        return;
+      }
+
       const handler = handlers[event.payload as keyof typeof handlers];
       if (handler) {
         console.log('Calling handler for:', event.payload);
