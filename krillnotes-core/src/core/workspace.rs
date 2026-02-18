@@ -88,6 +88,37 @@ impl Workspace {
         })
     }
 
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let storage = Storage::open(&path)?;
+        let registry = SchemaRegistry::new()?;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
+
+        // Read metadata from database
+        let device_id = storage.connection()
+            .query_row(
+                "SELECT value FROM workspace_meta WHERE key = 'device_id'",
+                [],
+                |row| row.get::<_, String>(0)
+            )?;
+
+        let current_user_id = storage.connection()
+            .query_row(
+                "SELECT value FROM workspace_meta WHERE key = 'current_user_id'",
+                [],
+                |row| row.get::<_, String>(0)
+            )?
+            .parse::<i64>()
+            .unwrap_or(0);
+
+        Ok(Self {
+            storage,
+            registry,
+            operation_log,
+            device_id,
+            current_user_id,
+        })
+    }
+
     pub fn registry(&self) -> &SchemaRegistry {
         &self.registry
     }
@@ -309,5 +340,25 @@ mod tests {
 
         let updated = ws.get_note(&root.id).unwrap();
         assert_eq!(updated.title, "New Title");
+    }
+
+    #[test]
+    fn test_open_existing_workspace() {
+        let temp = NamedTempFile::new().unwrap();
+
+        // Create workspace first
+        {
+            let ws = Workspace::create(temp.path()).unwrap();
+            let root = ws.list_all_notes().unwrap()[0].clone();
+            assert_eq!(root.node_type, "TextNote");
+        }
+
+        // Open it
+        let ws = Workspace::open(temp.path()).unwrap();
+
+        // Verify we can read notes
+        let notes = ws.list_all_notes().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].node_type, "TextNote");
     }
 }
