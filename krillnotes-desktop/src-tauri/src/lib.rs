@@ -282,6 +282,43 @@ fn set_selected_note(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn create_note_with_type(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    parent_id: Option<String>,
+    position: String,
+    node_type: String,
+) -> std::result::Result<Note, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    // Convert position string to AddPosition enum
+    let add_position = match position.as_str() {
+        "child" => AddPosition::AsChild,
+        "sibling" => AddPosition::AsSibling,
+        _ => return Err("Invalid position: must be 'child' or 'sibling'".to_string()),
+    };
+
+    // If no parent_id, create root note
+    let note_id = if let Some(pid) = parent_id {
+        workspace.create_note(&pid, add_position, &node_type)
+            .map_err(|e| e.to_string())?
+    } else {
+        // Create root note (parent_id = null, position = 0)
+        workspace.create_note_root(&node_type)
+            .map_err(|e| e.to_string())?
+    };
+
+    // Fetch and return the created note
+    workspace.get_note(&note_id)
+        .map_err(|e| e.to_string())
+}
+
 // Note: Window cleanup is handled implicitly through Drop traits.
 // Tauri v2 automatically cleans up resources when windows are destroyed.
 // The AppState HashMap entries will be cleaned up when the app exits.
@@ -327,6 +364,7 @@ pub fn run() {
             get_node_types,
             toggle_note_expansion,
             set_selected_note,
+            create_note_with_type,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

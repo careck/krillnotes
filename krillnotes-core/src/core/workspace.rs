@@ -230,6 +230,48 @@ impl Workspace {
         Ok(note.id)
     }
 
+    pub fn create_note_root(&mut self, node_type: &str) -> Result<String> {
+        let now = chrono::Utc::now().timestamp();
+        let schema = self.registry.get_schema(node_type)?;
+
+        let new_note = Note {
+            id: Uuid::new_v4().to_string(),
+            title: "Untitled".to_string(),
+            node_type: node_type.to_string(),
+            parent_id: None,
+            position: 0,
+            created_at: now,
+            modified_at: now,
+            created_by: self.current_user_id,
+            modified_by: self.current_user_id,
+            fields: schema.default_fields(),
+            is_expanded: true,
+        };
+
+        let tx = self.storage.connection_mut().transaction()?;
+
+        tx.execute(
+            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                new_note.id,
+                new_note.title,
+                new_note.node_type,
+                new_note.parent_id,
+                new_note.position,
+                new_note.created_at,
+                new_note.modified_at,
+                new_note.created_by,
+                new_note.modified_by,
+                serde_json::to_string(&new_note.fields)?,
+                true,
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(new_note.id)
+    }
+
     pub fn update_note_title(&mut self, note_id: &str, new_title: String) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
@@ -582,5 +624,45 @@ mod tests {
         ws.set_selected_note(Some(&child_id)).unwrap();
         let selected = ws.get_selected_note().unwrap();
         assert_eq!(selected, Some(child_id.clone()), "Should overwrite previous selection");
+    }
+
+    #[test]
+    fn test_create_note_root() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Delete existing root note to simulate empty workspace
+        let existing_root = ws.list_all_notes().unwrap()[0].clone();
+        ws.storage.connection_mut().execute(
+            "DELETE FROM notes WHERE id = ?",
+            [&existing_root.id],
+        ).unwrap();
+
+        // Create a new root note
+        let new_root_id = ws.create_note_root("TextNote").unwrap();
+        let new_root = ws.get_note(&new_root_id).unwrap();
+
+        assert_eq!(new_root.title, "Untitled");
+        assert_eq!(new_root.node_type, "TextNote");
+        assert_eq!(new_root.parent_id, None, "Root note should have no parent");
+        assert_eq!(new_root.position, 0, "Root note should be at position 0");
+        assert!(new_root.is_expanded, "Root note should be expanded");
+    }
+
+    #[test]
+    fn test_create_note_root_invalid_type() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Delete existing root note
+        let existing_root = ws.list_all_notes().unwrap()[0].clone();
+        ws.storage.connection_mut().execute(
+            "DELETE FROM notes WHERE id = ?",
+            [&existing_root.id],
+        ).unwrap();
+
+        // Try to create a root note with invalid type
+        let result = ws.create_note_root("InvalidType");
+        assert!(result.is_err(), "Should fail with invalid node type");
     }
 }
