@@ -28,3 +28,6 @@ krillnotes-desktop/src-tauri/WixTools/
 *.swp
 *.swo
 *~
+
+# Worktrees
+.worktrees/
