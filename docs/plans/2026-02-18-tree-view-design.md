@@ -361,6 +361,7 @@ Add handler for "Edit > Add Note" in `createMenuHandlers`:
 - Multi-select
 - Search/filter tree
 - Virtualization for large trees (1000+ notes)
+- **Auto-expand parent when adding child to collapsed node**: Currently, if a selected note is hidden (parent collapsed), creating a new child/sibling creates it correctly but invisibly. Consider auto-expanding parent or scrolling to show the new note.
 
 ### Dependencies
 - No new external dependencies required
