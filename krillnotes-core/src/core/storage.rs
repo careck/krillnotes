@@ -31,6 +31,21 @@ impl Storage {
             ));
         }
 
+        // Migrate: add is_expanded column if it doesn't exist
+        let column_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='is_expanded'",
+                [],
+                |row| row.get::<_, i64>(0).map(|count| count > 0)
+            )?;
+
+        if !column_exists {
+            conn.execute(
+                "ALTER TABLE notes ADD COLUMN is_expanded INTEGER DEFAULT 1",
+                []
+            )?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -102,5 +117,47 @@ mod tests {
 
         let result = Storage::open(temp.path());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_migration_adds_is_expanded_column() {
+        let temp = NamedTempFile::new().unwrap();
+
+        // Create database with old schema (without is_expanded)
+        {
+            let conn = Connection::open(temp.path()).unwrap();
+            conn.execute(
+                "CREATE TABLE notes (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    node_type TEXT NOT NULL,
+                    parent_id TEXT,
+                    position INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    modified_at INTEGER NOT NULL,
+                    created_by INTEGER NOT NULL,
+                    modified_by INTEGER NOT NULL,
+                    fields_json TEXT NOT NULL
+                )",
+                [],
+            ).unwrap();
+            conn.execute("CREATE TABLE operations (id INTEGER PRIMARY KEY)", []).unwrap();
+            conn.execute("CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT)", []).unwrap();
+        }
+
+        // Open storage (should trigger migration)
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Verify is_expanded column exists
+        let column_exists: bool = storage
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='is_expanded'",
+                [],
+                |row| row.get::<_, i64>(0).map(|count| count > 0)
+            )
+            .unwrap();
+
+        assert!(column_exists, "is_expanded column should exist after migration");
     }
 }

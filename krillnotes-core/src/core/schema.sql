@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS notes (
     created_by INTEGER NOT NULL DEFAULT 0,
     modified_by INTEGER NOT NULL DEFAULT 0,
     fields_json TEXT NOT NULL DEFAULT '{}',
+    is_expanded INTEGER DEFAULT 1,
     FOREIGN KEY (parent_id) REFERENCES notes(id) ON DELETE CASCADE
 );
 

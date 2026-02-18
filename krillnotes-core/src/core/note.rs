@@ -20,6 +20,7 @@ pub struct Note {
     pub created_by: i64,
     pub modified_by: i64,
     pub fields: HashMap<String, FieldValue>,
+    pub is_expanded: bool,
 }
 
 #[cfg(test)]
@@ -39,6 +40,7 @@ mod tests {
             created_by: 0,
             modified_by: 0,
             fields: HashMap::new(),
+            is_expanded: true,
         };
 
         assert_eq!(note.title, "Test Note");

@@ -64,12 +64,13 @@ impl Workspace {
             created_by: 0,
             modified_by: 0,
             fields: registry.get_schema("TextNote")?.default_fields(),
+            is_expanded: true,
         };
 
         let tx = storage.connection_mut().transaction()?;
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 root.id,
                 root.title,
@@ -81,6 +82,7 @@ impl Workspace {
                 root.created_by,
                 root.modified_by,
                 serde_json::to_string(&root.fields)?,
+                true,
             ],
         )?;
         tx.commit()?;
@@ -135,7 +137,7 @@ impl Workspace {
 
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
         let row = self.connection().query_row(
-            "SELECT id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json
+            "SELECT id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded
              FROM notes WHERE id = ?",
             [note_id],
             |row| {
@@ -150,6 +152,7 @@ impl Workspace {
                     created_by: row.get(7)?,
                     modified_by: row.get(8)?,
                     fields: serde_json::from_str(&row.get::<_, String>(9)?).unwrap(),
+                    is_expanded: row.get::<_, i64>(10)? == 1,
                 })
             },
         )?;
@@ -182,14 +185,15 @@ impl Workspace {
             created_by: self.current_user_id,
             modified_by: self.current_user_id,
             fields: schema.default_fields(),
+            is_expanded: true,
         };
 
         let tx = self.storage.connection_mut().transaction()?;
 
         // Insert note
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 note.id,
                 note.title,
@@ -201,6 +205,7 @@ impl Workspace {
                 note.created_by,
                 note.modified_by,
                 serde_json::to_string(&note.fields)?,
+                true,
             ],
         )?;
 
@@ -253,7 +258,7 @@ impl Workspace {
 
     pub fn list_all_notes(&self) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json
+            "SELECT id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded
              FROM notes ORDER BY parent_id, position",
         )?;
 
@@ -270,6 +275,7 @@ impl Workspace {
                     created_by: row.get(7)?,
                     modified_by: row.get(8)?,
                     fields: serde_json::from_str(&row.get::<_, String>(9)?).unwrap(),
+                    is_expanded: row.get::<_, i64>(10)? == 1,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -366,5 +372,43 @@ mod tests {
         let notes = ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].node_type, "TextNote");
+    }
+
+    #[test]
+    fn test_is_expanded_defaults_to_true() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Check root note is expanded by default
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        assert!(root.is_expanded, "Root note should be expanded by default");
+
+        // Create a child note and verify it's expanded by default
+        let child_id = ws
+            .create_note(&root.id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+
+        let child = ws.get_note(&child_id).unwrap();
+        assert!(child.is_expanded, "New child note should be expanded by default");
+    }
+
+    #[test]
+    fn test_is_expanded_persists_across_open() {
+        let temp = NamedTempFile::new().unwrap();
+
+        // Create workspace with notes
+        {
+            let mut ws = Workspace::create(temp.path()).unwrap();
+            let root = ws.list_all_notes().unwrap()[0].clone();
+            ws.create_note(&root.id, AddPosition::AsChild, "TextNote")
+                .unwrap();
+        }
+
+        // Open and verify is_expanded is true
+        let ws = Workspace::open(temp.path()).unwrap();
+        let notes = ws.list_all_notes().unwrap();
+        assert_eq!(notes.len(), 2);
+        assert!(notes[0].is_expanded, "Root note should be expanded");
+        assert!(notes[1].is_expanded, "Child note should be expanded");
     }
 }
