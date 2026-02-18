@@ -255,26 +255,24 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(AppState {
+            workspaces: Arc::new(Mutex::new(HashMap::new())),
+            workspace_paths: Arc::new(Mutex::new(HashMap::new())),
+        })
         .setup(|app| {
             let menu = menu::build_menu(app.handle())?;
             app.set_menu(menu)?;
             Ok(())
         })
-        .on_menu_event(|app, event| {
-            let message = match event.id().as_ref() {
-                "file_new" => "File > New Workspace clicked",
-                "file_open" => "File > Open Workspace clicked",
-                "edit_add_note" => "Edit > Add Note clicked",
-                "edit_delete_note" => "Edit > Delete Note clicked",
-                "view_refresh" => "View > Refresh clicked",
-                "help_about" => "Help > About Krillnotes clicked",
-                _ => return, // Ignore unknown events
-            };
-
-            // Emit event to frontend
-            app.emit("menu-action", message).ok();
-        })
-        .invoke_handler(tauri::generate_handler![greet])
+        .on_menu_event(handle_menu_event)
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            create_workspace,
+            open_workspace,
+            get_workspace_info,
+            list_notes,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
