@@ -230,6 +230,24 @@ fn list_notes(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_node_types(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<String>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace open")?;
+
+    let types = workspace.list_node_types()
+        .map_err(|e| e.to_string())?;
+
+    Ok(types)
+}
+
 // Note: Window cleanup is handled implicitly through Drop traits.
 // Tauri v2 automatically cleans up resources when windows are destroyed.
 // The AppState HashMap entries will be cleaned up when the app exits.
@@ -272,6 +290,7 @@ pub fn run() {
             open_workspace,
             get_workspace_info,
             list_notes,
+            get_node_types,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
