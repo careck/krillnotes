@@ -286,6 +286,28 @@ impl Workspace {
     pub fn list_node_types(&self) -> Result<Vec<String>> {
         self.registry.list_types()
     }
+
+    pub fn toggle_note_expansion(&mut self, note_id: &str) -> Result<()> {
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // Get current value
+        let current: i64 = tx.query_row(
+            "SELECT is_expanded FROM notes WHERE id = ?",
+            [note_id],
+            |row| row.get(0)
+        )?;
+
+        // Toggle
+        let new_value = if current == 1 { 0 } else { 1 };
+
+        tx.execute(
+            "UPDATE notes SET is_expanded = ? WHERE id = ?",
+            rusqlite::params![new_value, note_id],
+        )?;
+
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 fn humanize(filename: &str) -> String {
@@ -414,5 +436,55 @@ mod tests {
         assert_eq!(notes.len(), 2);
         assert!(notes[0].is_expanded, "Root note should be expanded");
         assert!(notes[1].is_expanded, "Child note should be expanded");
+    }
+
+    #[test]
+    fn test_toggle_note_expansion() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        assert!(root.is_expanded, "Root should start expanded");
+
+        // Toggle to collapsed
+        ws.toggle_note_expansion(&root.id).unwrap();
+        let note = ws.get_note(&root.id).unwrap();
+        assert!(!note.is_expanded, "Root should now be collapsed");
+
+        // Toggle back to expanded
+        ws.toggle_note_expansion(&root.id).unwrap();
+        let note = ws.get_note(&root.id).unwrap();
+        assert!(note.is_expanded, "Root should be expanded again");
+    }
+
+    #[test]
+    fn test_toggle_note_expansion_with_child_notes() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws
+            .create_note(&root.id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+
+        // Toggle child note
+        ws.toggle_note_expansion(&child_id).unwrap();
+        let child = ws.get_note(&child_id).unwrap();
+        assert!(!child.is_expanded, "Child should be collapsed");
+
+        // Toggle back
+        ws.toggle_note_expansion(&child_id).unwrap();
+        let child = ws.get_note(&child_id).unwrap();
+        assert!(child.is_expanded, "Child should be expanded");
+    }
+
+    #[test]
+    fn test_toggle_note_expansion_nonexistent_note() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Try to toggle a note that doesn't exist
+        let result = ws.toggle_note_expansion("nonexistent-id");
+        assert!(result.is_err(), "Should error for nonexistent note");
     }
 }
