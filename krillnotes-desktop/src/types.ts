@@ -2,6 +2,7 @@ export interface WorkspaceInfo {
   filename: string;
   path: string;
   noteCount: number;
+  selectedNoteId?: string;
 }
 
 export interface Note {
@@ -16,6 +17,11 @@ export interface Note {
   modifiedBy: number;
   fields: Record<string, FieldValue>;
   isExpanded: boolean;
+}
+
+export interface TreeNode {
+  note: Note;
+  children: TreeNode[];
 }
 
 export type FieldValue =
