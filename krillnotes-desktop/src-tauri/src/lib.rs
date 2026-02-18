@@ -265,6 +265,23 @@ fn toggle_note_expansion(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn set_selected_note(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: Option<String>,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    workspace.set_selected_note(note_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
 // Note: Window cleanup is handled implicitly through Drop traits.
 // Tauri v2 automatically cleans up resources when windows are destroyed.
 // The AppState HashMap entries will be cleaned up when the app exits.
@@ -309,6 +326,7 @@ pub fn run() {
             list_notes,
             get_node_types,
             toggle_note_expansion,
+            set_selected_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

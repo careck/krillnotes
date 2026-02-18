@@ -308,6 +308,41 @@ impl Workspace {
         tx.commit()?;
         Ok(())
     }
+
+    pub fn set_selected_note(&mut self, note_id: Option<&str>) -> Result<()> {
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // Delete existing entry
+        tx.execute(
+            "DELETE FROM workspace_meta WHERE key = 'selected_note_id'",
+            [],
+        )?;
+
+        // Insert new value if provided
+        if let Some(id) = note_id {
+            tx.execute(
+                "INSERT INTO workspace_meta (key, value) VALUES ('selected_note_id', ?)",
+                [id],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_selected_note(&self) -> Result<Option<String>> {
+        let result = self.storage.connection().query_row(
+            "SELECT value FROM workspace_meta WHERE key = 'selected_note_id'",
+            [],
+            |row| row.get::<_, String>(0)
+        );
+
+        match result {
+            Ok(id) => Ok(Some(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 fn humanize(filename: &str) -> String {
@@ -486,5 +521,66 @@ mod tests {
         // Try to toggle a note that doesn't exist
         let result = ws.toggle_note_expansion("nonexistent-id");
         assert!(result.is_err(), "Should error for nonexistent note");
+    }
+
+    #[test]
+    fn test_set_and_get_selected_note() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+
+        // Initially no selection
+        let selected = ws.get_selected_note().unwrap();
+        assert_eq!(selected, None, "Should have no selection initially");
+
+        // Set selection
+        ws.set_selected_note(Some(&root.id)).unwrap();
+        let selected = ws.get_selected_note().unwrap();
+        assert_eq!(selected, Some(root.id.clone()), "Should return selected note ID");
+
+        // Clear selection
+        ws.set_selected_note(None).unwrap();
+        let selected = ws.get_selected_note().unwrap();
+        assert_eq!(selected, None, "Should have no selection after clearing");
+    }
+
+    #[test]
+    fn test_selected_note_persists_across_open() {
+        let temp = NamedTempFile::new().unwrap();
+
+        // Create workspace and set selection
+        {
+            let mut ws = Workspace::create(temp.path()).unwrap();
+            let root = ws.list_all_notes().unwrap()[0].clone();
+            ws.set_selected_note(Some(&root.id)).unwrap();
+        }
+
+        // Open workspace and verify selection persists
+        let ws = Workspace::open(temp.path()).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let selected = ws.get_selected_note().unwrap();
+        assert_eq!(selected, Some(root.id), "Selection should persist across open");
+    }
+
+    #[test]
+    fn test_set_selected_note_overwrites_previous() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws
+            .create_note(&root.id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+
+        // Set first selection
+        ws.set_selected_note(Some(&root.id)).unwrap();
+        let selected = ws.get_selected_note().unwrap();
+        assert_eq!(selected, Some(root.id.clone()));
+
+        // Set second selection (should overwrite)
+        ws.set_selected_note(Some(&child_id)).unwrap();
+        let selected = ws.get_selected_note().unwrap();
+        assert_eq!(selected, Some(child_id.clone()), "Should overwrite previous selection");
     }
 }
