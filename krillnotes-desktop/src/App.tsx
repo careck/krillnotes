@@ -30,8 +30,7 @@ const createMenuHandlers = (
         .then(info => {
           console.log('create_workspace returned:', info);
           // Don't update current window - the new window will fetch its own info
-          // Only show status message
-          setStatus(`Created: ${info.filename}`);
+          // No status message needed since a new window appears
         })
         .catch(err => {
           console.error('create_workspace error:', err);
@@ -62,8 +61,7 @@ const createMenuHandlers = (
         .then(info => {
           console.log('open_workspace returned:', info);
           // Don't update current window - the new window will fetch its own info
-          // Only show status message
-          setStatus(`Opened: ${info.filename}`);
+          // No status message needed since a new window appears
         })
         .catch(err => {
           console.error('open_workspace error:', err);
