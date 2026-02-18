@@ -1,23 +1,40 @@
-/// Seconds in one day; used to convert `retention_days` to a Unix timestamp cutoff.
-const SECONDS_PER_DAY: i64 = 86_400;
+//! Durable operation log and purge strategies for the Krillnotes workspace.
 
 use crate::{Operation, Result};
 use rusqlite::Transaction;
 
+/// Seconds in one day; used to convert `retention_days` to a Unix timestamp cutoff.
+const SECONDS_PER_DAY: i64 = 86_400;
+
+/// Controls which old operations are removed from the log.
 pub enum PurgeStrategy {
+    /// Retain only the most recent `keep_last` operations.
+    ///
+    /// Used when sync is disabled and the log is local-only.
     LocalOnly { keep_last: usize },
+    /// Retain synced operations for up to `retention_days` before removing them.
+    ///
+    /// Used when sync is enabled and remote peers may still need older operations.
     WithSync { retention_days: u32 },
 }
 
+/// Records document mutations to the `operations` table and purges stale entries.
 pub struct OperationLog {
     strategy: PurgeStrategy,
 }
 
 impl OperationLog {
+    /// Creates a new `OperationLog` with the given purge strategy.
     pub fn new(strategy: PurgeStrategy) -> Self {
         Self { strategy }
     }
 
+    /// Serialises `op` and appends it to the `operations` table within `tx`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the INSERT fails, or
+    /// [`crate::KrillnotesError::Json`] if `op` cannot be serialised.
     pub fn log(&self, tx: &Transaction, op: &Operation) -> Result<()> {
         let op_json = serde_json::to_string(op)?;
 
@@ -36,6 +53,13 @@ impl OperationLog {
         Ok(())
     }
 
+    /// Deletes old operations from the log according to the purge strategy.
+    ///
+    /// Call this after every [`log`](Self::log) call to keep the table bounded in size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the DELETE fails.
     pub fn purge_if_needed(&self, tx: &Transaction) -> Result<()> {
         match self.strategy {
             PurgeStrategy::LocalOnly { keep_last } => {
@@ -47,7 +71,8 @@ impl OperationLog {
                 )?;
             }
             PurgeStrategy::WithSync { retention_days } => {
-                let cutoff = chrono::Utc::now().timestamp() - (retention_days as i64 * SECONDS_PER_DAY);
+                let cutoff = chrono::Utc::now().timestamp()
+                    - (retention_days as i64 * SECONDS_PER_DAY);
                 tx.execute(
                     "DELETE FROM operations WHERE synced = 1 AND timestamp < ?",
                     [cutoff],
@@ -91,7 +116,6 @@ mod tests {
 
         let tx = storage.connection_mut().transaction().unwrap();
 
-        // Log 10 operations
         for i in 0..10 {
             let op = Operation::CreateNote {
                 operation_id: format!("op-{}", i),
@@ -108,11 +132,9 @@ mod tests {
             log.log(&tx, &op).unwrap();
         }
 
-        // Purge
         log.purge_if_needed(&tx).unwrap();
         tx.commit().unwrap();
 
-        // Verify only 5 remain
         let count: i64 = storage
             .connection()
             .query_row("SELECT COUNT(*) FROM operations", [], |row| row.get(0))

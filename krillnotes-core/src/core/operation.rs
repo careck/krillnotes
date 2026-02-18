@@ -1,48 +1,88 @@
+//! CRDT-style operation types for the Krillnotes operation log.
+
 use crate::FieldValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// A single document mutation recorded in the workspace operation log.
+///
+/// Operations capture the full intent of each change so they can be
+/// replayed, merged, or synced across devices in a future sync phase.
+/// Every variant carries a stable `operation_id`, a wall-clock `timestamp`,
+/// and the `device_id` of the originating machine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Operation {
+    /// A new note was inserted into the workspace hierarchy.
     CreateNote {
+        /// Stable UUID for this operation.
         operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
         timestamp: i64,
+        /// ID of the device that performed this operation.
         device_id: String,
+        /// ID assigned to the new note.
         note_id: String,
+        /// Parent note ID, or `None` for a root note.
         parent_id: Option<String>,
+        /// Zero-based position among siblings.
         position: i32,
+        /// Schema type of the new note.
         node_type: String,
+        /// Initial title of the new note.
         title: String,
+        /// Initial field values of the new note.
         fields: HashMap<String, FieldValue>,
+        /// Device ID logged as the creator.
         created_by: i64,
     },
+    /// A single schema field on an existing note was updated.
     UpdateField {
+        /// Stable UUID for this operation.
         operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
         timestamp: i64,
+        /// ID of the device that performed this operation.
         device_id: String,
+        /// ID of the note whose field was updated.
         note_id: String,
+        /// Name of the field that changed.
         field: String,
+        /// New value for the field.
         value: FieldValue,
+        /// Device ID logged as the modifier.
         modified_by: i64,
     },
+    /// A note (and all its descendants) was deleted.
     DeleteNote {
+        /// Stable UUID for this operation.
         operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
         timestamp: i64,
+        /// ID of the device that performed this operation.
         device_id: String,
+        /// ID of the deleted note.
         note_id: String,
     },
+    /// A note was relocated to a new parent or position.
     MoveNote {
+        /// Stable UUID for this operation.
         operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
         timestamp: i64,
+        /// ID of the device that performed this operation.
         device_id: String,
+        /// ID of the note that was moved.
         note_id: String,
+        /// New parent note ID, or `None` to move to root level.
         new_parent_id: Option<String>,
+        /// New zero-based position among siblings.
         new_position: i32,
     },
 }
 
 impl Operation {
+    /// Returns the stable identifier for this operation.
     pub fn operation_id(&self) -> &str {
         match self {
             Self::CreateNote { operation_id, .. } => operation_id,
@@ -52,6 +92,7 @@ impl Operation {
         }
     }
 
+    /// Returns the wall-clock Unix timestamp (seconds) when this operation was created.
     pub fn timestamp(&self) -> i64 {
         match self {
             Self::CreateNote { timestamp, .. } => *timestamp,
