@@ -190,6 +190,14 @@ impl Workspace {
 
         let tx = self.storage.connection_mut().transaction()?;
 
+        // For sibling insertion, bump positions of all following siblings to make room
+        if let AddPosition::AsSibling = position {
+            tx.execute(
+                "UPDATE notes SET position = position + 1 WHERE parent_id IS ? AND position >= ?",
+                rusqlite::params![note.parent_id, note.position],
+            )?;
+        }
+
         // Insert note
         tx.execute(
             "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
@@ -345,6 +353,10 @@ impl Workspace {
         self.registry.list_types()
     }
 
+    // Note: toggle_note_expansion and set_selected_note intentionally do NOT write to the
+    // operation log. These are transient UI state (not document mutations) and should not
+    // participate in sync or undo. They are stored in workspace_meta / the notes table but
+    // treated as per-device view state, not collaborative operations.
     pub fn toggle_note_expansion(&mut self, note_id: &str) -> Result<()> {
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -680,5 +692,52 @@ mod tests {
         // Try to create a root note with invalid type
         let result = ws.create_note_root("InvalidType");
         assert!(result.is_err(), "Should fail with invalid node type");
+    }
+
+    #[test]
+    fn test_sibling_insertion_does_not_create_duplicate_positions() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+
+        // Create child1 at position 0 under root
+        let child1_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        // Create child2 as sibling after child1 → gets position 1
+        let child2_id = ws.create_note(&child1_id, AddPosition::AsSibling, "TextNote").unwrap();
+        // Create child3 as sibling after child1 → should push child2 to position 2, child3 at position 1
+        let child3_id = ws.create_note(&child1_id, AddPosition::AsSibling, "TextNote").unwrap();
+
+        let child1 = ws.get_note(&child1_id).unwrap();
+        let child2 = ws.get_note(&child2_id).unwrap();
+        let child3 = ws.get_note(&child3_id).unwrap();
+
+        // All siblings should have unique positions
+        assert_ne!(child1.position, child2.position, "child1 and child2 should not share a position");
+        assert_ne!(child2.position, child3.position, "child2 and child3 should not share a position");
+        assert_ne!(child1.position, child3.position, "child1 and child3 should not share a position");
+    }
+
+    #[test]
+    fn test_sibling_insertion_preserves_correct_order() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+
+        // Create child1 (position 0), child2 as sibling (position 1)
+        let child1_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        let child2_id = ws.create_note(&child1_id, AddPosition::AsSibling, "TextNote").unwrap();
+        // Insert child3 as sibling after child1 — should land between child1 and child2
+        let child3_id = ws.create_note(&child1_id, AddPosition::AsSibling, "TextNote").unwrap();
+
+        let child1 = ws.get_note(&child1_id).unwrap();
+        let child2 = ws.get_note(&child2_id).unwrap();
+        let child3 = ws.get_note(&child3_id).unwrap();
+
+        // Expected order: child1 (0), child3 (1), child2 (2)
+        assert_eq!(child1.position, 0, "child1 should remain at position 0");
+        assert_eq!(child3.position, 1, "child3 (inserted after child1) should be at position 1");
+        assert_eq!(child2.position, 2, "child2 should be bumped to position 2");
     }
 }

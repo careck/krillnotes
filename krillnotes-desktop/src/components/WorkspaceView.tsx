@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import TreeView from './TreeView';
 import InfoPanel from './InfoPanel';
 import AddNoteDialog from './AddNoteDialog';
@@ -17,6 +18,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [error, setError] = useState<string>('');
+  const selectionInitialized = useRef(false);
 
   // Load notes on mount
   useEffect(() => {
@@ -26,6 +28,10 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // Set up menu listener
   useEffect(() => {
     const unlisten = listen<string>('menu-action', async (event) => {
+      // Only handle menu events if this window is focused
+      const isFocused = await getCurrentWebviewWindow().isFocused();
+      if (!isFocused) return;
+
       if (event.payload === 'Edit > Add Note clicked') {
         setShowAddDialog(true);
       }
@@ -44,14 +50,18 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const builtTree = buildTree(fetchedNotes);
       setTree(builtTree);
 
-      // Set initial selection
-      if (workspaceInfo.selectedNoteId) {
-        setSelectedNoteId(workspaceInfo.selectedNoteId);
-      } else if (builtTree.length > 0) {
-        // Auto-select first root node
-        const firstRootId = builtTree[0].note.id;
-        setSelectedNoteId(firstRootId);
-        await invoke('set_selected_note', { noteId: firstRootId });
+      // Set initial selection only on first load — subsequent reloads preserve
+      // the current in-session selection managed by handleSelectNote
+      if (!selectionInitialized.current) {
+        selectionInitialized.current = true;
+        if (workspaceInfo.selectedNoteId) {
+          setSelectedNoteId(workspaceInfo.selectedNoteId);
+        } else if (builtTree.length > 0) {
+          // Auto-select first root node
+          const firstRootId = builtTree[0].note.id;
+          setSelectedNoteId(firstRootId);
+          await invoke('set_selected_note', { noteId: firstRootId });
+        }
       }
     } catch (err) {
       setError(`Failed to load notes: ${err}`);
