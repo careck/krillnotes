@@ -1,22 +1,38 @@
+//! Rhai-based schema registry for Krillnotes note types.
+//!
+//! Schemas are defined in `.rhai` scripts and loaded at workspace startup.
+//! The [`SchemaRegistry`] keeps the Rhai [`Engine`] alive so that future
+//! scripted views, commands, and action hooks can be evaluated at runtime.
+
 use crate::{FieldValue, KrillnotesError, Result};
 use rhai::{Engine, Map};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Describes a single typed field within a note schema.
 #[derive(Debug, Clone)]
 pub struct FieldDefinition {
+    /// The field's unique name within its schema.
     pub name: String,
+    /// The field type: `"text"`, `"number"`, or `"boolean"`.
     pub field_type: String,
+    /// Whether the field must carry a non-default value before the note is saved.
     pub required: bool,
 }
 
+/// A parsed note-type schema containing an ordered list of field definitions.
 #[derive(Debug, Clone)]
 pub struct Schema {
+    /// The unique name of this schema (e.g. `"TextNote"`).
     pub name: String,
+    /// Ordered field definitions that make up this schema.
     pub fields: Vec<FieldDefinition>,
 }
 
 impl Schema {
+    /// Returns a map of field names to their zero-value defaults.
+    ///
+    /// Text fields default to `""`, numbers to `0.0`, booleans to `false`.
     pub fn default_fields(&self) -> HashMap<String, FieldValue> {
         let mut fields = HashMap::new();
         for field_def in &self.fields {
@@ -32,12 +48,24 @@ impl Schema {
     }
 }
 
+/// Registry of all note-type schemas loaded from Rhai scripts.
+///
+/// The Rhai [`Engine`] is kept alive as a field so that future scripted
+/// views, commands, and action hooks can be evaluated at runtime without
+/// reconstructing the engine from scratch.
+#[derive(Debug)]
 pub struct SchemaRegistry {
     engine: Engine,
     schemas: Arc<Mutex<HashMap<String, Schema>>>,
 }
 
 impl SchemaRegistry {
+    /// Creates a new registry and loads the built-in system schemas.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the bundled system script
+    /// fails to parse or if any `schema(...)` call within it is malformed.
     pub fn new() -> Result<Self> {
         let mut engine = Engine::new();
         let schemas = Arc::new(Mutex::new(HashMap::new()));
@@ -49,13 +77,16 @@ impl SchemaRegistry {
         });
 
         let mut registry = Self { engine, schemas };
-
-        // Load system scripts
         registry.load_script(include_str!("../system_scripts/text_note.rhai"))?;
 
         Ok(registry)
     }
 
+    /// Evaluates `script` and registers any schemas it defines via `schema(...)` calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the script fails to evaluate.
     pub fn load_script(&mut self, script: &str) -> Result<()> {
         self.engine
             .eval::<()>(script)
@@ -63,6 +94,12 @@ impl SchemaRegistry {
         Ok(())
     }
 
+    /// Returns the schema registered under `name`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::SchemaNotFound`] if no schema with that
+    /// name has been registered.
     pub fn get_schema(&self, name: &str) -> Result<Schema> {
         self.schemas
             .lock()
@@ -72,10 +109,14 @@ impl SchemaRegistry {
             .ok_or_else(|| KrillnotesError::SchemaNotFound(name.to_string()))
     }
 
+    /// Returns the names of all currently registered schemas.
     pub fn list_schemas(&self) -> Vec<String> {
         self.schemas.lock().unwrap().keys().cloned().collect()
     }
 
+    /// Returns the names of all currently registered schemas.
+    ///
+    /// This is an alias for [`list_schemas`](Self::list_schemas).
     pub fn list_types(&self) -> Result<Vec<String>> {
         Ok(self.schemas.lock().unwrap().keys().cloned().collect())
     }
