@@ -50,6 +50,14 @@ fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
     label
 }
 
+fn find_window_for_path(state: &AppState, path: &PathBuf) -> Option<String> {
+    state.workspace_paths.lock()
+        .expect("Mutex poisoned")
+        .iter()
+        .find(|(_, p)| *p == path)
+        .map(|(label, _)| label.clone())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
