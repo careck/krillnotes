@@ -5,6 +5,26 @@ use tauri::Emitter;
 // Re-export core library
 pub use krillnotes_core::*;
 
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Manager, State, Window};
+
+#[derive(Clone)]
+pub struct AppState {
+    pub workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
+    pub workspace_paths: Arc<Mutex<HashMap<String, PathBuf>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceInfo {
+    pub filename: String,
+    pub path: String,
+    pub note_count: usize,
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
