@@ -282,6 +282,10 @@ impl Workspace {
 
         Ok(notes)
     }
+
+    pub fn list_node_types(&self) -> Result<Vec<String>> {
+        self.registry.list_types()
+    }
 }
 
 fn humanize(filename: &str) -> String {

@@ -76,6 +76,10 @@ impl SchemaRegistry {
         self.schemas.lock().unwrap().keys().cloned().collect()
     }
 
+    pub fn list_types(&self) -> Result<Vec<String>> {
+        Ok(self.schemas.lock().unwrap().keys().cloned().collect())
+    }
+
     fn parse_schema(name: &str, def: &Map) -> Result<Schema> {
         let fields_array = def
             .get("fields")
