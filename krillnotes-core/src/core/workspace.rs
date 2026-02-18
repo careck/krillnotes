@@ -1,3 +1,5 @@
+//! High-level workspace operations over a Krillnotes SQLite database.
+
 use crate::{
     get_device_id, Note, Operation, OperationLog, PurgeStrategy, Result, SchemaRegistry, Storage,
 };
@@ -5,12 +7,23 @@ use rusqlite::Connection;
 use std::path::Path;
 use uuid::Uuid;
 
+/// Controls where a new note is inserted relative to the currently selected note.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AddPosition {
+    /// Insert as the first child of the selected note.
     AsChild,
+    /// Insert immediately after the selected note within the same parent.
     AsSibling,
 }
 
+/// An open Krillnotes workspace backed by a SQLite database.
+///
+/// `Workspace` is the primary interface for all document mutations. It combines
+/// a [`Storage`] connection, a [`SchemaRegistry`] for note-type validation,
+/// and an [`OperationLog`] for durable change history.
+///
+/// Each instance is bound to a single window and protected by a `Mutex` in
+/// the desktop application's state.
 pub struct Workspace {
     storage: Storage,
     registry: SchemaRegistry,
@@ -20,6 +33,13 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Creates a new workspace database at `path`, initialises the schema, and inserts
+    /// a root note named after the file (e.g. `"My Notes"` for `my-notes.krillnotes`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
+    /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut storage = Storage::create(&path)?;
         let registry = SchemaRegistry::new()?;
@@ -89,6 +109,13 @@ impl Workspace {
         })
     }
 
+    /// Opens an existing workspace database at `path` and reads stored metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::InvalidWorkspace`] if the file is not a
+    /// valid Krillnotes database, or [`crate::KrillnotesError::Database`] for
+    /// any SQLite failure.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let storage = Storage::open(&path)?;
         let registry = SchemaRegistry::new()?;
@@ -120,14 +147,22 @@ impl Workspace {
         })
     }
 
+    /// Returns a reference to the schema registry for this workspace.
     pub fn registry(&self) -> &SchemaRegistry {
         &self.registry
     }
 
+    /// Returns the underlying SQLite connection.
     pub fn connection(&self) -> &Connection {
         self.storage.connection()
     }
 
+    /// Fetches a single note by ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the note is not found or
+    /// if `fields_json` cannot be deserialised.
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
         let (id, title, node_type, parent_id, position,
              created_at, modified_at, created_by, modified_by,
@@ -170,6 +205,17 @@ impl Workspace {
         })
     }
 
+    /// Creates a new note of `note_type` relative to `selected_note_id`.
+    ///
+    /// The new note is inserted as a child or sibling according to `position`.
+    /// Sibling insertion bumps the positions of all following siblings to make room.
+    ///
+    /// Returns the ID of the newly created note.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::SchemaNotFound`] if `note_type` is unknown,
+    /// or [`crate::KrillnotesError::Database`] for any SQLite failure.
     pub fn create_note(
         &mut self,
         selected_note_id: &str,
@@ -249,6 +295,14 @@ impl Workspace {
         Ok(note.id)
     }
 
+    /// Creates a new root-level note of `node_type` with no parent.
+    ///
+    /// Returns the ID of the newly created note.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::SchemaNotFound`] if `node_type` is unknown,
+    /// or [`crate::KrillnotesError::Database`] for any SQLite failure.
     pub fn create_note_root(&mut self, node_type: &str) -> Result<String> {
         let now = chrono::Utc::now().timestamp();
         let schema = self.registry.get_schema(node_type)?;
@@ -307,6 +361,12 @@ impl Workspace {
         Ok(new_note.id)
     }
 
+    /// Updates the title of `note_id` and logs an `UpdateField` operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the note is not found or
+    /// the UPDATE fails.
     pub fn update_note_title(&mut self, note_id: &str, new_title: String) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
@@ -333,6 +393,12 @@ impl Workspace {
         Ok(())
     }
 
+    /// Returns all notes in the workspace, ordered by `parent_id` then `position`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
+    /// [`crate::KrillnotesError::Json`] if any row's `fields_json` is corrupt.
     pub fn list_all_notes(&self) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
             "SELECT id, title, node_type, parent_id, position,
@@ -381,6 +447,11 @@ impl Workspace {
             .collect()
     }
 
+    /// Returns the names of all registered note types (schema names).
+    ///
+    /// # Errors
+    ///
+    /// This method currently does not fail, but returns `Result` for consistency.
     pub fn list_node_types(&self) -> Result<Vec<String>> {
         self.registry.list_types()
     }
@@ -389,6 +460,14 @@ impl Workspace {
     // operation log. These are transient UI state (not document mutations) and should not
     // participate in sync or undo. They are stored in workspace_meta / the notes table but
     // treated as per-device view state, not collaborative operations.
+    /// Toggles the `is_expanded` flag of `note_id` in the database.
+    ///
+    /// This is a UI-state mutation and is intentionally excluded from the
+    /// operation log — expansion state is per-device and should not sync.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the note is not found.
     pub fn toggle_note_expansion(&mut self, note_id: &str) -> Result<()> {
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -411,6 +490,14 @@ impl Workspace {
         Ok(())
     }
 
+    /// Persists the selected note ID to `workspace_meta`.
+    ///
+    /// Pass `None` to clear the selection. Like expansion state, selection is
+    /// per-device UI state and is not written to the operation log.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure.
     pub fn set_selected_note(&mut self, note_id: Option<&str>) -> Result<()> {
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -432,6 +519,12 @@ impl Workspace {
         Ok(())
     }
 
+    /// Returns the persisted selected note ID, or `None` if no selection is stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite error other
+    /// than "no rows returned".
     pub fn get_selected_note(&self) -> Result<Option<String>> {
         let result = self.storage.connection().query_row(
             "SELECT value FROM workspace_meta WHERE key = 'selected_note_id'",
