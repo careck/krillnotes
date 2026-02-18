@@ -49,25 +49,48 @@ const createMenuHandlers = (
 });
 
 function App() {
-  const [statusMessage, setStatusMessage] = useState('Welcome to Krillnotes');
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [workspace, setWorkspace] = useState<WorkspaceInfoType | null>(null);
+  const [status, setStatus] = useState('');
+  const [isError, setIsError] = useState(false);
 
   useEffect(() => {
-    // Listen for menu events from Rust backend
-    const unlisten = listen<string>('menu-action', (event) => {
-      setStatusMessage(event.payload);
-    });
-
-    return () => {
-      unlisten.then(f => f());
-    };
+    const welcomed = localStorage.getItem('krillnotes_welcomed');
+    if (welcomed === 'true') {
+      setShowWelcome(false);
+    }
   }, []);
 
+  useEffect(() => {
+    const handlers = createMenuHandlers(
+      setWorkspace,
+      (msg, error = false) => {
+        setStatus(msg);
+        setIsError(error);
+        setTimeout(() => setStatus(''), 5000);
+      }
+    );
+
+    const unlisten = listen<string>('menu-action', (event) =>
+      handlers[event.payload as keyof typeof handlers]?.()
+    );
+
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
+  const handleDismissWelcome = () => {
+    localStorage.setItem('krillnotes_welcomed', 'true');
+    setShowWelcome(false);
+  };
+
+  if (showWelcome) {
+    return <WelcomeDialog onDismiss={handleDismissWelcome} />;
+  }
+
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Krillnotes</h1>
-        <StatusMessage message={statusMessage} />
-      </div>
+    <div className="min-h-screen bg-background text-foreground p-8">
+      {workspace ? <WorkspaceInfo info={workspace} /> : <EmptyState />}
+      {status && <StatusMessage message={status} isError={isError} />}
     </div>
   );
 }
