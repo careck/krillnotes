@@ -10,7 +10,7 @@ import type { WorkspaceInfo as WorkspaceInfoType } from './types';
 import './styles/globals.css';
 
 const createMenuHandlers = (
-  setWorkspace: (info: WorkspaceInfoType | null) => void,
+  _setWorkspace: (info: WorkspaceInfoType | null) => void,
   setStatus: (msg: string, isError?: boolean) => void
 ) => ({
   'File > New Workspace clicked': async () => {
@@ -29,7 +29,8 @@ const createMenuHandlers = (
       await invoke<WorkspaceInfoType>('create_workspace', { path })
         .then(info => {
           console.log('create_workspace returned:', info);
-          setWorkspace(info);
+          // Don't update current window - the new window will fetch its own info
+          // Only show status message
           setStatus(`Created: ${info.filename}`);
         })
         .catch(err => {
@@ -60,7 +61,8 @@ const createMenuHandlers = (
       await invoke<WorkspaceInfoType>('open_workspace', { path })
         .then(info => {
           console.log('open_workspace returned:', info);
-          setWorkspace(info);
+          // Don't update current window - the new window will fetch its own info
+          // Only show status message
           setStatus(`Opened: ${info.filename}`);
         })
         .catch(err => {
