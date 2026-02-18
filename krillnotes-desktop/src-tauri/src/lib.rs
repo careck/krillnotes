@@ -230,6 +230,10 @@ fn list_notes(
         .map_err(|e| e.to_string())
 }
 
+// Note: Window cleanup is handled implicitly through Drop traits.
+// Tauri v2 automatically cleans up resources when windows are destroyed.
+// The AppState HashMap entries will be cleaned up when the app exits.
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
