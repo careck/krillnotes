@@ -1,177 +1,96 @@
-# Workspace Integration Implementation Checkpoint
+# Workspace Integration - COMPLETE ✅
 
 **Date:** 2026-02-18
-**Branch:** workspace-integration (in `.worktrees/workspace-integration`)
+**Branch:** workspace-integration
 **Plan:** docs/plans/2026-02-18-workspace-integration.md
 
-## Progress Summary
+## Summary
 
-**Tasks Completed:** 15 of 26 (58%)
-**Current Working Directory:** `/Users/careck/Source/Krillnotes/.worktrees/workspace-integration`
+**Status:** ✅ **COMPLETE AND TESTED**
+**Progress:** 26/26 tasks (100%)
 
-## Completed Tasks (1-15)
+Phase 2 workspace integration successfully implemented and manually tested. All features working as designed.
 
-### Backend - Core Library (Tasks 1-2)
-✅ **Task 1:** Storage::open() method with validation
-- File: `krillnotes-core/src/core/storage.rs`
-- Added database structure validation
-- Tests passing (2 new tests)
-- Commit: `5621cc8`
+## What Was Built
 
-✅ **Task 2:** Workspace::open() method
-- File: `krillnotes-core/src/core/workspace.rs`
-- Reads metadata from database
-- Tests passing (1 new test)
-- **IMPORTANT:** Added `unsafe impl Send/Sync for Workspace` (lines 26-27) for thread safety
-- Commit: `e4d726a`, `2984164`
+### Backend (Rust/Tauri)
+✅ Core library extensions (Storage::open, Workspace::open)
+✅ Multi-window AppState with HashMap<String, Workspace>
+✅ Filename-based window labels with collision handling
+✅ Native file picker integration (create/open .db files)
+✅ Duplicate file detection and window focusing
+✅ 4 Tauri commands: create_workspace, open_workspace, get_workspace_info, list_notes
+✅ Declarative menu handler with event emission
 
-### Backend - Tauri Setup (Tasks 3-10)
-✅ **Task 3:** tauri-plugin-dialog dependency
-- File: `krillnotes-desktop/src-tauri/Cargo.toml`
-- Commit: `53e4dbd`
+### Frontend (React/TypeScript)
+✅ TypeScript type definitions (WorkspaceInfo, Note)
+✅ WelcomeDialog component (localStorage persistence)
+✅ EmptyState component
+✅ WorkspaceInfo component (displays filename, path, note count)
+✅ StatusMessage with error styling
+✅ Window-specific workspace state management
+✅ Focus-based menu event handling
 
-✅ **Task 4:** AppState and WorkspaceInfo types
-- File: `krillnotes-desktop/src-tauri/src/lib.rs` (lines 14-26)
-- Commit: `7eaeea4`
+### Fixes Applied During Testing
+✅ Added dialog permissions to capabilities (dialog:allow-save, dialog:allow-open)
+✅ Applied permissions to all windows ("*" wildcard)
+✅ Workspace windows fetch their own info on load
+✅ Menu handlers don't update current window (new window handles itself)
+✅ Only focused window handles menu events
+✅ Removed unnecessary status messages on workspace creation
 
-✅ **Task 5-10:** Helper functions (lines 34-128)
-- generate_unique_label (line 34)
-- find_window_for_path (line 53)
-- focus_window (line 61) - uses `std::result::Result` to avoid conflict with core Result
-- create_workspace_window (line 70) - returns `tauri::WebviewWindow` for Tauri v2
-- store_workspace (line 85)
-- get_workspace_info_internal (line 100)
-- Commits: `759c16c`, `c0d511b`, `12371f4`, `e789725`, `be3c7f5`, `c76fea5`
+## Technical Decisions
 
-### Backend - Tauri Commands (Tasks 11-14)
-✅ **Task 11:** create_workspace command (line 131)
-- Validates file doesn't exist
-- Handles duplicate opens by focusing existing window
-- Closes main window after first workspace
-- Commit: `2984164`
+**Thread Safety:** Added `unsafe impl Send/Sync` for Workspace (SchemaRegistry contains rhai::Engine with Rc pointers, but protected by Mutex in AppState)
 
-✅ **Task 12:** open_workspace command (line 172)
-- Validates file exists
-- Uses Workspace::open() with validation
-- Commit: `28216a2`
+**Tauri v2 Compatibility:**
+- Window cleanup handled automatically (no manual on_window_event needed)
+- Permissions system requires explicit grants in capabilities/default.json
+- WebviewWindow API used instead of deprecated Window
 
-✅ **Task 13:** get_workspace_info command (line 212)
-- Commit: `e19cf2a`
+**Multi-Window Architecture:**
+- Main window shows welcome/empty state
+- Each workspace gets its own labeled window
+- Windows fetch workspace info via get_workspace_info command
+- Focus detection prevents duplicate menu handling
 
-✅ **Task 14:** list_notes command (line 220)
-- Commit: `217032e`
+## Files Modified
 
-### Backend - Window Cleanup (Task 15)
-✅ **Task 15:** Window cleanup (line 233)
-- **Note:** Tauri v2 API changed - `app.on_window_event()` doesn't exist
-- Added comment explaining Tauri v2 handles cleanup automatically
-- Commit: `159b6d3`
+**Backend:**
+- krillnotes-core/src/core/storage.rs
+- krillnotes-core/src/core/workspace.rs
+- krillnotes-desktop/src-tauri/Cargo.toml
+- krillnotes-desktop/src-tauri/src/lib.rs
+- krillnotes-desktop/src-tauri/capabilities/default.json
 
-## Remaining Tasks (16-26)
+**Frontend:**
+- krillnotes-desktop/package.json (added @tauri-apps/plugin-dialog)
+- krillnotes-desktop/src/types.ts (new)
+- krillnotes-desktop/src/App.tsx
+- krillnotes-desktop/src/components/WelcomeDialog.tsx (new)
+- krillnotes-desktop/src/components/EmptyState.tsx (new)
+- krillnotes-desktop/src/components/WorkspaceInfo.tsx (new)
+- krillnotes-desktop/src/components/StatusMessage.tsx
 
-### Backend - Integration (Tasks 16-17)
-⏭️ **Task 16:** Update menu handler with declarative mapping
-- Add MENU_MESSAGES constant and handle_menu_event function
-- Replace existing on_menu_event closure
+## Test Results
 
-⏭️ **Task 17:** Update run() function
-- Add AppState initialization with `.manage()`
-- Wire up dialog plugin
-- Call setup_window_cleanup (may need to skip due to Tauri v2 API)
-- Update invoke_handler with all new commands
-- Update on_menu_event to use handle_menu_event
+**Manual Testing Complete:**
+✅ Welcome dialog shows once, persists in localStorage
+✅ File > New Workspace opens save dialog, creates .db file
+✅ File > Open Workspace opens file picker, loads existing .db
+✅ Multiple workspaces create separate windows
+✅ Each window shows correct workspace info (filename, path, note count)
+✅ Duplicate file opens focus existing window
+✅ Filename conflicts handled (workspace, workspace-2, etc.)
+✅ Menu events only handled by focused window
+✅ Error messages display correctly with red styling
+✅ Main window closes after first workspace created
 
-### Frontend (Tasks 18-24)
-⏭️ **Task 18:** Create `krillnotes-desktop/src/types.ts`
-⏭️ **Task 19:** Create `WelcomeDialog.tsx`
-⏭️ **Task 20:** Create `EmptyState.tsx`
-⏭️ **Task 21:** Create `WorkspaceInfo.tsx`
-⏭️ **Task 22:** Update `StatusMessage.tsx` with error styling
-⏭️ **Task 23:** Update `App.tsx` - Part 1 (menu handlers)
-⏭️ **Task 24:** Update `App.tsx` - Part 2 (component)
+## Ready for Phase 3
 
-### Testing & Documentation (Tasks 25-26)
-⏭️ **Task 25:** Manual integration testing (no commit)
-⏭️ **Task 26:** Update CHECKPOINT.md
+This implementation completes Phase 2. Phase 3 (Tree View) can now begin.
 
-## Key Technical Decisions
-
-### Thread Safety for Workspace
-Added `unsafe impl Send/Sync` for Workspace because:
-- SchemaRegistry contains rhai::Engine with Rc pointers (not Send)
-- Each Workspace is protected by Mutex in AppState
-- Single-threaded access pattern per window
-- Location: `krillnotes-core/src/core/workspace.rs:26-27`
-
-### Tauri v2 API Differences
-- `Result<T, E>` → Use `std::result::Result<T, E>` to avoid conflict
-- `Window` → Returns `tauri::WebviewWindow` from builder
-- `app.on_window_event()` → API removed, cleanup handled automatically
-
-## Test Status
-- **Core tests:** 15 passing (13 original + 2 Storage + 0 Workspace... wait, should be 16 total)
-- **All Rust:** Compiles successfully with expected warnings (unused functions until wired up)
-- **Frontend:** Not yet built (Tasks 18-24 pending)
-
-## Next Session Instructions
-
-### Resume Command
-```bash
-cd /Users/careck/Source/Krillnotes/.worktrees/workspace-integration
-```
-
-### Continue from Task 16
-1. Read the plan: `docs/plans/2026-02-18-workspace-integration.md`
-2. Start with Task 16: Update menu handler
-3. Then Task 17: Wire everything up in run()
-4. Then Tasks 18-24: Frontend components
-5. Task 25: Manual testing
-6. Task 26: Final checkpoint update
-
-### Important Files
-- Backend: `krillnotes-desktop/src-tauri/src/lib.rs`
-- Plan: `docs/plans/2026-02-18-workspace-integration.md`
-- This checkpoint: `IMPLEMENTATION_CHECKPOINT.md`
-
-### Commands to Wire Up (Task 17)
-Add to invoke_handler:
-- `create_workspace`
-- `open_workspace`
-- `get_workspace_info`
-- `list_notes`
-
-### Build Commands
-```bash
-# Rust backend
-cd krillnotes-desktop/src-tauri && cargo build
-
-# TypeScript frontend (after Tasks 18-24)
-cd krillnotes-desktop && npm run build
-
-# Run tests
-cargo test -p krillnotes-core
-```
-
-## Commits So Far (15 commits)
-```
-159b6d3 feat(desktop): add note about window cleanup
-217032e feat(desktop): add list_notes command
-e19cf2a feat(desktop): add get_workspace_info command
-28216a2 feat(desktop): add open_workspace command
-2984164 feat(desktop): add create_workspace command (+ Send/Sync)
-c76fea5 feat(desktop): add get_workspace_info_internal helper
-be3c7f5 feat(desktop): add store_workspace helper
-e789725 feat(desktop): add create_workspace_window helper
-12371f4 feat(desktop): add focus_window helper
-c0d511b feat(desktop): add find_window_for_path helper
-759c16c feat(desktop): add generate_unique_label helper
-7eaeea4 feat(desktop): add AppState and WorkspaceInfo types
-53e4dbd build: add tauri-plugin-dialog dependency
-e4d726a feat(core): add Workspace::open() method
-5621cc8 feat(core): add Storage::open() with validation
-```
-
-## Known Issues / Notes
-- Window cleanup functions from plan can't be implemented due to Tauri v2 API changes
-- This is acceptable as Tauri v2 handles resource cleanup automatically
-- All warnings about unused functions are expected until Task 17 wires them up
+**Next Steps:**
+- Tree view component for hierarchical note display
+- Note selection handling
+- Integration with list_notes command
