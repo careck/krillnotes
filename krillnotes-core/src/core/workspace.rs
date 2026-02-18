@@ -130,27 +130,45 @@ impl Workspace {
     }
 
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
-        let row = self.connection().query_row(
-            "SELECT id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded
-             FROM notes WHERE id = ?",
-            [note_id],
-            |row| {
-                Ok(Note {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    node_type: row.get(2)?,
-                    parent_id: row.get(3)?,
-                    position: row.get(4)?,
-                    created_at: row.get(5)?,
-                    modified_at: row.get(6)?,
-                    created_by: row.get(7)?,
-                    modified_by: row.get(8)?,
-                    fields: serde_json::from_str(&row.get::<_, String>(9)?).unwrap(),
-                    is_expanded: row.get::<_, i64>(10)? == 1,
-                })
-            },
-        )?;
-        Ok(row)
+        let (id, title, node_type, parent_id, position,
+             created_at, modified_at, created_by, modified_by,
+             fields_json, is_expanded_int) =
+            self.connection().query_row(
+                "SELECT id, title, node_type, parent_id, position,
+                        created_at, modified_at, created_by, modified_by,
+                        fields_json, is_expanded
+                 FROM notes WHERE id = ?",
+                [note_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, String>(9)?,
+                        row.get::<_, i64>(10)?,
+                    ))
+                },
+            )?;
+
+        Ok(Note {
+            id,
+            title,
+            node_type,
+            parent_id,
+            position: position as i32,
+            created_at,
+            modified_at,
+            created_by,
+            modified_by,
+            fields: serde_json::from_str(&fields_json)?,
+            is_expanded: is_expanded_int == 1,
+        })
     }
 
     pub fn create_note(
@@ -318,29 +336,50 @@ impl Workspace {
 
     pub fn list_all_notes(&self) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded
+            "SELECT id, title, node_type, parent_id, position,
+                    created_at, modified_at, created_by, modified_by,
+                    fields_json, is_expanded
              FROM notes ORDER BY parent_id, position",
         )?;
 
-        let notes = stmt
+        let raw_rows = stmt
             .query_map([], |row| {
-                Ok(Note {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    node_type: row.get(2)?,
-                    parent_id: row.get(3)?,
-                    position: row.get(4)?,
-                    created_at: row.get(5)?,
-                    modified_at: row.get(6)?,
-                    created_by: row.get(7)?,
-                    modified_by: row.get(8)?,
-                    fields: serde_json::from_str(&row.get::<_, String>(9)?).unwrap(),
-                    is_expanded: row.get::<_, i64>(10)? == 1,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, i64>(10)?,
+                ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        Ok(notes)
+        raw_rows
+            .into_iter()
+            .map(|(id, title, node_type, parent_id, position,
+                   created_at, modified_at, created_by, modified_by,
+                   fields_json, is_expanded_int)| {
+                Ok(Note {
+                    id,
+                    title,
+                    node_type,
+                    parent_id,
+                    position: position as i32,
+                    created_at,
+                    modified_at,
+                    created_by,
+                    modified_by,
+                    fields: serde_json::from_str(&fields_json)?,
+                    is_expanded: is_expanded_int == 1,
+                })
+            })
+            .collect()
     }
 
     pub fn list_node_types(&self) -> Result<Vec<String>> {
@@ -710,6 +749,38 @@ mod tests {
         assert_ne!(child1.position, child2.position, "child1 and child2 should not share a position");
         assert_ne!(child2.position, child3.position, "child2 and child3 should not share a position");
         assert_ne!(child1.position, child3.position, "child1 and child3 should not share a position");
+    }
+
+    #[test]
+    fn test_get_note_with_corrupt_fields_json_returns_error() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+
+        // Corrupt the stored JSON directly.
+        ws.storage.connection_mut().execute(
+            "UPDATE notes SET fields_json = 'not valid json' WHERE id = ?",
+            [&root.id],
+        ).unwrap();
+
+        // Should return Err, not panic.
+        let result = ws.get_note(&root.id);
+        assert!(result.is_err(), "get_note should return Err for corrupt fields_json");
+    }
+
+    #[test]
+    fn test_list_all_notes_with_corrupt_fields_json_returns_error() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+
+        ws.storage.connection_mut().execute(
+            "UPDATE notes SET fields_json = 'not valid json' WHERE id = ?",
+            [&root.id],
+        ).unwrap();
+
+        let result = ws.list_all_notes();
+        assert!(result.is_err(), "list_all_notes should return Err for corrupt fields_json");
     }
 
     #[test]
