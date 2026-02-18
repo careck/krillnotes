@@ -168,6 +168,46 @@ async fn create_workspace(
     }
 }
 
+#[tauri::command]
+async fn open_workspace(
+    window: tauri::Window,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<WorkspaceInfo, String> {
+    let path_buf = PathBuf::from(&path);
+
+    // Validate path exists
+    if !path_buf.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    // Check for duplicate open
+    match find_window_for_path(&*state, &path_buf) {
+        Some(existing_label) => {
+            focus_window(&app, &existing_label)?;
+            Err("focused_existing".to_string())
+        }
+        None => {
+            let label = generate_unique_label(&*state, &path_buf);
+            let workspace = Workspace::open(&path_buf)
+                .map_err(|e| format!("Failed to open: {}", e))?;
+
+            let new_window = create_workspace_window(&app, &label)?;
+            store_workspace(&*state, label.clone(), workspace, path_buf.clone());
+
+            new_window.set_title(&format!("Krillnotes - {}", label))
+                .map_err(|e| e.to_string())?;
+
+            if window.label() == "main" {
+                window.close().map_err(|e| e.to_string())?;
+            }
+
+            get_workspace_info_internal(&*state, &label)
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
