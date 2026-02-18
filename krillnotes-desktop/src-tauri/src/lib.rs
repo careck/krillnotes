@@ -58,13 +58,28 @@ fn find_window_for_path(state: &AppState, path: &PathBuf) -> Option<String> {
         .map(|(label, _)| label.clone())
 }
 
-fn focus_window(app: &AppHandle, label: &str) -> Result<(), String> {
+fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String> {
     app.get_webview_window(label)
         .ok_or_else(|| "Window not found".to_string())
         .and_then(|window| {
             window.set_focus()
                 .map_err(|e| format!("Failed to focus: {}", e))
         })
+}
+
+fn create_workspace_window(
+    app: &AppHandle,
+    label: &str
+) -> std::result::Result<tauri::WebviewWindow, String> {
+    tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App("index.html".into())
+    )
+    .title(&format!("Krillnotes - {}", label))
+    .inner_size(1024.0, 768.0)
+    .build()
+    .map_err(|e| format!("Failed to create window: {}", e))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
