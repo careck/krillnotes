@@ -248,6 +248,23 @@ fn get_node_types(
     Ok(types)
 }
 
+#[tauri::command]
+fn toggle_note_expansion(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    workspace.toggle_note_expansion(&note_id)
+        .map_err(|e| e.to_string())
+}
+
 // Note: Window cleanup is handled implicitly through Drop traits.
 // Tauri v2 automatically cleans up resources when windows are destroyed.
 // The AppState HashMap entries will be cleaned up when the app exits.
@@ -291,6 +308,7 @@ pub fn run() {
             get_workspace_info,
             list_notes,
             get_node_types,
+            toggle_note_expansion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
