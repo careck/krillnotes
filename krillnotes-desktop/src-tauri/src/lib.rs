@@ -208,6 +208,14 @@ async fn open_workspace(
     }
 }
 
+#[tauri::command]
+fn get_workspace_info(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<WorkspaceInfo, String> {
+    get_workspace_info_internal(&*state, window.label())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
