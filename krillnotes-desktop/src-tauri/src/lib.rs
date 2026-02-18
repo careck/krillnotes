@@ -31,6 +31,25 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
+    let filename = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled");
+
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+
+    let mut label = filename.to_string();
+    let mut counter = 2;
+
+    while workspaces.contains_key(&label) {
+        label = format!("{}-{}", filename, counter);
+        counter += 1;
+    }
+
+    label
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
