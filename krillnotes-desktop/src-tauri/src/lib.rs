@@ -97,6 +97,36 @@ fn store_workspace(
     paths.insert(label, path);
 }
 
+fn get_workspace_info_internal(
+    state: &AppState,
+    label: &str
+) -> std::result::Result<WorkspaceInfo, String> {
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let paths = state.workspace_paths.lock()
+        .expect("Mutex poisoned");
+
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace found")?;
+    let path = paths.get(label)
+        .ok_or("No path found")?;
+
+    let note_count = workspace.list_all_notes()
+        .map(|notes| notes.len())
+        .unwrap_or(0);
+
+    let filename = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .to_string();
+
+    Ok(WorkspaceInfo {
+        filename,
+        path: path.display().to_string(),
+        note_count,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
