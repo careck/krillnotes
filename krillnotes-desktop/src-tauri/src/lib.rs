@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
-#[derive(Clone)]
 pub struct AppState {
     pub workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
     pub workspace_paths: Arc<Mutex<HashMap<String, PathBuf>>>,
@@ -325,9 +324,6 @@ async fn create_note_with_type(
         .map_err(|e| e.to_string())
 }
 
-// Note: Window cleanup is handled implicitly through Drop traits.
-// Tauri v2 automatically cleans up resources when windows are destroyed.
-// The AppState HashMap entries will be cleaned up when the app exits.
 
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -354,6 +350,16 @@ pub fn run() {
         .manage(AppState {
             workspaces: Arc::new(Mutex::new(HashMap::new())),
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
+        })
+        .on_window_event(|window, event| {
+            // Remove workspace state when a window is destroyed so the same file
+            // can be reopened after its window has been closed.
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                let state = window.state::<AppState>();
+                state.workspaces.lock().expect("Mutex poisoned").remove(&label);
+                state.workspace_paths.lock().expect("Mutex poisoned").remove(&label);
+            }
         })
         .setup(|app| {
             let menu = menu::build_menu(app.handle())?;

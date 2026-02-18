@@ -117,8 +117,8 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-8">
-      {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <EmptyState />}
+    <div className="min-h-screen bg-background text-foreground">
+      {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <div className="p-8"><EmptyState /></div>}
       {status && <StatusMessage message={status} isError={isError} />}
     </div>
   );
