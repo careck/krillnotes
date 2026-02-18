@@ -20,6 +20,12 @@ pub struct Workspace {
     current_user_id: i64,
 }
 
+// SAFETY: Workspace contains SchemaRegistry with rhai::Engine that has Rc pointers.
+// However, we ensure thread-safety by only accessing Workspace through Mutex in AppState.
+// Each Workspace instance is associated with a single window and protected by a Mutex.
+unsafe impl Send for Workspace {}
+unsafe impl Sync for Workspace {}
+
 impl Workspace {
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut storage = Storage::create(&path)?;

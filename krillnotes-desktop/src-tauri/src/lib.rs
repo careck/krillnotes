@@ -127,6 +127,47 @@ fn get_workspace_info_internal(
     })
 }
 
+#[tauri::command]
+async fn create_workspace(
+    window: tauri::Window,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<WorkspaceInfo, String> {
+    let path_buf = PathBuf::from(&path);
+
+    // Validate path doesn't exist
+    if path_buf.exists() {
+        return Err("File already exists. Use Open Workspace instead.".to_string());
+    }
+
+    // Check if this path is already open
+    match find_window_for_path(&*state, &path_buf) {
+        Some(existing_label) => {
+            focus_window(&app, &existing_label)?;
+            Err("focused_existing".to_string())
+        }
+        None => {
+            let label = generate_unique_label(&*state, &path_buf);
+            let workspace = Workspace::create(&path_buf)
+                .map_err(|e| format!("Failed to create: {}", e))?;
+
+            let new_window = create_workspace_window(&app, &label)?;
+            store_workspace(&*state, label.clone(), workspace, path_buf.clone());
+
+            new_window.set_title(&format!("Krillnotes - {}", label))
+                .map_err(|e| e.to_string())?;
+
+            // Close main window if this is first workspace
+            if window.label() == "main" {
+                window.close().map_err(|e| e.to_string())?;
+            }
+
+            get_workspace_info_internal(&*state, &label)
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
