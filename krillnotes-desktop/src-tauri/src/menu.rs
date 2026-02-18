@@ -1,5 +1,12 @@
+//! Application menu construction for Krillnotes.
+
 use tauri::{menu::*, AppHandle, Runtime};
 
+/// Builds the application menu with File, Edit, View, and Help submenus.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item or submenu fails to build.
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Error> {
     let menu = MenuBuilder::new(app)
         // File menu
