@@ -58,6 +58,15 @@ fn find_window_for_path(state: &AppState, path: &PathBuf) -> Option<String> {
         .map(|(label, _)| label.clone())
 }
 
+fn focus_window(app: &AppHandle, label: &str) -> Result<(), String> {
+    app.get_webview_window(label)
+        .ok_or_else(|| "Window not found".to_string())
+        .and_then(|window| {
+            window.set_focus()
+                .map_err(|e| format!("Failed to focus: {}", e))
+        })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
