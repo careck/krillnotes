@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager, State, Window};
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Clone)]
 pub struct AppState {
