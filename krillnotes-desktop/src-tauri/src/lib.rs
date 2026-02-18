@@ -234,6 +234,23 @@ fn list_notes(
 // Tauri v2 automatically cleans up resources when windows are destroyed.
 // The AppState HashMap entries will be cleaned up when the app exits.
 
+const MENU_MESSAGES: &[(&str, &str)] = &[
+    ("file_new", "File > New Workspace clicked"),
+    ("file_open", "File > Open Workspace clicked"),
+    ("edit_add_note", "Edit > Add Note clicked"),
+    ("edit_delete_note", "Edit > Delete Note clicked"),
+    ("view_refresh", "View > Refresh clicked"),
+    ("help_about", "Help > About Krillnotes clicked"),
+];
+
+fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    MENU_MESSAGES.iter()
+        .find(|(id, _)| id == &event.id().as_ref())
+        .map(|(_, message)| app.emit("menu-action", message))
+        .transpose()
+        .ok();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
