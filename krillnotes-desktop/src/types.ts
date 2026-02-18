@@ -15,6 +15,7 @@ export interface Note {
   createdBy: number;
   modifiedBy: number;
   fields: Record<string, FieldValue>;
+  isExpanded: boolean;
 }
 
 export type FieldValue =

@@ -268,6 +268,22 @@ impl Workspace {
             ],
         )?;
 
+        // Log operation
+        let op = Operation::CreateNote {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: new_note.created_at,
+            device_id: self.device_id.clone(),
+            note_id: new_note.id.clone(),
+            parent_id: new_note.parent_id.clone(),
+            position: new_note.position,
+            node_type: new_note.node_type.clone(),
+            title: new_note.title.clone(),
+            fields: new_note.fields.clone(),
+            created_by: new_note.created_by,
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
         tx.commit()?;
         Ok(new_note.id)
     }
