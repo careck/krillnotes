@@ -1,26 +1,48 @@
+//! Note data types for the Krillnotes workspace.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// A typed value stored in a note's schema-defined fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FieldValue {
+    /// A plain-text string.
     Text(String),
+    /// A 64-bit floating-point number.
     Number(f64),
+    /// A boolean flag.
     Boolean(bool),
 }
 
+/// A single node in the workspace hierarchy.
+///
+/// Notes form a tree via `parent_id`; siblings are ordered by `position`.
+/// Each note has a `node_type` that maps to a [`crate::Schema`] and a set
+/// of typed `fields` validated against that schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Note {
+    /// Stable UUID identifying this note.
     pub id: String,
+    /// Human-readable title shown in the tree view.
     pub title: String,
+    /// Schema name governing this note's `fields` (e.g. `"TextNote"`).
     pub node_type: String,
+    /// ID of the parent note, or `None` for root-level notes.
     pub parent_id: Option<String>,
+    /// Zero-based sort order among siblings that share the same `parent_id`.
     pub position: i32,
+    /// Unix timestamp (seconds) when this note was created.
     pub created_at: i64,
+    /// Unix timestamp (seconds) of the most recent modification.
     pub modified_at: i64,
+    /// Device ID that created this note.
     pub created_by: i64,
+    /// Device ID that last modified this note.
     pub modified_by: i64,
+    /// Schema-defined field values keyed by field name.
     pub fields: HashMap<String, FieldValue>,
+    /// Whether this node is currently expanded in the tree UI.
     pub is_expanded: bool,
 }
 
