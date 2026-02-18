@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import WorkspaceInfo from './components/WorkspaceInfo';
+import WorkspaceView from './components/WorkspaceView';
 import WelcomeDialog from './components/WelcomeDialog';
 import EmptyState from './components/EmptyState';
 import StatusMessage from './components/StatusMessage';
@@ -118,7 +118,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground p-8">
-      {workspace ? <WorkspaceInfo info={workspace} /> : <EmptyState />}
+      {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <EmptyState />}
       {status && <StatusMessage message={status} isError={isError} />}
     </div>
   );
