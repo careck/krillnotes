@@ -1,3 +1,9 @@
+//! Tauri application backend for Krillnotes.
+//!
+//! Exposes Tauri commands that the React frontend calls via `invoke()`.
+//! Each command is scoped to the calling window's workspace via
+//! [`AppState`] and the window label.
+
 pub mod menu;
 
 use tauri::Emitter;
@@ -11,17 +17,29 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
+/// Per-process state shared across all workspace windows.
+///
+/// Each window label maps to its open [`Workspace`] and the filesystem path
+/// of its database file. Both maps are protected by a [`Mutex`] since Tauri
+/// may call commands from multiple threads.
 pub struct AppState {
+    /// Map from window label to the open [`Workspace`] for that window.
     pub workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
+    /// Map from window label to the filesystem path of the open database.
     pub workspace_paths: Arc<Mutex<HashMap<String, PathBuf>>>,
 }
 
+/// Serialisable summary of an open workspace, returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceInfo {
+    /// File name without extension (used as the window title).
     pub filename: String,
+    /// Absolute filesystem path to the `.krillnotes` database file.
     pub path: String,
+    /// Total number of notes in the workspace.
     pub note_count: usize,
+    /// ID of the note selected when the workspace was last saved, if any.
     pub selected_note_id: Option<String>,
 }
 
@@ -126,6 +144,7 @@ fn get_workspace_info_internal(
     })
 }
 
+/// Creates a new workspace database at `path` and opens it in a new window.
 #[tauri::command]
 async fn create_workspace(
     window: tauri::Window,
@@ -167,6 +186,7 @@ async fn create_workspace(
     }
 }
 
+/// Opens an existing workspace database at `path` in a new window.
 #[tauri::command]
 async fn open_workspace(
     window: tauri::Window,
@@ -207,6 +227,7 @@ async fn open_workspace(
     }
 }
 
+/// Returns the [`WorkspaceInfo`] for the calling window's workspace.
 #[tauri::command]
 fn get_workspace_info(
     window: tauri::Window,
@@ -215,6 +236,7 @@ fn get_workspace_info(
     get_workspace_info_internal(&*state, window.label())
 }
 
+/// Returns all notes in the calling window's workspace.
 #[tauri::command]
 fn list_notes(
     window: tauri::Window,
@@ -229,6 +251,7 @@ fn list_notes(
         .map_err(|e| e.to_string())
 }
 
+/// Returns the registered note types for the calling window's workspace.
 #[tauri::command]
 fn get_node_types(
     window: tauri::Window,
@@ -247,6 +270,7 @@ fn get_node_types(
     Ok(types)
 }
 
+/// Toggles the expansion state of `note_id` in the calling window's workspace.
 #[tauri::command]
 fn toggle_note_expansion(
     window: tauri::Window,
@@ -264,6 +288,7 @@ fn toggle_note_expansion(
         .map_err(|e| e.to_string())
 }
 
+/// Persists the selected note ID for the calling window's workspace.
 #[tauri::command]
 fn set_selected_note(
     window: tauri::Window,
@@ -281,6 +306,7 @@ fn set_selected_note(
         .map_err(|e| e.to_string())
 }
 
+/// Creates a new note and returns it; uses root insertion when `parent_id` is `None`.
 #[tauri::command]
 async fn create_note_with_type(
     window: tauri::Window,
