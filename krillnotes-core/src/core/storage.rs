@@ -13,6 +13,27 @@ impl Storage {
         Ok(Self { conn })
     }
 
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let conn = Connection::open(path)?;
+
+        // Validate database structure
+        let table_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type='table'
+             AND name IN ('notes', 'operations', 'workspace_meta')",
+            [],
+            |row| row.get(0)
+        )?;
+
+        if table_count != 3 {
+            return Err(crate::KrillnotesError::InvalidWorkspace(
+                "Not a valid Krillnotes database".to_string()
+            ));
+        }
+
+        Ok(Self { conn })
+    }
+
     pub fn connection(&self) -> &Connection {
         &self.conn
     }
@@ -45,5 +66,41 @@ mod tests {
         assert!(tables.contains(&"notes".to_string()));
         assert!(tables.contains(&"operations".to_string()));
         assert!(tables.contains(&"workspace_meta".to_string()));
+    }
+
+    #[test]
+    fn test_open_existing_storage() {
+        let temp = NamedTempFile::new().unwrap();
+
+        // Create database first
+        Storage::create(temp.path()).unwrap();
+
+        // Open it
+        let storage = Storage::open(temp.path()).unwrap();
+
+        // Verify tables exist
+        let tables: Vec<String> = storage
+            .connection()
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+
+        assert!(tables.contains(&"notes".to_string()));
+        assert!(tables.contains(&"operations".to_string()));
+        assert!(tables.contains(&"workspace_meta".to_string()));
+    }
+
+    #[test]
+    fn test_open_invalid_database() {
+        let temp = NamedTempFile::new().unwrap();
+
+        // Create empty file (not a valid Krillnotes DB)
+        std::fs::write(temp.path(), "not a database").unwrap();
+
+        let result = Storage::open(temp.path());
+        assert!(result.is_err());
     }
 }
