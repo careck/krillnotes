@@ -23,6 +23,7 @@ pub struct WorkspaceInfo {
     pub filename: String,
     pub path: String,
     pub note_count: usize,
+    pub selected_note_id: Option<String>,
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -120,10 +121,15 @@ fn get_workspace_info_internal(
         .unwrap_or("Untitled")
         .to_string();
 
+    let selected_note_id = workspace.get_selected_note()
+        .ok()
+        .flatten();
+
     Ok(WorkspaceInfo {
         filename,
         path: path.display().to_string(),
         note_count,
+        selected_note_id,
     })
 }
 
