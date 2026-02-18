@@ -11,7 +11,6 @@ pub enum AddPosition {
     AsSibling,
 }
 
-#[allow(dead_code)]
 pub struct Workspace {
     storage: Storage,
     registry: SchemaRegistry,
