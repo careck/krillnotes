@@ -77,11 +77,13 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     if (!selectedNote) return;
 
     try {
-      await invoke('update_note', {
+      const updatedNote = await invoke<Note>('update_note', {
         noteId: selectedNote.id,
         title: editedTitle,
         fields: editedFields,
       });
+      setEditedTitle(updatedNote.title);
+      setEditedFields({ ...updatedNote.fields });
       setIsEditing(false);
       setIsDirty(false);
       onNoteUpdated();
