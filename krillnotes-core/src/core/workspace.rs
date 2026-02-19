@@ -576,6 +576,35 @@ impl Workspace {
             return Err(KrillnotesError::NoteNotFound(note_id.to_string()));
         }
 
+        // Log an UpdateField operation for the title, consistent with
+        // update_note_title.
+        let title_op = Operation::UpdateField {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            field: "title".to_string(),
+            value: crate::FieldValue::Text(title.clone()),
+            modified_by: self.current_user_id,
+        };
+        self.operation_log.log(&tx, &title_op)?;
+
+        // Log one UpdateField operation per field value that was written.
+        for (field_key, field_value) in &fields {
+            let field_op = Operation::UpdateField {
+                operation_id: Uuid::new_v4().to_string(),
+                timestamp: now,
+                device_id: self.device_id.clone(),
+                note_id: note_id.to_string(),
+                field: field_key.clone(),
+                value: field_value.clone(),
+                modified_by: self.current_user_id,
+            };
+            self.operation_log.log(&tx, &field_op)?;
+        }
+
+        self.operation_log.purge_if_needed(&tx)?;
+
         tx.commit()?;
 
         // Re-use get_note to fetch the persisted row, keeping row-mapping logic
@@ -954,7 +983,7 @@ mod tests {
         let note_id = notes[0].id.clone();
         let original_modified = notes[0].modified_at;
 
-        // Wait 1 second to ensure modified_at changes
+        // Timestamp resolution is 1 s; sleep ensures modified_at advances.
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         // Update the note
@@ -976,6 +1005,6 @@ mod tests {
         let mut ws = Workspace::create(temp.path()).unwrap();
 
         let result = ws.update_note("nonexistent-id", "Title".to_string(), HashMap::new());
-        assert!(result.is_err());
+        assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
     }
 }
