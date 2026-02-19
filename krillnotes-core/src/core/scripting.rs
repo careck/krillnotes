@@ -245,8 +245,8 @@ impl SchemaRegistry {
             })?;
 
         // Convert each field back, guided by the schema's type definitions.
-        // Fields present in the schema but absent from the hook result fall back
-        // to the original value.
+        // Fields present in the schema but absent from the hook result are passed
+        // as Dynamic::UNIT to dynamic_to_field_value, yielding the type's zero value.
         let mut new_fields = HashMap::new();
         for field_def in &schema.fields {
             let dyn_val = new_fields_dyn
