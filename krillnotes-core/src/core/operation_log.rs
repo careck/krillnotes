@@ -67,7 +67,7 @@ impl OperationLog {
                     "DELETE FROM operations WHERE id NOT IN (
                         SELECT id FROM operations ORDER BY id DESC LIMIT ?
                     )",
-                    [keep_last],
+                    [keep_last as i64],
                 )?;
             }
             PurgeStrategy::WithSync { retention_days } => {
