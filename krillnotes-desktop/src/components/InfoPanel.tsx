@@ -43,7 +43,12 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     }
   }, [selectedNote?.id]);
 
-  // Enter edit mode when WorkspaceView requests it (e.g. via context menu "Edit")
+  // Enter edit mode when WorkspaceView requests it (e.g. via context menu, note creation).
+  // NOTE: This effect must be declared AFTER the selectedNote?.id effect above.
+  // When note creation triggers both a selection change and a requestEditMode increment,
+  // the IPC await in handleSelectNote separates them into different renders (selection
+  // resets isEditing first, then this effect sets it to true). The declaration order
+  // ensures correct behaviour if they ever land in the same render.
   useEffect(() => {
     if (requestEditMode > 0 && selectedNote) {
       setIsEditing(true);

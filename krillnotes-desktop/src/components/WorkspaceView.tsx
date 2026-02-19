@@ -105,7 +105,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   };
 
   const handleNoteCreated = async (noteId: string) => {
-    await loadNotes();
+    const fetchedNotes = await loadNotes();
+    if (!fetchedNotes.some(n => n.id === noteId)) return;
     await handleSelectNote(noteId);
     setRequestEditMode(prev => prev + 1);
   };
