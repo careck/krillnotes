@@ -201,7 +201,6 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
             <FieldEditor
               key={field.name}
               fieldName={field.name}
-              fieldType={field.fieldType}
               value={editedFields[field.name] || { Text: '' }}
               required={field.required}
               onChange={(value) => handleFieldChange(field.name, value)}
@@ -210,7 +209,6 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
             <FieldDisplay
               key={field.name}
               fieldName={field.name}
-              fieldType={field.fieldType}
               value={selectedNote.fields[field.name] || { Text: '' }}
             />
           )
@@ -226,7 +224,6 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
                 <FieldEditor
                   key={name}
                   fieldName={`${name} (legacy)`}
-                  fieldType="text"
                   value={editedFields[name] || { Text: '' }}
                   required={false}
                   onChange={(value) => handleFieldChange(name, value)}
@@ -235,7 +232,6 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
                 <FieldDisplay
                   key={name}
                   fieldName={`${name} (legacy)`}
-                  fieldType="text"
                   value={selectedNote.fields[name]}
                 />
               )

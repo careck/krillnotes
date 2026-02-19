@@ -2,11 +2,10 @@ import type { FieldValue } from '../types';
 
 interface FieldDisplayProps {
   fieldName: string;
-  fieldType: string;
   value: FieldValue;
 }
 
-function FieldDisplay({ fieldName, fieldType: _fieldType, value }: FieldDisplayProps) {
+function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
   const renderValue = () => {
     if ('Text' in value) {
       return (
