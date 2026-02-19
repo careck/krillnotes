@@ -6,11 +6,13 @@
 
 use crate::{FieldValue, KrillnotesError, Result};
 use rhai::{Engine, Map};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Describes a single typed field within a note schema.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FieldDefinition {
     /// The field's unique name within its schema.
     pub name: String,
