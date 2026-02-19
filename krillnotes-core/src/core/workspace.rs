@@ -1,8 +1,10 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
+// Rust guideline compliant 2026-02-19
+
 use crate::{
-    get_device_id, FieldValue, KrillnotesError, Note, Operation, OperationLog, PurgeStrategy,
-    Result, SchemaRegistry, Storage,
+    get_device_id, DeleteResult, FieldValue, KrillnotesError, Note, Operation, OperationLog,
+    PurgeStrategy, Result, SchemaRegistry, Storage,
 };
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -541,6 +543,103 @@ impl Workspace {
         }
     }
 
+    /// Returns the direct children of `note_id` as a `Vec<Note>`.
+    ///
+    /// Queries rows in `notes` whose `parent_id` equals `note_id`, ordered
+    /// by `position`. Grandchildren and deeper descendants are not included.
+    /// This helper is used by [`Workspace::delete_note_recursive`] to walk
+    /// the subtree without duplicating row-mapping logic.
+    fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id, title, node_type, parent_id, position,
+                    created_at, modified_at, created_by, modified_by,
+                    fields_json, is_expanded
+             FROM notes WHERE parent_id = ?1 ORDER BY position",
+        )?;
+
+        let raw_rows = stmt
+            .query_map(rusqlite::params![parent_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, i64>(10)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        raw_rows
+            .into_iter()
+            .map(
+                |(id, title, node_type, note_parent_id, position,
+                  created_at, modified_at, created_by, modified_by,
+                  fields_json, is_expanded_int)| {
+                    Ok(Note {
+                        id,
+                        title,
+                        node_type,
+                        parent_id: note_parent_id,
+                        position: position as i32,
+                        created_at,
+                        modified_at,
+                        created_by,
+                        modified_by,
+                        fields: serde_json::from_str(&fields_json)?,
+                        is_expanded: is_expanded_int == 1,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    /// Deletes `note_id` and all of its descendants recursively.
+    ///
+    /// The subtree rooted at `note_id` is walked depth-first. Every note in
+    /// the subtree is removed from the `notes` table; no re-parenting occurs.
+    /// The returned [`DeleteResult`] reports the total count of removed notes
+    /// and the IDs of every note that was deleted.
+    ///
+    /// This operation is intentionally excluded from the operation log:
+    /// destructive bulk deletes are not currently part of the collaborative
+    /// sync model and would require tombstone handling to be safe.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if any SQLite operation
+    /// fails, including when `note_id` does not exist (the DELETE silently
+    /// affects zero rows, but child queries will return empty results rather
+    /// than errors in that case).
+    pub fn delete_note_recursive(&mut self, note_id: &str) -> Result<DeleteResult> {
+        let mut affected_ids = vec![note_id.to_string()];
+        let children = self.get_children(note_id)?;
+
+        // Recursively delete all children before removing this node so that
+        // foreign-key constraints (if ever enabled) are satisfied and the
+        // subtree is always removed leaves-first.
+        for child in children {
+            let child_result = self.delete_note_recursive(&child.id)?;
+            affected_ids.extend(child_result.affected_ids);
+        }
+
+        // Delete the note itself after all descendants have been removed.
+        self.storage.connection().execute(
+            "DELETE FROM notes WHERE id = ?1",
+            rusqlite::params![note_id],
+        )?;
+
+        Ok(DeleteResult {
+            deleted_count: affected_ids.len(),
+            affected_ids,
+        })
+    }
+
     /// Returns the number of direct children of `note_id`.
     ///
     /// Counts rows in the `notes` table whose `parent_id` equals `note_id`.
@@ -1051,5 +1150,36 @@ mod tests {
         // Now has 3 children
         let count = ws.count_children(&root_id).unwrap();
         assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_delete_note_recursive() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Get root note
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let root_id = root.id.clone();
+
+        // Create tree: root -> child1 -> grandchild1
+        //                   -> child2
+        let child1_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let child2_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let grandchild1_id = ws.create_note(&child1_id, AddPosition::AsChild, "TextNote").unwrap();
+
+        // Count: root + child1 + child2 + grandchild1 = 4 notes
+        assert_eq!(ws.list_all_notes().unwrap().len(), 4);
+
+        // Delete child1 (should delete child1 + grandchild1)
+        let result = ws.delete_note_recursive(&child1_id).unwrap();
+        assert_eq!(result.deleted_count, 2);
+        assert!(result.affected_ids.contains(&child1_id));
+        assert!(result.affected_ids.contains(&grandchild1_id));
+
+        // Now only root + child2 remain
+        let remaining = ws.list_all_notes().unwrap();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().any(|n| n.id == root_id));
+        assert!(remaining.iter().any(|n| n.id == child2_id));
     }
 }
