@@ -541,6 +541,25 @@ impl Workspace {
         }
     }
 
+    /// Returns the number of direct children of `note_id`.
+    ///
+    /// Counts rows in the `notes` table whose `parent_id` equals `note_id`.
+    /// Grandchildren and deeper descendants are not included.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure,
+    /// including when `note_id` does not exist (the count will be zero in
+    /// that case rather than an error, but connection failures are surfaced).
+    pub fn count_children(&self, note_id: &str) -> Result<usize> {
+        let count: i64 = self.storage.connection().query_row(
+            "SELECT COUNT(*) FROM notes WHERE parent_id = ?1",
+            rusqlite::params![note_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     /// Updates the `title` and `fields` of an existing note, refreshing `modified_at`.
     ///
     /// Both the title and the full fields map are replaced atomically within a
@@ -1006,5 +1025,31 @@ mod tests {
 
         let result = ws.update_note("nonexistent-id", "Title".to_string(), HashMap::new());
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
+    }
+
+    #[test]
+    fn test_count_children() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Get root note
+        let notes = ws.list_all_notes().unwrap();
+        let root_id = notes[0].id.clone();
+
+        // Initially has 0 children
+        let count = ws.count_children(&root_id).unwrap();
+        assert_eq!(count, 0);
+
+        // Create 3 child notes
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+
+        // Now has 3 children
+        let count = ws.count_children(&root_id).unwrap();
+        assert_eq!(count, 3);
     }
 }
