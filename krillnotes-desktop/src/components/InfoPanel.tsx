@@ -1,27 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Note, FieldDefinition, FieldValue } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
-import DeleteConfirmDialog from './DeleteConfirmDialog';
-import type { DeleteResult } from '../types';
-import { DeleteStrategy } from '../types';
 
 interface InfoPanelProps {
   selectedNote: Note | null;
   onNoteUpdated: () => void;
+  onDeleteRequest: (noteId: string) => void;
+  requestEditMode: number;
 }
 
-function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
+function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode }: InfoPanelProps) {
   const [schemaFields, setSchemaFields] = useState<FieldDefinition[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
   const [isDirty, setIsDirty] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [childCount, setChildCount] = useState(0);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!selectedNote) {
@@ -46,6 +42,20 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
       setIsDirty(false);
     }
   }, [selectedNote?.id]);
+
+  // Enter edit mode when WorkspaceView requests it (e.g. via context menu "Edit")
+  useEffect(() => {
+    if (requestEditMode > 0 && selectedNote) {
+      setIsEditing(true);
+    }
+  }, [requestEditMode]);
+
+  // Focus title input whenever edit mode activates
+  useEffect(() => {
+    if (isEditing && titleInputRef.current) {
+      titleInputRef.current.focus();
+    }
+  }, [isEditing]);
 
   const handleEdit = () => {
     setIsEditing(true);
@@ -85,45 +95,6 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
     setIsDirty(true);
   };
 
-  const handleDeleteClick = async () => {
-    if (!selectedNote) return;
-    const noteId = selectedNote.id;
-    try {
-      const count = await invoke<number>('count_children', { noteId });
-      setChildCount(count);
-      setDeleteTargetId(noteId);
-      setShowDeleteDialog(true);
-    } catch (err) {
-      alert(`Failed to check children: ${err}`);
-    }
-  };
-
-  const handleDeleteConfirm = async (strategy: DeleteStrategy) => {
-    if (!deleteTargetId || isDeleting) return;
-    setIsDeleting(true);
-    try {
-      await invoke<DeleteResult>('delete_note', {
-        noteId: deleteTargetId,
-        strategy,
-      });
-      setShowDeleteDialog(false);
-      setDeleteTargetId(null);
-      setIsDeleting(false);
-      onNoteUpdated();
-    } catch (err) {
-      alert(`Failed to delete: ${err}`);
-      setShowDeleteDialog(false);
-      setDeleteTargetId(null);
-      setIsDeleting(false);
-    }
-  };
-
-  const handleDeleteCancel = () => {
-    setShowDeleteDialog(false);
-    setDeleteTargetId(null);
-    setIsDeleting(false);
-  };
-
   if (!selectedNote) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -146,6 +117,7 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
       <div className="flex items-center justify-between mb-6">
         {isEditing ? (
           <input
+            ref={titleInputRef}
             type="text"
             value={editedTitle}
             onChange={(e) => {
@@ -182,7 +154,7 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
                 Edit
               </button>
               <button
-                onClick={handleDeleteClick}
+                onClick={() => onDeleteRequest(selectedNote.id)}
                 className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
               >
                 Delete
@@ -263,15 +235,6 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
           <p className="text-xs font-mono">{selectedNote.id}</p>
         </div>
       </div>
-      {showDeleteDialog && (
-        <DeleteConfirmDialog
-          noteTitle={selectedNote.title}
-          childCount={childCount}
-          onConfirm={handleDeleteConfirm}
-          onCancel={handleDeleteCancel}
-          disabled={isDeleting}
-        />
-      )}
     </div>
   );
 }
