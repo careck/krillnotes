@@ -3,6 +3,7 @@
 //! All public types from these modules are re-exported at the crate root
 //! with `#[doc(inline)]`; import from there in preference to this module.
 
+pub mod delete;
 pub mod device;
 pub mod error;
 pub mod note;
@@ -12,6 +13,8 @@ pub mod scripting;
 pub mod storage;
 pub mod workspace;
 
+#[doc(inline)]
+pub use delete::{DeleteResult, DeleteStrategy};
 #[doc(inline)]
 pub use device::get_device_id;
 #[doc(inline)]

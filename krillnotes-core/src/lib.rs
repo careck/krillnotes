@@ -11,6 +11,7 @@ pub mod core;
 // Re-export commonly used types.
 #[doc(inline)]
 pub use core::{
+    delete::{DeleteResult, DeleteStrategy},
     device::get_device_id,
     error::{KrillnotesError, Result},
     note::{FieldValue, Note},
