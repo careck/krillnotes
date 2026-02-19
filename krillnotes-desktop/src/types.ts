@@ -28,3 +28,19 @@ export type FieldValue =
   | { Text: string }
   | { Number: number }
   | { Boolean: boolean };
+
+export interface FieldDefinition {
+  name: string;
+  fieldType: string;  // "text" | "number" | "boolean"
+  required: boolean;
+}
+
+export enum DeleteStrategy {
+  DeleteAll = "DeleteAll",
+  PromoteChildren = "PromoteChildren",
+}
+
+export interface DeleteResult {
+  deletedCount: number;
+  affectedIds: string[];
+}
