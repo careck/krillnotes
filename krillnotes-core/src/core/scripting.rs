@@ -5,7 +5,8 @@
 //! scripted views, commands, and action hooks can be evaluated at runtime.
 
 use crate::{FieldValue, KrillnotesError, Result};
-use rhai::{Engine, FnPtr, Map, AST};
+use chrono::NaiveDate;
+use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -216,6 +217,73 @@ impl SchemaRegistry {
     }
 }
 
+/// Converts a [`FieldValue`] to a Rhai [`Dynamic`] for passing into hook closures.
+///
+/// `Date(None)` maps to `Dynamic::UNIT` (`()`).
+/// `Date(Some(d))` maps to an ISO 8601 string `"YYYY-MM-DD"`.
+/// All other variants map to their natural Rhai primitive.
+// Used by `run_on_save_hook` (Task 3). Remove this allow once that method exists.
+#[allow(dead_code)]
+fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
+    match fv {
+        FieldValue::Text(s) => Dynamic::from(s.clone()),
+        FieldValue::Number(n) => Dynamic::from(*n),
+        FieldValue::Boolean(b) => Dynamic::from(*b),
+        FieldValue::Date(None) => Dynamic::UNIT,
+        FieldValue::Date(Some(d)) => Dynamic::from(d.format("%Y-%m-%d").to_string()),
+        FieldValue::Email(s) => Dynamic::from(s.clone()),
+    }
+}
+
+/// Converts a Rhai [`Dynamic`] back to a [`FieldValue`] given the field's type string.
+///
+/// Returns [`KrillnotesError::Scripting`] if the Dynamic value cannot be
+/// converted to the expected Rust type.
+// Used by `run_on_save_hook` (Task 3). Remove this allow once that method exists.
+#[allow(dead_code)]
+fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
+    match field_type {
+        "text" => {
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("text field must be a string".into()))?;
+            Ok(FieldValue::Text(s))
+        }
+        "number" => {
+            let n = d
+                .try_cast::<f64>()
+                .ok_or_else(|| KrillnotesError::Scripting("number field must be a float".into()))?;
+            Ok(FieldValue::Number(n))
+        }
+        "boolean" => {
+            let b = d
+                .try_cast::<bool>()
+                .ok_or_else(|| KrillnotesError::Scripting("boolean field must be a bool".into()))?;
+            Ok(FieldValue::Boolean(b))
+        }
+        "date" => {
+            if d.is_unit() {
+                Ok(FieldValue::Date(None))
+            } else {
+                let s = d.try_cast::<String>().ok_or_else(|| {
+                    KrillnotesError::Scripting("date field must be a string or ()".into())
+                })?;
+                let nd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
+                    KrillnotesError::Scripting(format!("invalid date '{}': {}", s, e))
+                })?;
+                Ok(FieldValue::Date(Some(nd)))
+            }
+        }
+        "email" => {
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
+            Ok(FieldValue::Email(s))
+        }
+        _ => Ok(FieldValue::Text(String::new())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,5 +404,81 @@ mod tests {
             .unwrap();
         assert!(registry.has_hook("Widget"));
         assert!(!registry.has_hook("Missing"));
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_text() {
+        let d = field_value_to_dynamic(&FieldValue::Text("hello".into()));
+        assert_eq!(d.try_cast::<String>().unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_number() {
+        let d = field_value_to_dynamic(&FieldValue::Number(3.14));
+        assert!((d.try_cast::<f64>().unwrap() - 3.14).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_boolean() {
+        let d = field_value_to_dynamic(&FieldValue::Boolean(true));
+        assert!(d.try_cast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_date_none() {
+        let d = field_value_to_dynamic(&FieldValue::Date(None));
+        assert!(d.is_unit());
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_date_some() {
+        use chrono::NaiveDate;
+        let date = NaiveDate::from_ymd_opt(2026, 2, 19).unwrap();
+        let d = field_value_to_dynamic(&FieldValue::Date(Some(date)));
+        assert_eq!(d.try_cast::<String>().unwrap(), "2026-02-19");
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_email() {
+        let d = field_value_to_dynamic(&FieldValue::Email("a@b.com".into()));
+        assert_eq!(d.try_cast::<String>().unwrap(), "a@b.com");
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_text() {
+        let fv = dynamic_to_field_value(Dynamic::from("hi".to_string()), "text").unwrap();
+        assert_eq!(fv, FieldValue::Text("hi".into()));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_number() {
+        let fv = dynamic_to_field_value(Dynamic::from(2.0_f64), "number").unwrap();
+        assert_eq!(fv, FieldValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_boolean() {
+        let fv = dynamic_to_field_value(Dynamic::from(false), "boolean").unwrap();
+        assert_eq!(fv, FieldValue::Boolean(false));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_date_none() {
+        let fv = dynamic_to_field_value(Dynamic::UNIT, "date").unwrap();
+        assert_eq!(fv, FieldValue::Date(None));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_date_some() {
+        use chrono::NaiveDate;
+        let d = Dynamic::from("2026-02-19".to_string());
+        let fv = dynamic_to_field_value(d, "date").unwrap();
+        assert_eq!(fv, FieldValue::Date(Some(NaiveDate::from_ymd_opt(2026, 2, 19).unwrap())));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_email() {
+        let fv = dynamic_to_field_value(Dynamic::from("x@y.com".to_string()), "email").unwrap();
+        assert_eq!(fv, FieldValue::Email("x@y.com".into()));
     }
 }
