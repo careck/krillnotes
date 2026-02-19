@@ -82,6 +82,7 @@ impl SchemaRegistry {
 
         let mut registry = Self { engine, schemas };
         registry.load_script(include_str!("../system_scripts/text_note.rhai"))?;
+        registry.load_script(include_str!("../system_scripts/contact.rhai"))?;
 
         Ok(registry)
     }
@@ -253,5 +254,17 @@ mod tests {
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
+    }
+
+    #[test]
+    fn test_contact_schema_loaded() {
+        let registry = SchemaRegistry::new().unwrap();
+        let schema = registry.get_schema("Contact").unwrap();
+        assert_eq!(schema.name, "Contact");
+        assert_eq!(schema.fields.len(), 11);
+        let email_field = schema.fields.iter().find(|f| f.name == "email").unwrap();
+        assert_eq!(email_field.field_type, "email");
+        let birthdate_field = schema.fields.iter().find(|f| f.name == "birthdate").unwrap();
+        assert_eq!(birthdate_field.field_type, "date");
     }
 }
