@@ -81,6 +81,7 @@ impl Schema {
 }
 
 /// Private store for registered schemas. No Rhai dependency.
+#[derive(Debug)]
 pub(super) struct SchemaRegistry {
     schemas: Arc<Mutex<HashMap<String, Schema>>>,
 }
