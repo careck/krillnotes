@@ -1,3 +1,5 @@
+//! This script is used to create a contact.
+
 schema("Contact", #{
     fields: [
         #{ name: "first_name",      type: "text",  required: true  },
