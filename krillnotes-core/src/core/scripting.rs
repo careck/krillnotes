@@ -54,6 +54,8 @@ impl Schema {
 }
 
 /// A stored pre-save hook: the Rhai closure and the AST it was defined in.
+// Fields are read by `run_on_save_hook` (Task 3). Remove this allow once that method exists.
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 struct HookEntry {
     fn_ptr: FnPtr,
