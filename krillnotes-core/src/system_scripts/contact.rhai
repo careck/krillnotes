@@ -15,3 +15,12 @@ schema("Contact", #{
         #{ name: "address_country", type: "text",  required: false },
     ]
 });
+
+on_save("Contact", |note| {
+    let last  = note.fields["last_name"];
+    let first = note.fields["first_name"];
+    if last != "" || first != "" {
+        note.title = last + ", " + first;
+    }
+    note
+});

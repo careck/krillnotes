@@ -5,7 +5,8 @@
 //! scripted views, commands, and action hooks can be evaluated at runtime.
 
 use crate::{FieldValue, KrillnotesError, Result};
-use rhai::{Engine, Map};
+use chrono::NaiveDate;
+use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -53,6 +54,13 @@ impl Schema {
     }
 }
 
+/// A stored pre-save hook: the Rhai closure and the AST it was defined in.
+#[derive(Clone, Debug)]
+struct HookEntry {
+    fn_ptr: FnPtr,
+    ast: AST,
+}
+
 /// Registry of all note-type schemas loaded from Rhai scripts.
 ///
 /// The Rhai [`Engine`] is kept alive as a field so that future scripted
@@ -62,6 +70,8 @@ impl Schema {
 pub struct SchemaRegistry {
     engine: Engine,
     schemas: Arc<Mutex<HashMap<String, Schema>>>,
+    hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    current_loading_ast: Arc<Mutex<Option<AST>>>,
 }
 
 impl SchemaRegistry {
@@ -74,6 +84,8 @@ impl SchemaRegistry {
     pub fn new() -> Result<Self> {
         let mut engine = Engine::new();
         let schemas = Arc::new(Mutex::new(HashMap::new()));
+        let hooks: Arc<Mutex<HashMap<String, HookEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+        let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
 
         let schemas_clone = Arc::clone(&schemas);
         engine.register_fn("schema", move |name: String, def: Map| {
@@ -81,7 +93,26 @@ impl SchemaRegistry {
             schemas_clone.lock().unwrap().insert(name, schema);
         });
 
-        let mut registry = Self { engine, schemas };
+        let hooks_for_fn = Arc::clone(&hooks);
+        let ast_for_fn = Arc::clone(&current_loading_ast);
+        engine.register_fn("on_save", move |name: String, fn_ptr: FnPtr| {
+            let ast = ast_for_fn
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("on_save called outside of load_script");
+            hooks_for_fn
+                .lock()
+                .unwrap()
+                .insert(name, HookEntry { fn_ptr, ast });
+        });
+
+        let mut registry = Self {
+            engine,
+            schemas,
+            hooks,
+            current_loading_ast,
+        };
         registry.load_script(include_str!("../system_scripts/text_note.rhai"))?;
         registry.load_script(include_str!("../system_scripts/contact.rhai"))?;
 
@@ -94,10 +125,21 @@ impl SchemaRegistry {
     ///
     /// Returns [`KrillnotesError::Scripting`] if the script fails to evaluate.
     pub fn load_script(&mut self, script: &str) -> Result<()> {
-        self.engine
-            .eval::<()>(script)
+        let ast = self
+            .engine
+            .compile(script)
             .map_err(|e| KrillnotesError::Scripting(e.to_string()))?;
-        Ok(())
+
+        *self.current_loading_ast.lock().unwrap() = Some(ast.clone());
+
+        let result = self
+            .engine
+            .eval_ast::<()>(&ast)
+            .map_err(|e| KrillnotesError::Scripting(e.to_string()));
+
+        *self.current_loading_ast.lock().unwrap() = None;
+
+        result
     }
 
     /// Returns the schema registered under `name`.
@@ -125,6 +167,99 @@ impl SchemaRegistry {
     /// This is an alias for [`list_schemas`](Self::list_schemas).
     pub fn list_types(&self) -> Result<Vec<String>> {
         Ok(self.schemas.lock().unwrap().keys().cloned().collect())
+    }
+
+    /// Returns `true` if a pre-save hook is registered for `schema_name`.
+    pub fn has_hook(&self, schema_name: &str) -> bool {
+        self.hooks.lock().unwrap().contains_key(schema_name)
+    }
+
+    /// Runs the pre-save hook registered for `schema_name`, if any.
+    ///
+    /// Builds a Rhai note map from the provided values, calls the stored closure,
+    /// and parses the returned map back to Rust types.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for `schema_name`.
+    /// Returns `Ok(Some((title, fields)))` with the hook's output on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error
+    /// or returns a malformed map.
+    pub fn run_on_save_hook(
+        &self,
+        schema_name: &str,
+        note_id: &str,
+        node_type: &str,
+        title: &str,
+        fields: &HashMap<String, FieldValue>,
+    ) -> Result<Option<(String, HashMap<String, FieldValue>)>> {
+        // Clone the entry out of the mutex so the lock is not held during the call.
+        let entry = {
+            let hooks = self.hooks.lock().unwrap();
+            hooks.get(schema_name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        let schema = self.get_schema(schema_name)?;
+
+        // Build the fields sub-map.
+        let mut fields_map = Map::new();
+        for (k, v) in fields {
+            fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+
+        // Build the top-level note map.
+        let mut note_map = Map::new();
+        note_map.insert("id".into(), Dynamic::from(note_id.to_string()));
+        note_map.insert("node_type".into(), Dynamic::from(node_type.to_string()));
+        note_map.insert("title".into(), Dynamic::from(title.to_string()));
+        note_map.insert("fields".into(), Dynamic::from(fields_map));
+
+        // Call the closure.
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(&self.engine, &entry.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error: {}", e)))?;
+
+        // Parse the returned map.
+        let result_map = result.try_cast::<Map>().ok_or_else(|| {
+            KrillnotesError::Scripting("on_save hook must return the note map".to_string())
+        })?;
+
+        let new_title = result_map
+            .get("title")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .ok_or_else(|| {
+                KrillnotesError::Scripting("hook result 'title' must be a string".to_string())
+            })?;
+
+        let new_fields_dyn = result_map
+            .get("fields")
+            .and_then(|v| v.clone().try_cast::<Map>())
+            .ok_or_else(|| {
+                KrillnotesError::Scripting("hook result 'fields' must be a map".to_string())
+            })?;
+
+        // Convert each field back, guided by the schema's type definitions.
+        // Fields present in the schema but absent from the hook result are passed
+        // as Dynamic::UNIT to dynamic_to_field_value, yielding the type's zero value.
+        let mut new_fields = HashMap::new();
+        for field_def in &schema.fields {
+            let dyn_val = new_fields_dyn
+                .get(field_def.name.as_str())
+                .cloned()
+                .unwrap_or(Dynamic::UNIT);
+            let fv = dynamic_to_field_value(dyn_val, &field_def.field_type).map_err(|e| {
+                KrillnotesError::Scripting(format!("field '{}': {}", field_def.name, e))
+            })?;
+            new_fields.insert(field_def.name.clone(), fv);
+        }
+
+        Ok(Some((new_title, new_fields)))
     }
 
     fn parse_schema(name: &str, def: &Map) -> Result<Schema> {
@@ -165,6 +300,69 @@ impl SchemaRegistry {
             name: name.to_string(),
             fields,
         })
+    }
+}
+
+/// Converts a [`FieldValue`] to a Rhai [`Dynamic`] for passing into hook closures.
+///
+/// `Date(None)` maps to `Dynamic::UNIT` (`()`).
+/// `Date(Some(d))` maps to an ISO 8601 string `"YYYY-MM-DD"`.
+/// All other variants map to their natural Rhai primitive.
+fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
+    match fv {
+        FieldValue::Text(s) => Dynamic::from(s.clone()),
+        FieldValue::Number(n) => Dynamic::from(*n),
+        FieldValue::Boolean(b) => Dynamic::from(*b),
+        FieldValue::Date(None) => Dynamic::UNIT,
+        FieldValue::Date(Some(d)) => Dynamic::from(d.format("%Y-%m-%d").to_string()),
+        FieldValue::Email(s) => Dynamic::from(s.clone()),
+    }
+}
+
+/// Converts a Rhai [`Dynamic`] back to a [`FieldValue`] given the field's type string.
+///
+/// Returns [`KrillnotesError::Scripting`] if the Dynamic value cannot be
+/// converted to the expected Rust type.
+fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
+    match field_type {
+        "text" => {
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("text field must be a string".into()))?;
+            Ok(FieldValue::Text(s))
+        }
+        "number" => {
+            let n = d
+                .try_cast::<f64>()
+                .ok_or_else(|| KrillnotesError::Scripting("number field must be a float".into()))?;
+            Ok(FieldValue::Number(n))
+        }
+        "boolean" => {
+            let b = d
+                .try_cast::<bool>()
+                .ok_or_else(|| KrillnotesError::Scripting("boolean field must be a bool".into()))?;
+            Ok(FieldValue::Boolean(b))
+        }
+        "date" => {
+            if d.is_unit() {
+                Ok(FieldValue::Date(None))
+            } else {
+                let s = d.try_cast::<String>().ok_or_else(|| {
+                    KrillnotesError::Scripting("date field must be a string or ()".into())
+                })?;
+                let nd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
+                    KrillnotesError::Scripting(format!("invalid date '{}': {}", s, e))
+                })?;
+                Ok(FieldValue::Date(Some(nd)))
+            }
+        }
+        "email" => {
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
+            Ok(FieldValue::Email(s))
+        }
+        _ => Ok(FieldValue::Text(String::new())),
     }
 }
 
@@ -271,5 +469,168 @@ mod tests {
         assert!(first_name_field.required, "first_name should be required");
         let last_name_field = schema.fields.iter().find(|f| f.name == "last_name").unwrap();
         assert!(last_name_field.required, "last_name should be required");
+    }
+
+    #[test]
+    fn test_hook_registered_via_on_save() {
+        let mut registry = SchemaRegistry::new().unwrap();
+        registry
+            .load_script(
+                r#"
+            schema("Widget", #{
+                fields: [ #{ name: "label", type: "text", required: false } ]
+            });
+            on_save("Widget", |note| { note });
+        "#,
+            )
+            .unwrap();
+        assert!(registry.has_hook("Widget"));
+        assert!(!registry.has_hook("Missing"));
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_text() {
+        let d = field_value_to_dynamic(&FieldValue::Text("hello".into()));
+        assert_eq!(d.try_cast::<String>().unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_number() {
+        let d = field_value_to_dynamic(&FieldValue::Number(3.14));
+        assert!((d.try_cast::<f64>().unwrap() - 3.14).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_boolean() {
+        let d = field_value_to_dynamic(&FieldValue::Boolean(true));
+        assert!(d.try_cast::<bool>().unwrap());
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_date_none() {
+        let d = field_value_to_dynamic(&FieldValue::Date(None));
+        assert!(d.is_unit());
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_date_some() {
+        use chrono::NaiveDate;
+        let date = NaiveDate::from_ymd_opt(2026, 2, 19).unwrap();
+        let d = field_value_to_dynamic(&FieldValue::Date(Some(date)));
+        assert_eq!(d.try_cast::<String>().unwrap(), "2026-02-19");
+    }
+
+    #[test]
+    fn test_field_value_to_dynamic_email() {
+        let d = field_value_to_dynamic(&FieldValue::Email("a@b.com".into()));
+        assert_eq!(d.try_cast::<String>().unwrap(), "a@b.com");
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_text() {
+        let fv = dynamic_to_field_value(Dynamic::from("hi".to_string()), "text").unwrap();
+        assert_eq!(fv, FieldValue::Text("hi".into()));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_number() {
+        let fv = dynamic_to_field_value(Dynamic::from(2.0_f64), "number").unwrap();
+        assert_eq!(fv, FieldValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_boolean() {
+        let fv = dynamic_to_field_value(Dynamic::from(false), "boolean").unwrap();
+        assert_eq!(fv, FieldValue::Boolean(false));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_date_none() {
+        let fv = dynamic_to_field_value(Dynamic::UNIT, "date").unwrap();
+        assert_eq!(fv, FieldValue::Date(None));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_date_some() {
+        use chrono::NaiveDate;
+        let d = Dynamic::from("2026-02-19".to_string());
+        let fv = dynamic_to_field_value(d, "date").unwrap();
+        assert_eq!(fv, FieldValue::Date(Some(NaiveDate::from_ymd_opt(2026, 2, 19).unwrap())));
+    }
+
+    #[test]
+    fn test_dynamic_to_field_value_email() {
+        let fv = dynamic_to_field_value(Dynamic::from("x@y.com".to_string()), "email").unwrap();
+        assert_eq!(fv, FieldValue::Email("x@y.com".into()));
+    }
+
+    #[test]
+    fn test_run_on_save_hook_sets_title() {
+        let mut registry = SchemaRegistry::new().unwrap();
+        registry
+            .load_script(
+                r#"
+            schema("Person", #{
+                fields: [
+                    #{ name: "first", type: "text", required: false },
+                    #{ name: "last",  type: "text", required: false },
+                ]
+            });
+            on_save("Person", |note| {
+                note.title = note.fields["last"] + ", " + note.fields["first"];
+                note
+            });
+        "#,
+            )
+            .unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
+        fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
+
+        let result = registry
+            .run_on_save_hook("Person", "id-1", "Person", "old title", &fields)
+            .unwrap();
+
+        assert!(result.is_some());
+        let (new_title, new_fields) = result.unwrap();
+        assert_eq!(new_title, "Doe, John");
+        assert_eq!(new_fields.get("first"), Some(&FieldValue::Text("John".to_string())));
+    }
+
+    #[test]
+    fn test_run_on_save_hook_no_hook_returns_none() {
+        let registry = SchemaRegistry::new().unwrap();
+        let fields = HashMap::new();
+        let result = registry
+            .run_on_save_hook("TextNote", "id-1", "TextNote", "title", &fields)
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_contact_on_save_hook_derives_title() {
+        let registry = SchemaRegistry::new().unwrap();
+        assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
+
+        let mut fields = HashMap::new();
+        fields.insert("first_name".to_string(), FieldValue::Text("Jane".to_string()));
+        fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("last_name".to_string(), FieldValue::Text("Smith".to_string()));
+        fields.insert("phone".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("mobile".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("email".to_string(), FieldValue::Email("".to_string()));
+        fields.insert("birthdate".to_string(), FieldValue::Date(None));
+        fields.insert("address_street".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+
+        let result = registry
+            .run_on_save_hook("Contact", "id-1", "Contact", "", &fields)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.0, "Smith, Jane");
     }
 }
