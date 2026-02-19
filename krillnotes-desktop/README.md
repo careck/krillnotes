@@ -1,7 +1,26 @@
-# Tauri + React + Typescript
+# krillnotes-desktop
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+The Tauri v2 + React frontend for Krillnotes.
 
-## Recommended IDE Setup
+See the root [README.md](../README.md) for build instructions and the [DEVELOPER.md](../DEVELOPER.md) for architecture details.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Development
+
+```bash
+# Install Node dependencies (run once)
+npm install
+
+# Start dev server with hot reload
+npm run tauri dev
+
+# Build release binary
+npm run tauri build
+```
+
+## Structure
+
+```
+krillnotes-desktop/
+├── src-tauri/          # Rust backend (Tauri commands, AppState, menu)
+└── src/                # React frontend (components, types, styles)
+```

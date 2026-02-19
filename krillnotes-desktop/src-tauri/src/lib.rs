@@ -8,7 +8,8 @@ pub mod menu;
 
 use tauri::Emitter;
 
-// Re-export core library
+// Re-export all public core library types into this crate's namespace.
+#[doc(inline)]
 pub use krillnotes_core::*;
 
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,10 @@ pub struct WorkspaceInfo {
     pub selected_note_id: Option<String>,
 }
 
+/// Derives a unique window label from the `path` filename stem.
+///
+/// Appends a numeric suffix (`-2`, `-3`, …) until the label is absent
+/// from the currently open workspace labels in `state`.
 fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
     let filename = path.file_stem()
         .and_then(|s| s.to_str())
@@ -62,6 +67,7 @@ fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
     label
 }
 
+/// Returns the window label for a workspace already open at `path`, if any.
 fn find_window_for_path(state: &AppState, path: &PathBuf) -> Option<String> {
     state.workspace_paths.lock()
         .expect("Mutex poisoned")
@@ -70,6 +76,11 @@ fn find_window_for_path(state: &AppState, path: &PathBuf) -> Option<String> {
         .map(|(label, _)| label.clone())
 }
 
+/// Brings the window identified by `label` to the foreground.
+///
+/// # Errors
+///
+/// Returns an error string if the window does not exist or `set_focus` fails.
 fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String> {
     app.get_webview_window(label)
         .ok_or_else(|| "Window not found".to_string())
@@ -79,6 +90,11 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
         })
 }
 
+/// Opens a new 1024×768 webview window with the given `label`.
+///
+/// # Errors
+///
+/// Returns an error string if Tauri fails to construct the window.
 fn create_workspace_window(
     app: &AppHandle,
     label: &str
@@ -94,6 +110,7 @@ fn create_workspace_window(
     .map_err(|e| format!("Failed to create window: {}", e))
 }
 
+/// Inserts `workspace` and its `path` into `state` under `label`.
 fn store_workspace(
     state: &AppState,
     label: String,
@@ -109,6 +126,11 @@ fn store_workspace(
     paths.insert(label, path);
 }
 
+/// Assembles a [`WorkspaceInfo`] for the workspace registered under `label`.
+///
+/// # Errors
+///
+/// Returns an error string if no workspace or path is registered for `label`.
 fn get_workspace_info_internal(
     state: &AppState,
     label: &str
@@ -345,6 +367,7 @@ async fn create_note_with_type(
 }
 
 
+/// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
     ("file_open", "File > Open Workspace clicked"),
@@ -354,6 +377,8 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("help_about", "Help > About Krillnotes clicked"),
 ];
 
+/// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
+/// broadcast to all windows.
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     MENU_MESSAGES.iter()
         .find(|(id, _)| id == &event.id().as_ref())
@@ -362,6 +387,14 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         .ok();
 }
 
+/// Configures and starts the Tauri application event loop.
+///
+/// Registers all plugins, commands, the global [`AppState`], window event
+/// handlers, and the application menu before entering the run loop.
+///
+/// # Panics
+///
+/// Panics if the Tauri runtime fails to start.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

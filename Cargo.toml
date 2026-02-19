@@ -11,10 +11,3 @@ uuid = { version = "1.7", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1.0"
 
-[workspace.dependencies.iced]
-version = "0.13"
-features = []
-
-[workspace.dependencies.iced_aw]
-version = "0.10"
-features = ["menu"]
