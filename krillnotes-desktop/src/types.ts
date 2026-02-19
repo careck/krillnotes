@@ -27,11 +27,13 @@ export interface TreeNode {
 export type FieldValue =
   | { Text: string }
   | { Number: number }
-  | { Boolean: boolean };
+  | { Boolean: boolean }
+  | { Date: string | null }   // ISO "YYYY-MM-DD" or null when not set
+  | { Email: string };
 
 export interface FieldDefinition {
   name: string;
-  fieldType: string;  // "text" | "number" | "boolean"
+  fieldType: string;  // "text" | "number" | "boolean" | "date" | "email"
   required: boolean;
 }
 
