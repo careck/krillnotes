@@ -1,5 +1,6 @@
 //! Note data types for the Krillnotes workspace.
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -12,6 +13,11 @@ pub enum FieldValue {
     Number(f64),
     /// A boolean flag.
     Boolean(bool),
+    /// A calendar date. `None` represents "not set".
+    /// Serializes as ISO 8601 `"YYYY-MM-DD"` or JSON `null`.
+    Date(Option<NaiveDate>),
+    /// An email address string. Format is validated client-side.
+    Email(String),
 }
 
 /// A single node in the workspace hierarchy.

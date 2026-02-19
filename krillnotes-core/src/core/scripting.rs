@@ -42,6 +42,8 @@ impl Schema {
                 "text" => FieldValue::Text(String::new()),
                 "number" => FieldValue::Number(0.0),
                 "boolean" => FieldValue::Boolean(false),
+                "date" => FieldValue::Date(None),
+                "email" => FieldValue::Email(String::new()),
                 _ => FieldValue::Text(String::new()),
             };
             fields.insert(field_def.name.clone(), default_value);
@@ -223,5 +225,33 @@ mod tests {
         assert_eq!(schema.fields.len(), 1);
         assert_eq!(schema.fields[0].name, "body");
         assert_eq!(schema.fields[0].field_type, "text");
+    }
+
+    #[test]
+    fn test_date_field_default() {
+        let schema = Schema {
+            name: "Test".to_string(),
+            fields: vec![FieldDefinition {
+                name: "birthday".to_string(),
+                field_type: "date".to_string(),
+                required: false,
+            }],
+        };
+        let defaults = schema.default_fields();
+        assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
+    }
+
+    #[test]
+    fn test_email_field_default() {
+        let schema = Schema {
+            name: "Test".to_string(),
+            fields: vec![FieldDefinition {
+                name: "email_addr".to_string(),
+                field_type: "email".to_string(),
+                required: false,
+            }],
+        };
+        let defaults = schema.default_fields();
+        assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(_))));
     }
 }
