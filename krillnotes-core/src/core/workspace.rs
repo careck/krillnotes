@@ -1293,4 +1293,14 @@ mod tests {
         assert_eq!(child1_updated.parent_id, Some(root_id.clone()));
         assert_eq!(child2_updated.parent_id, Some(root_id.clone()));
     }
+
+    /// Verify that `delete_note_promote` returns `NoteNotFound` when the given ID does not exist.
+    #[test]
+    fn test_delete_note_promote_not_found() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let result = ws.delete_note_promote("nonexistent-id");
+        assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
+    }
 }
