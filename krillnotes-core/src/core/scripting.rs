@@ -5,7 +5,7 @@
 //! scripted views, commands, and action hooks can be evaluated at runtime.
 
 use crate::{FieldValue, KrillnotesError, Result};
-use rhai::{Engine, Map};
+use rhai::{Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -53,6 +53,13 @@ impl Schema {
     }
 }
 
+/// A stored pre-save hook: the Rhai closure and the AST it was defined in.
+#[derive(Clone, Debug)]
+struct HookEntry {
+    fn_ptr: FnPtr,
+    ast: AST,
+}
+
 /// Registry of all note-type schemas loaded from Rhai scripts.
 ///
 /// The Rhai [`Engine`] is kept alive as a field so that future scripted
@@ -62,6 +69,8 @@ impl Schema {
 pub struct SchemaRegistry {
     engine: Engine,
     schemas: Arc<Mutex<HashMap<String, Schema>>>,
+    hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    current_loading_ast: Arc<Mutex<Option<AST>>>,
 }
 
 impl SchemaRegistry {
@@ -74,6 +83,8 @@ impl SchemaRegistry {
     pub fn new() -> Result<Self> {
         let mut engine = Engine::new();
         let schemas = Arc::new(Mutex::new(HashMap::new()));
+        let hooks: Arc<Mutex<HashMap<String, HookEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+        let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
 
         let schemas_clone = Arc::clone(&schemas);
         engine.register_fn("schema", move |name: String, def: Map| {
@@ -81,7 +92,26 @@ impl SchemaRegistry {
             schemas_clone.lock().unwrap().insert(name, schema);
         });
 
-        let mut registry = Self { engine, schemas };
+        let hooks_for_fn = Arc::clone(&hooks);
+        let ast_for_fn = Arc::clone(&current_loading_ast);
+        engine.register_fn("on_save", move |name: String, fn_ptr: FnPtr| {
+            let ast = ast_for_fn
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("on_save called outside of load_script");
+            hooks_for_fn
+                .lock()
+                .unwrap()
+                .insert(name, HookEntry { fn_ptr, ast });
+        });
+
+        let mut registry = Self {
+            engine,
+            schemas,
+            hooks,
+            current_loading_ast,
+        };
         registry.load_script(include_str!("../system_scripts/text_note.rhai"))?;
         registry.load_script(include_str!("../system_scripts/contact.rhai"))?;
 
@@ -94,10 +124,21 @@ impl SchemaRegistry {
     ///
     /// Returns [`KrillnotesError::Scripting`] if the script fails to evaluate.
     pub fn load_script(&mut self, script: &str) -> Result<()> {
-        self.engine
-            .eval::<()>(script)
+        let ast = self
+            .engine
+            .compile(script)
             .map_err(|e| KrillnotesError::Scripting(e.to_string()))?;
-        Ok(())
+
+        *self.current_loading_ast.lock().unwrap() = Some(ast.clone());
+
+        let result = self
+            .engine
+            .eval_ast::<()>(&ast)
+            .map_err(|e| KrillnotesError::Scripting(e.to_string()));
+
+        *self.current_loading_ast.lock().unwrap() = None;
+
+        result
     }
 
     /// Returns the schema registered under `name`.
@@ -125,6 +166,11 @@ impl SchemaRegistry {
     /// This is an alias for [`list_schemas`](Self::list_schemas).
     pub fn list_types(&self) -> Result<Vec<String>> {
         Ok(self.schemas.lock().unwrap().keys().cloned().collect())
+    }
+
+    /// Returns `true` if a pre-save hook is registered for `schema_name`.
+    pub fn has_hook(&self, schema_name: &str) -> bool {
+        self.hooks.lock().unwrap().contains_key(schema_name)
     }
 
     fn parse_schema(name: &str, def: &Map) -> Result<Schema> {
@@ -271,5 +317,22 @@ mod tests {
         assert!(first_name_field.required, "first_name should be required");
         let last_name_field = schema.fields.iter().find(|f| f.name == "last_name").unwrap();
         assert!(last_name_field.required, "last_name should be required");
+    }
+
+    #[test]
+    fn test_hook_registered_via_on_save() {
+        let mut registry = SchemaRegistry::new().unwrap();
+        registry
+            .load_script(
+                r#"
+            schema("Widget", #{
+                fields: [ #{ name: "label", type: "text", required: false } ]
+            });
+            on_save("Widget", |note| { note });
+        "#,
+            )
+            .unwrap();
+        assert!(registry.has_hook("Widget"));
+        assert!(!registry.has_hook("Missing"));
     }
 }
