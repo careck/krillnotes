@@ -104,8 +104,10 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     }
   };
 
-  const handleNoteCreated = async () => {
+  const handleNoteCreated = async (noteId: string) => {
     await loadNotes();
+    await handleSelectNote(noteId);
+    setRequestEditMode(prev => prev + 1);
   };
 
   const handleNoteUpdated = async () => {
