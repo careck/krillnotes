@@ -393,6 +393,35 @@ fn get_schema_fields(
     Ok(schema.fields)
 }
 
+/// Updates the title and fields of an existing note, returning the updated note.
+///
+/// Looks up the note identified by `note_id` in the calling window's workspace,
+/// applies the new `title` and `fields` values, persists the changes, and returns
+/// the updated [`Note`] so the frontend can reflect the current state immediately.
+///
+/// # Errors
+///
+/// Returns an error string if no workspace is open for the calling window,
+/// if `note_id` does not identify an existing note, or if the underlying
+/// storage operation fails.
+#[tauri::command]
+fn update_note(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    title: String,
+    fields: HashMap<String, FieldValue>,
+) -> std::result::Result<Note, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    workspace.update_note(&note_id, title, fields)
+        .map_err(|e| e.to_string())
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -456,6 +485,7 @@ pub fn run() {
             set_selected_note,
             create_note_with_type,
             get_schema_fields,
+            update_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
