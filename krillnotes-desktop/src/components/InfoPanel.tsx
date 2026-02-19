@@ -121,6 +121,7 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
   const handleDeleteCancel = () => {
     setShowDeleteDialog(false);
     setDeleteTargetId(null);
+    setIsDeleting(false);
   };
 
   if (!selectedNote) {

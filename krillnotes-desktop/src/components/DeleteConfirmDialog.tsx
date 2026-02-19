@@ -75,7 +75,8 @@ function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel, disab
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="px-4 py-2 bg-secondary text-foreground rounded-md hover:bg-secondary/80"
+            disabled={disabled}
+            className="px-4 py-2 bg-secondary text-foreground rounded-md hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
