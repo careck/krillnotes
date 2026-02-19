@@ -34,7 +34,8 @@ pub struct Schema {
 impl Schema {
     /// Returns a map of field names to their zero-value defaults.
     ///
-    /// Text fields default to `""`, numbers to `0.0`, booleans to `false`.
+    /// Text fields default to `""`, numbers to `0.0`, booleans to `false`,
+    /// dates to `Date(None)`, emails to `Email("")`.
     pub fn default_fields(&self) -> HashMap<String, FieldValue> {
         let mut fields = HashMap::new();
         for field_def in &self.fields {

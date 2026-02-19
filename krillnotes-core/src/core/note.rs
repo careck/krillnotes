@@ -85,4 +85,32 @@ mod tests {
             _ => panic!("Wrong variant"),
         }
     }
+
+    #[test]
+    fn test_date_field_value_serde() {
+        // None round-trips as null
+        let none = FieldValue::Date(None);
+        let json = serde_json::to_string(&none).unwrap();
+        assert_eq!(json, r#"{"Date":null}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, none);
+
+        // Some(date) round-trips as ISO string
+        use chrono::NaiveDate;
+        let date = NaiveDate::from_ymd_opt(2026, 2, 19).unwrap();
+        let some = FieldValue::Date(Some(date));
+        let json = serde_json::to_string(&some).unwrap();
+        assert_eq!(json, r#"{"Date":"2026-02-19"}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, some);
+    }
+
+    #[test]
+    fn test_email_field_value_serde() {
+        let email = FieldValue::Email("test@example.com".to_string());
+        let json = serde_json::to_string(&email).unwrap();
+        assert_eq!(json, r#"{"Email":"test@example.com"}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, email);
+    }
 }
