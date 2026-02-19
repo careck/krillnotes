@@ -367,6 +367,32 @@ async fn create_note_with_type(
 }
 
 
+/// Returns the field definitions for the schema identified by `node_type`.
+///
+/// Looks up the schema registered under `node_type` in the calling window's
+/// workspace and returns its list of [`FieldDefinition`] values so the
+/// frontend can render an appropriate editing form.
+///
+/// # Errors
+///
+/// Returns an error string if no workspace is open for the calling window,
+/// or if `node_type` is not registered in the schema registry.
+#[tauri::command]
+fn get_schema_fields(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    node_type: String,
+) -> std::result::Result<Vec<FieldDefinition>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+
+    let schema = workspace.registry().get_schema(&node_type)
+        .map_err(|e: KrillnotesError| e.to_string())?;
+
+    Ok(schema.fields)
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -429,6 +455,7 @@ pub fn run() {
             toggle_note_expansion,
             set_selected_note,
             create_note_with_type,
+            get_schema_fields,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
