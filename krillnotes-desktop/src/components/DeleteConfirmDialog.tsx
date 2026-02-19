@@ -6,9 +6,10 @@ interface DeleteConfirmDialogProps {
   childCount: number;
   onConfirm: (strategy: DeleteStrategy) => void;
   onCancel: () => void;
+  disabled?: boolean;
 }
 
-function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel }: DeleteConfirmDialogProps) {
+function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel, disabled = false }: DeleteConfirmDialogProps) {
   const [strategy, setStrategy] = useState<DeleteStrategy>(DeleteStrategy.DeleteAll);
 
   useEffect(() => {
@@ -80,7 +81,8 @@ function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel }: Del
           </button>
           <button
             onClick={handleConfirm}
-            className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+            disabled={disabled}
+            className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Delete
           </button>
