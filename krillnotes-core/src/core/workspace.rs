@@ -4,7 +4,7 @@
 
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note, Operation,
-    OperationLog, PurgeStrategy, Result, SchemaRegistry, Storage,
+    OperationLog, PurgeStrategy, Result, ScriptRegistry, Storage,
 };
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -23,14 +23,14 @@ pub enum AddPosition {
 /// An open Krillnotes workspace backed by a SQLite database.
 ///
 /// `Workspace` is the primary interface for all document mutations. It combines
-/// a [`Storage`] connection, a [`SchemaRegistry`] for note-type validation,
+/// a [`Storage`] connection, a [`ScriptRegistry`] for note-type validation and hooks,
 /// and an [`OperationLog`] for durable change history.
 ///
 /// Each instance is bound to a single window and protected by a `Mutex` in
 /// the desktop application's state.
 pub struct Workspace {
     storage: Storage,
-    registry: SchemaRegistry,
+    script_registry: ScriptRegistry,
     operation_log: OperationLog,
     device_id: String,
     current_user_id: i64,
@@ -46,7 +46,7 @@ impl Workspace {
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut storage = Storage::create(&path)?;
-        let registry = SchemaRegistry::new()?;
+        let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 
         // Get hardware-based device ID
@@ -80,7 +80,7 @@ impl Workspace {
             modified_at: chrono::Utc::now().timestamp(),
             created_by: 0,
             modified_by: 0,
-            fields: registry.get_schema("TextNote")?.default_fields(),
+            fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
         };
 
@@ -106,7 +106,7 @@ impl Workspace {
 
         Ok(Self {
             storage,
-            registry,
+            script_registry,
             operation_log,
             device_id,
             current_user_id: 0,
@@ -122,7 +122,7 @@ impl Workspace {
     /// any SQLite failure.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let storage = Storage::open(&path)?;
-        let registry = SchemaRegistry::new()?;
+        let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 
         // Read metadata from database
@@ -144,16 +144,16 @@ impl Workspace {
 
         Ok(Self {
             storage,
-            registry,
+            script_registry,
             operation_log,
             device_id,
             current_user_id,
         })
     }
 
-    /// Returns a reference to the schema registry for this workspace.
-    pub fn registry(&self) -> &SchemaRegistry {
-        &self.registry
+    /// Returns a reference to the script registry for this workspace.
+    pub fn script_registry(&self) -> &ScriptRegistry {
+        &self.script_registry
     }
 
     /// Returns the underlying SQLite connection.
@@ -226,7 +226,7 @@ impl Workspace {
         position: AddPosition,
         note_type: &str,
     ) -> Result<String> {
-        let schema = self.registry.get_schema(note_type)?;
+        let schema = self.script_registry.get_schema(note_type)?;
         let selected = self.get_note(selected_note_id)?;
 
         // Determine final parent and position
@@ -309,7 +309,7 @@ impl Workspace {
     /// or [`crate::KrillnotesError::Database`] for any SQLite failure.
     pub fn create_note_root(&mut self, node_type: &str) -> Result<String> {
         let now = chrono::Utc::now().timestamp();
-        let schema = self.registry.get_schema(node_type)?;
+        let schema = self.script_registry.get_schema(node_type)?;
 
         let new_note = Note {
             id: Uuid::new_v4().to_string(),
@@ -457,7 +457,7 @@ impl Workspace {
     ///
     /// This method currently does not fail, but returns `Result` for consistency.
     pub fn list_node_types(&self) -> Result<Vec<String>> {
-        self.registry.list_types()
+        self.script_registry.list_types()
     }
 
     // Note: toggle_note_expansion and set_selected_note intentionally do NOT write to the
@@ -827,7 +827,7 @@ impl Workspace {
         // Run the pre-save hook. If a hook is registered it may modify title and fields.
         let (title, fields) =
             match self
-                .registry
+                .script_registry
                 .run_on_save_hook(&node_type, note_id, &node_type, &title, &fields)?
             {
                 Some((new_title, new_fields)) => (new_title, new_fields),
