@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 pub struct FieldDefinition {
     /// The field's unique name within its schema.
     pub name: String,
-    /// The field type: `"text"`, `"number"`, or `"boolean"`.
+    /// The field type: `"text"`, `"number"`, `"boolean"`, `"date"`, or `"email"`.
     pub field_type: String,
     /// Whether the field must carry a non-default value before the note is saved.
     pub required: bool,
@@ -252,6 +252,6 @@ mod tests {
             }],
         };
         let defaults = schema.default_fields();
-        assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(_))));
+        assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
     }
 }
