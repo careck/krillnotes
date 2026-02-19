@@ -16,10 +16,13 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const selectedNoteIdRef = useRef(selectedNoteId);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [error, setError] = useState<string>('');
   const selectionInitialized = useRef(false);
   const isRefreshing = useRef(false);
+
+  selectedNoteIdRef.current = selectedNoteId;
 
   // Load notes on mount
   useEffect(() => {
@@ -99,7 +102,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     if (isRefreshing.current) return;
     isRefreshing.current = true;
     try {
-      const currentId = selectedNoteId;
+      const currentId = selectedNoteIdRef.current;
       const freshNotes = await loadNotes();
 
       // Auto-select if the previously selected note was deleted
