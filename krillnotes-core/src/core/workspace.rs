@@ -1,6 +1,6 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
-// Rust guideline compliant 2026-02-19
+// Rust guideline compliant 2026-02-19 (updated: delete_note_promote added)
 
 use crate::{
     get_device_id, DeleteResult, FieldValue, KrillnotesError, Note, Operation, OperationLog,
@@ -667,6 +667,56 @@ impl Workspace {
         })
     }
 
+    /// Deletes `note_id` and promotes its children to its grandparent.
+    ///
+    /// The note identified by `note_id` is removed from the `notes` table while
+    /// all of its direct children are re-parented to the deleted note's own
+    /// parent. Children of children (grandchildren of the deleted note) are not
+    /// affected — they retain their existing parent. The entire operation runs
+    /// inside a single SQLite transaction, so any failure leaves the database
+    /// unchanged.
+    ///
+    /// The returned [`DeleteResult`] always has `deleted_count == 1` and
+    /// `affected_ids` containing only `note_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::NoteNotFound`] if no note with
+    /// `note_id` exists in the database. Returns
+    /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
+    /// The transaction is rolled back automatically on any failure.
+    pub fn delete_note_promote(&mut self, note_id: &str) -> Result<DeleteResult> {
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // Fetch the note's parent — surfaces NoteNotFound for missing IDs.
+        let parent_id: Option<String> = tx
+            .query_row(
+                "SELECT parent_id FROM notes WHERE id = ?1",
+                rusqlite::params![note_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+
+        // Re-parent all direct children to the grandparent (may be NULL).
+        tx.execute(
+            "UPDATE notes SET parent_id = ?1 WHERE parent_id = ?2",
+            rusqlite::params![parent_id, note_id],
+        )?;
+
+        // Delete the note itself after its children have been safely re-parented.
+        tx.execute(
+            "DELETE FROM notes WHERE id = ?1",
+            rusqlite::params![note_id],
+        )?;
+
+        tx.commit()?;
+
+        Ok(DeleteResult {
+            deleted_count: 1,
+            affected_ids: vec![note_id.to_string()],
+        })
+    }
+
     /// Returns the number of direct children of `note_id`.
     ///
     /// Counts rows in the `notes` table whose `parent_id` equals `note_id`.
@@ -1208,5 +1258,39 @@ mod tests {
         assert_eq!(remaining.len(), 2);
         assert!(remaining.iter().any(|n| n.id == root_id));
         assert!(remaining.iter().any(|n| n.id == child2_id));
+    }
+
+    #[test]
+    fn test_delete_note_promote() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Get root note
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let root_id = root.id.clone();
+
+        // Create tree: root -> middle -> child1
+        //                              -> child2
+        let middle_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let child1_id = ws.create_note(&middle_id, AddPosition::AsChild, "TextNote").unwrap();
+        let child2_id = ws.create_note(&middle_id, AddPosition::AsChild, "TextNote").unwrap();
+
+        // Count: 4 notes total
+        assert_eq!(ws.list_all_notes().unwrap().len(), 4);
+
+        // Delete middle (promote children)
+        let result = ws.delete_note_promote(&middle_id).unwrap();
+        assert_eq!(result.deleted_count, 1);
+        assert_eq!(result.affected_ids, vec![middle_id.clone()]);
+
+        // Now: root, child1, child2 (3 notes)
+        let remaining = ws.list_all_notes().unwrap();
+        assert_eq!(remaining.len(), 3);
+
+        // Verify child1 and child2 now have root as parent
+        let child1_updated = remaining.iter().find(|n| n.id == child1_id).unwrap();
+        let child2_updated = remaining.iter().find(|n| n.id == child2_id).unwrap();
+        assert_eq!(child1_updated.parent_id, Some(root_id.clone()));
+        assert_eq!(child2_updated.parent_id, Some(root_id.clone()));
     }
 }
