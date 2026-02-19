@@ -449,6 +449,41 @@ fn count_children(
         .map_err(|e| e.to_string())
 }
 
+/// Deletes the note identified by `note_id` using the specified [`DeleteStrategy`].
+///
+/// Dispatches to either recursive deletion or child-promotion depending on
+/// `strategy`:
+///
+/// - `"DeleteAll"` — removes `note_id` and every descendant in one atomic
+///   transaction. The returned [`DeleteResult`] includes all deleted IDs.
+/// - `"PromoteChildren"` — removes only `note_id` and re-parents its direct
+///   children to the deleted note's former parent. `deleted_count` is always 1.
+///
+/// The `strategy` value is deserialised from the PascalCase string sent by the
+/// frontend (`"DeleteAll"` or `"PromoteChildren"`).
+///
+/// # Errors
+///
+/// Returns an error string if no workspace is open for the calling window,
+/// if `note_id` does not exist (for `PromoteChildren`), or if any SQLite
+/// operation fails.
+#[tauri::command]
+fn delete_note(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    strategy: DeleteStrategy,
+) -> std::result::Result<DeleteResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    workspace.delete_note(&note_id, strategy)
+        .map_err(|e| e.to_string())
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -514,6 +549,7 @@ pub fn run() {
             get_schema_fields,
             update_note,
             count_children,
+            delete_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
