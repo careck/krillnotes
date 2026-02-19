@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DeleteStrategy } from '../types';
 
 interface DeleteConfirmDialogProps {
@@ -10,6 +10,16 @@ interface DeleteConfirmDialogProps {
 
 function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel }: DeleteConfirmDialogProps) {
   const [strategy, setStrategy] = useState<DeleteStrategy>(DeleteStrategy.DeleteAll);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCancel();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
 
   const handleConfirm = () => {
     onConfirm(strategy);
@@ -41,7 +51,7 @@ function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel }: Del
                 <div>
                   <div className="font-medium">Delete this note and all descendants</div>
                   <div className="text-sm text-muted-foreground">
-                    ({childCount + 1} notes total)
+                    (this note and all descendants)
                   </div>
                 </div>
               </label>
