@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ContextMenuProps {
   x: number;
   y: number;
-  noteId: string;
   onAddNote: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -12,8 +11,14 @@ interface ContextMenuProps {
 }
 
 function ContextMenu({ x, y, onAddNote, onEdit, onDelete, onClose }: ContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const handleMouseDown = () => onClose();
+    const handleMouseDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -27,26 +32,26 @@ function ContextMenu({ x, y, onAddNote, onEdit, onDelete, onClose }: ContextMenu
 
   return createPortal(
     <div
+      ref={menuRef}
       className="fixed bg-background border border-secondary rounded shadow-lg z-50 py-1 min-w-[160px]"
       style={{ top: y, left: x }}
-      onMouseDown={(e) => e.stopPropagation()}
     >
       <button
         className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-        onClick={onAddNote}
+        onClick={() => { onAddNote(); onClose(); }}
       >
         Add Note
       </button>
       <button
         className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-        onClick={onEdit}
+        onClick={() => { onEdit(); onClose(); }}
       >
         Edit
       </button>
       <div className="border-t border-secondary my-1" />
       <button
         className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary text-red-500"
-        onClick={onDelete}
+        onClick={() => { onDelete(); onClose(); }}
       >
         Delete
       </button>
