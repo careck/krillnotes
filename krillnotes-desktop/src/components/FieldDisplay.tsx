@@ -27,6 +27,18 @@ function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
           <span>{value.Boolean ? 'Yes' : 'No'}</span>
         </div>
       );
+    } else if ('Email' in value) {
+      return value.Email
+        ? <a href={`mailto:${value.Email}`} className="text-primary underline">{value.Email}</a>
+        : <span className="text-muted-foreground italic">(empty)</span>;
+    } else if ('Date' in value) {
+      if (!value.Date) {
+        return <span className="text-muted-foreground italic">(empty)</span>;
+      }
+      const formatted = new Date(value.Date).toLocaleDateString(undefined, {
+        year: 'numeric', month: 'long', day: 'numeric',
+      });
+      return <p>{formatted}</p>;
     }
     return <span className="text-muted-foreground italic">(unknown type)</span>;
   };
