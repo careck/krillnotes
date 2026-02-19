@@ -1,5 +1,7 @@
 # Context Menu Implementation Plan
 
+> **Status:** ✅ COMPLETED 2026-02-19 — all 4 tasks implemented, TypeScript clean, manually verified.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Add a right-click context menu to each tree node with Add Note, Edit, and Delete actions.
@@ -815,3 +817,27 @@ Verify:
 git add krillnotes-desktop/src/components/WorkspaceView.tsx
 git commit -m "feat(frontend): wire context menu into WorkspaceView, lift delete dialog from InfoPanel"
 ```
+
+---
+
+## Summary
+
+**Context Menu Implementation Complete!**
+
+**Delivered:**
+- ✅ `ContextMenu` component rendering via React portal into `document.body`
+- ✅ Dismiss on click-outside (ref-based) and Escape key
+- ✅ `onContextMenu` prop threaded through `TreeView` → `TreeNode`
+- ✅ `InfoPanel` refactored: delete dialog lifted out, `requestEditMode` counter prop added
+- ✅ `WorkspaceView` wired: context menu state, delete state, all handlers
+- ✅ TypeScript compiles cleanly (`npx tsc --noEmit` — no errors)
+- ✅ Manually verified: right-click Add Note / Edit / Delete all work; InfoPanel buttons unchanged
+
+**Tasks Completed:** 4
+
+**Commits:**
+- `feat(frontend): add ContextMenu component`
+- `fix(frontend): fix ContextMenu dismiss logic and remove unused noteId prop`
+- `feat(frontend): thread onContextMenu prop through TreeView and TreeNode`
+- `refactor(frontend): lift delete dialog out of InfoPanel, add requestEditMode prop`
+- `feat(frontend): wire context menu into WorkspaceView, lift delete dialog from InfoPanel`
