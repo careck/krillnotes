@@ -607,4 +607,30 @@ mod tests {
             .unwrap();
         assert!(result.is_none());
     }
+
+    #[test]
+    fn test_contact_on_save_hook_derives_title() {
+        let registry = SchemaRegistry::new().unwrap();
+        assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
+
+        let mut fields = HashMap::new();
+        fields.insert("first_name".to_string(), FieldValue::Text("Jane".to_string()));
+        fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("last_name".to_string(), FieldValue::Text("Smith".to_string()));
+        fields.insert("phone".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("mobile".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("email".to_string(), FieldValue::Email("".to_string()));
+        fields.insert("birthdate".to_string(), FieldValue::Date(None));
+        fields.insert("address_street".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+
+        let result = registry
+            .run_on_save_hook("Contact", "id-1", "Contact", "", &fields)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.0, "Smith, Jane");
+    }
 }
