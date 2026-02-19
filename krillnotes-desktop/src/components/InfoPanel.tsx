@@ -3,6 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Note, FieldDefinition, FieldValue } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
+import DeleteConfirmDialog from './DeleteConfirmDialog';
+import type { DeleteResult } from '../types';
+import { DeleteStrategy } from '../types';
 
 interface InfoPanelProps {
   selectedNote: Note | null;
@@ -15,6 +18,8 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
   const [editedTitle, setEditedTitle] = useState('');
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
   const [isDirty, setIsDirty] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [childCount, setChildCount] = useState(0);
 
   useEffect(() => {
     if (!selectedNote) {
@@ -33,6 +38,7 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
 
   useEffect(() => {
     if (selectedNote) {
+      setIsEditing(false);
       setEditedTitle(selectedNote.title);
       setEditedFields({ ...selectedNote.fields });
       setIsDirty(false);
@@ -75,6 +81,38 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
   const handleFieldChange = (fieldName: string, value: FieldValue) => {
     setEditedFields(prev => ({ ...prev, [fieldName]: value }));
     setIsDirty(true);
+  };
+
+  const handleDeleteClick = async () => {
+    if (!selectedNote) return;
+
+    try {
+      const count = await invoke<number>('count_children', { noteId: selectedNote.id });
+      setChildCount(count);
+      setShowDeleteDialog(true);
+    } catch (err) {
+      alert(`Failed to check children: ${err}`);
+    }
+  };
+
+  const handleDeleteConfirm = async (strategy: DeleteStrategy) => {
+    if (!selectedNote) return;
+
+    try {
+      await invoke<DeleteResult>('delete_note', {
+        noteId: selectedNote.id,
+        strategy,
+      });
+      setShowDeleteDialog(false);
+      onNoteUpdated();
+    } catch (err) {
+      alert(`Failed to delete: ${err}`);
+      setShowDeleteDialog(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteDialog(false);
   };
 
   if (!selectedNote) {
@@ -134,7 +172,10 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
               >
                 Edit
               </button>
-              <button className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600">
+              <button
+                onClick={handleDeleteClick}
+                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+              >
                 Delete
               </button>
             </>
@@ -177,7 +218,7 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
                   key={name}
                   fieldName={`${name} (legacy)`}
                   fieldType="text"
-                  value={editedFields[name]}
+                  value={editedFields[name] || { Text: '' }}
                   required={false}
                   onChange={(value) => handleFieldChange(name, value)}
                 />
@@ -217,6 +258,14 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
           <p className="text-xs font-mono">{selectedNote.id}</p>
         </div>
       </div>
+      {showDeleteDialog && (
+        <DeleteConfirmDialog
+          noteTitle={selectedNote.title}
+          childCount={childCount}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
+        />
+      )}
     </div>
   );
 }
