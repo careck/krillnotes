@@ -2,13 +2,12 @@ import type { FieldValue } from '../types';
 
 interface FieldEditorProps {
   fieldName: string;
-  fieldType: string;
   value: FieldValue;
   required: boolean;
   onChange: (value: FieldValue) => void;
 }
 
-function FieldEditor({ fieldName, fieldType: _fieldType, value, required, onChange }: FieldEditorProps) {
+function FieldEditor({ fieldName, value, required, onChange }: FieldEditorProps) {
   const renderEditor = () => {
     if ('Text' in value) {
       return (

@@ -661,6 +661,12 @@ impl Workspace {
             rusqlite::params![note_id],
         )?;
 
+        // Detect nonexistent root IDs: SQLite DELETE silently affects zero rows
+        // when the ID does not exist. Surface this as NoteNotFound.
+        if tx.changes() == 0 {
+            return Err(KrillnotesError::NoteNotFound(note_id.to_string()));
+        }
+
         Ok(DeleteResult {
             deleted_count: affected_ids.len(),
             affected_ids,
@@ -702,6 +708,22 @@ impl Workspace {
             "UPDATE notes SET parent_id = ?1 WHERE parent_id = ?2",
             rusqlite::params![parent_id, note_id],
         )?;
+
+        // Renumber all children of the new parent to avoid position collisions
+        let child_ids: Vec<String> = {
+            let mut stmt = tx.prepare(
+                "SELECT id FROM notes WHERE parent_id IS ?1 ORDER BY position, id",
+            )?;
+            let ids = stmt.query_map(rusqlite::params![parent_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            ids
+        };
+        for (position, id) in child_ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE notes SET position = ?1 WHERE id = ?2",
+                rusqlite::params![position as i64, id],
+            )?;
+        }
 
         // Delete the note itself after its children have been safely re-parented.
         tx.execute(
@@ -1293,6 +1315,14 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_note_recursive_not_found() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+        let result = ws.delete_note_recursive("nonexistent-id");
+        assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
+    }
+
+    #[test]
     fn test_delete_note_promote() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path()).unwrap();
@@ -1334,6 +1364,56 @@ mod tests {
 
         let result = ws.delete_note_promote("nonexistent-id");
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
+    }
+
+    /// Verifies that positions do not collide when children are promoted by
+    /// `delete_note_promote`. Specifically, when a node with two children (sib1,
+    /// sib2) is deleted, and sib1 itself has children (child1, child2), those
+    /// grandchildren should receive sequential positions with no duplicates.
+    #[test]
+    fn test_delete_note_promote_no_position_collision() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Build tree: root -> sib1 (pos 0) -> child1 (pos 0)
+        //                                   -> child2 (pos 1)
+        //                  -> sib2 (pos 1)
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let sib1_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        let sib2_id = ws.create_note(&sib1_id, AddPosition::AsSibling, "TextNote").unwrap();
+        let child1_id = ws.create_note(&sib1_id, AddPosition::AsChild, "TextNote").unwrap();
+        let child2_id = ws.create_note(&child1_id, AddPosition::AsSibling, "TextNote").unwrap();
+
+        // Delete sib1 with promote — child1 and child2 move up to root level
+        ws.delete_note_promote(&sib1_id).unwrap();
+
+        // Collect remaining notes at root level
+        let notes = ws.list_all_notes().unwrap();
+
+        // sib1 must be gone
+        assert!(notes.iter().all(|n| n.id != sib1_id), "sib1 should be deleted");
+
+        // Gather positions of the surviving root-level notes
+        let root_level: Vec<_> = notes.iter().filter(|n| n.parent_id == Some(root.id.clone())).collect();
+        let mut positions: Vec<i32> = root_level.iter().map(|n| n.position).collect();
+        positions.sort();
+
+        // All positions must be unique
+        let unique_count = {
+            let mut deduped = positions.clone();
+            deduped.dedup();
+            deduped.len()
+        };
+        assert_eq!(
+            positions.len(), unique_count,
+            "Positions after promote must be unique, got: {:?}", positions
+        );
+
+        // sib2, child1, child2 should all be at root level
+        let surviving_ids: Vec<_> = root_level.iter().map(|n| n.id.clone()).collect();
+        assert!(surviving_ids.contains(&sib2_id), "sib2 should remain at root level");
+        assert!(surviving_ids.contains(&child1_id), "child1 should be promoted to root level");
+        assert!(surviving_ids.contains(&child2_id), "child2 should be promoted to root level");
     }
 
     /// Verifies that `delete_note` dispatches correctly to both deletion strategies.
