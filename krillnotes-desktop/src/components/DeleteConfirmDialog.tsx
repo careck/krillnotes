@@ -50,9 +50,6 @@ function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel }: Del
                 />
                 <div>
                   <div className="font-medium">Delete this note and all descendants</div>
-                  <div className="text-sm text-muted-foreground">
-                    (this note and all descendants)
-                  </div>
                 </div>
               </label>
               <label className="flex items-start gap-3 cursor-pointer">
