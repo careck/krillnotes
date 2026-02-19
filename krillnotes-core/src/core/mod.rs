@@ -26,7 +26,7 @@ pub use operation::Operation;
 #[doc(inline)]
 pub use operation_log::{OperationLog, PurgeStrategy};
 #[doc(inline)]
-pub use scripting::{FieldDefinition, Schema, SchemaRegistry};
+pub use scripting::{FieldDefinition, HookRegistry, Schema, ScriptRegistry};
 #[doc(inline)]
 pub use storage::Storage;
 #[doc(inline)]

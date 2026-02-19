@@ -17,7 +17,7 @@ pub use core::{
     note::{FieldValue, Note},
     operation::Operation,
     operation_log::{OperationLog, PurgeStrategy},
-    scripting::{FieldDefinition, Schema, SchemaRegistry},
+    scripting::{FieldDefinition, HookRegistry, Schema, ScriptRegistry},
     storage::Storage,
     workspace::{AddPosition, Workspace},
 };

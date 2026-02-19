@@ -387,7 +387,7 @@ fn get_schema_fields(
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
 
-    let schema = workspace.registry().get_schema(&node_type)
+    let schema = workspace.script_registry().get_schema(&node_type)
         .map_err(|e: KrillnotesError| e.to_string())?;
 
     Ok(schema.fields)
