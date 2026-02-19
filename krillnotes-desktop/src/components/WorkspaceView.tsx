@@ -117,7 +117,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
       {/* Right panel - Info */}
       <div className="flex-1 overflow-y-auto">
-        <InfoPanel selectedNote={selectedNote} />
+        <InfoPanel selectedNote={selectedNote} onNoteUpdated={() => {}} />
       </div>
 
       {/* Add Note Dialog */}
