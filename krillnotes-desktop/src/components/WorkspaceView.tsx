@@ -42,7 +42,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     };
   }, []);
 
-  const loadNotes = async () => {
+  const loadNotes = async (): Promise<Note[]> => {
     try {
       const fetchedNotes = await invoke<Note[]>('list_notes');
       setNotes(fetchedNotes);
@@ -63,8 +63,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           await invoke('set_selected_note', { noteId: firstRootId });
         }
       }
+
+      return fetchedNotes;
     } catch (err) {
       setError(`Failed to load notes: ${err}`);
+      return [];
     }
   };
 
@@ -89,6 +92,30 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   const handleNoteCreated = async () => {
     await loadNotes();
+  };
+
+  const handleNoteUpdated = async () => {
+    const currentId = selectedNoteId;
+    const freshNotes = await loadNotes();
+
+    // Auto-select if the previously selected note was deleted
+    if (currentId && !freshNotes.some(n => n.id === currentId)) {
+      const freshTree = buildTree(freshNotes);
+      const firstId = freshTree.length > 0
+        ? freshTree[0].note.id
+        : (freshNotes[0]?.id ?? null);
+
+      if (firstId) {
+        setSelectedNoteId(firstId);
+        try {
+          await invoke('set_selected_note', { noteId: firstId });
+        } catch (err) {
+          console.error('Failed to save auto-selection:', err);
+        }
+      } else {
+        setSelectedNoteId(null);
+      }
+    }
   };
 
   const selectedNote = selectedNoteId
@@ -117,7 +144,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
       {/* Right panel - Info */}
       <div className="flex-1 overflow-y-auto">
-        <InfoPanel selectedNote={selectedNote} onNoteUpdated={() => {}} />
+        <InfoPanel selectedNote={selectedNote} onNoteUpdated={handleNoteUpdated} />
       </div>
 
       {/* Add Note Dialog */}
