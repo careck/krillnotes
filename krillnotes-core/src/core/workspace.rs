@@ -1,10 +1,10 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
-// Rust guideline compliant 2026-02-19 (updated: delete_note_promote added)
+// Rust guideline compliant 2026-02-19 (updated: add delete_note strategy dispatcher)
 
 use crate::{
-    get_device_id, DeleteResult, FieldValue, KrillnotesError, Note, Operation, OperationLog,
-    PurgeStrategy, Result, SchemaRegistry, Storage,
+    get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note, Operation,
+    OperationLog, PurgeStrategy, Result, SchemaRegistry, Storage,
 };
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -717,6 +717,38 @@ impl Workspace {
         })
     }
 
+    /// Deletes `note_id` using the specified [`DeleteStrategy`].
+    ///
+    /// This is the single public entry-point for note deletion. It dispatches
+    /// to one of two internal methods:
+    ///
+    /// - [`DeleteStrategy::DeleteAll`] — calls [`Self::delete_note_recursive`],
+    ///   which removes the note and every descendant in a single atomic
+    ///   transaction.
+    /// - [`DeleteStrategy::PromoteChildren`] — calls [`Self::delete_note_promote`],
+    ///   which removes only the note itself and re-parents its direct children
+    ///   to the deleted note's former parent.
+    ///
+    /// The returned [`DeleteResult`] reports the total count of deleted notes
+    /// and the IDs of every affected note.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::NoteNotFound`] (for `PromoteChildren`)
+    /// or [`crate::KrillnotesError::Database`] (for either strategy) if the
+    /// underlying operation fails. All database mutations are transactional;
+    /// a failure leaves the workspace unchanged.
+    pub fn delete_note(
+        &mut self,
+        note_id: &str,
+        strategy: DeleteStrategy,
+    ) -> Result<DeleteResult> {
+        match strategy {
+            DeleteStrategy::DeleteAll => self.delete_note_recursive(note_id),
+            DeleteStrategy::PromoteChildren => self.delete_note_promote(note_id),
+        }
+    }
+
     /// Returns the number of direct children of `note_id`.
     ///
     /// Counts rows in the `notes` table whose `parent_id` equals `note_id`.
@@ -1302,5 +1334,35 @@ mod tests {
 
         let result = ws.delete_note_promote("nonexistent-id");
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
+    }
+
+    /// Verifies that `delete_note` dispatches correctly to both deletion strategies.
+    ///
+    /// - `DeleteAll` removes the target note and all descendants.
+    /// - `PromoteChildren` removes only the target, re-parenting its children to
+    ///   the grandparent.
+    #[test]
+    fn test_delete_note_with_strategy() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+
+        // Test DeleteAll strategy
+        let result = ws.delete_note(&child_id, DeleteStrategy::DeleteAll).unwrap();
+        assert_eq!(result.deleted_count, 1);
+
+        // Create new child for PromoteChildren test
+        let child2_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        let grandchild_id = ws.create_note(&child2_id, AddPosition::AsChild, "TextNote").unwrap();
+
+        let result = ws.delete_note(&child2_id, DeleteStrategy::PromoteChildren).unwrap();
+        assert_eq!(result.deleted_count, 1);
+
+        // Verify grandchild promoted
+        let notes = ws.list_all_notes().unwrap();
+        let gc = notes.iter().find(|n| n.id == grandchild_id).unwrap();
+        assert_eq!(gc.parent_id, Some(root.id));
     }
 }
