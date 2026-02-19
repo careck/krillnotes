@@ -19,6 +19,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [error, setError] = useState<string>('');
   const selectionInitialized = useRef(false);
+  const isRefreshing = useRef(false);
 
   // Load notes on mount
   useEffect(() => {
@@ -95,26 +96,30 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   };
 
   const handleNoteUpdated = async () => {
-    const currentId = selectedNoteId;
-    const freshNotes = await loadNotes();
+    if (isRefreshing.current) return;
+    isRefreshing.current = true;
+    try {
+      const currentId = selectedNoteId;
+      const freshNotes = await loadNotes();
 
-    // Auto-select if the previously selected note was deleted
-    if (currentId && !freshNotes.some(n => n.id === currentId)) {
-      const freshTree = buildTree(freshNotes);
-      const firstId = freshTree.length > 0
-        ? freshTree[0].note.id
-        : (freshNotes[0]?.id ?? null);
+      // Auto-select if the previously selected note was deleted
+      if (currentId && !freshNotes.some(n => n.id === currentId)) {
+        const freshTree = buildTree(freshNotes);
+        const firstId = freshTree.length > 0 ? freshTree[0].note.id : null;
 
-      if (firstId) {
-        setSelectedNoteId(firstId);
-        try {
-          await invoke('set_selected_note', { noteId: firstId });
-        } catch (err) {
-          console.error('Failed to save auto-selection:', err);
+        if (firstId) {
+          setSelectedNoteId(firstId);
+          try {
+            await invoke('set_selected_note', { noteId: firstId });
+          } catch (err) {
+            console.error('Failed to save auto-selection:', err);
+          }
+        } else {
+          setSelectedNoteId(null);
         }
-      } else {
-        setSelectedNoteId(null);
       }
+    } finally {
+      isRefreshing.current = false;
     }
   };
 
