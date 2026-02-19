@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import type { Note } from '../types';
 
 interface AddNoteDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onNoteCreated: () => void;
+  onNoteCreated: (noteId: string) => void;
   selectedNoteId: string | null;
   hasNotes: boolean;
 }
@@ -37,12 +38,12 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, selectedNoteId, hasNote
     setError('');
 
     try {
-      await invoke('create_note_with_type', {
+      const note = await invoke<Note>('create_note_with_type', {
         parentId: hasNotes ? selectedNoteId : null,
         position: hasNotes ? position : 'child',
         nodeType
       });
-      onNoteCreated();
+      onNoteCreated(note.id);
       onClose();
     } catch (err) {
       setError(`Failed to create note: ${err}`);
