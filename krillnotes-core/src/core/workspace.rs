@@ -543,6 +543,65 @@ impl Workspace {
         }
     }
 
+    /// Returns the direct children of `parent_id` as a [`Vec<Note>`], ordered
+    /// by `position`.
+    ///
+    /// Only immediate children are returned; grandchildren and deeper
+    /// descendants are not included.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError`] if the database query fails.
+    pub fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id, title, node_type, parent_id, position,
+                    created_at, modified_at, created_by, modified_by,
+                    fields_json, is_expanded
+             FROM notes WHERE parent_id = ?1 ORDER BY position",
+        )?;
+
+        let raw_rows = stmt
+            .query_map(rusqlite::params![parent_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, i64>(10)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        raw_rows
+            .into_iter()
+            .map(
+                |(id, title, node_type, note_parent_id, position,
+                  created_at, modified_at, created_by, modified_by,
+                  fields_json, is_expanded_int)| {
+                    Ok(Note {
+                        id,
+                        title,
+                        node_type,
+                        parent_id: note_parent_id,
+                        position: position as i32,
+                        created_at,
+                        modified_at,
+                        created_by,
+                        modified_by,
+                        fields: serde_json::from_str(&fields_json)?,
+                        is_expanded: is_expanded_int == 1,
+                    })
+                },
+            )
+            .collect()
+    }
+
     /// Deletes `note_id` and all of its descendants recursively.
     ///
     /// The entire subtree rooted at `note_id` is removed within a single
