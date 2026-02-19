@@ -55,8 +55,6 @@ impl Schema {
 }
 
 /// A stored pre-save hook: the Rhai closure and the AST it was defined in.
-// Fields are read by `run_on_save_hook` (Task 3). Remove this allow once that method exists.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 struct HookEntry {
     fn_ptr: FnPtr,
@@ -176,6 +174,94 @@ impl SchemaRegistry {
         self.hooks.lock().unwrap().contains_key(schema_name)
     }
 
+    /// Runs the pre-save hook registered for `schema_name`, if any.
+    ///
+    /// Builds a Rhai note map from the provided values, calls the stored closure,
+    /// and parses the returned map back to Rust types.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for `schema_name`.
+    /// Returns `Ok(Some((title, fields)))` with the hook's output on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error
+    /// or returns a malformed map.
+    pub fn run_on_save_hook(
+        &self,
+        schema_name: &str,
+        note_id: &str,
+        node_type: &str,
+        title: &str,
+        fields: &HashMap<String, FieldValue>,
+    ) -> Result<Option<(String, HashMap<String, FieldValue>)>> {
+        // Clone the entry out of the mutex so the lock is not held during the call.
+        let entry = {
+            let hooks = self.hooks.lock().unwrap();
+            hooks.get(schema_name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        let schema = self.get_schema(schema_name)?;
+
+        // Build the fields sub-map.
+        let mut fields_map = Map::new();
+        for (k, v) in fields {
+            fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+
+        // Build the top-level note map.
+        let mut note_map = Map::new();
+        note_map.insert("id".into(), Dynamic::from(note_id.to_string()));
+        note_map.insert("node_type".into(), Dynamic::from(node_type.to_string()));
+        note_map.insert("title".into(), Dynamic::from(title.to_string()));
+        note_map.insert("fields".into(), Dynamic::from(fields_map));
+
+        // Call the closure.
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(&self.engine, &entry.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error: {}", e)))?;
+
+        // Parse the returned map.
+        let result_map = result.try_cast::<Map>().ok_or_else(|| {
+            KrillnotesError::Scripting("on_save hook must return the note map".to_string())
+        })?;
+
+        let new_title = result_map
+            .get("title")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .ok_or_else(|| {
+                KrillnotesError::Scripting("hook result 'title' must be a string".to_string())
+            })?;
+
+        let new_fields_dyn = result_map
+            .get("fields")
+            .and_then(|v| v.clone().try_cast::<Map>())
+            .ok_or_else(|| {
+                KrillnotesError::Scripting("hook result 'fields' must be a map".to_string())
+            })?;
+
+        // Convert each field back, guided by the schema's type definitions.
+        // Fields present in the schema but absent from the hook result fall back
+        // to the original value.
+        let mut new_fields = HashMap::new();
+        for field_def in &schema.fields {
+            let dyn_val = new_fields_dyn
+                .get(field_def.name.as_str())
+                .cloned()
+                .unwrap_or(Dynamic::UNIT);
+            let fv = dynamic_to_field_value(dyn_val, &field_def.field_type).map_err(|e| {
+                KrillnotesError::Scripting(format!("field '{}': {}", field_def.name, e))
+            })?;
+            new_fields.insert(field_def.name.clone(), fv);
+        }
+
+        Ok(Some((new_title, new_fields)))
+    }
+
     fn parse_schema(name: &str, def: &Map) -> Result<Schema> {
         let fields_array = def
             .get("fields")
@@ -222,8 +308,6 @@ impl SchemaRegistry {
 /// `Date(None)` maps to `Dynamic::UNIT` (`()`).
 /// `Date(Some(d))` maps to an ISO 8601 string `"YYYY-MM-DD"`.
 /// All other variants map to their natural Rhai primitive.
-// Used by `run_on_save_hook` (Task 3). Remove this allow once that method exists.
-#[allow(dead_code)]
 fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
     match fv {
         FieldValue::Text(s) => Dynamic::from(s.clone()),
@@ -239,8 +323,6 @@ fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
 ///
 /// Returns [`KrillnotesError::Scripting`] if the Dynamic value cannot be
 /// converted to the expected Rust type.
-// Used by `run_on_save_hook` (Task 3). Remove this allow once that method exists.
-#[allow(dead_code)]
 fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
     match field_type {
         "text" => {
@@ -480,5 +562,49 @@ mod tests {
     fn test_dynamic_to_field_value_email() {
         let fv = dynamic_to_field_value(Dynamic::from("x@y.com".to_string()), "email").unwrap();
         assert_eq!(fv, FieldValue::Email("x@y.com".into()));
+    }
+
+    #[test]
+    fn test_run_on_save_hook_sets_title() {
+        let mut registry = SchemaRegistry::new().unwrap();
+        registry
+            .load_script(
+                r#"
+            schema("Person", #{
+                fields: [
+                    #{ name: "first", type: "text", required: false },
+                    #{ name: "last",  type: "text", required: false },
+                ]
+            });
+            on_save("Person", |note| {
+                note.title = note.fields["last"] + ", " + note.fields["first"];
+                note
+            });
+        "#,
+            )
+            .unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
+        fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
+
+        let result = registry
+            .run_on_save_hook("Person", "id-1", "Person", "old title", &fields)
+            .unwrap();
+
+        assert!(result.is_some());
+        let (new_title, new_fields) = result.unwrap();
+        assert_eq!(new_title, "Doe, John");
+        assert_eq!(new_fields.get("first"), Some(&FieldValue::Text("John".to_string())));
+    }
+
+    #[test]
+    fn test_run_on_save_hook_no_hook_returns_none() {
+        let registry = SchemaRegistry::new().unwrap();
+        let fields = HashMap::new();
+        let result = registry
+            .run_on_save_hook("TextNote", "id-1", "TextNote", "title", &fields)
+            .unwrap();
+        assert!(result.is_none());
     }
 }
