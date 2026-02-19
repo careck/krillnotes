@@ -547,8 +547,6 @@ impl Workspace {
     ///
     /// Queries rows in `notes` whose `parent_id` equals `note_id`, ordered
     /// by `position`. Grandchildren and deeper descendants are not included.
-    /// This helper is used by [`Workspace::delete_note_recursive`] to walk
-    /// the subtree without duplicating row-mapping logic.
     fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
             "SELECT id, title, node_type, parent_id, position,
@@ -601,10 +599,11 @@ impl Workspace {
 
     /// Deletes `note_id` and all of its descendants recursively.
     ///
-    /// The subtree rooted at `note_id` is walked depth-first. Every note in
-    /// the subtree is removed from the `notes` table; no re-parenting occurs.
-    /// The returned [`DeleteResult`] reports the total count of removed notes
-    /// and the IDs of every note that was deleted.
+    /// The entire subtree rooted at `note_id` is removed within a single
+    /// SQLite transaction, so a mid-subtree failure leaves the database
+    /// unchanged. Every note in the subtree is deleted from the `notes`
+    /// table; no re-parenting occurs. The returned [`DeleteResult`] reports
+    /// the total count of removed notes and every deleted ID.
     ///
     /// This operation is intentionally excluded from the operation log:
     /// destructive bulk deletes are not currently part of the collaborative
@@ -615,21 +614,49 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::Database`] if any SQLite operation
     /// fails, including when `note_id` does not exist (the DELETE silently
     /// affects zero rows, but child queries will return empty results rather
-    /// than errors in that case).
+    /// than errors in that case). The transaction is rolled back automatically
+    /// on any failure.
     pub fn delete_note_recursive(&mut self, note_id: &str) -> Result<DeleteResult> {
-        let mut affected_ids = vec![note_id.to_string()];
-        let children = self.get_children(note_id)?;
+        let tx = self.storage.connection_mut().transaction()?;
+        let result = Self::delete_recursive_in_tx(&tx, note_id)?;
+        tx.commit()?;
+        Ok(result)
+    }
 
-        // Recursively delete all children before removing this node so that
-        // foreign-key constraints (if ever enabled) are satisfied and the
-        // subtree is always removed leaves-first.
-        for child in children {
-            let child_result = self.delete_note_recursive(&child.id)?;
+    /// Recursively deletes `note_id` and all descendants within an existing transaction.
+    ///
+    /// Only child IDs are fetched (not full `Note` structs) to keep the query
+    /// minimal. Deletion proceeds depth-first: children are removed before
+    /// their parent so that any future foreign-key constraint can be satisfied.
+    ///
+    /// This helper must not open its own transaction; callers are responsible
+    /// for wrapping the call in a transaction, as SQLite does not support
+    /// nested transactions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure.
+    fn delete_recursive_in_tx(
+        tx: &rusqlite::Transaction,
+        note_id: &str,
+    ) -> Result<DeleteResult> {
+        let mut affected_ids = vec![note_id.to_string()];
+
+        // Fetch only the IDs of direct children — avoids deserialising full
+        // Note structs and keeps the recursive helper lightweight.
+        let mut stmt = tx.prepare("SELECT id FROM notes WHERE parent_id = ?1")?;
+        let child_ids: Vec<String> = stmt
+            .query_map(rusqlite::params![note_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        // Recurse into children before deleting this node (leaves-first order).
+        for child_id in child_ids {
+            let child_result = Self::delete_recursive_in_tx(tx, &child_id)?;
             affected_ids.extend(child_result.affected_ids);
         }
 
-        // Delete the note itself after all descendants have been removed.
-        self.storage.connection().execute(
+        // Delete this note after all descendants have been removed.
+        tx.execute(
             "DELETE FROM notes WHERE id = ?1",
             rusqlite::params![note_id],
         )?;
