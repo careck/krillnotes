@@ -266,5 +266,9 @@ mod tests {
         assert_eq!(email_field.field_type, "email");
         let birthdate_field = schema.fields.iter().find(|f| f.name == "birthdate").unwrap();
         assert_eq!(birthdate_field.field_type, "date");
+        let first_name_field = schema.fields.iter().find(|f| f.name == "first_name").unwrap();
+        assert!(first_name_field.required, "first_name should be required");
+        let last_name_field = schema.fields.iter().find(|f| f.name == "last_name").unwrap();
+        assert!(last_name_field.required, "last_name should be required");
     }
 }
