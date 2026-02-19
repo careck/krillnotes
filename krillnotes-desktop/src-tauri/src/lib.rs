@@ -422,6 +422,33 @@ fn update_note(
         .map_err(|e| e.to_string())
 }
 
+/// Returns the number of direct children of the note identified by `note_id`.
+///
+/// Queries the calling window's workspace for the count of notes whose
+/// `parent_id` matches `note_id`. The count is zero when `note_id` has no
+/// children; the note itself does not need to be expanded for this query to
+/// succeed.
+///
+/// # Errors
+///
+/// Returns an error string if no workspace is open for the calling window,
+/// or if the underlying SQLite query fails.
+#[tauri::command]
+fn count_children(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+) -> std::result::Result<usize, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace open")?;
+
+    workspace.count_children(&note_id)
+        .map_err(|e| e.to_string())
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -486,6 +513,7 @@ pub fn run() {
             create_note_with_type,
             get_schema_fields,
             update_note,
+            count_children,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
