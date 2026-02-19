@@ -20,6 +20,8 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
   const [isDirty, setIsDirty] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [childCount, setChildCount] = useState(0);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!selectedNote) {
@@ -85,10 +87,11 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
 
   const handleDeleteClick = async () => {
     if (!selectedNote) return;
-
+    const noteId = selectedNote.id;
     try {
-      const count = await invoke<number>('count_children', { noteId: selectedNote.id });
+      const count = await invoke<number>('count_children', { noteId });
       setChildCount(count);
+      setDeleteTargetId(noteId);
       setShowDeleteDialog(true);
     } catch (err) {
       alert(`Failed to check children: ${err}`);
@@ -96,23 +99,28 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
   };
 
   const handleDeleteConfirm = async (strategy: DeleteStrategy) => {
-    if (!selectedNote) return;
-
+    if (!deleteTargetId || isDeleting) return;
+    setIsDeleting(true);
     try {
       await invoke<DeleteResult>('delete_note', {
-        noteId: selectedNote.id,
+        noteId: deleteTargetId,
         strategy,
       });
       setShowDeleteDialog(false);
+      setDeleteTargetId(null);
+      setIsDeleting(false);
       onNoteUpdated();
     } catch (err) {
       alert(`Failed to delete: ${err}`);
       setShowDeleteDialog(false);
+      setDeleteTargetId(null);
+      setIsDeleting(false);
     }
   };
 
   const handleDeleteCancel = () => {
     setShowDeleteDialog(false);
+    setDeleteTargetId(null);
   };
 
   if (!selectedNote) {
@@ -264,6 +272,7 @@ function InfoPanel({ selectedNote, onNoteUpdated }: InfoPanelProps) {
           childCount={childCount}
           onConfirm={handleDeleteConfirm}
           onCancel={handleDeleteCancel}
+          disabled={isDeleting}
         />
       )}
     </div>
