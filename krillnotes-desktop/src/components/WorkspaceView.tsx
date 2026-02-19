@@ -5,7 +5,10 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import TreeView from './TreeView';
 import InfoPanel from './InfoPanel';
 import AddNoteDialog from './AddNoteDialog';
-import type { Note, TreeNode, WorkspaceInfo } from '../types';
+import ContextMenu from './ContextMenu';
+import DeleteConfirmDialog from './DeleteConfirmDialog';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult } from '../types';
+import { DeleteStrategy } from '../types';
 import { buildTree } from '../utils/tree';
 
 interface WorkspaceViewProps {
@@ -22,6 +25,18 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const selectionInitialized = useRef(false);
   const isRefreshing = useRef(false);
 
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string } | null>(null);
+
+  // Delete dialog state (lifted from InfoPanel)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteChildCount, setPendingDeleteChildCount] = useState(0);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Incremented to signal InfoPanel to enter edit mode
+  const [requestEditMode, setRequestEditMode] = useState(0);
+
   selectedNoteIdRef.current = selectedNoteId;
 
   // Load notes on mount
@@ -32,7 +47,6 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // Set up menu listener
   useEffect(() => {
     const unlisten = listen<string>('menu-action', async (event) => {
-      // Only handle menu events if this window is focused
       const isFocused = await getCurrentWebviewWindow().isFocused();
       if (!isFocused) return;
 
@@ -54,14 +68,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const builtTree = buildTree(fetchedNotes);
       setTree(builtTree);
 
-      // Set initial selection only on first load — subsequent reloads preserve
-      // the current in-session selection managed by handleSelectNote
       if (!selectionInitialized.current) {
         selectionInitialized.current = true;
         if (workspaceInfo.selectedNoteId) {
           setSelectedNoteId(workspaceInfo.selectedNoteId);
         } else if (builtTree.length > 0) {
-          // Auto-select first root node
           const firstRootId = builtTree[0].note.id;
           setSelectedNoteId(firstRootId);
           await invoke('set_selected_note', { noteId: firstRootId });
@@ -87,7 +98,6 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const handleToggleExpand = async (noteId: string) => {
     try {
       await invoke('toggle_note_expansion', { noteId });
-      // Reload notes to get updated is_expanded values
       await loadNotes();
     } catch (err) {
       console.error('Failed to toggle expansion:', err);
@@ -105,7 +115,6 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const currentId = selectedNoteIdRef.current;
       const freshNotes = await loadNotes();
 
-      // Auto-select if the previously selected note was deleted
       if (currentId && !freshNotes.some(n => n.id === currentId)) {
         const freshTree = buildTree(freshNotes);
         const firstId = freshTree.length > 0 ? freshTree[0].note.id : null;
@@ -126,8 +135,84 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     }
   };
 
+  // --- Context menu handlers ---
+
+  const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId });
+  };
+
+  const handleContextAddNote = (noteId: string) => {
+    setContextMenu(null);
+    setSelectedNoteId(noteId);
+    setShowAddDialog(true);
+    invoke('set_selected_note', { noteId }).catch(err =>
+      console.error('Failed to save selection:', err)
+    );
+  };
+
+  const handleContextEdit = (noteId: string) => {
+    setContextMenu(null);
+    setSelectedNoteId(noteId);
+    setRequestEditMode(prev => prev + 1);
+    invoke('set_selected_note', { noteId }).catch(err =>
+      console.error('Failed to save selection:', err)
+    );
+  };
+
+  const handleContextDelete = (noteId: string) => {
+    setContextMenu(null);
+    setSelectedNoteId(noteId);
+    invoke('set_selected_note', { noteId }).catch(err =>
+      console.error('Failed to save selection:', err)
+    );
+    handleDeleteRequest(noteId);
+  };
+
+  // --- Delete handlers (lifted from InfoPanel) ---
+
+  const handleDeleteRequest = async (noteId: string) => {
+    try {
+      const count = await invoke<number>('count_children', { noteId });
+      setPendingDeleteChildCount(count);
+      setPendingDeleteId(noteId);
+      setShowDeleteDialog(true);
+    } catch (err) {
+      alert(`Failed to check children: ${err}`);
+    }
+  };
+
+  const handleDeleteConfirm = async (strategy: DeleteStrategy) => {
+    if (!pendingDeleteId || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await invoke<DeleteResult>('delete_note', {
+        noteId: pendingDeleteId,
+        strategy,
+      });
+      setShowDeleteDialog(false);
+      setPendingDeleteId(null);
+      setIsDeleting(false);
+      handleNoteUpdated();
+    } catch (err) {
+      alert(`Failed to delete: ${err}`);
+      setShowDeleteDialog(false);
+      setPendingDeleteId(null);
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteDialog(false);
+    setPendingDeleteId(null);
+    setIsDeleting(false);
+  };
+
   const selectedNote = selectedNoteId
     ? notes.find(n => n.id === selectedNoteId) || null
+    : null;
+
+  const pendingDeleteNote = pendingDeleteId
+    ? notes.find(n => n.id === pendingDeleteId) || null
     : null;
 
   if (error) {
@@ -147,12 +232,18 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           selectedNoteId={selectedNoteId}
           onSelect={handleSelectNote}
           onToggleExpand={handleToggleExpand}
+          onContextMenu={handleContextMenu}
         />
       </div>
 
       {/* Right panel - Info */}
       <div className="flex-1 overflow-y-auto">
-        <InfoPanel selectedNote={selectedNote} onNoteUpdated={handleNoteUpdated} />
+        <InfoPanel
+          selectedNote={selectedNote}
+          onNoteUpdated={handleNoteUpdated}
+          onDeleteRequest={handleDeleteRequest}
+          requestEditMode={requestEditMode}
+        />
       </div>
 
       {/* Add Note Dialog */}
@@ -163,6 +254,29 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         selectedNoteId={selectedNoteId}
         hasNotes={notes.length > 0}
       />
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onAddNote={() => handleContextAddNote(contextMenu.noteId)}
+          onEdit={() => handleContextEdit(contextMenu.noteId)}
+          onDelete={() => handleContextDelete(contextMenu.noteId)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Delete Confirm Dialog (handles both InfoPanel button and context menu) */}
+      {showDeleteDialog && pendingDeleteNote && (
+        <DeleteConfirmDialog
+          noteTitle={pendingDeleteNote.title}
+          childCount={pendingDeleteChildCount}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
+          disabled={isDeleting}
+        />
+      )}
     </div>
   );
 }
