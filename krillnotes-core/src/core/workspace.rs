@@ -1,9 +1,11 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
 use crate::{
-    get_device_id, Note, Operation, OperationLog, PurgeStrategy, Result, SchemaRegistry, Storage,
+    get_device_id, FieldValue, KrillnotesError, Note, Operation, OperationLog, PurgeStrategy,
+    Result, SchemaRegistry, Storage,
 };
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -538,6 +540,48 @@ impl Workspace {
             Err(e) => Err(e.into()),
         }
     }
+
+    /// Updates the `title` and `fields` of an existing note, refreshing `modified_at`.
+    ///
+    /// Both the title and the full fields map are replaced atomically within a
+    /// single SQLite transaction. The `modified_at` timestamp is set to the
+    /// current UTC second and `modified_by` is set to the active user ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::NoteNotFound`] if no note with `note_id`
+    /// exists in the database.  Returns [`crate::KrillnotesError::Json`] if
+    /// `fields` cannot be serialised to JSON.  Returns
+    /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
+    pub fn update_note(
+        &mut self,
+        note_id: &str,
+        title: String,
+        fields: HashMap<String, FieldValue>,
+    ) -> Result<Note> {
+        let now = chrono::Utc::now().timestamp();
+        let fields_json = serde_json::to_string(&fields)?;
+
+        let tx = self.storage.connection_mut().transaction()?;
+
+        tx.execute(
+            "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3, modified_by = ?4 WHERE id = ?5",
+            rusqlite::params![title, fields_json, now, self.current_user_id, note_id],
+        )?;
+
+        // Detect nonexistent IDs: SQLite UPDATE on a missing row succeeds but
+        // touches zero rows. Surface this as NoteNotFound rather than silently
+        // returning stale data.
+        if tx.changes() == 0 {
+            return Err(KrillnotesError::NoteNotFound(note_id.to_string()));
+        }
+
+        tx.commit()?;
+
+        // Re-use get_note to fetch the persisted row, keeping row-mapping logic
+        // in a single place.
+        self.get_note(note_id)
+    }
 }
 
 fn humanize(filename: &str) -> String {
@@ -559,6 +603,8 @@ fn humanize(filename: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FieldValue;
+    use std::collections::HashMap;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -896,5 +942,40 @@ mod tests {
         assert_eq!(child1.position, 0, "child1 should remain at position 0");
         assert_eq!(child3.position, 1, "child3 (inserted after child1) should be at position 1");
         assert_eq!(child2.position, 2, "child2 should be bumped to position 2");
+    }
+
+    #[test]
+    fn test_update_note() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Get the root note
+        let notes = ws.list_all_notes().unwrap();
+        let note_id = notes[0].id.clone();
+        let original_modified = notes[0].modified_at;
+
+        // Wait 1 second to ensure modified_at changes
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Update the note
+        let new_title = "Updated Title".to_string();
+        let mut new_fields = HashMap::new();
+        new_fields.insert("body".to_string(), FieldValue::Text("Updated body".to_string()));
+
+        let updated = ws.update_note(&note_id, new_title.clone(), new_fields.clone()).unwrap();
+
+        // Verify changes
+        assert_eq!(updated.title, new_title);
+        assert_eq!(updated.fields.get("body"), Some(&FieldValue::Text("Updated body".to_string())));
+        assert!(updated.modified_at > original_modified);
+    }
+
+    #[test]
+    fn test_update_note_not_found() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let result = ws.update_note("nonexistent-id", "Title".to_string(), HashMap::new());
+        assert!(result.is_err());
     }
 }
