@@ -14,13 +14,13 @@ function DeleteConfirmDialog({ noteTitle, childCount, onConfirm, onCancel, disab
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !disabled) {
         onCancel();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
+  }, [onCancel, disabled]);
 
   const handleConfirm = () => {
     onConfirm(strategy);
