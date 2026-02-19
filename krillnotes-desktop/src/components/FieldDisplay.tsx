@@ -35,7 +35,7 @@ function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
       if (!value.Date) {
         return <span className="text-muted-foreground italic">(empty)</span>;
       }
-      const formatted = new Date(value.Date).toLocaleDateString(undefined, {
+      const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(undefined, {
         year: 'numeric', month: 'long', day: 'numeric',
       });
       return <p>{formatted}</p>;
