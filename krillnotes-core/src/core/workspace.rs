@@ -813,6 +813,27 @@ impl Workspace {
         title: String,
         fields: HashMap<String, FieldValue>,
     ) -> Result<Note> {
+        // Look up this note's schema so the pre-save hook can be dispatched.
+        let node_type: String = self
+            .storage
+            .connection()
+            .query_row(
+                "SELECT node_type FROM notes WHERE id = ?1",
+                rusqlite::params![note_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+
+        // Run the pre-save hook. If a hook is registered it may modify title and fields.
+        let (title, fields) =
+            match self
+                .registry
+                .run_on_save_hook(&node_type, note_id, &node_type, &title, &fields)?
+            {
+                Some((new_title, new_fields)) => (new_title, new_fields),
+                None => (title, fields),
+            };
+
         let now = chrono::Utc::now().timestamp();
         let fields_json = serde_json::to_string(&fields)?;
 
@@ -1419,6 +1440,39 @@ mod tests {
         assert!(surviving_ids.contains(&sib2_id), "sib2 should remain at root level");
         assert!(surviving_ids.contains(&child1_id), "child1 should be promoted to root level");
         assert!(surviving_ids.contains(&child2_id), "child2 should be promoted to root level");
+    }
+
+    #[test]
+    fn test_update_contact_derives_title_from_hook() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Create a root note to act as parent
+        let notes = ws.list_all_notes().unwrap();
+        let root_id = notes[0].id.clone();
+
+        let contact_id = ws
+            .create_note(&root_id, AddPosition::AsChild, "Contact")
+            .unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("first_name".to_string(), FieldValue::Text("Alice".to_string()));
+        fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("last_name".to_string(), FieldValue::Text("Walker".to_string()));
+        fields.insert("phone".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("mobile".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("email".to_string(), FieldValue::Email("".to_string()));
+        fields.insert("birthdate".to_string(), FieldValue::Date(None));
+        fields.insert("address_street".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+
+        let updated = ws
+            .update_note(&contact_id, "ignored title".to_string(), fields)
+            .unwrap();
+
+        assert_eq!(updated.title, "Walker, Alice");
     }
 
     /// Verifies that `delete_note` dispatches correctly to both deletion strategies.
