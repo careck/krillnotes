@@ -6,9 +6,10 @@ interface TreeNodeProps {
   level: number;
   onSelect: (noteId: string) => void;
   onToggleExpand: (noteId: string) => void;
+  onContextMenu: (e: React.MouseEvent, noteId: string) => void;
 }
 
-function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand }: TreeNodeProps) {
+function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu }: TreeNodeProps) {
   const hasChildren = node.children.length > 0;
   const isSelected = node.note.id === selectedNoteId;
   const isExpanded = node.note.isExpanded;
@@ -21,6 +22,7 @@ function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand }: Tre
         }`}
         style={{ paddingLeft: `${level * 20 + 8}px` }}
         onClick={() => onSelect(node.note.id)}
+        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.note.id); }}
       >
         {hasChildren && (
           <button
@@ -47,6 +49,7 @@ function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand }: Tre
               level={level + 1}
               onSelect={onSelect}
               onToggleExpand={onToggleExpand}
+              onContextMenu={onContextMenu}
             />
           ))}
         </div>

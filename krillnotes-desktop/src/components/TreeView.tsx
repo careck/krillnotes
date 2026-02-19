@@ -6,9 +6,10 @@ interface TreeViewProps {
   selectedNoteId: string | null;
   onSelect: (noteId: string) => void;
   onToggleExpand: (noteId: string) => void;
+  onContextMenu: (e: React.MouseEvent, noteId: string) => void;
 }
 
-function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand }: TreeViewProps) {
+function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu }: TreeViewProps) {
   if (tree.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -27,6 +28,7 @@ function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand }: TreeViewPr
           level={0}
           onSelect={onSelect}
           onToggleExpand={onToggleExpand}
+          onContextMenu={onContextMenu}
         />
       ))}
     </div>
