@@ -219,6 +219,8 @@ mod tests {
                     can_edit: true,
                 },
             ],
+            title_can_view: true,
+            title_can_edit: true,
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -247,6 +249,8 @@ mod tests {
                 can_view: true,
                 can_edit: true,
             }],
+            title_can_view: true,
+            title_can_edit: true,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -263,6 +267,8 @@ mod tests {
                 can_view: true,
                 can_edit: true,
             }],
+            title_can_view: true,
+            title_can_edit: true,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -402,6 +408,55 @@ mod tests {
         assert!(schema.fields[0].can_edit,  "explicit can_edit: true should parse as true");
         assert!(!schema.fields[1].can_view, "explicit can_view: false should parse as false");
         assert!(!schema.fields[1].can_edit, "explicit can_edit: false should parse as false");
+    }
+
+
+    #[test]
+    fn test_schema_title_flags_default_to_true() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TitleTest", #{
+                fields: [
+                    #{ name: "name", type: "text" },
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("TitleTest").unwrap();
+        assert!(schema.title_can_view, "title_can_view should default to true");
+        assert!(schema.title_can_edit, "title_can_edit should default to true");
+    }
+
+    #[test]
+    fn test_schema_title_can_edit_false() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TitleHidden", #{
+                title_can_edit: false,
+                fields: [
+                    #{ name: "name", type: "text" },
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("TitleHidden").unwrap();
+        assert!(schema.title_can_view);
+        assert!(!schema.title_can_edit);
+    }
+
+    #[test]
+    fn test_schema_title_flags_explicit_true() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TitleExplicit", #{
+                title_can_view: true,
+                title_can_edit: true,
+                fields: [
+                    #{ name: "name", type: "text" },
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("TitleExplicit").unwrap();
+        assert!(schema.title_can_view,  "explicit title_can_view: true should parse as true");
+        assert!(schema.title_can_edit,  "explicit title_can_edit: true should parse as true");
     }
 
 }
