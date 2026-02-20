@@ -21,7 +21,7 @@ function defaultValueForFieldType(fieldType: string): FieldValue {
   }
 }
 
-export function isEmptyFieldValue(value: FieldValue): boolean {
+function isEmptyFieldValue(value: FieldValue): boolean {
   if ('Text' in value)    return value.Text === '';
   if ('Email' in value)   return value.Email === '';
   if ('Date' in value)    return value.Date === null;
@@ -236,10 +236,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       <div className="mb-6">
         <h2 className="text-xl font-semibold mb-4">Fields</h2>
 
-        {schemaInfo.fields
-          .filter(field => isEditing ? field.canEdit : field.canView)
-          .map(field => (
-            isEditing ? (
+        {isEditing ? (
+          schemaInfo.fields
+            .filter(field => field.canEdit)
+            .map(field => (
               <FieldEditor
                 key={field.name}
                 fieldName={field.name}
@@ -247,15 +247,22 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 required={field.required}
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
-            ) : (
-              <FieldDisplay
-                key={field.name}
-                fieldName={field.name}
-                value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
-              />
-            )
-          ))
-        }
+            ))
+        ) : (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
+            {schemaInfo.fields
+              .filter(field => field.canView)
+              .filter(field => !isEmptyFieldValue(selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)))
+              .map(field => (
+                <FieldDisplay
+                  key={field.name}
+                  fieldName={field.name}
+                  value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
+                />
+              ))
+            }
+          </dl>
+        )}
 
         {legacyFieldNames.length > 0 && (
           <>
