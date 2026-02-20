@@ -13,6 +13,8 @@ pub struct FieldDefinition {
     pub name: String,
     pub field_type: String,
     pub required: bool,
+    pub can_view: bool,
+    pub can_edit: bool,
 }
 
 /// A parsed note-type schema containing an ordered list of field definitions.
@@ -73,7 +75,17 @@ impl Schema {
                 .and_then(|v| v.clone().try_cast::<bool>())
                 .unwrap_or(false);
 
-            fields.push(FieldDefinition { name: field_name, field_type, required });
+            let can_view = field_map
+                .get("can_view")
+                .and_then(|v| v.clone().try_cast::<bool>())
+                .unwrap_or(true);
+
+            let can_edit = field_map
+                .get("can_edit")
+                .and_then(|v| v.clone().try_cast::<bool>())
+                .unwrap_or(true);
+
+            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit });
         }
 
         Ok(Schema { name: name.to_string(), fields })
