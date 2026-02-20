@@ -248,21 +248,23 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
             ))
-        ) : (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
-            {schemaInfo.fields
-              .filter(field => field.canView)
-              .filter(field => !isEmptyFieldValue(selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)))
-              .map(field => (
+        ) : (() => {
+          const visibleFields = schemaInfo.fields
+            .filter(field => field.canView)
+            .filter(field => !isEmptyFieldValue(selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)));
+          if (visibleFields.length === 0) return null;
+          return (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
+              {visibleFields.map(field => (
                 <FieldDisplay
                   key={field.name}
                   fieldName={field.name}
                   value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
                 />
-              ))
-            }
-          </dl>
-        )}
+              ))}
+            </dl>
+          );
+        })()}
 
         {legacyFieldNames.length > 0 && (() => {
           if (isEditing) {

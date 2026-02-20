@@ -9,11 +9,7 @@ interface FieldDisplayProps {
 function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
   const renderValue = () => {
     if ('Text' in value) {
-      return (
-        <p className="whitespace-pre-wrap break-words">
-          {value.Text || <span className="text-muted-foreground italic">(empty)</span>}
-        </p>
-      );
+      return <p className="whitespace-pre-wrap break-words">{value.Text}</p>;
     } else if ('Number' in value) {
       return <p>{value.Number}</p>;
     } else if ('Boolean' in value) {
@@ -25,13 +21,8 @@ function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
         </span>
       );
     } else if ('Email' in value) {
-      return value.Email
-        ? <a href={`mailto:${value.Email}`} className="text-primary underline">{value.Email}</a>
-        : <span className="text-muted-foreground italic">(empty)</span>;
+      return <a href={`mailto:${value.Email}`} className="text-primary underline">{value.Email}</a>;
     } else if ('Date' in value) {
-      if (!value.Date) {
-        return <span className="text-muted-foreground italic">(empty)</span>;
-      }
       const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(undefined, {
         year: 'numeric', month: 'long', day: 'numeric',
       });
