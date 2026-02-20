@@ -1409,6 +1409,7 @@ mod tests {
         fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
         fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
         fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("is_family".to_string(), FieldValue::Boolean(false));
 
         let result = ws.update_note(&contact_id, "".to_string(), fields);
         assert!(
@@ -1502,6 +1503,7 @@ mod tests {
         fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
         fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
         fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("is_family".to_string(), FieldValue::Boolean(false));
 
         let updated = ws
             .update_note(&contact_id, "ignored title".to_string(), fields)
