@@ -105,6 +105,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   };
 
   const handleTreeKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
     if (!selectedNoteId) return;
     const flat = flattenVisibleTree(tree);
     const idx = flat.findIndex(n => n.note.id === selectedNoteId);
