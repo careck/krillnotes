@@ -22,19 +22,31 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
   const [isDirty, setIsDirty] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const pendingEditModeRef = useRef(false);
 
   useEffect(() => {
     if (!selectedNote) {
       setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true });
       setIsEditing(false);
+      pendingEditModeRef.current = false;
       return;
     }
 
     invoke<SchemaInfo>('get_schema_fields', { nodeType: selectedNote.nodeType })
-      .then(info => setSchemaInfo(info))
+      .then(info => {
+        setSchemaInfo(info);
+        if (pendingEditModeRef.current) {
+          setIsEditing(true);
+          pendingEditModeRef.current = false;
+        }
+      })
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
         setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true });
+        if (pendingEditModeRef.current) {
+          setIsEditing(true);
+          pendingEditModeRef.current = false;
+        }
       });
   }, [selectedNote?.id]);
 
@@ -48,14 +60,16 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   }, [selectedNote?.id]);
 
   // Enter edit mode when WorkspaceView requests it (e.g. via context menu, note creation).
-  // NOTE: This effect must be declared AFTER the selectedNote?.id effect above.
+  // NOTE: This effect must be declared AFTER the selectedNote?.id effects above.
   // When note creation triggers both a selection change and a requestEditMode increment,
   // the IPC await in handleSelectNote separates them into different renders (selection
-  // resets isEditing first, then this effect sets it to true). The declaration order
-  // ensures correct behaviour if they ever land in the same render.
+  // resets isEditing first, then this effect fires). Edit mode entry is deferred via
+  // pendingEditModeRef until the schema fetch resolves, preventing a flash of incorrect
+  // title state (e.g. Contact notes briefly showing the title input before titleCanEdit
+  // is received as false).
   useEffect(() => {
     if (requestEditMode > 0 && selectedNote) {
-      setIsEditing(true);
+      pendingEditModeRef.current = true;
     }
   }, [requestEditMode]);
 
