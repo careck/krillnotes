@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { Note, FieldDefinition, FieldValue } from '../types';
+import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
 
@@ -12,7 +12,11 @@ interface InfoPanelProps {
 }
 
 function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode }: InfoPanelProps) {
-  const [schemaFields, setSchemaFields] = useState<FieldDefinition[]>([]);
+  const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
+    fields: [],
+    titleCanView: true,
+    titleCanEdit: true,
+  });
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
@@ -21,16 +25,16 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
   useEffect(() => {
     if (!selectedNote) {
-      setSchemaFields([]);
+      setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true });
       setIsEditing(false);
       return;
     }
 
-    invoke<FieldDefinition[]>('get_schema_fields', { nodeType: selectedNote.nodeType })
-      .then(fields => setSchemaFields(fields))
+    invoke<SchemaInfo>('get_schema_fields', { nodeType: selectedNote.nodeType })
+      .then(info => setSchemaInfo(info))
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
-        setSchemaFields([]);
+        setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true });
       });
   }, [selectedNote?.id]);
 
@@ -114,7 +118,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     return new Date(timestamp * 1000).toLocaleString();
   };
 
-  const schemaFieldNames = new Set(schemaFields.map(f => f.name));
+  const schemaFieldNames = new Set(schemaInfo.fields.map(f => f.name));
   const allFieldNames = Object.keys(selectedNote.fields);
   const legacyFieldNames = allFieldNames.filter(name => !schemaFieldNames.has(name));
 
@@ -123,18 +127,24 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         {isEditing ? (
-          <input
-            ref={titleInputRef}
-            type="text"
-            value={editedTitle}
-            onChange={(e) => {
-              setEditedTitle(e.target.value);
-              setIsDirty(true);
-            }}
-            className="text-4xl font-bold bg-background border border-border rounded-md px-2 py-1 flex-1"
-          />
+          schemaInfo.titleCanEdit ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={editedTitle}
+              onChange={(e) => {
+                setEditedTitle(e.target.value);
+                setIsDirty(true);
+              }}
+              className="text-4xl font-bold bg-background border border-border rounded-md px-2 py-1 flex-1"
+            />
+          ) : (
+            <div className="flex-1" />
+          )
         ) : (
-          <h1 className="text-4xl font-bold">{selectedNote.title}</h1>
+          schemaInfo.titleCanView ? (
+            <h1 className="text-4xl font-bold">{selectedNote.title}</h1>
+          ) : null
         )}
         <div className="flex gap-2 ml-4">
           {isEditing ? (
@@ -175,23 +185,26 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       <div className="mb-6">
         <h2 className="text-xl font-semibold mb-4">Fields</h2>
 
-        {schemaFields.map(field => (
-          isEditing ? (
-            <FieldEditor
-              key={field.name}
-              fieldName={field.name}
-              value={editedFields[field.name] || { Text: '' }}
-              required={field.required}
-              onChange={(value) => handleFieldChange(field.name, value)}
-            />
-          ) : (
-            <FieldDisplay
-              key={field.name}
-              fieldName={field.name}
-              value={selectedNote.fields[field.name] || { Text: '' }}
-            />
-          )
-        ))}
+        {schemaInfo.fields
+          .filter(field => isEditing ? field.canEdit : field.canView)
+          .map(field => (
+            isEditing ? (
+              <FieldEditor
+                key={field.name}
+                fieldName={field.name}
+                value={editedFields[field.name] || { Text: '' }}
+                required={field.required}
+                onChange={(value) => handleFieldChange(field.name, value)}
+              />
+            ) : (
+              <FieldDisplay
+                key={field.name}
+                fieldName={field.name}
+                value={selectedNote.fields[field.name] || { Text: '' }}
+              />
+            )
+          ))
+        }
 
         {legacyFieldNames.length > 0 && (
           <>
@@ -218,7 +231,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           </>
         )}
 
-        {schemaFields.length === 0 && legacyFieldNames.length === 0 && (
+        {schemaInfo.fields.length === 0 && legacyFieldNames.length === 0 && (
           <p className="text-muted-foreground italic">No fields</p>
         )}
       </div>
