@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
+import { ChevronRight } from 'lucide-react';
 
 interface InfoPanelProps {
   selectedNote: Note | null;
@@ -321,24 +322,30 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       </div>
 
       {/* Metadata Section */}
-      <div className="bg-secondary p-6 rounded-lg space-y-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Type</p>
-          <p className="text-lg">{selectedNote.nodeType}</p>
+      <details className="bg-secondary rounded-lg">
+        <summary className="px-6 py-4 cursor-pointer list-none flex items-center gap-2 text-sm font-medium text-muted-foreground select-none">
+          <ChevronRight size={16} className="[details[open]_&]:rotate-90 transition-transform" />
+          Info
+        </summary>
+        <div className="px-6 pb-6 space-y-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Type</p>
+            <p className="text-lg">{selectedNote.nodeType}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Created</p>
+            <p className="text-sm">{formatTimestamp(selectedNote.createdAt)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Modified</p>
+            <p className="text-sm">{formatTimestamp(selectedNote.modifiedAt)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">ID</p>
+            <p className="text-xs font-mono">{selectedNote.id}</p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Created</p>
-          <p className="text-sm">{formatTimestamp(selectedNote.createdAt)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Modified</p>
-          <p className="text-sm">{formatTimestamp(selectedNote.modifiedAt)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">ID</p>
-          <p className="text-xs font-mono">{selectedNote.id}</p>
-        </div>
-      </div>
+      </details>
     </div>
   );
 }
