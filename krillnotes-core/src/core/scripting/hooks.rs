@@ -151,7 +151,7 @@ fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
 /// converted to the expected Rust type.
 fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
     match field_type {
-        "text" => {
+        "text" | "textarea" => {
             if d.is_unit() {
                 return Ok(FieldValue::Text(String::new()));
             }

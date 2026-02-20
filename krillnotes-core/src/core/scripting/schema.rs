@@ -67,7 +67,7 @@ impl Schema {
         let mut fields = HashMap::new();
         for field_def in &self.fields {
             let default_value = match field_def.field_type.as_str() {
-                "text" => FieldValue::Text(String::new()),
+                "text" | "textarea" => FieldValue::Text(String::new()),
                 "number" => FieldValue::Number(0.0),
                 "boolean" => FieldValue::Boolean(false),
                 "date" => FieldValue::Date(None),

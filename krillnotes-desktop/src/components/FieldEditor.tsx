@@ -2,19 +2,31 @@ import type { FieldValue } from '../types';
 
 interface FieldEditorProps {
   fieldName: string;
+  fieldType: string;
   value: FieldValue;
   required: boolean;
   onChange: (value: FieldValue) => void;
 }
 
-function FieldEditor({ fieldName, value, required, onChange }: FieldEditorProps) {
+function FieldEditor({ fieldName, fieldType, value, required, onChange }: FieldEditorProps) {
   const renderEditor = () => {
     if ('Text' in value) {
+      if (fieldType === 'textarea') {
+        return (
+          <textarea
+            value={value.Text}
+            onChange={(e) => onChange({ Text: e.target.value })}
+            className="w-full p-2 bg-background border border-border rounded-md min-h-[100px] resize-y"
+            required={required}
+          />
+        );
+      }
       return (
-        <textarea
+        <input
+          type="text"
           value={value.Text}
           onChange={(e) => onChange({ Text: e.target.value })}
-          className="w-full p-2 bg-background border border-border rounded-md min-h-[100px] resize-y"
+          className="w-full p-2 bg-background border border-border rounded-md"
           required={required}
         />
       );

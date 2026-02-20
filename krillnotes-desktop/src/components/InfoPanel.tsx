@@ -265,6 +265,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               <FieldEditor
                 key={field.name}
                 fieldName={field.name}
+                fieldType={field.fieldType}
                 value={editedFields[field.name] ?? defaultValueForFieldType(field.fieldType)}
                 required={field.required}
                 onChange={(value) => handleFieldChange(field.name, value)}
@@ -299,6 +300,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                   <FieldEditor
                     key={name}
                     fieldName={`${name} (legacy)`}
+                    fieldType="text"
                     value={editedFields[name] ?? { Text: '' }}
                     required={false}
                     onChange={(value) => handleFieldChange(name, value)}

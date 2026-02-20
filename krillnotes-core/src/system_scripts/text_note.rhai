@@ -2,6 +2,6 @@
 
 schema("TextNote", #{
     fields: [
-        #{ name: "body", type: "text", required: false },
+        #{ name: "body", type: "textarea", required: false },
     ]
 });
