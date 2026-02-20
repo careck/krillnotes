@@ -279,7 +279,10 @@ mod tests {
         let registry = ScriptRegistry::new().unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert_eq!(schema.name, "Contact");
-        assert_eq!(schema.fields.len(), 11);
+        assert_eq!(schema.fields.len(), 12);
+        let is_family_field = schema.fields.iter().find(|f| f.name == "is_family").unwrap();
+        assert_eq!(is_family_field.field_type, "boolean");
+        assert!(!is_family_field.required, "is_family should not be required");
         let email_field = schema.fields.iter().find(|f| f.name == "email").unwrap();
         assert_eq!(email_field.field_type, "email");
         let birthdate_field = schema.fields.iter().find(|f| f.name == "birthdate").unwrap();
@@ -351,6 +354,7 @@ mod tests {
         fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
         fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
         fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("is_family".to_string(), FieldValue::Boolean(false));
 
         let result = registry
             .run_on_save_hook("Contact", "id-1", "Contact", "", &fields)
@@ -465,6 +469,40 @@ mod tests {
         let schema = registry.get_schema("Contact").unwrap();
         assert!(!schema.title_can_edit, "Contact title_can_edit should be false");
         assert!(schema.title_can_view, "Contact title_can_view should still be true");
+    }
+
+    #[test]
+    fn test_boolean_field_defaults_to_false_when_absent_from_hook_result() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry
+            .load_script(
+                r#"
+                schema("FlagNote", #{
+                    fields: [
+                        #{ name: "flag", type: "boolean", required: false },
+                    ]
+                });
+                on_save("FlagNote", |note| {
+                    // intentionally does NOT touch note.fields["flag"]
+                    note
+                });
+            "#,
+            )
+            .unwrap();
+
+        // Do NOT include "flag" in the submitted fields — it must default to false.
+        let fields = HashMap::new();
+
+        let result = registry
+            .run_on_save_hook("FlagNote", "id-1", "FlagNote", "title", &fields)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            result.1.get("flag"),
+            Some(&FieldValue::Boolean(false)),
+            "boolean field absent from hook result should default to false"
+        );
     }
 
 }

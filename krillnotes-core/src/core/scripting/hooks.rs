@@ -152,18 +152,27 @@ fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
 fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
     match field_type {
         "text" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Text(String::new()));
+            }
             let s = d
                 .try_cast::<String>()
                 .ok_or_else(|| KrillnotesError::Scripting("text field must be a string".into()))?;
             Ok(FieldValue::Text(s))
         }
         "number" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Number(0.0));
+            }
             let n = d
                 .try_cast::<f64>()
                 .ok_or_else(|| KrillnotesError::Scripting("number field must be a float".into()))?;
             Ok(FieldValue::Number(n))
         }
         "boolean" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Boolean(false));
+            }
             let b = d
                 .try_cast::<bool>()
                 .ok_or_else(|| KrillnotesError::Scripting("boolean field must be a bool".into()))?;
@@ -183,6 +192,9 @@ fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
             }
         }
         "email" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Email(String::new()));
+            }
             let s = d
                 .try_cast::<String>()
                 .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
