@@ -1,3 +1,4 @@
+import { Check, X } from 'lucide-react';
 import type { FieldValue } from '../types';
 
 interface FieldDisplayProps {
@@ -17,15 +18,11 @@ function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
       return <p>{value.Number}</p>;
     } else if ('Boolean' in value) {
       return (
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={value.Boolean}
-            disabled
-            className="rounded"
-          />
-          <span>{value.Boolean ? 'Yes' : 'No'}</span>
-        </div>
+        <span className="inline-flex items-center">
+          {value.Boolean
+            ? <Check size={18} className="text-green-500" aria-label="Yes" />
+            : <X size={18} className="text-red-500" aria-label="No" />}
+        </span>
       );
     } else if ('Email' in value) {
       return value.Email
