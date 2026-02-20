@@ -35,6 +35,14 @@ export interface FieldDefinition {
   name: string;
   fieldType: string;  // "text" | "number" | "boolean" | "date" | "email"
   required: boolean;
+  canView: boolean;
+  canEdit: boolean;
+}
+
+export interface SchemaInfo {
+  fields: FieldDefinition[];
+  titleCanView: boolean;
+  titleCanEdit: boolean;
 }
 
 export enum DeleteStrategy {
