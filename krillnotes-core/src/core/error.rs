@@ -21,6 +21,10 @@ pub enum KrillnotesError {
     #[error("Note not found: {0}")]
     NoteNotFound(String),
 
+    /// A required field was empty when trying to save a note.
+    #[error("Validation failed: {0}")]
+    ValidationFailed(String),
+
     /// The opened file is not a valid Krillnotes workspace.
     #[error("Invalid workspace: {0}")]
     InvalidWorkspace(String),
@@ -48,6 +52,7 @@ impl KrillnotesError {
             Self::Scripting(e) => format!("Script error: {}", e),
             Self::Io(e) => format!("File error: {}", e),
             Self::Json(e) => format!("Data format error: {}", e),
+            Self::ValidationFailed(msg) => msg.clone(),
         }
     }
 }

@@ -27,6 +27,41 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Checks that all fields marked `required: true` have non-empty values.
+    ///
+    /// "Empty" means:
+    /// - `Text` / `Email`: the string is `""`
+    /// - `Date`: the value is `None`
+    /// - `Number` / `Boolean`: always considered non-empty
+    ///
+    /// Returns `Ok(())` when all required fields are satisfied.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::ValidationFailed`] for the first required
+    /// field that is empty, naming the field in the error message.
+    pub fn validate_required_fields(&self, fields: &HashMap<String, FieldValue>) -> crate::Result<()> {
+        for field_def in &self.fields {
+            if !field_def.required {
+                continue;
+            }
+            let empty = match fields.get(&field_def.name) {
+                Some(FieldValue::Text(s)) => s.is_empty(),
+                Some(FieldValue::Email(s)) => s.is_empty(),
+                Some(FieldValue::Date(d)) => d.is_none(),
+                Some(FieldValue::Number(_)) | Some(FieldValue::Boolean(_)) => false,
+                None => true,
+            };
+            if empty {
+                return Err(KrillnotesError::ValidationFailed(format!(
+                    "Required field '{}' must not be empty",
+                    field_def.name
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Returns a map of field names to their zero-value defaults.
     pub fn default_fields(&self) -> HashMap<String, FieldValue> {
         let mut fields = HashMap::new();

@@ -834,6 +834,10 @@ impl Workspace {
                 None => (title, fields),
             };
 
+        // Enforce required-field constraints defined in the schema.
+        let schema = self.script_registry.get_schema(&node_type)?;
+        schema.validate_required_fields(&fields)?;
+
         let now = chrono::Utc::now().timestamp();
         let fields_json = serde_json::to_string(&fields)?;
 
@@ -1380,6 +1384,37 @@ mod tests {
         let child2_updated = remaining.iter().find(|n| n.id == child2_id).unwrap();
         assert_eq!(child1_updated.parent_id, Some(root_id.clone()));
         assert_eq!(child2_updated.parent_id, Some(root_id.clone()));
+    }
+
+    #[test]
+    fn test_update_contact_rejects_empty_required_fields() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        let contact_id = ws
+            .create_note(&root_id, AddPosition::AsChild, "Contact")
+            .unwrap();
+
+        // first_name is required but empty — save must fail.
+        let mut fields = HashMap::new();
+        fields.insert("first_name".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("last_name".to_string(), FieldValue::Text("Smith".to_string()));
+        fields.insert("phone".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("mobile".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("email".to_string(), FieldValue::Email("".to_string()));
+        fields.insert("birthdate".to_string(), FieldValue::Date(None));
+        fields.insert("address_street".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_city".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_zip".to_string(), FieldValue::Text("".to_string()));
+        fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
+
+        let result = ws.update_note(&contact_id, "".to_string(), fields);
+        assert!(
+            matches!(result, Err(KrillnotesError::ValidationFailed(_))),
+            "Expected ValidationFailed, got {:?}", result
+        );
     }
 
     /// Verify that `delete_note_promote` returns `NoteNotFound` when the given ID does not exist.
