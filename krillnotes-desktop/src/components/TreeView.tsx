@@ -14,7 +14,7 @@ function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand, onContextMen
   if (tree.length === 0) {
     return (
       <div
-        className="flex items-center justify-center h-full text-muted-foreground text-sm focus:outline-none"
+        className="flex items-center justify-center h-full text-muted-foreground text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
         tabIndex={0}
         onKeyDown={onKeyDown}
       >
@@ -25,7 +25,7 @@ function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand, onContextMen
 
   return (
     <div
-      className="overflow-y-auto h-full focus:outline-none"
+      className="overflow-y-auto h-full focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       tabIndex={0}
       onKeyDown={onKeyDown}
     >

@@ -27,6 +27,7 @@ function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand, onCon
       >
         {hasChildren && (
           <button
+            tabIndex={-1}
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(node.note.id);

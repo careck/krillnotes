@@ -40,6 +40,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
   const [isDirty, setIsDirty] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const pendingEditModeRef = useRef(false);
   // Tracks whether the schema fetch for the current note has already resolved.
   // Used by the requestEditMode effect to enter edit mode immediately when the
@@ -111,11 +112,16 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     }
   }, [requestEditMode]);
 
-  // Focus title input whenever edit mode activates
+  // Focus first editable field whenever edit mode activates
   useEffect(() => {
-    if (isEditing && titleInputRef.current) {
-      titleInputRef.current.focus();
-    }
+    if (!isEditing) return;
+    requestAnimationFrame(() => {
+      if (titleInputRef.current) {
+        titleInputRef.current.focus();
+      } else {
+        panelRef.current?.querySelector<HTMLElement>('input, textarea, select')?.focus();
+      }
+    });
   }, [isEditing]);
 
   const handleEdit = () => {
@@ -175,7 +181,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const legacyFieldNames = allFieldNames.filter(name => !schemaFieldNames.has(name));
 
   return (
-    <div className={`p-6 ${isEditing ? 'border-2 border-primary rounded-lg' : ''}`}>
+    <div ref={panelRef} className={`p-6 ${isEditing ? 'border-2 border-primary rounded-lg' : ''}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         {isEditing ? (
