@@ -115,13 +115,14 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   // Focus first editable field whenever edit mode activates
   useEffect(() => {
     if (!isEditing) return;
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       if (titleInputRef.current) {
         titleInputRef.current.focus();
       } else {
         panelRef.current?.querySelector<HTMLElement>('input, textarea, select')?.focus();
       }
     });
+    return () => cancelAnimationFrame(rafId);
   }, [isEditing]);
 
   const handleEdit = () => {
