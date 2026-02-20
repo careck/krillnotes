@@ -14,6 +14,7 @@ schema("Contact", #{
         #{ name: "address_city",    type: "text",  required: false },
         #{ name: "address_zip",     type: "text",  required: false },
         #{ name: "address_country", type: "text",  required: false },
+        #{ name: "is_family",       type: "boolean",  required: false },
     ]
 });
 
