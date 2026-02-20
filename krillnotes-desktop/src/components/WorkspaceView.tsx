@@ -268,6 +268,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   const handleEditDone = () => {
     requestAnimationFrame(() => {
+      // targets the TreeView container div which carries tabIndex={0}
       treePanelRef.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
     });
   };
