@@ -21,6 +21,13 @@ function defaultValueForFieldType(fieldType: string): FieldValue {
   }
 }
 
+export function isEmptyFieldValue(value: FieldValue): boolean {
+  if ('Text' in value)    return value.Text === '';
+  if ('Email' in value)   return value.Email === '';
+  if ('Date' in value)    return value.Date === null;
+  return false; // Number and Boolean are never empty
+}
+
 function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode }: InfoPanelProps) {
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
