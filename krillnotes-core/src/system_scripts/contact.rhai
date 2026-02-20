@@ -1,6 +1,7 @@
 //! This script is used to create a contact.
 
 schema("Contact", #{
+    title_can_edit: false,
     fields: [
         #{ name: "first_name",      type: "text",  required: true  },
         #{ name: "middle_name",     type: "text",  required: false },
