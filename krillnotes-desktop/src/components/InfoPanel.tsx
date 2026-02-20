@@ -264,32 +264,56 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           </dl>
         )}
 
-        {legacyFieldNames.length > 0 && (
-          <>
-            <h3 className="text-lg font-medium text-muted-foreground mt-6 mb-3">
-              Legacy Fields
-            </h3>
-            {legacyFieldNames.map(name => (
-              isEditing ? (
-                <FieldEditor
-                  key={name}
-                  fieldName={`${name} (legacy)`}
-                  value={editedFields[name] ?? { Text: '' }}
-                  required={false}
-                  onChange={(value) => handleFieldChange(name, value)}
-                />
-              ) : (
-                <FieldDisplay
-                  key={name}
-                  fieldName={`${name} (legacy)`}
-                  value={selectedNote.fields[name]}
-                />
-              )
-            ))}
-          </>
-        )}
+        {legacyFieldNames.length > 0 && (() => {
+          if (isEditing) {
+            return (
+              <>
+                <h3 className="text-lg font-medium text-muted-foreground mt-6 mb-3">
+                  Legacy Fields
+                </h3>
+                {legacyFieldNames.map(name => (
+                  <FieldEditor
+                    key={name}
+                    fieldName={`${name} (legacy)`}
+                    value={editedFields[name] ?? { Text: '' }}
+                    required={false}
+                    onChange={(value) => handleFieldChange(name, value)}
+                  />
+                ))}
+              </>
+            );
+          }
+          const visibleLegacy = legacyFieldNames.filter(
+            name => !isEmptyFieldValue(selectedNote.fields[name])
+          );
+          if (visibleLegacy.length === 0) return null;
+          return (
+            <>
+              <h3 className="text-lg font-medium text-muted-foreground mt-6 mb-3">
+                Legacy Fields
+              </h3>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
+                {visibleLegacy.map(name => (
+                  <FieldDisplay
+                    key={name}
+                    fieldName={`${name} (legacy)`}
+                    value={selectedNote.fields[name]}
+                  />
+                ))}
+              </dl>
+            </>
+          );
+        })()}
 
-        {schemaInfo.fields.length === 0 && legacyFieldNames.length === 0 && (
+        {!isEditing &&
+          schemaInfo.fields.filter(f =>
+            f.canView && !isEmptyFieldValue(selectedNote.fields[f.name] ?? defaultValueForFieldType(f.fieldType))
+          ).length === 0 &&
+          legacyFieldNames.filter(n => !isEmptyFieldValue(selectedNote.fields[n])).length === 0 && (
+            <p className="text-muted-foreground italic">No fields</p>
+          )
+        }
+        {isEditing && schemaInfo.fields.length === 0 && legacyFieldNames.length === 0 && (
           <p className="text-muted-foreground italic">No fields</p>
         )}
       </div>
