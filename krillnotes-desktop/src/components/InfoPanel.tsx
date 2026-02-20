@@ -11,6 +11,16 @@ interface InfoPanelProps {
   requestEditMode: number;
 }
 
+function defaultValueForFieldType(fieldType: string): FieldValue {
+  switch (fieldType) {
+    case 'boolean': return { Boolean: false };
+    case 'number':  return { Number: 0 };
+    case 'date':    return { Date: null };
+    case 'email':   return { Email: '' };
+    default:        return { Text: '' };
+  }
+}
+
 function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode }: InfoPanelProps) {
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
@@ -40,6 +50,15 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     invoke<SchemaInfo>('get_schema_fields', { nodeType: selectedNote.nodeType })
       .then(info => {
         setSchemaInfo(info);
+        setEditedFields(prev => {
+          const merged = { ...prev };
+          for (const field of info.fields) {
+            if (!(field.name in merged)) {
+              merged[field.name] = defaultValueForFieldType(field.fieldType);
+            }
+          }
+          return merged;
+        });
         schemaLoadedRef.current = true;
         if (pendingEditModeRef.current) {
           setIsEditing(true);
@@ -217,7 +236,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               <FieldEditor
                 key={field.name}
                 fieldName={field.name}
-                value={editedFields[field.name] || { Text: '' }}
+                value={editedFields[field.name] ?? defaultValueForFieldType(field.fieldType)}
                 required={field.required}
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
@@ -225,7 +244,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               <FieldDisplay
                 key={field.name}
                 fieldName={field.name}
-                value={selectedNote.fields[field.name] || { Text: '' }}
+                value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
               />
             )
           ))

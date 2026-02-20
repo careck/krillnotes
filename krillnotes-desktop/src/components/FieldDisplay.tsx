@@ -18,10 +18,10 @@ function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
       return <p>{value.Number}</p>;
     } else if ('Boolean' in value) {
       return (
-        <span className="inline-flex items-center">
+        <span className="inline-flex items-center" aria-label={value.Boolean ? 'Yes' : 'No'}>
           {value.Boolean
-            ? <Check size={18} className="text-green-500" aria-label="Yes" />
-            : <X size={18} className="text-red-500" aria-label="No" />}
+            ? <Check size={18} className="text-green-500" aria-hidden="true" />
+            : <X size={18} className="text-red-500" aria-hidden="true" />}
         </span>
       );
     } else if ('Email' in value) {
