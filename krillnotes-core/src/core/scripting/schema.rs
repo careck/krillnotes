@@ -22,6 +22,8 @@ pub struct FieldDefinition {
 pub struct Schema {
     pub name: String,
     pub fields: Vec<FieldDefinition>,
+    pub title_can_view: bool,
+    pub title_can_edit: bool,
 }
 
 impl Schema {
@@ -88,7 +90,17 @@ impl Schema {
             fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit });
         }
 
-        Ok(Schema { name: name.to_string(), fields })
+        let title_can_view = def
+            .get("title_can_view")
+            .and_then(|v| v.clone().try_cast::<bool>())
+            .unwrap_or(true);
+
+        let title_can_edit = def
+            .get("title_can_edit")
+            .and_then(|v| v.clone().try_cast::<bool>())
+            .unwrap_or(true);
+
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit })
     }
 }
 
