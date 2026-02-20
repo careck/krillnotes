@@ -208,11 +208,15 @@ mod tests {
                     name: "body".to_string(),
                     field_type: "text".to_string(),
                     required: false,
+                    can_view: true,
+                    can_edit: true,
                 },
                 FieldDefinition {
                     name: "count".to_string(),
                     field_type: "number".to_string(),
                     required: false,
+                    can_view: true,
+                    can_edit: true,
                 },
             ],
         };
@@ -240,6 +244,8 @@ mod tests {
                 name: "birthday".to_string(),
                 field_type: "date".to_string(),
                 required: false,
+                can_view: true,
+                can_edit: true,
             }],
         };
         let defaults = schema.default_fields();
@@ -254,6 +260,8 @@ mod tests {
                 name: "email_addr".to_string(),
                 field_type: "email".to_string(),
                 required: false,
+                can_view: true,
+                can_edit: true,
             }],
         };
         let defaults = schema.default_fields();
@@ -345,4 +353,55 @@ mod tests {
 
         assert_eq!(result.0, "Smith, Jane");
     }
+    #[test]
+    fn test_field_can_view_can_edit_defaults_to_true() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TestVis", #{
+                fields: [
+                    #{ name: "f1", type: "text" },
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("TestVis").unwrap();
+        assert!(schema.fields[0].can_view, "can_view should default to true");
+        assert!(schema.fields[0].can_edit, "can_edit should default to true");
+    }
+
+    #[test]
+    fn test_field_can_view_can_edit_explicit_false() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TestVis2", #{
+                fields: [
+                    #{ name: "view_only", type: "text", can_edit: false },
+                    #{ name: "edit_only", type: "text", can_view: false },
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("TestVis2").unwrap();
+        assert!(schema.fields[0].can_view);
+        assert!(!schema.fields[0].can_edit);
+        assert!(!schema.fields[1].can_view);
+        assert!(schema.fields[1].can_edit);
+    }
+
+    #[test]
+    fn test_field_can_view_can_edit_explicit_true() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TestVisExplicit", #{
+                fields: [
+                    #{ name: "both_true",  type: "text", can_view: true,  can_edit: true  },
+                    #{ name: "both_false", type: "text", can_view: false, can_edit: false },
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("TestVisExplicit").unwrap();
+        assert!(schema.fields[0].can_view,  "explicit can_view: true should parse as true");
+        assert!(schema.fields[0].can_edit,  "explicit can_edit: true should parse as true");
+        assert!(!schema.fields[1].can_view, "explicit can_view: false should parse as false");
+        assert!(!schema.fields[1].can_edit, "explicit can_edit: false should parse as false");
+    }
+
 }
