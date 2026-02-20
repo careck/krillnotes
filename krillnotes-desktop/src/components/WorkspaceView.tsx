@@ -20,6 +20,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const selectedNoteIdRef = useRef(selectedNoteId);
+  const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [error, setError] = useState<string>('');
   const selectionInitialized = useRef(false);
@@ -265,6 +266,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     setIsDeleting(false);
   };
 
+  const handleEditDone = () => {
+    requestAnimationFrame(() => {
+      treePanelRef.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+    });
+  };
+
   const selectedNote = selectedNoteId
     ? notes.find(n => n.id === selectedNoteId) || null
     : null;
@@ -284,7 +291,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   return (
     <div className="flex h-screen">
       {/* Left sidebar - Tree */}
-      <div className="w-[300px] border-r border-secondary bg-background overflow-hidden">
+      <div ref={treePanelRef} className="w-[300px] border-r border-secondary bg-background overflow-hidden">
         <TreeView
           tree={tree}
           selectedNoteId={selectedNoteId}
@@ -302,6 +309,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           onNoteUpdated={handleNoteUpdated}
           onDeleteRequest={handleDeleteRequest}
           requestEditMode={requestEditMode}
+          onEditDone={handleEditDone}
         />
       </div>
 

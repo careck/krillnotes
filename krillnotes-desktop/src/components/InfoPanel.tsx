@@ -10,6 +10,7 @@ interface InfoPanelProps {
   onNoteUpdated: () => void;
   onDeleteRequest: (noteId: string) => void;
   requestEditMode: number;
+  onEditDone: () => void;
 }
 
 function defaultValueForFieldType(fieldType: string): FieldValue {
@@ -29,7 +30,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
   return false; // Number and Boolean are never empty
 }
 
-function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode }: InfoPanelProps) {
+function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone }: InfoPanelProps) {
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
     titleCanView: true,
@@ -139,6 +140,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     setEditedTitle(selectedNote!.title);
     setEditedFields({ ...selectedNote!.fields });
     setIsDirty(false);
+    onEditDone();
   };
 
   const handleSave = async () => {
@@ -155,6 +157,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       setIsEditing(false);
       setIsDirty(false);
       onNoteUpdated();
+      onEditDone();
     } catch (err) {
       alert(`Failed to save: ${err}`);
     }
