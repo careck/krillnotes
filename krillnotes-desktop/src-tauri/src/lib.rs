@@ -367,6 +367,16 @@ async fn create_note_with_type(
 }
 
 
+/// Response type for the `get_schema_fields` Tauri command, bundling field
+/// definitions with schema-level title visibility flags.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SchemaInfo {
+    fields: Vec<FieldDefinition>,
+    title_can_view: bool,
+    title_can_edit: bool,
+}
+
 /// Returns the field definitions for the schema identified by `node_type`.
 ///
 /// Looks up the schema registered under `node_type` in the calling window's
@@ -382,7 +392,7 @@ fn get_schema_fields(
     window: tauri::Window,
     state: State<'_, AppState>,
     node_type: String,
-) -> std::result::Result<Vec<FieldDefinition>, String> {
+) -> std::result::Result<SchemaInfo, String> {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
@@ -390,7 +400,11 @@ fn get_schema_fields(
     let schema = workspace.script_registry().get_schema(&node_type)
         .map_err(|e: KrillnotesError| e.to_string())?;
 
-    Ok(schema.fields)
+    Ok(SchemaInfo {
+        fields: schema.fields,
+        title_can_view: schema.title_can_view,
+        title_can_edit: schema.title_can_edit,
+    })
 }
 
 /// Updates the title and fields of an existing note, returning the updated note.
