@@ -106,6 +106,21 @@ mod tests {
     }
 
     #[test]
+    fn test_boolean_field_value_serde() {
+        let t = FieldValue::Boolean(true);
+        let json = serde_json::to_string(&t).unwrap();
+        assert_eq!(json, r#"{"Boolean":true}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, t);
+
+        let f = FieldValue::Boolean(false);
+        let json = serde_json::to_string(&f).unwrap();
+        assert_eq!(json, r#"{"Boolean":false}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, f);
+    }
+
+    #[test]
     fn test_email_field_value_serde() {
         let email = FieldValue::Email("test@example.com".to_string());
         let json = serde_json::to_string(&email).unwrap();
