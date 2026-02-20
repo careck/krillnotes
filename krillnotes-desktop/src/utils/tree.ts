@@ -50,3 +50,18 @@ export function findNoteInTree(tree: TreeNode[], noteId: string): TreeNode | nul
   }
   return null;
 }
+
+/**
+ * Returns a flat depth-first list of all currently-visible nodes.
+ * Only expanded nodes' children are included.
+ */
+export function flattenVisibleTree(nodes: TreeNode[]): TreeNode[] {
+  const result: TreeNode[] = [];
+  for (const node of nodes) {
+    result.push(node);
+    if (node.note.isExpanded && node.children.length > 0) {
+      result.push(...flattenVisibleTree(node.children));
+    }
+  }
+  return result;
+}
