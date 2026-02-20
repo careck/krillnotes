@@ -17,6 +17,7 @@ function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand, onCon
   return (
     <div>
       <div
+        data-note-id={node.note.id}
         className={`flex items-center py-1 px-2 cursor-pointer hover:bg-secondary/50 ${
           isSelected ? 'bg-secondary' : ''
         }`}
