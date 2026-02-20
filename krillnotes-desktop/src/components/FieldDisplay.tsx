@@ -41,14 +41,14 @@ function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
   };
 
   return (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-muted-foreground mb-1">
+    <>
+      <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">
         {fieldName}
-      </label>
-      <div className="text-foreground">
+      </dt>
+      <dd className="m-0 text-foreground">
         {renderValue()}
-      </div>
-    </div>
+      </dd>
+    </>
   );
 }
 
