@@ -7,19 +7,28 @@ interface TreeViewProps {
   onSelect: (noteId: string) => void;
   onToggleExpand: (noteId: string) => void;
   onContextMenu: (e: React.MouseEvent, noteId: string) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
 }
 
-function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu }: TreeViewProps) {
+function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu, onKeyDown }: TreeViewProps) {
   if (tree.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+      <div
+        className="flex items-center justify-center h-full text-muted-foreground text-sm focus:outline-none"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+      >
         No notes yet
       </div>
     );
   }
 
   return (
-    <div className="overflow-y-auto h-full">
+    <div
+      className="overflow-y-auto h-full focus:outline-none"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+    >
       {tree.map(node => (
         <TreeNode
           key={node.note.id}

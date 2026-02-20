@@ -9,7 +9,7 @@ import ContextMenu from './ContextMenu';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult } from '../types';
 import { DeleteStrategy } from '../types';
-import { buildTree } from '../utils/tree';
+import { buildTree, flattenVisibleTree, findNoteInTree } from '../utils/tree';
 
 interface WorkspaceViewProps {
   workspaceInfo: WorkspaceInfo;
@@ -101,6 +101,60 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       await loadNotes();
     } catch (err) {
       console.error('Failed to toggle expansion:', err);
+    }
+  };
+
+  const handleTreeKeyDown = (e: React.KeyboardEvent) => {
+    if (!selectedNoteId) return;
+    const flat = flattenVisibleTree(tree);
+    const idx = flat.findIndex(n => n.note.id === selectedNoteId);
+    if (idx === -1) return;
+    const current = flat[idx];
+
+    const selectAndScroll = (noteId: string) => {
+      handleSelectNote(noteId);
+      requestAnimationFrame(() => {
+        document.querySelector(`[data-note-id="${noteId}"]`)?.scrollIntoView({ block: 'nearest' });
+      });
+    };
+
+    switch (e.key) {
+      case 'ArrowDown': {
+        e.preventDefault();
+        if (idx < flat.length - 1) selectAndScroll(flat[idx + 1].note.id);
+        break;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        if (idx > 0) selectAndScroll(flat[idx - 1].note.id);
+        break;
+      }
+      case 'ArrowRight': {
+        e.preventDefault();
+        if (current.children.length > 0) {
+          if (!current.note.isExpanded) {
+            handleToggleExpand(current.note.id);
+          } else {
+            selectAndScroll(current.children[0].note.id);
+          }
+        }
+        break;
+      }
+      case 'ArrowLeft': {
+        e.preventDefault();
+        if (current.note.isExpanded) {
+          handleToggleExpand(current.note.id);
+        } else if (current.note.parentId) {
+          const parent = findNoteInTree(tree, current.note.parentId);
+          if (parent) selectAndScroll(parent.note.id);
+        }
+        break;
+      }
+      case 'Enter': {
+        e.preventDefault();
+        setRequestEditMode(prev => prev + 1);
+        break;
+      }
     }
   };
 
@@ -236,6 +290,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           onSelect={handleSelectNote}
           onToggleExpand={handleToggleExpand}
           onContextMenu={handleContextMenu}
+          onKeyDown={handleTreeKeyDown}
         />
       </div>
 
