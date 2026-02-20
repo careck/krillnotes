@@ -457,6 +457,14 @@ mod tests {
         let schema = registry.get_schema("TitleExplicit").unwrap();
         assert!(schema.title_can_view,  "explicit title_can_view: true should parse as true");
         assert!(schema.title_can_edit,  "explicit title_can_edit: true should parse as true");
+
+    }
+    #[test]
+    fn test_contact_title_can_edit_false() {
+        let registry = ScriptRegistry::new().unwrap();
+        let schema = registry.get_schema("Contact").unwrap();
+        assert!(!schema.title_can_edit, "Contact title_can_edit should be false");
+        assert!(schema.title_can_view, "Contact title_can_view should still be true");
     }
 
 }
