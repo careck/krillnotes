@@ -126,6 +126,17 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     return () => cancelAnimationFrame(rafId);
   }, [isEditing]);
 
+  const handleFormKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isEditing) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancel();
+    } else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
+      e.preventDefault();
+      handleSave();
+    }
+  };
+
   const handleEdit = () => {
     setIsEditing(true);
   };
@@ -185,7 +196,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const legacyFieldNames = allFieldNames.filter(name => !schemaFieldNames.has(name));
 
   return (
-    <div ref={panelRef} className={`p-6 ${isEditing ? 'border-2 border-primary rounded-lg' : ''}`}>
+    <div ref={panelRef} className={`p-6 ${isEditing ? 'border-2 border-primary rounded-lg' : ''}`} onKeyDown={handleFormKeyDown}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         {isEditing ? (
