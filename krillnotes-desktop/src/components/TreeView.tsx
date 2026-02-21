@@ -25,7 +25,7 @@ function TreeView({ tree, selectedNoteId, onSelect, onToggleExpand, onContextMen
 
   return (
     <div
-      className="overflow-y-auto h-full focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      className="h-full focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       tabIndex={0}
       onKeyDown={onKeyDown}
     >
