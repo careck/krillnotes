@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(schema.name, "TextNote");
         assert_eq!(schema.fields.len(), 1);
         assert_eq!(schema.fields[0].name, "body");
-        assert_eq!(schema.fields[0].field_type, "text");
+        assert_eq!(schema.fields[0].field_type, "textarea");
     }
 
     #[test]
