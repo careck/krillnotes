@@ -76,3 +76,18 @@ export function flattenVisibleTree(nodes: TreeNode[]): TreeNode[] {
   }
   return result;
 }
+
+/**
+ * Returns the IDs of all ancestors of the given noteId, from immediate parent
+ * to the root. Returns an empty array if the note has no parent or is not found.
+ */
+export function getAncestorIds(notes: Note[], noteId: string): string[] {
+  const noteMap = new Map(notes.map(n => [n.id, n]));
+  const ancestors: string[] = [];
+  let current = noteMap.get(noteId);
+  while (current?.parentId) {
+    ancestors.push(current.parentId);
+    current = noteMap.get(current.parentId);
+  }
+  return ancestors;
+}
