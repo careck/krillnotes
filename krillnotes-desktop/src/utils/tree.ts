@@ -84,8 +84,11 @@ export function flattenVisibleTree(nodes: TreeNode[]): TreeNode[] {
 export function getAncestorIds(notes: Note[], noteId: string): string[] {
   const noteMap = new Map(notes.map(n => [n.id, n]));
   const ancestors: string[] = [];
+  const seen = new Set<string>();
   let current = noteMap.get(noteId);
   while (current?.parentId) {
+    if (seen.has(current.parentId)) break;
+    seen.add(current.parentId);
     ancestors.push(current.parentId);
     current = noteMap.get(current.parentId);
   }
