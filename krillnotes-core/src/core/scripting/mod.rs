@@ -202,6 +202,11 @@ impl ScriptRegistry {
     pub fn schema_exists(&self, name: &str) -> bool {
         self.schema_registry.exists(name)
     }
+
+    /// Returns a reference to the Rhai engine (needed for hook execution in tests).
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
 }
 
 #[cfg(test)]
@@ -708,6 +713,54 @@ mod tests {
         assert!(result.is_err(), "negative max should return a Scripting error");
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("max"), "error should mention 'max', got: {msg}");
+    }
+
+    #[test]
+    fn test_select_field_round_trips_through_hook() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("S", #{
+                fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ]
+            });
+            on_save("S", |note| {
+                note.fields.status = "B";
+                note
+            });
+        "#).unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("status".to_string(), crate::FieldValue::Text("A".to_string()));
+
+        let result = registry.hooks().run_on_save_hook(
+            registry.engine(),
+            &registry.get_schema("S").unwrap(),
+            "id1", "S", "title", &fields,
+        ).unwrap().unwrap();
+        assert_eq!(result.1["status"], crate::FieldValue::Text("B".to_string()));
+    }
+
+    #[test]
+    fn test_rating_field_round_trips_through_hook() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("R", #{
+                fields: [ #{ name: "stars", type: "rating", max: 5 } ]
+            });
+            on_save("R", |note| {
+                note.fields.stars = 4.0;
+                note
+            });
+        "#).unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("stars".to_string(), crate::FieldValue::Number(0.0));
+
+        let result = registry.hooks().run_on_save_hook(
+            registry.engine(),
+            &registry.get_schema("R").unwrap(),
+            "id1", "R", "title", &fields,
+        ).unwrap().unwrap();
+        assert_eq!(result.1["stars"], crate::FieldValue::Number(4.0));
     }
 
 }

@@ -218,6 +218,24 @@ fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
                 .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
             Ok(FieldValue::Email(s))
         }
+        "select" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Text(String::new()));
+            }
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("select field must be a string".into()))?;
+            Ok(FieldValue::Text(s))
+        }
+        "rating" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Number(0.0));
+            }
+            let n = d
+                .try_cast::<f64>()
+                .ok_or_else(|| KrillnotesError::Scripting("rating field must be a float".into()))?;
+            Ok(FieldValue::Number(n))
+        }
         _ => Ok(FieldValue::Text(String::new())),
     }
 }
