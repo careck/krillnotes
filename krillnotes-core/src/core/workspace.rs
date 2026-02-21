@@ -1487,6 +1487,10 @@ mod tests {
     fn test_update_contact_rejects_empty_required_fields() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path()).unwrap();
+        ws.create_user_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../user_scripts/contact.rhai"
+        ))).unwrap();
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
         let contact_id = ws
@@ -1579,6 +1583,10 @@ mod tests {
     fn test_update_contact_derives_title_from_hook() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path()).unwrap();
+        ws.create_user_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../user_scripts/contact.rhai"
+        ))).unwrap();
 
         // Create a root note to act as parent
         let notes = ws.list_all_notes().unwrap();

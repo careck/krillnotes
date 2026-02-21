@@ -11,9 +11,12 @@ pub use schema::{FieldDefinition, Schema};
 
 use crate::{FieldValue, KrillnotesError, Result};
 use hooks::HookEntry;
+use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, AST};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+static SYSTEM_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
 
 /// Orchestrating registry that owns the Rhai engine and delegates to
 /// [`SchemaRegistry`](schema::SchemaRegistry) and [`HookRegistry`].
@@ -107,8 +110,11 @@ impl ScriptRegistry {
             schema_registry,
             hook_registry,
         };
-        registry.load_script(include_str!("../../system_scripts/text_note.rhai"))?;
-        registry.load_script(include_str!("../../system_scripts/contact.rhai"))?;
+        for file in SYSTEM_SCRIPTS.files() {
+            if let Some(contents) = file.contents_utf8() {
+                registry.load_script(contents)?;
+            }
+        }
 
         Ok(registry)
     }
@@ -337,7 +343,11 @@ mod tests {
 
     #[test]
     fn test_contact_schema_loaded() {
-        let registry = ScriptRegistry::new().unwrap();
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_user_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../user_scripts/contact.rhai"
+        ))).unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert_eq!(schema.name, "Contact");
         assert_eq!(schema.fields.len(), 12);
@@ -400,7 +410,11 @@ mod tests {
 
     #[test]
     fn test_contact_on_save_hook_derives_title() {
-        let registry = ScriptRegistry::new().unwrap();
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_user_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../user_scripts/contact.rhai"
+        ))).unwrap();
         assert!(registry.hooks().has_hook("Contact"), "Contact schema should have an on_save hook");
 
         let mut fields = HashMap::new();
@@ -526,7 +540,11 @@ mod tests {
     }
     #[test]
     fn test_contact_title_can_edit_false() {
-        let registry = ScriptRegistry::new().unwrap();
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_user_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../user_scripts/contact.rhai"
+        ))).unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert!(!schema.title_can_edit, "Contact title_can_edit should be false");
         assert!(schema.title_can_view, "Contact title_can_view should still be true");
@@ -580,7 +598,6 @@ mod tests {
         assert!(registry.get_schema("UserType").is_err());
         // System schemas should still work
         assert!(registry.get_schema("TextNote").is_ok());
-        assert!(registry.get_schema("Contact").is_ok());
     }
 
     #[test]
@@ -594,7 +611,6 @@ mod tests {
 
         let types = registry.list_types().unwrap();
         assert!(types.contains(&"TextNote".to_string()));
-        assert!(types.contains(&"Contact".to_string()));
         assert!(!types.contains(&"Custom".to_string()));
     }
 
@@ -637,8 +653,6 @@ mod tests {
 
         registry.clear_user_registrations();
         assert!(!registry.hooks().has_hook("Hooked"));
-        // System hook should remain
-        assert!(registry.hooks().has_hook("Contact"));
     }
 
     #[test]
