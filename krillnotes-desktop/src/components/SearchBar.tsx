@@ -17,8 +17,8 @@ function matchSnippet(value: string, query: string, maxLen = 60): string {
   const start = Math.max(0, idx - 20);
   const end = Math.min(value.length, idx + query.length + 20);
   let snippet = value.slice(start, end);
-  if (start > 0) snippet = '\u2026' + snippet;
-  if (end < value.length) snippet = snippet + '\u2026';
+  if (start > 0) snippet = '...' + snippet;
+  if (end < value.length) snippet = snippet + '...';
   return snippet;
 }
 
@@ -94,7 +94,7 @@ function SearchBar({ notes, onSelect }: SearchBarProps) {
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search notes\u2026"
+          placeholder="Search notes..."
           value={query}
           onChange={e => setQuery(e.target.value)}
           onFocus={() => setIsFocused(true)}
