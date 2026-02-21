@@ -37,16 +37,13 @@ export function searchNotes(notes: Note[], query: string): SearchResult[] {
     }
 
     // Check text-like fields
-    let matched = false;
     for (const [fieldName, fieldValue] of Object.entries(note.fields)) {
       const text = textContent(fieldValue);
       if (text !== null && text.toLowerCase().includes(trimmed)) {
         results.push({ note, matchField: fieldName, matchValue: text });
-        matched = true;
         break;
       }
     }
-    if (matched) continue;
   }
 
   return results;
