@@ -35,6 +35,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Erro
                         .accelerator("CmdOrCtrl+Backspace")
                         .build(app)?,
                     &PredefinedMenuItem::separator(app)?,
+                    &MenuItemBuilder::with_id("edit_manage_scripts", "Manage Scripts...")
+                        .build(app)?,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::undo(app, None)?,
                     &PredefinedMenuItem::redo(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
