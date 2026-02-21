@@ -8,6 +8,7 @@ import AddNoteDialog from './AddNoteDialog';
 import ContextMenu from './ContextMenu';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
 import ScriptManagerDialog from './ScriptManagerDialog';
+import OperationsLogDialog from './OperationsLogDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree } from '../utils/tree';
@@ -41,6 +42,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Script manager dialog state
   const [showScriptManager, setShowScriptManager] = useState(false);
+
+  // Operations log dialog state
+  const [showOperationsLog, setShowOperationsLog] = useState(false);
 
   // Resizable tree panel
   const [treeWidth, setTreeWidth] = useState(300);
@@ -88,6 +92,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       }
       if (event.payload === 'Edit > Manage Scripts clicked') {
         setShowScriptManager(true);
+      }
+      if (event.payload === 'View > Operations Log clicked') {
+        setShowOperationsLog(true);
       }
     });
 
@@ -405,6 +412,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         isOpen={showScriptManager}
         onClose={() => setShowScriptManager(false)}
         onScriptsChanged={loadNotes}
+      />
+
+      {/* Operations Log Dialog */}
+      <OperationsLogDialog
+        isOpen={showOperationsLog}
+        onClose={() => setShowOperationsLog(false)}
       />
     </div>
   );
