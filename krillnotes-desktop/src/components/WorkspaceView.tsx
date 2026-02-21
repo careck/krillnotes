@@ -8,7 +8,7 @@ import AddNoteDialog from './AddNoteDialog';
 import ContextMenu from './ContextMenu';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
 import ScriptManagerDialog from './ScriptManagerDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree } from '../utils/tree';
 
@@ -98,10 +98,19 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   const loadNotes = async (): Promise<Note[]> => {
     try {
-      const fetchedNotes = await invoke<Note[]>('list_notes');
+      const [fetchedNotes, allSchemas] = await Promise.all([
+        invoke<Note[]>('list_notes'),
+        invoke<Record<string, SchemaInfo>>('get_all_schemas'),
+      ]);
       setNotes(fetchedNotes);
 
-      const builtTree = buildTree(fetchedNotes);
+      // Build sort config from schemas
+      const sortConfig: Record<string, 'asc' | 'desc' | 'none'> = {};
+      for (const [nodeType, schema] of Object.entries(allSchemas)) {
+        sortConfig[nodeType] = schema.childrenSort;
+      }
+
+      const builtTree = buildTree(fetchedNotes, sortConfig);
       setTree(builtTree);
 
       if (!selectionInitialized.current) {
