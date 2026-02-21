@@ -12,7 +12,7 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
   const renderValue = () => {
     if ('Number' in value && fieldType === 'rating') {
       const starCount = max > 0 ? max : 5;
-      const filled = Math.round(value.Number);
+      const filled = Math.min(Math.round(value.Number), starCount);
       if (filled === 0) return <p className="text-muted-foreground italic">Not rated</p>;
       const stars = '★'.repeat(filled) + '☆'.repeat(Math.max(0, starCount - filled));
       return <p className="text-yellow-400 text-lg leading-none">{stars}</p>;
