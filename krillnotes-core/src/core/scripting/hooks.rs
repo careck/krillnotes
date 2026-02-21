@@ -89,7 +89,7 @@ impl HookRegistry {
         let result = entry
             .fn_ptr
             .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error: {}", e)))?;
+            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error: {e}")))?;
 
         // Parse the returned map.
         let result_map = result.try_cast::<Map>().ok_or_else(|| {
@@ -186,7 +186,7 @@ fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
                     KrillnotesError::Scripting("date field must be a string or ()".into())
                 })?;
                 let nd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
-                    KrillnotesError::Scripting(format!("invalid date '{}': {}", s, e))
+                    KrillnotesError::Scripting(format!("invalid date '{s}': {e}"))
                 })?;
                 Ok(FieldValue::Date(Some(nd)))
             }

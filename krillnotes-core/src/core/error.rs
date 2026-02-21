@@ -43,15 +43,16 @@ pub type Result<T> = std::result::Result<T, KrillnotesError>;
 
 impl KrillnotesError {
     /// Returns a short, human-readable message suitable for display to the end user.
+    #[must_use]
     pub fn user_message(&self) -> String {
         match self {
-            Self::Database(e) => format!("Failed to save: {}", e),
-            Self::SchemaNotFound(name) => format!("Unknown note type: {}", name),
+            Self::Database(e) => format!("Failed to save: {e}"),
+            Self::SchemaNotFound(name) => format!("Unknown note type: {name}"),
             Self::NoteNotFound(_) => "Note no longer exists".to_string(),
             Self::InvalidWorkspace(_) => "Could not open workspace file".to_string(),
-            Self::Scripting(e) => format!("Script error: {}", e),
-            Self::Io(e) => format!("File error: {}", e),
-            Self::Json(e) => format!("Data format error: {}", e),
+            Self::Scripting(e) => format!("Script error: {e}"),
+            Self::Io(e) => format!("File error: {e}"),
+            Self::Json(e) => format!("Data format error: {e}"),
             Self::ValidationFailed(msg) => msg.clone(),
         }
     }
