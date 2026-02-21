@@ -28,8 +28,12 @@ on_save("Product", |note| {
     };
 
     let stock = note.fields["stock"];
+    // Note: stock defaults to 0.0 when not set. We treat 0.0 as "not entered"
+    // and only show a status badge when stock has been explicitly recorded.
+    // If you always want to show "Out of Stock" for zero stock, remove this guard.
     note.fields["stock_status"] =
-        if stock <= 0.0        { "❌ Out of Stock" }
+        if stock < 0.0         { "❌ Out of Stock" }
+        else if stock == 0.0   { "" }
         else if stock < 5.0    { "⚠️ Low Stock" }
         else                   { "✅ In Stock" };
 

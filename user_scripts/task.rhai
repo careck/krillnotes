@@ -17,9 +17,9 @@ schema("Task", #{
            options: ["low", "medium", "high"]                                           },
         #{ name: "due_date",       type: "date",     required: false                    },
         #{ name: "assignee",       type: "text",     required: false                    },
+        #{ name: "notes",          type: "textarea", required: false                    },
         #{ name: "priority_label", type: "text",     required: false,
            can_edit: false                                                               },
-        #{ name: "notes",          type: "textarea", required: false                    },
     ]
 });
 
