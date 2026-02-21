@@ -1,8 +1,9 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
+use crate::core::user_script;
 use crate::{
-    get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note, Operation,
-    OperationLog, PurgeStrategy, Result, ScriptRegistry, Storage,
+    get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
+    Operation, OperationLog, PurgeStrategy, Result, ScriptRegistry, Storage, UserScript,
 };
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -140,13 +141,23 @@ impl Workspace {
             .parse::<i64>()
             .unwrap_or(0);
 
-        Ok(Self {
+        let mut ws = Self {
             storage,
             script_registry,
             operation_log,
             device_id,
             current_user_id,
-        })
+        };
+
+        // Load enabled user scripts in load_order.
+        let user_scripts = ws.list_user_scripts()?;
+        for script in user_scripts.iter().filter(|s| s.enabled) {
+            if let Err(e) = ws.script_registry.load_user_script(&script.source_code) {
+                eprintln!("Failed to load user script '{}': {}", script.name, e);
+            }
+        }
+
+        Ok(ws)
     }
 
     /// Returns a reference to the script registry for this workspace.
@@ -789,6 +800,151 @@ impl Workspace {
         // Re-use get_note to fetch the persisted row, keeping row-mapping logic
         // in a single place.
         self.get_note(note_id)
+    }
+
+    // ── User-script CRUD ──────────────────────────────────────────
+
+    /// Returns all user scripts, ordered by `load_order` ascending.
+    pub fn list_user_scripts(&self) -> Result<Vec<UserScript>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at
+             FROM user_scripts ORDER BY load_order ASC, created_at ASC",
+        )?;
+        let scripts = stmt
+            .query_map([], |row| {
+                Ok(UserScript {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    source_code: row.get(3)?,
+                    load_order: row.get(4)?,
+                    enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
+                    created_at: row.get(6)?,
+                    modified_at: row.get(7)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(scripts)
+    }
+
+    /// Returns a single user script by ID.
+    pub fn get_user_script(&self, script_id: &str) -> Result<UserScript> {
+        self.connection()
+            .query_row(
+                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at
+                 FROM user_scripts WHERE id = ?",
+                [script_id],
+                |row| {
+                    Ok(UserScript {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        description: row.get(2)?,
+                        source_code: row.get(3)?,
+                        load_order: row.get(4)?,
+                        enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
+                        created_at: row.get(6)?,
+                        modified_at: row.get(7)?,
+                    })
+                },
+            )
+            .map_err(|_| KrillnotesError::NoteNotFound(format!("User script {script_id} not found")))
+    }
+
+    /// Creates a new user script from its source code, parsing front matter for name/description.
+    ///
+    /// Returns an error if `@name` is missing from the front matter.
+    /// The script is compiled and executed; on failure it is saved but disabled.
+    pub fn create_user_script(&mut self, source_code: &str) -> Result<UserScript> {
+        let fm = user_script::parse_front_matter(source_code);
+        if fm.name.is_empty() {
+            return Err(KrillnotesError::ValidationFailed(
+                "Script must include a '// @name:' front matter line".to_string(),
+            ));
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let id = uuid::Uuid::new_v4().to_string();
+
+        // Determine next load_order
+        let max_order: i32 = self
+            .connection()
+            .query_row("SELECT COALESCE(MAX(load_order), -1) FROM user_scripts", [], |row| row.get(0))
+            .unwrap_or(-1);
+
+        // Try to compile and load the script
+        let compile_ok = self.script_registry.load_user_script(source_code).is_ok();
+
+        self.connection().execute(
+            "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![id, fm.name, fm.description, source_code, max_order + 1, compile_ok, now, now],
+        )?;
+
+        if !compile_ok {
+            // Reload all user scripts to clean up any partial state
+            self.reload_user_scripts()?;
+        }
+
+        self.get_user_script(&id)
+    }
+
+    /// Updates an existing user script's source code, re-parsing front matter.
+    pub fn update_user_script(&mut self, script_id: &str, source_code: &str) -> Result<UserScript> {
+        let fm = user_script::parse_front_matter(source_code);
+        if fm.name.is_empty() {
+            return Err(KrillnotesError::ValidationFailed(
+                "Script must include a '// @name:' front matter line".to_string(),
+            ));
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let changes = self.connection().execute(
+            "UPDATE user_scripts SET name = ?, description = ?, source_code = ?, modified_at = ? WHERE id = ?",
+            rusqlite::params![fm.name, fm.description, source_code, now, script_id],
+        )?;
+
+        if changes == 0 {
+            return Err(KrillnotesError::NoteNotFound(format!("User script {script_id} not found")));
+        }
+
+        self.reload_user_scripts()?;
+        self.get_user_script(script_id)
+    }
+
+    /// Deletes a user script by ID and reloads remaining scripts.
+    pub fn delete_user_script(&mut self, script_id: &str) -> Result<()> {
+        self.connection().execute("DELETE FROM user_scripts WHERE id = ?", [script_id])?;
+        self.reload_user_scripts()
+    }
+
+    /// Toggles the enabled state of a user script and reloads.
+    pub fn toggle_user_script(&mut self, script_id: &str, enabled: bool) -> Result<()> {
+        self.connection().execute(
+            "UPDATE user_scripts SET enabled = ? WHERE id = ?",
+            rusqlite::params![enabled, script_id],
+        )?;
+        self.reload_user_scripts()
+    }
+
+    /// Changes the load order of a user script and reloads.
+    pub fn reorder_user_script(&mut self, script_id: &str, new_load_order: i32) -> Result<()> {
+        self.connection().execute(
+            "UPDATE user_scripts SET load_order = ? WHERE id = ?",
+            rusqlite::params![new_load_order, script_id],
+        )?;
+        self.reload_user_scripts()
+    }
+
+    /// Clears all user-registered schemas/hooks and re-executes enabled user scripts.
+    fn reload_user_scripts(&mut self) -> Result<()> {
+        self.script_registry.clear_user_registrations();
+        let scripts = self.list_user_scripts()?;
+        for script in scripts.iter().filter(|s| s.enabled) {
+            if let Err(e) = self.script_registry.load_user_script(&script.source_code) {
+                eprintln!("Failed to load user script '{}': {}", script.name, e);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1458,6 +1614,120 @@ mod tests {
     /// - `DeleteAll` removes the target note and all descendants.
     /// - `PromoteChildren` removes only the target, re-parenting its children to
     ///   the grandparent.
+    // ── User-script CRUD tests ──────────────────────────────────
+
+    #[test]
+    fn test_list_user_scripts_empty() {
+        let temp = NamedTempFile::new().unwrap();
+        let workspace = Workspace::create(temp.path()).unwrap();
+        let scripts = workspace.list_user_scripts().unwrap();
+        assert!(scripts.is_empty());
+    }
+
+    #[test]
+    fn test_create_user_script() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ fields: [] });";
+        let script = workspace.create_user_script(source).unwrap();
+        assert_eq!(script.name, "Test Script");
+        assert_eq!(script.description, "A test");
+        assert!(script.enabled);
+        assert_eq!(script.load_order, 0);
+    }
+
+    #[test]
+    fn test_create_user_script_missing_name_fails() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let source = "// no name here\nschema(\"X\", #{ fields: [] });";
+        let result = workspace.create_user_script(source);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_user_script() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let source = "// @name: Original\nschema(\"Orig\", #{ fields: [] });";
+        let script = workspace.create_user_script(source).unwrap();
+
+        let new_source = "// @name: Updated\nschema(\"Updated\", #{ fields: [] });";
+        let updated = workspace.update_user_script(&script.id, new_source).unwrap();
+        assert_eq!(updated.name, "Updated");
+    }
+
+    #[test]
+    fn test_delete_user_script() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let source = "// @name: ToDelete\nschema(\"Del\", #{ fields: [] });";
+        let script = workspace.create_user_script(source).unwrap();
+
+        workspace.delete_user_script(&script.id).unwrap();
+        let scripts = workspace.list_user_scripts().unwrap();
+        assert!(scripts.is_empty());
+    }
+
+    #[test]
+    fn test_toggle_user_script() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let source = "// @name: Toggle\nschema(\"Tog\", #{ fields: [] });";
+        let script = workspace.create_user_script(source).unwrap();
+        assert!(script.enabled);
+
+        workspace.toggle_user_script(&script.id, false).unwrap();
+        let scripts = workspace.list_user_scripts().unwrap();
+        assert!(!scripts[0].enabled);
+    }
+
+    #[test]
+    fn test_user_scripts_sorted_by_load_order() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let s1 = "// @name: Second\nschema(\"S2\", #{ fields: [] });";
+        let s2 = "// @name: First\nschema(\"S1\", #{ fields: [] });";
+        workspace.create_user_script(s1).unwrap();
+        let second = workspace.create_user_script(s2).unwrap();
+        workspace.reorder_user_script(&second.id, -1).unwrap();
+
+        let scripts = workspace.list_user_scripts().unwrap();
+        assert_eq!(scripts[0].name, "First");
+        assert_eq!(scripts[1].name, "Second");
+    }
+
+    #[test]
+    fn test_user_scripts_loaded_on_open() {
+        let temp = NamedTempFile::new().unwrap();
+
+        {
+            let mut workspace = Workspace::create(temp.path()).unwrap();
+            workspace.create_user_script(
+                "// @name: TestOpen\nschema(\"OpenType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
+            ).unwrap();
+        }
+
+        let workspace = Workspace::open(temp.path()).unwrap();
+        assert!(workspace.script_registry().get_schema("OpenType").is_ok());
+    }
+
+    #[test]
+    fn test_disabled_user_scripts_not_loaded_on_open() {
+        let temp = NamedTempFile::new().unwrap();
+
+        {
+            let mut workspace = Workspace::create(temp.path()).unwrap();
+            let script = workspace.create_user_script(
+                "// @name: Disabled\nschema(\"DisType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
+            ).unwrap();
+            workspace.toggle_user_script(&script.id, false).unwrap();
+        }
+
+        let workspace = Workspace::open(temp.path()).unwrap();
+        assert!(workspace.script_registry().get_schema("DisType").is_err());
+    }
+
     #[test]
     fn test_delete_note_with_strategy() {
         let temp = NamedTempFile::new().unwrap();
