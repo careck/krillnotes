@@ -674,10 +674,78 @@ fn purge_operations(
         .map_err(|e| e.to_string())
 }
 
+// ── Export / Import commands ──────────────────────────────────────
+
+/// Exports the calling window's workspace as a zip archive at `path`.
+#[tauri::command]
+fn export_workspace_cmd(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+
+    let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    export_workspace(workspace, file).map_err(|e| e.to_string())
+}
+
+/// Reads metadata from an export archive without creating a workspace.
+#[tauri::command]
+fn peek_import_cmd(
+    zip_path: String,
+) -> std::result::Result<ImportResult, String> {
+    let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
+    let reader = std::io::BufReader::new(file);
+    peek_import(reader).map_err(|e| e.to_string())
+}
+
+/// Imports an export archive into a new workspace and opens it in a new window.
+#[tauri::command]
+async fn execute_import(
+    window: tauri::Window,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    zip_path: String,
+    db_path: String,
+) -> std::result::Result<WorkspaceInfo, String> {
+    let db_path_buf = PathBuf::from(&db_path);
+
+    // Import from zip into new database
+    let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
+    let reader = std::io::BufReader::new(file);
+    import_workspace(reader, &db_path_buf).map_err(|e| e.to_string())?;
+
+    // Open the imported workspace in a new window
+    let workspace = Workspace::open(&db_path_buf).map_err(|e| e.to_string())?;
+    let label = generate_unique_label(&state, &db_path_buf);
+
+    let new_window = create_workspace_window(&app, &label)?;
+    store_workspace(&state, label.clone(), workspace, db_path_buf);
+
+    new_window.set_title(&format!("Krillnotes - {label}"))
+        .map_err(|e| e.to_string())?;
+
+    if window.label() == "main" {
+        window.close().map_err(|e| e.to_string())?;
+    }
+
+    get_workspace_info_internal(&state, &label)
+}
+
+/// Returns the application version string from the core crate.
+#[tauri::command]
+fn get_app_version() -> String {
+    APP_VERSION.to_string()
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
     ("file_open", "File > Open Workspace clicked"),
+    ("file_export", "File > Export Workspace clicked"),
+    ("file_import", "File > Import Workspace clicked"),
     ("edit_add_note", "Edit > Add Note clicked"),
     ("edit_delete_note", "Edit > Delete Note clicked"),
     ("view_refresh", "View > Refresh clicked"),
@@ -752,6 +820,10 @@ pub fn run() {
             reorder_user_script,
             list_operations,
             purge_operations,
+            export_workspace_cmd,
+            peek_import_cmd,
+            execute_import,
+            get_app_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

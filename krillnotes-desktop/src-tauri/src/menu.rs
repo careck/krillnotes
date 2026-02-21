@@ -20,6 +20,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Erro
                         .accelerator("CmdOrCtrl+O")
                         .build(app)?,
                     &PredefinedMenuItem::separator(app)?,
+                    &MenuItemBuilder::with_id("file_export", "Export Workspace...")
+                        .build(app)?,
+                    &MenuItemBuilder::with_id("file_import", "Import Workspace...")
+                        .build(app)?,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::close_window(app, None)?,
                     &PredefinedMenuItem::quit(app, None)?,
                 ])
