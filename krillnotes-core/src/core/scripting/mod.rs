@@ -852,4 +852,35 @@ mod tests {
         assert_eq!(result.1["stars"], FieldValue::Number(0.0));
     }
 
+    #[test]
+    fn test_book_hook_with_unset_dates_does_not_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let book_script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/book.rhai")
+        ).expect("book.rhai should exist");
+        registry.load_user_script(&book_script).expect("book.rhai should load");
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("book_title".to_string(), crate::FieldValue::Text("Dune".to_string()));
+        fields.insert("author".to_string(), crate::FieldValue::Text("Herbert".to_string()));
+        fields.insert("genre".to_string(), crate::FieldValue::Text(String::new()));
+        fields.insert("status".to_string(), crate::FieldValue::Text(String::new()));
+        fields.insert("rating".to_string(), crate::FieldValue::Number(0.0));
+        fields.insert("started".to_string(), crate::FieldValue::Date(None));
+        fields.insert("finished".to_string(), crate::FieldValue::Date(None));
+        fields.insert("rating_stars".to_string(), crate::FieldValue::Text(String::new()));
+        fields.insert("read_duration".to_string(), crate::FieldValue::Text(String::new()));
+        fields.insert("notes".to_string(), crate::FieldValue::Text(String::new()));
+
+        let schema = registry.get_schema("Book").unwrap();
+        let result = registry.run_on_save_hook("Book", "id1", "Book", "Dune", &fields);
+        assert!(result.is_ok(), "book hook should not error with unset dates: {:?}", result);
+        let (title, out_fields) = result.unwrap().unwrap();
+        assert_eq!(title, "Herbert: Dune");
+        assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
+        assert_eq!(out_fields["rating_stars"], crate::FieldValue::Text(String::new()));
+        // suppress unused variable warning
+        let _ = schema;
+    }
+
 }

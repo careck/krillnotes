@@ -56,7 +56,8 @@ on_save("Book", |note| {
     // Read duration from ISO date strings (YYYY-MM-DD)
     let started  = note.fields["started"];
     let finished = note.fields["finished"];
-    note.fields["read_duration"] = if started != "" && finished != "" {
+    note.fields["read_duration"] = if type_of(started) == "string" && started != ""
+        && type_of(finished) == "string" && finished != "" {
         let s_parts = started.split("-");
         let f_parts = finished.split("-");
         let s_days = parse_int(s_parts[0]) * 365 + parse_int(s_parts[1]) * 30 + parse_int(s_parts[2]);
