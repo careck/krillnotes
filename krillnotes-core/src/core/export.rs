@@ -272,8 +272,13 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path) -> Result<Imp
         )
         .map_err(|e| ExportError::Database(e.to_string()))?;
 
-    // Bulk-insert notes in a transaction
+    // Bulk-insert notes in a transaction.
+    // Defer foreign-key checks so child notes can be inserted before their parents.
     {
+        storage
+            .connection()
+            .execute_batch("PRAGMA defer_foreign_keys = ON;")
+            .map_err(|e| ExportError::Database(e.to_string()))?;
         let tx = storage
             .connection_mut()
             .transaction()
