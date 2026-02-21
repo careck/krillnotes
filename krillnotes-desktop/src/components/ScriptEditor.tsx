@@ -79,7 +79,7 @@ function ScriptEditor({ value, onChange }: ScriptEditorProps) {
   return (
     <div
       ref={containerRef}
-      className="border border-border rounded-md overflow-hidden h-full min-h-[300px]"
+      className="flex-1 min-h-0 border border-border rounded-md overflow-hidden"
     />
   );
 }

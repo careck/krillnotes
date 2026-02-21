@@ -133,7 +133,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border border-border rounded-lg w-[700px] max-h-[80vh] flex flex-col">
+      <div className="bg-background border border-border rounded-lg w-[700px] h-[80vh] flex flex-col">
         {view === 'list' ? (
           <>
             {/* List View Header */}
@@ -221,7 +221,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
             </div>
 
             {/* Editor */}
-            <div className="flex-1 overflow-hidden p-4">
+            <div className="flex-1 min-h-0 overflow-hidden p-4 flex flex-col">
               <ScriptEditor value={editorContent} onChange={setEditorContent} />
             </div>
 
