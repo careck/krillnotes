@@ -56,3 +56,14 @@ export interface DeleteResult {
   deletedCount: number;
   affectedIds: string[];
 }
+
+export interface UserScript {
+  id: string;
+  name: string;
+  description: string;
+  sourceCode: string;
+  loadOrder: number;
+  enabled: boolean;
+  createdAt: number;
+  modifiedAt: number;
+}
