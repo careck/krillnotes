@@ -128,18 +128,29 @@ impl Schema {
                 .and_then(|v| v.clone().try_cast::<bool>())
                 .unwrap_or(true);
 
-            let options: Vec<String> = field_map
+            let mut options: Vec<String> = Vec::new();
+            if let Some(arr) = field_map
                 .get("options")
                 .and_then(|v| v.clone().try_cast::<rhai::Array>())
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|item| item.try_cast::<String>())
-                .collect();
+            {
+                for item in arr {
+                    let s = item.try_cast::<String>().ok_or_else(|| {
+                        KrillnotesError::Scripting("options array must contain only strings".into())
+                    })?;
+                    options.push(s);
+                }
+            }
 
             let max: i64 = field_map
                 .get("max")
                 .and_then(|v| v.clone().try_cast::<i64>())
                 .unwrap_or(0);
+
+            if max < 0 {
+                return Err(KrillnotesError::Scripting(
+                    format!("field '{}': max must be >= 0, got {}", field_name, max)
+                ));
+            }
 
             fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max });
         }
