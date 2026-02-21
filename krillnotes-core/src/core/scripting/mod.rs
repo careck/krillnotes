@@ -203,10 +203,6 @@ impl ScriptRegistry {
         self.schema_registry.exists(name)
     }
 
-    /// Returns a reference to the Rhai engine (needed for hook execution in tests).
-    pub fn engine(&self) -> &Engine {
-        &self.engine
-    }
 }
 
 #[cfg(test)]
@@ -728,15 +724,14 @@ mod tests {
             });
         "#).unwrap();
 
-        let mut fields = std::collections::HashMap::new();
-        fields.insert("status".to_string(), crate::FieldValue::Text("A".to_string()));
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), FieldValue::Text("A".to_string()));
 
-        let result = registry.hooks().run_on_save_hook(
-            registry.engine(),
-            &registry.get_schema("S").unwrap(),
-            "id1", "S", "title", &fields,
-        ).unwrap().unwrap();
-        assert_eq!(result.1["status"], crate::FieldValue::Text("B".to_string()));
+        let result = registry
+            .run_on_save_hook("S", "id1", "S", "title", &fields)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.1["status"], FieldValue::Text("B".to_string()));
     }
 
     #[test]
@@ -752,15 +747,56 @@ mod tests {
             });
         "#).unwrap();
 
-        let mut fields = std::collections::HashMap::new();
-        fields.insert("stars".to_string(), crate::FieldValue::Number(0.0));
+        let mut fields = HashMap::new();
+        fields.insert("stars".to_string(), FieldValue::Number(0.0));
 
-        let result = registry.hooks().run_on_save_hook(
-            registry.engine(),
-            &registry.get_schema("R").unwrap(),
-            "id1", "R", "title", &fields,
-        ).unwrap().unwrap();
-        assert_eq!(result.1["stars"], crate::FieldValue::Number(4.0));
+        let result = registry
+            .run_on_save_hook("R", "id1", "R", "title", &fields)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.1["stars"], FieldValue::Number(4.0));
+    }
+
+    #[test]
+    fn test_select_field_defaults_to_empty_text_when_absent_from_hook_result() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("S2", #{
+                fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ]
+            });
+            on_save("S2", |note| {
+                // deliberately do NOT set note.fields.status
+                note
+            });
+        "#).unwrap();
+
+        let fields = HashMap::new(); // no status field
+        let result = registry
+            .run_on_save_hook("S2", "id1", "S2", "title", &fields)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.1["status"], FieldValue::Text(String::new()));
+    }
+
+    #[test]
+    fn test_rating_field_defaults_to_zero_when_absent_from_hook_result() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("R2", #{
+                fields: [ #{ name: "stars", type: "rating", max: 5 } ]
+            });
+            on_save("R2", |note| {
+                // deliberately do NOT set note.fields.stars
+                note
+            });
+        "#).unwrap();
+
+        let fields = HashMap::new(); // no stars field
+        let result = registry
+            .run_on_save_hook("R2", "id1", "R2", "title", &fields)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.1["stars"], FieldValue::Number(0.0));
     }
 
 }
