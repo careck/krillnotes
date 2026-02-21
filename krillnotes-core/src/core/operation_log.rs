@@ -21,6 +21,7 @@ pub enum PurgeStrategy {
 
 /// Lightweight summary of an operation for display in the UI.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OperationSummary {
     pub operation_id: String,
     pub timestamp: i64,
@@ -181,25 +182,26 @@ impl OperationLog {
 
     /// Extracts a human-readable target name from the operation's JSON data.
     ///
-    /// Checks fields in order: `title`, `name`, `field`, `note_id`, `script_id`.
+    /// Checks fields in order: `title`, `name`, `note_id`, `script_id`.
     /// Returns an empty string if none of these fields are present.
     fn extract_target_name(json: &str) -> String {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
             return String::new();
         };
 
+        // CreateNote has "title"
         if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
             return title.to_string();
         }
+        // CreateUserScript / UpdateUserScript have "name"
         if let Some(name) = value.get("name").and_then(|v| v.as_str()) {
             return name.to_string();
         }
-        if let Some(field) = value.get("field").and_then(|v| v.as_str()) {
-            return field.to_string();
-        }
+        // UpdateField / DeleteNote / MoveNote have "note_id"
         if let Some(note_id) = value.get("note_id").and_then(|v| v.as_str()) {
             return note_id.to_string();
         }
+        // DeleteUserScript has "script_id"
         if let Some(script_id) = value.get("script_id").and_then(|v| v.as_str()) {
             return script_id.to_string();
         }
