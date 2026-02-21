@@ -41,8 +41,6 @@
 //! assert!(json.contains("affectedIds"));
 //! ```
 
-// Rust guideline compliant 2026-02-19
-
 use serde::{Deserialize, Serialize};
 
 /// Determines how children are handled when a note is deleted.

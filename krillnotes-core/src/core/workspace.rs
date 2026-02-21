@@ -1,7 +1,5 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
-// Rust guideline compliant 2026-02-19 (updated: add delete_note strategy dispatcher)
-
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note, Operation,
     OperationLog, PurgeStrategy, Result, ScriptRegistry, Storage,
