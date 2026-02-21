@@ -863,22 +863,41 @@ impl Workspace {
         }
 
         let now = chrono::Utc::now().timestamp();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = Uuid::new_v4().to_string();
 
-        // Determine next load_order
-        let max_order: i32 = self
-            .connection()
-            .query_row("SELECT COALESCE(MAX(load_order), -1) FROM user_scripts", [], |row| row.get(0))
-            .unwrap_or(-1);
-
-        // Try to compile and load the script
+        // Try to compile and load the script (before opening transaction)
         let compile_ok = self.script_registry.load_user_script(source_code).is_ok();
 
-        self.connection().execute(
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // Determine next load_order
+        let max_order: i32 = tx
+            .query_row("SELECT COALESCE(MAX(load_order), -1) FROM user_scripts", [], |row| row.get(0))
+            .unwrap_or(-1);
+        let load_order = max_order + 1;
+
+        tx.execute(
             "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            rusqlite::params![id, fm.name, fm.description, source_code, max_order + 1, compile_ok, now, now],
+            rusqlite::params![id, fm.name, fm.description, source_code, load_order, compile_ok, now, now],
         )?;
+
+        // Log operation
+        let op = Operation::CreateUserScript {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            script_id: id.clone(),
+            name: fm.name.clone(),
+            description: fm.description.clone(),
+            source_code: source_code.to_string(),
+            load_order,
+            enabled: compile_ok,
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
+        tx.commit()?;
 
         if !compile_ok {
             // Reload all user scripts to clean up any partial state
@@ -898,7 +917,9 @@ impl Workspace {
         }
 
         let now = chrono::Utc::now().timestamp();
-        let changes = self.connection().execute(
+        let tx = self.storage.connection_mut().transaction()?;
+
+        let changes = tx.execute(
             "UPDATE user_scripts SET name = ?, description = ?, source_code = ?, modified_at = ? WHERE id = ?",
             rusqlite::params![fm.name, fm.description, source_code, now, script_id],
         )?;
@@ -907,32 +928,145 @@ impl Workspace {
             return Err(KrillnotesError::NoteNotFound(format!("User script {script_id} not found")));
         }
 
+        // Read current full state for the operation log
+        let (load_order, enabled): (i32, bool) = tx.query_row(
+            "SELECT load_order, enabled FROM user_scripts WHERE id = ?",
+            [script_id],
+            |row| Ok((row.get(0)?, row.get::<_, i64>(1).map(|v| v != 0)?)),
+        )?;
+
+        // Log operation
+        let op = Operation::UpdateUserScript {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            name: fm.name.clone(),
+            description: fm.description.clone(),
+            source_code: source_code.to_string(),
+            load_order,
+            enabled,
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
+        tx.commit()?;
+
         self.reload_user_scripts()?;
         self.get_user_script(script_id)
     }
 
     /// Deletes a user script by ID and reloads remaining scripts.
     pub fn delete_user_script(&mut self, script_id: &str) -> Result<()> {
-        self.connection().execute("DELETE FROM user_scripts WHERE id = ?", [script_id])?;
+        let now = chrono::Utc::now().timestamp();
+        let tx = self.storage.connection_mut().transaction()?;
+
+        tx.execute("DELETE FROM user_scripts WHERE id = ?", [script_id])?;
+
+        // Log operation
+        let op = Operation::DeleteUserScript {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
+        tx.commit()?;
+
         self.reload_user_scripts()
     }
 
     /// Toggles the enabled state of a user script and reloads.
     pub fn toggle_user_script(&mut self, script_id: &str, enabled: bool) -> Result<()> {
-        self.connection().execute(
+        let now = chrono::Utc::now().timestamp();
+        let tx = self.storage.connection_mut().transaction()?;
+
+        tx.execute(
             "UPDATE user_scripts SET enabled = ? WHERE id = ?",
             rusqlite::params![enabled, script_id],
         )?;
+
+        // Read full current state for the operation log
+        let (name, description, source_code, load_order): (String, String, String, i32) = tx.query_row(
+            "SELECT name, description, source_code, load_order FROM user_scripts WHERE id = ?",
+            [script_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        // Log operation
+        let op = Operation::UpdateUserScript {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            name,
+            description,
+            source_code,
+            load_order,
+            enabled,
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
+        tx.commit()?;
+
         self.reload_user_scripts()
     }
 
     /// Changes the load order of a user script and reloads.
     pub fn reorder_user_script(&mut self, script_id: &str, new_load_order: i32) -> Result<()> {
-        self.connection().execute(
+        let now = chrono::Utc::now().timestamp();
+        let tx = self.storage.connection_mut().transaction()?;
+
+        tx.execute(
             "UPDATE user_scripts SET load_order = ? WHERE id = ?",
             rusqlite::params![new_load_order, script_id],
         )?;
+
+        // Read full current state for the operation log
+        let (name, description, source_code, enabled): (String, String, String, bool) = tx.query_row(
+            "SELECT name, description, source_code, enabled FROM user_scripts WHERE id = ?",
+            [script_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3).map(|v| v != 0)?)),
+        )?;
+
+        // Log operation
+        let op = Operation::UpdateUserScript {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            name,
+            description,
+            source_code,
+            load_order: new_load_order,
+            enabled,
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
+        tx.commit()?;
+
         self.reload_user_scripts()
+    }
+
+    // ── Operations log queries ───────────────────────────────────────
+
+    /// Returns operation summaries matching the given filters, newest first.
+    pub fn list_operations(
+        &self,
+        type_filter: Option<&str>,
+        since: Option<i64>,
+        until: Option<i64>,
+    ) -> Result<Vec<crate::OperationSummary>> {
+        self.operation_log.list(self.connection(), type_filter, since, until)
+    }
+
+    /// Deletes all operations from the log. Returns the number deleted.
+    pub fn purge_all_operations(&self) -> Result<usize> {
+        self.operation_log.purge_all(self.connection())
     }
 
     /// Clears all user-registered schemas/hooks and re-executes enabled user scripts.

@@ -16,7 +16,7 @@ pub use core::{
     error::{KrillnotesError, Result},
     note::{FieldValue, Note},
     operation::Operation,
-    operation_log::{OperationLog, PurgeStrategy},
+    operation_log::{OperationLog, OperationSummary, PurgeStrategy},
     scripting::{FieldDefinition, HookRegistry, Schema, ScriptRegistry},
     storage::Storage,
     user_script::UserScript,
