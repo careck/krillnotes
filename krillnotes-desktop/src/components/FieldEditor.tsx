@@ -5,10 +5,12 @@ interface FieldEditorProps {
   fieldType: FieldType;
   value: FieldValue;
   required: boolean;
+  options: string[];
+  max: number;
   onChange: (value: FieldValue) => void;
 }
 
-function FieldEditor({ fieldName, fieldType, value, required, onChange }: FieldEditorProps) {
+function FieldEditor({ fieldName, fieldType, value, required, options, max, onChange }: FieldEditorProps) {
   const renderEditor = () => {
     if ('Text' in value) {
       if (fieldType === 'textarea') {
@@ -21,6 +23,21 @@ function FieldEditor({ fieldName, fieldType, value, required, onChange }: FieldE
           />
         );
       }
+      if (fieldType === 'select') {
+        return (
+          <select
+            value={value.Text}
+            onChange={(e) => onChange({ Text: e.target.value })}
+            className="w-full p-2 bg-background border border-border rounded-md"
+            required={required}
+          >
+            <option value="">— select —</option>
+            {options.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        );
+      }
       return (
         <input
           type="text"
@@ -31,6 +48,25 @@ function FieldEditor({ fieldName, fieldType, value, required, onChange }: FieldE
         />
       );
     } else if ('Number' in value) {
+      if (fieldType === 'rating') {
+        const current = value.Number;
+        const starCount = max > 0 ? max : 5;
+        return (
+          <div className="flex gap-1">
+            {Array.from({ length: starCount }, (_, i) => i + 1).map(star => (
+              <button
+                key={star}
+                type="button"
+                onClick={() => onChange({ Number: star === current ? 0 : star })}
+                className="text-2xl leading-none text-yellow-400 hover:scale-110 transition-transform"
+                aria-label={`${star} star${star !== 1 ? 's' : ''}`}
+              >
+                {star <= current ? '★' : '☆'}
+              </button>
+            ))}
+          </div>
+        );
+      }
       return (
         <input
           type="number"
