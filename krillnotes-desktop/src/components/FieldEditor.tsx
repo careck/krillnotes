@@ -1,8 +1,8 @@
-import type { FieldValue } from '../types';
+import type { FieldValue, FieldType } from '../types';
 
 interface FieldEditorProps {
   fieldName: string;
-  fieldType: string;
+  fieldType: FieldType;
   value: FieldValue;
   required: boolean;
   onChange: (value: FieldValue) => void;
