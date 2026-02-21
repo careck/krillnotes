@@ -1,14 +1,16 @@
-//! Book — reading tracker with star rating and derived read duration.
-//!
-//! on_save hook:
-//!   - Computes title as "Author: Book Title"
-//!   - Derives `rating_stars` (view-only) from the rating field
-//!   - Derives `read_duration` (view-only) from started + finished dates
-//!     (shown as "N days"; blank if either date is missing,
-//!      or blank if finished is on or before started)
-//!
-//! Note: date arithmetic uses a simplified approximation (year×365 + month×30 + day)
-//! for display purposes — it is not calendar-accurate.
+// @name: Book
+// @description: Reading tracker with star rating and derived read duration.
+//
+// on_save hook:
+//   - Computes title as "Author: Book Title"
+//   - Derives `read_duration` (view-only) from started + finished dates
+//     (shown as "N days"; blank if either date is missing,
+//      or blank if finished is on or before started)
+//
+// Note: date arithmetic uses a simplified approximation (year×365 + month×30 + day)
+// for display purposes — it is not calendar-accurate.
+//
+// The `rating` field renders natively as stars in view mode — no derived field needed.
 
 schema("Book", #{
     title_can_edit: false,
@@ -22,7 +24,6 @@ schema("Book", #{
         #{ name: "started",       type: "date",     required: false                 },
         #{ name: "finished",      type: "date",     required: false                 },
         #{ name: "notes",         type: "textarea", required: false                 },
-        #{ name: "rating_stars",  type: "text",     required: false, can_edit: false },
         #{ name: "read_duration", type: "text",     required: false, can_edit: false },
     ]
 });
@@ -39,21 +40,8 @@ on_save("Book", |note| {
         "Untitled Book"
     };
 
-    // Star rating string
-    // rating is stored as a float; 0.0 means "not rated"
-    let r = note.fields["rating"];
-    note.fields["rating_stars"] = if r <= 0.0 {
-        ""
-    } else {
-        let filled = max(0, min(5, (r + 0.5).floor().to_int()));
-        let empty  = 5 - filled;
-        let stars  = "";
-        for i in 0..filled { stars += "★"; }
-        for i in 0..empty  { stars += "☆"; }
-        stars
-    };
-
-    // Read duration from ISO date strings (YYYY-MM-DD)
+    // Read duration from ISO date strings (YYYY-MM-DD).
+    // date fields are () (unit) when unset — check with type_of before using.
     let started  = note.fields["started"];
     let finished = note.fields["finished"];
     note.fields["read_duration"] = if type_of(started) == "string" && started != ""

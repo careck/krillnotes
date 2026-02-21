@@ -1,11 +1,12 @@
-//! Task — a trackable to-do item with status, priority, and due date.
-//!
-//! on_save hook:
-//!   - Computes the note title as a status symbol + task name, e.g. "[✓] Buy groceries"
-//!   - Derives `priority_label` (view-only) from the priority field
-//!
-//! Note: real-time urgency labels (e.g. "Due in 3 days") would require an on_view() hook,
-//! which is not yet implemented. Use the due_date field to track deadlines for now.
+// @name: Task
+// @description: A trackable to-do item with status, priority, and due date.
+//
+// on_save hook:
+//   - Computes the note title as a status symbol + task name, e.g. "[✓] Buy groceries"
+//   - Derives `priority_label` (view-only) from the priority field
+//
+// Note: real-time urgency labels (e.g. "Due in 3 days") would require an on_view() hook,
+// which is not yet implemented. Use the due_date field to track deadlines for now.
 
 schema("Task", #{
     title_can_edit: false,

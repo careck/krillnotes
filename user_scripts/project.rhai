@@ -1,7 +1,8 @@
-//! Project — a piece of work with a status, priority, and optional dates.
-//!
-//! on_save hook:
-//!   - Derives `health` (view-only) from the status field, e.g. "🚧 Active"
+// @name: Project
+// @description: A piece of work with status, priority, and optional dates.
+//
+// on_save hook:
+//   - Derives `health` (view-only) from the status field, e.g. "🚧 Active"
 
 schema("Project", #{
     title_can_edit: true,

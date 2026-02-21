@@ -868,7 +868,6 @@ mod tests {
         fields.insert("rating".to_string(), crate::FieldValue::Number(0.0));
         fields.insert("started".to_string(), crate::FieldValue::Date(None));
         fields.insert("finished".to_string(), crate::FieldValue::Date(None));
-        fields.insert("rating_stars".to_string(), crate::FieldValue::Text(String::new()));
         fields.insert("read_duration".to_string(), crate::FieldValue::Text(String::new()));
         fields.insert("notes".to_string(), crate::FieldValue::Text(String::new()));
 
@@ -878,7 +877,6 @@ mod tests {
         let (title, out_fields) = result.unwrap().unwrap();
         assert_eq!(title, "Herbert: Dune");
         assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
-        assert_eq!(out_fields["rating_stars"], crate::FieldValue::Text(String::new()));
         // suppress unused variable warning
         let _ = schema;
     }

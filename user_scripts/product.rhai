@@ -1,8 +1,9 @@
-//! Product — an inventory item with auto-formatted title and stock status.
-//!
-//! on_save hook:
-//!   - Computes title as "Product Name (SKU)" (or just name if SKU is blank)
-//!   - Derives `stock_status` (view-only) from the stock count
+// @name: Product
+// @description: An inventory item with auto-formatted title and stock status.
+//
+// on_save hook:
+//   - Computes title as "Product Name (SKU)" (or just name if SKU is blank)
+//   - Derives `stock_status` (view-only) from the stock count
 
 schema("Product", #{
     title_can_edit: false,
