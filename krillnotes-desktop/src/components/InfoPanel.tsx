@@ -269,6 +269,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 fieldType={field.fieldType}
                 value={editedFields[field.name] ?? defaultValueForFieldType(field.fieldType)}
                 required={field.required}
+                options={field.options}
+                max={field.max}
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
             ))
@@ -283,7 +285,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 <FieldDisplay
                   key={field.name}
                   fieldName={field.name}
+                  fieldType={field.fieldType}
                   value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
+                  max={field.max}
                 />
               ))}
             </dl>
@@ -304,6 +308,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                     fieldType="text"
                     value={editedFields[name] ?? { Text: '' }}
                     required={false}
+                    options={[]}
+                    max={0}
                     onChange={(value) => handleFieldChange(name, value)}
                   />
                 ))}
@@ -324,6 +330,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                   <FieldDisplay
                     key={name}
                     fieldName={`${name} (legacy)`}
+                    fieldType="text"
                     value={selectedNote.fields[name]}
                   />
                 ))}
