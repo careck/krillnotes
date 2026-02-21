@@ -17,9 +17,10 @@ function defaultValueForFieldType(fieldType: string): FieldValue {
   switch (fieldType) {
     case 'boolean': return { Boolean: false };
     case 'number':  return { Number: 0 };
+    case 'rating':  return { Number: 0 };
     case 'date':    return { Date: null };
     case 'email':   return { Email: '' };
-    default:        return { Text: '' };
+    default:        return { Text: '' }; // covers 'text', 'textarea', 'select'
   }
 }
 

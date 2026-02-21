@@ -31,7 +31,7 @@ export type FieldValue =
   | { Date: string | null }   // ISO "YYYY-MM-DD" or null when not set
   | { Email: string };
 
-export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'email';
+export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'email' | 'select' | 'rating';
 
 export interface FieldDefinition {
   name: string;
@@ -39,6 +39,8 @@ export interface FieldDefinition {
   required: boolean;
   canView: boolean;
   canEdit: boolean;
+  options: string[];   // non-empty for 'select' fields
+  max: number;         // non-zero for 'rating' fields
 }
 
 export interface SchemaInfo {
