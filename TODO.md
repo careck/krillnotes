@@ -22,11 +22,19 @@
 
 ✅ DONE! add a system note property which tells the tree to sort the note's children by title either asc or desc or don't sort at all (use the note position instead). This should be settable via the schema definition just like title_can_edit. 
 
-[ ] add a search bar at the very top above the tree. when typing anything it will find any note with that text anywhere in its fields and display them in a drop down. once you click on a note in the dropdown it will open up the note for editing and show it in the tree. If the note was previous not visible because its parent was collapsed then its parent and all grandparents will also be shown.
+✅ DONE! add a search bar at the very top above the tree. when typing anything it will find any note with that text anywhere in its fields and display them in a drop down. once you click on a note in the dropdown it will open up the note for editing and show it in the tree. If the note was previous not visible because its parent was collapsed then its parent and all grandparents will also be shown.
+
+✅ DONE! make a view which shows the operations log of unsynced operations. This would be a flat list of operations with date and time in the left hand column and the operation type (create, update, delete) in the right hand column. The user should be able to filter the list by operation type or by date range. There should also be a button to purge the log from the database to compress it.
+
+✅ DONE! make an export feature which stores the whole workspace as a zip file with a json file for the notes data and all user scripts as separate .rhai files in the same folder. This would allow for sharing of workspaces between users without having to worry about syncing their entire database. Also allow for importing of other people's workspaces into a new workspace from a zip file of the export format. When exporting a workspace remove all operation logs, as these are not relevant for an export file. The import/export actions should be available from the File menu.
 
 [ ] make a view hook which is called when a note is displayed in the view panel, the hook function (in a rhai script) will return some templated html code to display the note. The view should also have access to all children of the note and query and display their content as well. This would allow for displaying notes with nested child notes.
 
-[ ] make a view which shows the operations log of unsynced operations. This would be a flat list of operations with date and time in the left hand column and the operation type (create, update, delete) in the right hand column. The user should be able to filter the list by operation type or by date range. There should also be a button to purge the log from the database to compress it.
+[ ] remove the save dialog from "new" and open file dialog from "open". Instead add a settings dialog and data structure where the user can set the default workspace directory. All new workspaces will then automatically be created in this directory. Loading a workspace can have a new dialog which lists all available workspaces in that directory and allows for loading of any existing workspace. There should be default workspace directory which makes sense depending on the operating system (e.g. ~/.krillnotes/workspaces) the settings should also be stored in a file in that directory (e.g. ~/.krillnotes/settings.json). Remember that this will also change the way Import works, as it can now create the new workspace directly in the default directory instead of having to ask for a path.
+
+[ ] I know how to manually build a MacOS app bundle using tauri build, but I would like to automate this using github actions. Please suggest ways to: 1. kick this off by either setting a release tag or pushing a tag to the repo; 2. create an artifact automatically for the release for windows, macos and linux.
+
+
 
 
 
