@@ -697,6 +697,42 @@ mod tests {
     }
 
     #[test]
+    fn test_example_user_scripts_load_without_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+
+        let task_script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/task.rhai")
+        ).expect("task.rhai should exist");
+        registry.load_user_script(&task_script).expect("task.rhai should load");
+
+        let project_script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/project.rhai")
+        ).expect("project.rhai should exist");
+        registry.load_user_script(&project_script).expect("project.rhai should load");
+
+        let book_script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/book.rhai")
+        ).expect("book.rhai should exist");
+        registry.load_user_script(&book_script).expect("book.rhai should load");
+
+        let product_script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/product.rhai")
+        ).expect("product.rhai should exist");
+        registry.load_user_script(&product_script).expect("product.rhai should load");
+
+        let recipe_script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/recipe.rhai")
+        ).expect("recipe.rhai should exist");
+        registry.load_user_script(&recipe_script).expect("recipe.rhai should load");
+
+        assert!(registry.schema_exists("Task"));
+        assert!(registry.schema_exists("Project"));
+        assert!(registry.schema_exists("Book"));
+        assert!(registry.schema_exists("Product"));
+        assert!(registry.schema_exists("Recipe"));
+    }
+
+    #[test]
     fn test_negative_max_returns_error() {
         let mut registry = ScriptRegistry::new().unwrap();
         let result = registry.load_script(r#"
