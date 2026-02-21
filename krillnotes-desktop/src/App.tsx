@@ -54,6 +54,66 @@ const createMenuHandlers = (
       setStatus(`Error: ${error}`, true);
     }
   },
+
+  'File > Export Workspace clicked': async () => {
+    try {
+      const path = await save({
+        filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
+        defaultPath: 'workspace.krillnotes.zip',
+        title: 'Export Workspace'
+      });
+
+      if (!path) return;
+
+      await invoke('export_workspace_cmd', { path });
+      setStatus('Workspace exported successfully');
+    } catch (error) {
+      setStatus(`Export failed: ${error}`, true);
+    }
+  },
+
+  'File > Import Workspace clicked': async () => {
+    try {
+      const zipPath = await open({
+        filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
+        multiple: false,
+        title: 'Import Workspace'
+      });
+
+      if (!zipPath || Array.isArray(zipPath)) return;
+
+      // Peek at metadata to check version
+      const result = await invoke<{ appVersion: string; noteCount: number; scriptCount: number }>(
+        'peek_import_cmd', { zipPath }
+      );
+
+      // Check app version — warn if export is from a newer version
+      const currentVersion = await invoke<string>('get_app_version');
+      if (result.appVersion > currentVersion) {
+        const { confirm } = await import('@tauri-apps/plugin-dialog');
+        const proceed = await confirm(
+          `This export was created with Krillnotes v${result.appVersion}, but you are running v${currentVersion}. Some data may not import correctly.\n\nImport anyway?`,
+          { title: 'Version Mismatch', kind: 'warning' }
+        );
+        if (!proceed) return;
+      }
+
+      // Pick where to save the new .db file
+      const dbPath = await save({
+        filters: [{ name: 'Krillnotes Database', extensions: ['db'] }],
+        defaultPath: 'imported-workspace.db',
+        title: 'Save Imported Workspace As'
+      });
+
+      if (!dbPath) return;
+
+      // Execute the import
+      await invoke('execute_import', { zipPath, dbPath });
+      setStatus(`Imported ${result.noteCount} notes and ${result.scriptCount} scripts`);
+    } catch (error) {
+      setStatus(`Import failed: ${error}`, true);
+    }
+  },
 });
 
 function App() {
