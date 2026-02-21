@@ -7,6 +7,7 @@ import InfoPanel from './InfoPanel';
 import AddNoteDialog from './AddNoteDialog';
 import ContextMenu from './ContextMenu';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
+import ScriptManagerDialog from './ScriptManagerDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree } from '../utils/tree';
@@ -38,6 +39,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // Incremented to signal InfoPanel to enter edit mode
   const [requestEditMode, setRequestEditMode] = useState(0);
 
+  // Script manager dialog state
+  const [showScriptManager, setShowScriptManager] = useState(false);
+
   selectedNoteIdRef.current = selectedNoteId;
 
   // Load notes on mount
@@ -53,6 +57,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
       if (event.payload === 'Edit > Add Note clicked') {
         setShowAddDialog(true);
+      }
+      if (event.payload === 'Edit > Manage Scripts clicked') {
+        setShowScriptManager(true);
       }
     });
 
@@ -345,6 +352,13 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           disabled={isDeleting}
         />
       )}
+
+      {/* Script Manager Dialog */}
+      <ScriptManagerDialog
+        isOpen={showScriptManager}
+        onClose={() => setShowScriptManager(false)}
+        onScriptsChanged={loadNotes}
+      />
     </div>
   );
 }
