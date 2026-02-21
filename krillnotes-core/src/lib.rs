@@ -19,5 +19,6 @@ pub use core::{
     operation_log::{OperationLog, PurgeStrategy},
     scripting::{FieldDefinition, HookRegistry, Schema, ScriptRegistry},
     storage::Storage,
+    user_script::UserScript,
     workspace::{AddPosition, Workspace},
 };

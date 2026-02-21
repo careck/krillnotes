@@ -35,3 +35,15 @@ CREATE TABLE IF NOT EXISTS workspace_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- User scripts
+CREATE TABLE IF NOT EXISTS user_scripts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    source_code TEXT NOT NULL,
+    load_order INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    modified_at INTEGER NOT NULL
+);

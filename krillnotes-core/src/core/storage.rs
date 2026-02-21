@@ -74,6 +74,29 @@ impl Storage {
             )?;
         }
 
+        // Migration: add user_scripts table if it doesn't exist.
+        let user_scripts_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='user_scripts'",
+                [],
+                |row| row.get::<_, i64>(0).map(|count| count > 0),
+            )?;
+
+        if !user_scripts_exists {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS user_scripts (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL DEFAULT '',
+                    description TEXT NOT NULL DEFAULT '',
+                    source_code TEXT NOT NULL,
+                    load_order INTEGER NOT NULL DEFAULT 0,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    modified_at INTEGER NOT NULL
+                )",
+            )?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -177,5 +200,45 @@ mod tests {
             .unwrap();
 
         assert!(column_exists, "is_expanded column should exist after migration");
+    }
+
+    #[test]
+    fn test_migration_creates_user_scripts_table() {
+        let temp = NamedTempFile::new().unwrap();
+
+        {
+            let conn = Connection::open(temp.path()).unwrap();
+            conn.execute(
+                "CREATE TABLE notes (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    node_type TEXT NOT NULL,
+                    parent_id TEXT,
+                    position INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    modified_at INTEGER NOT NULL,
+                    created_by INTEGER NOT NULL,
+                    modified_by INTEGER NOT NULL,
+                    fields_json TEXT NOT NULL,
+                    is_expanded INTEGER DEFAULT 1
+                )",
+                [],
+            ).unwrap();
+            conn.execute("CREATE TABLE operations (id INTEGER PRIMARY KEY)", []).unwrap();
+            conn.execute("CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT)", []).unwrap();
+        }
+
+        let storage = Storage::open(temp.path()).unwrap();
+
+        let table_exists: bool = storage
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='user_scripts'",
+                [],
+                |row| row.get::<_, i64>(0).map(|count| count > 0),
+            )
+            .unwrap();
+
+        assert!(table_exists, "user_scripts table should exist after migration");
     }
 }
