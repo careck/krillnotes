@@ -15,6 +15,12 @@ pub struct FieldDefinition {
     pub required: bool,
     pub can_view: bool,
     pub can_edit: bool,
+    /// Non-empty only for `select` fields — the list of allowed option strings.
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// Non-zero only for `rating` fields — the maximum star count.
+    #[serde(default)]
+    pub max: i64,
 }
 
 /// A parsed note-type schema containing an ordered list of field definitions.
@@ -122,7 +128,20 @@ impl Schema {
                 .and_then(|v| v.clone().try_cast::<bool>())
                 .unwrap_or(true);
 
-            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit });
+            let options: Vec<String> = field_map
+                .get("options")
+                .and_then(|v| v.clone().try_cast::<rhai::Array>())
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|item| item.try_cast::<String>())
+                .collect();
+
+            let max: i64 = field_map
+                .get("max")
+                .and_then(|v| v.clone().try_cast::<i64>())
+                .unwrap_or(0);
+
+            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max });
         }
 
         let title_can_view = def

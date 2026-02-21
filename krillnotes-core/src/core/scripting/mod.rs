@@ -258,6 +258,8 @@ mod tests {
                     required: false,
                     can_view: true,
                     can_edit: true,
+                    options: vec![],
+                    max: 0,
                 },
                 FieldDefinition {
                     name: "count".to_string(),
@@ -265,6 +267,8 @@ mod tests {
                     required: false,
                     can_view: true,
                     can_edit: true,
+                    options: vec![],
+                    max: 0,
                 },
             ],
             title_can_view: true,
@@ -296,6 +300,8 @@ mod tests {
                 required: false,
                 can_view: true,
                 can_edit: true,
+                options: vec![],
+                max: 0,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -314,6 +320,8 @@ mod tests {
                 required: false,
                 can_view: true,
                 can_edit: true,
+                options: vec![],
+                max: 0,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -624,6 +632,46 @@ mod tests {
         assert!(!registry.hooks().has_hook("Hooked"));
         // System hook should remain
         assert!(registry.hooks().has_hook("Contact"));
+    }
+
+    #[test]
+    fn test_select_field_parses_options() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Ticket", #{
+                fields: [
+                    #{ name: "status", type: "select", options: ["TODO", "WIP", "DONE"], required: true }
+                ]
+            });
+        "#).unwrap();
+        let fields = get_schema_fields_for_test(&registry, "Ticket");
+        assert_eq!(fields[0].options, vec!["TODO", "WIP", "DONE"]);
+    }
+
+    #[test]
+    fn test_rating_field_parses_max() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Review", #{
+                fields: [
+                    #{ name: "stars", type: "rating", max: 5 }
+                ]
+            });
+        "#).unwrap();
+        let fields = get_schema_fields_for_test(&registry, "Review");
+        assert_eq!(fields[0].max, 5);
+    }
+
+    #[test]
+    fn test_regular_fields_have_empty_options_and_zero_max() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let fields = get_schema_fields_for_test(&registry, "TextNote");
+        assert!(fields[0].options.is_empty());
+        assert_eq!(fields[0].max, 0);
+    }
+
+    fn get_schema_fields_for_test(registry: &ScriptRegistry, name: &str) -> Vec<FieldDefinition> {
+        registry.get_schema(name).unwrap().fields
     }
 
 }
