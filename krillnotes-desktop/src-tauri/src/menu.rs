@@ -50,6 +50,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Erro
                 .items(&[
                     &PredefinedMenuItem::fullscreen(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
+                    &MenuItemBuilder::with_id("view_operations_log", "Operations Log...")
+                        .build(app)?,
+                    &PredefinedMenuItem::separator(app)?,
                     &MenuItemBuilder::with_id("view_refresh", "Refresh")
                         .accelerator("CmdOrCtrl+R")
                         .build(app)?,

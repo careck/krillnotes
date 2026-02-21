@@ -70,3 +70,11 @@ export interface UserScript {
   createdAt: number;
   modifiedAt: number;
 }
+
+export interface OperationSummary {
+  operationId: string;
+  timestamp: number;
+  deviceId: string;
+  operationType: string;
+  targetName: string;
+}
