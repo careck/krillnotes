@@ -712,6 +712,23 @@ mod tests {
     }
 
     #[test]
+    fn test_select_and_rating_default_fields() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Widget", #{
+                fields: [
+                    #{ name: "status", type: "select", options: ["A", "B"] },
+                    #{ name: "stars",  type: "rating",  max: 5 }
+                ]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("Widget").unwrap();
+        let defaults = schema.default_fields();
+        assert_eq!(defaults["status"], crate::FieldValue::Text(String::new()));
+        assert_eq!(defaults["stars"],  crate::FieldValue::Number(0.0));
+    }
+
+    #[test]
     fn test_select_field_round_trips_through_hook() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"

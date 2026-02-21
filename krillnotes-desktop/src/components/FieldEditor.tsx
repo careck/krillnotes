@@ -24,6 +24,9 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, onCh
         );
       }
       if (fieldType === 'select') {
+        if (options.length === 0) {
+          return <p className="text-sm text-muted-foreground italic p-2">No options configured</p>;
+        }
         return (
           <select
             value={value.Text}
@@ -59,7 +62,8 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, onCh
                 type="button"
                 onClick={() => onChange({ Number: star === current ? 0 : star })}
                 className="text-2xl leading-none text-yellow-400 hover:scale-110 transition-transform"
-                aria-label={`${star} star${star !== 1 ? 's' : ''}`}
+                aria-label={`${star} star${star !== 1 ? 's' : ''}${star === current ? ' (selected, click to clear)' : ''}`}
+                aria-pressed={star <= current}
               >
                 {star <= current ? '★' : '☆'}
               </button>

@@ -78,6 +78,8 @@ impl Schema {
                 "boolean" => FieldValue::Boolean(false),
                 "date" => FieldValue::Date(None),
                 "email" => FieldValue::Email(String::new()),
+                "select" => FieldValue::Text(String::new()),
+                "rating" => FieldValue::Number(0.0),
                 // Unknown types fall back to empty text; script validation catches typos.
                 _ => FieldValue::Text(String::new()),
             };
