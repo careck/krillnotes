@@ -498,6 +498,122 @@ fn delete_note(
         .map_err(|e| e.to_string())
 }
 
+// ── User-script commands ──────────────────────────────────────────
+
+/// Returns all user scripts for the calling window's workspace.
+#[tauri::command]
+fn list_user_scripts(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<UserScript>, String> {
+    let label = window.label();
+    state.workspaces.lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .list_user_scripts()
+        .map_err(|e| e.to_string())
+}
+
+/// Returns a single user script by ID.
+#[tauri::command]
+fn get_user_script(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    script_id: String,
+) -> std::result::Result<UserScript, String> {
+    let label = window.label();
+    state.workspaces.lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .get_user_script(&script_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Creates a new user script from source code.
+#[tauri::command]
+fn create_user_script(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    source_code: String,
+) -> std::result::Result<UserScript, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.create_user_script(&source_code)
+        .map_err(|e| e.to_string())
+}
+
+/// Updates an existing user script's source code.
+#[tauri::command]
+fn update_user_script(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    script_id: String,
+    source_code: String,
+) -> std::result::Result<UserScript, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.update_user_script(&script_id, &source_code)
+        .map_err(|e| e.to_string())
+}
+
+/// Deletes a user script by ID.
+#[tauri::command]
+fn delete_user_script(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    script_id: String,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.delete_user_script(&script_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Toggles the enabled state of a user script.
+#[tauri::command]
+fn toggle_user_script(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    script_id: String,
+    enabled: bool,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.toggle_user_script(&script_id, enabled)
+        .map_err(|e| e.to_string())
+}
+
+/// Changes the load order of a user script.
+#[tauri::command]
+fn reorder_user_script(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    script_id: String,
+    new_load_order: i32,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.reorder_user_script(&script_id, new_load_order)
+        .map_err(|e| e.to_string())
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -506,6 +622,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_delete_note", "Edit > Delete Note clicked"),
     ("view_refresh", "View > Refresh clicked"),
     ("help_about", "Help > About Krillnotes clicked"),
+    ("edit_manage_scripts", "Edit > Manage Scripts clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -564,6 +681,13 @@ pub fn run() {
             update_note,
             count_children,
             delete_note,
+            list_user_scripts,
+            get_user_script,
+            create_user_script,
+            update_user_script,
+            delete_user_script,
+            toggle_user_script,
+            reorder_user_script,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
