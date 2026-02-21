@@ -284,6 +284,7 @@ mod tests {
             ],
             title_can_view: true,
             title_can_edit: true,
+            children_sort: "none".to_string(),
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -316,6 +317,7 @@ mod tests {
             }],
             title_can_view: true,
             title_can_edit: true,
+            children_sort: "none".to_string(),
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -336,6 +338,7 @@ mod tests {
             }],
             title_can_view: true,
             title_can_edit: true,
+            children_sort: "none".to_string(),
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -864,6 +867,44 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(result.1["stars"], FieldValue::Number(0.0));
+    }
+
+    #[test]
+    fn test_children_sort_defaults_to_none() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("SortTest", #{
+                fields: [#{ name: "x", type: "text" }]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("SortTest").unwrap();
+        assert_eq!(schema.children_sort, "none", "children_sort should default to 'none'");
+    }
+
+    #[test]
+    fn test_children_sort_explicit_asc() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("SortAsc", #{
+                children_sort: "asc",
+                fields: [#{ name: "x", type: "text" }]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("SortAsc").unwrap();
+        assert_eq!(schema.children_sort, "asc");
+    }
+
+    #[test]
+    fn test_children_sort_explicit_desc() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("SortDesc", #{
+                children_sort: "desc",
+                fields: [#{ name: "x", type: "text" }]
+            });
+        "#).unwrap();
+        let schema = registry.get_schema("SortDesc").unwrap();
+        assert_eq!(schema.children_sort, "desc");
     }
 
     #[test]
