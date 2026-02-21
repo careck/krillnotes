@@ -33,6 +33,8 @@ function TreeNode({ node, selectedNoteId, level, onSelect, onToggleExpand, onCon
               onToggleExpand(node.note.id);
             }}
             className="mr-1 text-muted-foreground hover:text-foreground"
+            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            aria-expanded={isExpanded}
           >
             {isExpanded ? '▼' : '▶'}
           </button>
