@@ -14,7 +14,7 @@ pub use krillnotes_core::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
@@ -48,7 +48,7 @@ pub struct WorkspaceInfo {
 ///
 /// Appends a numeric suffix (`-2`, `-3`, …) until the label is absent
 /// from the currently open workspace labels in `state`.
-fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
+fn generate_unique_label(state: &AppState, path: &Path) -> String {
     let filename = path.file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("untitled");
@@ -68,7 +68,7 @@ fn generate_unique_label(state: &AppState, path: &PathBuf) -> String {
 }
 
 /// Returns the window label for a workspace already open at `path`, if any.
-fn find_window_for_path(state: &AppState, path: &PathBuf) -> Option<String> {
+fn find_window_for_path(state: &AppState, path: &Path) -> Option<String> {
     state.workspace_paths.lock()
         .expect("Mutex poisoned")
         .iter()
@@ -104,7 +104,7 @@ fn create_workspace_window(
         label,
         tauri::WebviewUrl::App("index.html".into())
     )
-    .title(&format!("Krillnotes - {}", label))
+    .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
     .build()
     .map_err(|e| format!("Failed to create window: {}", e))
@@ -182,18 +182,18 @@ async fn create_workspace(
     }
 
     // Check if this path is already open
-    match find_window_for_path(&*state, &path_buf) {
+    match find_window_for_path(&state, &path_buf) {
         Some(existing_label) => {
             focus_window(&app, &existing_label)?;
             Err("focused_existing".to_string())
         }
         None => {
-            let label = generate_unique_label(&*state, &path_buf);
+            let label = generate_unique_label(&state, &path_buf);
             let workspace = Workspace::create(&path_buf)
                 .map_err(|e| format!("Failed to create: {}", e))?;
 
             let new_window = create_workspace_window(&app, &label)?;
-            store_workspace(&*state, label.clone(), workspace, path_buf.clone());
+            store_workspace(&state, label.clone(), workspace, path_buf.clone());
 
             new_window.set_title(&format!("Krillnotes - {}", label))
                 .map_err(|e| e.to_string())?;
@@ -203,7 +203,7 @@ async fn create_workspace(
                 window.close().map_err(|e| e.to_string())?;
             }
 
-            get_workspace_info_internal(&*state, &label)
+            get_workspace_info_internal(&state, &label)
         }
     }
 }
@@ -224,18 +224,18 @@ async fn open_workspace(
     }
 
     // Check for duplicate open
-    match find_window_for_path(&*state, &path_buf) {
+    match find_window_for_path(&state, &path_buf) {
         Some(existing_label) => {
             focus_window(&app, &existing_label)?;
             Err("focused_existing".to_string())
         }
         None => {
-            let label = generate_unique_label(&*state, &path_buf);
+            let label = generate_unique_label(&state, &path_buf);
             let workspace = Workspace::open(&path_buf)
                 .map_err(|e| format!("Failed to open: {}", e))?;
 
             let new_window = create_workspace_window(&app, &label)?;
-            store_workspace(&*state, label.clone(), workspace, path_buf.clone());
+            store_workspace(&state, label.clone(), workspace, path_buf.clone());
 
             new_window.set_title(&format!("Krillnotes - {}", label))
                 .map_err(|e| e.to_string())?;
@@ -244,7 +244,7 @@ async fn open_workspace(
                 window.close().map_err(|e| e.to_string())?;
             }
 
-            get_workspace_info_internal(&*state, &label)
+            get_workspace_info_internal(&state, &label)
         }
     }
 }
@@ -255,7 +255,7 @@ fn get_workspace_info(
     window: tauri::Window,
     state: State<'_, AppState>,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    get_workspace_info_internal(&*state, window.label())
+    get_workspace_info_internal(&state, window.label())
 }
 
 /// Returns all notes in the calling window's workspace.
