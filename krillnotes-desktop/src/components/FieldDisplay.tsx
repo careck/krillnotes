@@ -1,13 +1,22 @@
 import { Check, X } from 'lucide-react';
-import type { FieldValue } from '../types';
+import type { FieldValue, FieldType } from '../types';
 
 interface FieldDisplayProps {
   fieldName: string;
+  fieldType: FieldType;
   value: FieldValue;
+  max?: number;
 }
 
-function FieldDisplay({ fieldName, value }: FieldDisplayProps) {
+function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProps) {
   const renderValue = () => {
+    if ('Number' in value && fieldType === 'rating') {
+      const starCount = max > 0 ? max : 5;
+      const filled = Math.round(value.Number);
+      if (filled === 0) return <p className="text-muted-foreground italic">Not rated</p>;
+      const stars = '★'.repeat(filled) + '☆'.repeat(Math.max(0, starCount - filled));
+      return <p className="text-yellow-400 text-lg leading-none">{stars}</p>;
+    }
     if ('Text' in value) {
       return <p className="whitespace-pre-wrap break-words">{value.Text}</p>;
     } else if ('Number' in value) {
