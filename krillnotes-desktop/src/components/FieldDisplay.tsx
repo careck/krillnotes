@@ -32,6 +32,7 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
     } else if ('Email' in value) {
       return <a href={`mailto:${value.Email}`} className="text-primary underline">{value.Email}</a>;
     } else if ('Date' in value) {
+      if (value.Date === null) return <p className="text-muted-foreground italic">—</p>;
       const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(undefined, {
         year: 'numeric', month: 'long', day: 'numeric',
       });
