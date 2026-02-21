@@ -237,6 +237,10 @@ impl SchemaRegistry {
         self.schemas.lock().unwrap().keys().cloned().collect()
     }
 
+    pub(super) fn all(&self) -> HashMap<String, Schema> {
+        self.schemas.lock().unwrap().clone()
+    }
+
     /// Removes all schemas that were registered by user scripts.
     pub(super) fn clear_user(&self) {
         let user_names: Vec<String> = self.user_schemas.lock().unwrap().drain(..).collect();

@@ -375,6 +375,7 @@ struct SchemaInfo {
     fields: Vec<FieldDefinition>,
     title_can_view: bool,
     title_can_edit: bool,
+    children_sort: String,
 }
 
 /// Returns the field definitions for the schema identified by `node_type`.
@@ -404,7 +405,31 @@ fn get_schema_fields(
         fields: schema.fields,
         title_can_view: schema.title_can_view,
         title_can_edit: schema.title_can_edit,
+        children_sort: schema.children_sort,
     })
+}
+
+/// Returns all schema infos keyed by node type name.
+#[tauri::command]
+fn get_all_schemas(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<HashMap<String, SchemaInfo>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+
+    let schemas = workspace.script_registry().all_schemas();
+    let mut result = HashMap::new();
+    for (name, schema) in schemas {
+        result.insert(name, SchemaInfo {
+            fields: schema.fields,
+            title_can_view: schema.title_can_view,
+            title_can_edit: schema.title_can_edit,
+            children_sort: schema.children_sort,
+        });
+    }
+    Ok(result)
 }
 
 /// Updates the title and fields of an existing note, returning the updated note.
@@ -678,6 +703,7 @@ pub fn run() {
             set_selected_note,
             create_note_with_type,
             get_schema_fields,
+            get_all_schemas,
             update_note,
             count_children,
             delete_note,

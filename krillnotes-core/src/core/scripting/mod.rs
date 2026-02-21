@@ -161,6 +161,11 @@ impl ScriptRegistry {
         Ok(self.schema_registry.list())
     }
 
+    /// Returns all registered schemas keyed by name.
+    pub fn all_schemas(&self) -> HashMap<String, Schema> {
+        self.schema_registry.all()
+    }
+
     /// Returns a reference to the [`HookRegistry`] for hook state queries.
     pub fn hooks(&self) -> &HookRegistry {
         &self.hook_registry
