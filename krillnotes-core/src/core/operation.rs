@@ -83,6 +83,7 @@ pub enum Operation {
 
 impl Operation {
     /// Returns the stable identifier for this operation.
+    #[must_use]
     pub fn operation_id(&self) -> &str {
         match self {
             Self::CreateNote { operation_id, .. } => operation_id,
@@ -93,6 +94,7 @@ impl Operation {
     }
 
     /// Returns the wall-clock Unix timestamp (seconds) when this operation was created.
+    #[must_use]
     pub fn timestamp(&self) -> i64 {
         match self {
             Self::CreateNote { timestamp, .. } => *timestamp,

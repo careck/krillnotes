@@ -49,7 +49,7 @@ impl Schema {
                 Some(FieldValue::Text(s)) => s.is_empty(),
                 Some(FieldValue::Email(s)) => s.is_empty(),
                 Some(FieldValue::Date(d)) => d.is_none(),
-                Some(FieldValue::Number(_)) | Some(FieldValue::Boolean(_)) => false,
+                Some(FieldValue::Number(_) | FieldValue::Boolean(_)) => false,
                 None => true,
             };
             if empty {

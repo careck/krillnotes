@@ -20,14 +20,13 @@ pub fn get_device_id() -> Result<String> {
             let mut hasher = DefaultHasher::new();
             mac.bytes().hash(&mut hasher);
             let hash = hasher.finish();
-            Ok(format!("device-{:016x}", hash))
+            Ok(format!("device-{hash:016x}"))
         }
         Ok(None) => Err(KrillnotesError::InvalidWorkspace(
             "Could not determine device MAC address".to_string(),
         )),
         Err(e) => Err(KrillnotesError::InvalidWorkspace(format!(
-            "Failed to get MAC address: {}",
-            e
+            "Failed to get MAC address: {e}"
         ))),
     }
 }

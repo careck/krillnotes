@@ -60,7 +60,7 @@ fn generate_unique_label(state: &AppState, path: &Path) -> String {
     let mut counter = 2;
 
     while workspaces.contains_key(&label) {
-        label = format!("{}-{}", filename, counter);
+        label = format!("{filename}-{counter}");
         counter += 1;
     }
 
@@ -86,7 +86,7 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
         .ok_or_else(|| "Window not found".to_string())
         .and_then(|window| {
             window.set_focus()
-                .map_err(|e| format!("Failed to focus: {}", e))
+                .map_err(|e| format!("Failed to focus: {e}"))
         })
 }
 
@@ -107,7 +107,7 @@ fn create_workspace_window(
     .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
     .build()
-    .map_err(|e| format!("Failed to create window: {}", e))
+    .map_err(|e| format!("Failed to create window: {e}"))
 }
 
 /// Inserts `workspace` and its `path` into `state` under `label`.
@@ -190,12 +190,12 @@ async fn create_workspace(
         None => {
             let label = generate_unique_label(&state, &path_buf);
             let workspace = Workspace::create(&path_buf)
-                .map_err(|e| format!("Failed to create: {}", e))?;
+                .map_err(|e| format!("Failed to create: {e}"))?;
 
             let new_window = create_workspace_window(&app, &label)?;
             store_workspace(&state, label.clone(), workspace, path_buf.clone());
 
-            new_window.set_title(&format!("Krillnotes - {}", label))
+            new_window.set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
 
             // Close main window if this is first workspace
@@ -232,12 +232,12 @@ async fn open_workspace(
         None => {
             let label = generate_unique_label(&state, &path_buf);
             let workspace = Workspace::open(&path_buf)
-                .map_err(|e| format!("Failed to open: {}", e))?;
+                .map_err(|e| format!("Failed to open: {e}"))?;
 
             let new_window = create_workspace_window(&app, &label)?;
             store_workspace(&state, label.clone(), workspace, path_buf.clone());
 
-            new_window.set_title(&format!("Krillnotes - {}", label))
+            new_window.set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
 
             if window.label() == "main" {
