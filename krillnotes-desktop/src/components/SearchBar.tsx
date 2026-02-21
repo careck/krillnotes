@@ -97,6 +97,10 @@ function SearchBar({ notes, onSelect }: SearchBarProps) {
           placeholder="Search notes..."
           value={query}
           onChange={e => setQuery(e.target.value)}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           onFocus={() => setIsFocused(true)}
           onBlur={() => {
             // Delay so click on dropdown result registers before closing
