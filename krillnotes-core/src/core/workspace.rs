@@ -894,8 +894,7 @@ impl Workspace {
 
 fn humanize(filename: &str) -> String {
     filename
-        .replace('-', " ")
-        .replace('_', " ")
+        .replace(['-', '_'], " ")
         .split_whitespace()
         .map(|word| {
             let mut chars = word.chars();
