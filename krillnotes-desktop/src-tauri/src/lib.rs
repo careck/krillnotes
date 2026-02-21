@@ -639,6 +639,41 @@ fn reorder_user_script(
         .map_err(|e| e.to_string())
 }
 
+// ── Operations log commands ──────────────────────────────────────
+
+/// Returns operation summaries matching the given filters.
+#[tauri::command]
+fn list_operations(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    type_filter: Option<String>,
+    since: Option<i64>,
+    until: Option<i64>,
+) -> std::result::Result<Vec<krillnotes_core::OperationSummary>, String> {
+    let label = window.label();
+    state.workspaces.lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .list_operations(type_filter.as_deref(), since, until)
+        .map_err(|e| e.to_string())
+}
+
+/// Deletes all operations from the log.
+#[tauri::command]
+fn purge_operations(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<usize, String> {
+    let label = window.label();
+    state.workspaces.lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .purge_all_operations()
+        .map_err(|e| e.to_string())
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -648,6 +683,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("view_refresh", "View > Refresh clicked"),
     ("help_about", "Help > About Krillnotes clicked"),
     ("edit_manage_scripts", "Edit > Manage Scripts clicked"),
+    ("view_operations_log", "View > Operations Log clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -714,6 +750,8 @@ pub fn run() {
             delete_user_script,
             toggle_user_script,
             reorder_user_script,
+            list_operations,
+            purge_operations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
