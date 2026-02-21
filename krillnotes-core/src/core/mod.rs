@@ -4,6 +4,7 @@
 //! with `#[doc(inline)]`; import from there in preference to this module.
 
 pub mod delete;
+pub mod export;
 pub mod device;
 pub mod error;
 pub mod note;
@@ -16,6 +17,8 @@ pub mod workspace;
 
 #[doc(inline)]
 pub use delete::{DeleteResult, DeleteStrategy};
+#[doc(inline)]
+pub use export::{ExportError, ExportNotes, ImportResult, ScriptManifest, ScriptManifestEntry};
 #[doc(inline)]
 pub use device::get_device_id;
 #[doc(inline)]
