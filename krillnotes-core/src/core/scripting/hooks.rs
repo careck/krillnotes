@@ -23,16 +23,34 @@ pub(super) struct HookEntry {
 #[derive(Debug)]
 pub struct HookRegistry {
     on_save_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    /// Hook names registered by user scripts, so they can be cleared on reload.
+    user_hooks: Arc<Mutex<Vec<String>>>,
 }
 
 impl HookRegistry {
     pub(super) fn new() -> Self {
-        Self { on_save_hooks: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            on_save_hooks: Arc::new(Mutex::new(HashMap::new())),
+            user_hooks: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     /// Returns a clone of the inner `Arc` so Rhai host-function closures can write into it.
     pub(super) fn on_save_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
         Arc::clone(&self.on_save_hooks)
+    }
+
+    pub(super) fn user_hooks_arc(&self) -> Arc<Mutex<Vec<String>>> {
+        Arc::clone(&self.user_hooks)
+    }
+
+    /// Removes all hooks that were registered by user scripts.
+    pub(super) fn clear_user(&self) {
+        let user_names: Vec<String> = self.user_hooks.lock().unwrap().drain(..).collect();
+        let mut hooks = self.on_save_hooks.lock().unwrap();
+        for name in user_names {
+            hooks.remove(&name);
+        }
     }
 
     /// Returns `true` if a pre-save hook is registered for `schema_name`.

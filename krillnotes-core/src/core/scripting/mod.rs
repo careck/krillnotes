@@ -42,30 +42,59 @@ impl ScriptRegistry {
 
         // Register schema() host function — writes into SchemaRegistry.
         let schemas_arc = schema_registry.schemas_arc();
+        let user_schemas_arc = schema_registry.user_schemas_arc();
+        let source_arc = schema_registry.current_source_arc();
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
-            // SAFETY: mutex poisoning would require a panic while the lock is held,
-            // which cannot happen in this codebase's single-threaded usage.
-            schemas_arc.lock().unwrap().insert(name, s);
+            schemas_arc.lock().unwrap().insert(name.clone(), s);
+            if *source_arc.lock().unwrap() == schema::ScriptSource::User {
+                user_schemas_arc.lock().unwrap().push(name);
+            }
             Ok(Dynamic::UNIT)
         });
 
         // Register on_save() host function — writes into HookRegistry.
         let hooks_arc = hook_registry.on_save_hooks_arc();
+        let user_hooks_arc = hook_registry.user_hooks_arc();
         let ast_arc = Arc::clone(&current_loading_ast);
+        let hook_source_arc = schema_registry.current_source_arc();
         engine.register_fn("on_save", move |name: String, fn_ptr: FnPtr| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let maybe_ast = ast_arc.lock().unwrap().clone();
             let ast = maybe_ast.ok_or_else(|| -> Box<EvalAltResult> {
                 "on_save called outside of load_script".to_string().into()
             })?;
-            // SAFETY: mutex poisoning would require a panic while the lock is held,
-            // which cannot happen in this codebase's single-threaded usage.
-            hooks_arc
-                .lock()
-                .unwrap()
-                .insert(name, HookEntry { fn_ptr, ast });
+            hooks_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast });
+            if *hook_source_arc.lock().unwrap() == schema::ScriptSource::User {
+                user_hooks_arc.lock().unwrap().push(name);
+            }
             Ok(Dynamic::UNIT)
+        });
+
+        // Register schema_exists() — query function for user scripts.
+        let exists_arc = schema_registry.schemas_arc();
+        engine.register_fn("schema_exists", move |name: String| -> bool {
+            exists_arc.lock().unwrap().contains_key(&name)
+        });
+
+        // Register get_schema_fields() — returns field definitions as Rhai array.
+        let fields_arc = schema_registry.schemas_arc();
+        engine.register_fn("get_schema_fields", move |name: String| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+            let schemas = fields_arc.lock().unwrap();
+            let schema = schemas.get(&name).ok_or_else(|| -> Box<EvalAltResult> {
+                format!("Schema '{name}' not found").into()
+            })?;
+            let mut arr = rhai::Array::new();
+            for field in &schema.fields {
+                let mut map = rhai::Map::new();
+                map.insert("name".into(), Dynamic::from(field.name.clone()));
+                map.insert("type".into(), Dynamic::from(field.field_type.clone()));
+                map.insert("required".into(), Dynamic::from(field.required));
+                map.insert("can_view".into(), Dynamic::from(field.can_view));
+                map.insert("can_edit".into(), Dynamic::from(field.can_edit));
+                arr.push(Dynamic::from(map));
+            }
+            Ok(Dynamic::from(arr))
         });
 
         let mut registry = Self {
@@ -149,6 +178,25 @@ impl ScriptRegistry {
         let schema = self.schema_registry.get(schema_name)?;
         self.hook_registry
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
+    }
+
+    /// Loads a user script, marking all registrations as user-sourced.
+    pub fn load_user_script(&mut self, script: &str) -> Result<()> {
+        self.schema_registry.set_source(schema::ScriptSource::User);
+        let result = self.load_script(script);
+        self.schema_registry.set_source(schema::ScriptSource::System);
+        result
+    }
+
+    /// Removes all schemas and hooks registered by user scripts.
+    pub fn clear_user_registrations(&self) {
+        self.schema_registry.clear_user();
+        self.hook_registry.clear_user();
+    }
+
+    /// Returns `true` if a schema with `name` is registered.
+    pub fn schema_exists(&self, name: &str) -> bool {
+        self.schema_registry.exists(name)
     }
 }
 
@@ -503,6 +551,79 @@ mod tests {
             Some(&FieldValue::Boolean(false)),
             "boolean field absent from hook result should default to false"
         );
+    }
+
+    #[test]
+    fn test_load_user_script_and_clear() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_user_script(r#"
+            schema("UserType", #{ fields: [#{ name: "x", type: "text" }] });
+        "#).unwrap();
+
+        assert!(registry.get_schema("UserType").is_ok());
+
+        registry.clear_user_registrations();
+
+        assert!(registry.get_schema("UserType").is_err());
+        // System schemas should still work
+        assert!(registry.get_schema("TextNote").is_ok());
+        assert!(registry.get_schema("Contact").is_ok());
+    }
+
+    #[test]
+    fn test_clear_user_does_not_remove_system_schemas() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_user_script(r#"
+            schema("Custom", #{ fields: [#{ name: "a", type: "text" }] });
+        "#).unwrap();
+
+        registry.clear_user_registrations();
+
+        let types = registry.list_types().unwrap();
+        assert!(types.contains(&"TextNote".to_string()));
+        assert!(types.contains(&"Contact".to_string()));
+        assert!(!types.contains(&"Custom".to_string()));
+    }
+
+    #[test]
+    fn test_schema_exists_host_function() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        assert!(registry.schema_exists("TextNote"));
+        assert!(!registry.schema_exists("NonExistent"));
+
+        // Test via script execution
+        registry.load_script(r#"
+            let exists = schema_exists("TextNote");
+            if !exists { throw "TextNote should exist"; }
+            let missing = schema_exists("Missing");
+            if missing { throw "Missing should not exist"; }
+        "#).unwrap();
+    }
+
+    #[test]
+    fn test_get_schema_fields_host_function() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            let fields = get_schema_fields("TextNote");
+            if fields.len() != 1 { throw "Expected 1 field, got " + fields.len(); }
+            if fields[0].name != "body" { throw "Expected 'body', got " + fields[0].name; }
+            if fields[0].type != "textarea" { throw "Expected 'textarea', got " + fields[0].type; }
+        "#).unwrap();
+    }
+
+    #[test]
+    fn test_user_hooks_cleared_on_clear() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_user_script(r#"
+            schema("Hooked", #{ fields: [#{ name: "x", type: "text" }] });
+            on_save("Hooked", |note| { note });
+        "#).unwrap();
+        assert!(registry.hooks().has_hook("Hooked"));
+
+        registry.clear_user_registrations();
+        assert!(!registry.hooks().has_hook("Hooked"));
+        // System hook should remain
+        assert!(registry.hooks().has_hook("Contact"));
     }
 
 }

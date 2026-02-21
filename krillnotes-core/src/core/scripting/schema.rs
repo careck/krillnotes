@@ -139,20 +139,47 @@ impl Schema {
     }
 }
 
+/// Tracks whether a registration came from a system or user script.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum ScriptSource {
+    System,
+    User,
+}
+
 /// Private store for registered schemas. No Rhai dependency.
 #[derive(Debug)]
 pub(super) struct SchemaRegistry {
     schemas: Arc<Mutex<HashMap<String, Schema>>>,
+    /// Tracks which schemas came from user scripts so they can be cleared on reload.
+    user_schemas: Arc<Mutex<Vec<String>>>,
+    /// Set to `User` while loading user scripts so new registrations are tracked.
+    current_source: Arc<Mutex<ScriptSource>>,
 }
 
 impl SchemaRegistry {
     pub(super) fn new() -> Self {
-        Self { schemas: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            schemas: Arc::new(Mutex::new(HashMap::new())),
+            user_schemas: Arc::new(Mutex::new(Vec::new())),
+            current_source: Arc::new(Mutex::new(ScriptSource::System)),
+        }
     }
 
     /// Returns a clone of the inner `Arc` so Rhai host-function closures can write into it.
     pub(super) fn schemas_arc(&self) -> Arc<Mutex<HashMap<String, Schema>>> {
         Arc::clone(&self.schemas)
+    }
+
+    pub(super) fn user_schemas_arc(&self) -> Arc<Mutex<Vec<String>>> {
+        Arc::clone(&self.user_schemas)
+    }
+
+    pub(super) fn current_source_arc(&self) -> Arc<Mutex<ScriptSource>> {
+        Arc::clone(&self.current_source)
+    }
+
+    pub(super) fn set_source(&self, source: ScriptSource) {
+        *self.current_source.lock().unwrap() = source;
     }
 
     pub(super) fn get(&self, name: &str) -> Result<Schema> {
@@ -164,9 +191,20 @@ impl SchemaRegistry {
             .ok_or_else(|| KrillnotesError::SchemaNotFound(name.to_string()))
     }
 
+    pub(super) fn exists(&self, name: &str) -> bool {
+        self.schemas.lock().unwrap().contains_key(name)
+    }
+
     pub(super) fn list(&self) -> Vec<String> {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().keys().cloned().collect()
+    }
+
+    /// Removes all schemas that were registered by user scripts.
+    pub(super) fn clear_user(&self) {
+        let user_names: Vec<String> = self.user_schemas.lock().unwrap().drain(..).collect();
+        let mut schemas = self.schemas.lock().unwrap();
+        for name in user_names {
+            schemas.remove(&name);
+        }
     }
 }
