@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_regular_fields_have_empty_options_and_zero_max() {
-        let mut registry = ScriptRegistry::new().unwrap();
+        let registry = ScriptRegistry::new().unwrap();
         let fields = get_schema_fields_for_test(&registry, "TextNote");
         assert!(fields[0].options.is_empty());
         assert_eq!(fields[0].max, 0);
@@ -678,6 +678,36 @@ mod tests {
 
     fn get_schema_fields_for_test(registry: &ScriptRegistry, name: &str) -> Vec<FieldDefinition> {
         registry.get_schema(name).unwrap().fields
+    }
+
+    #[test]
+    fn test_options_with_non_string_item_returns_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let result = registry.load_script(r#"
+            schema("Bad", #{
+                fields: [
+                    #{ name: "status", type: "select", options: ["OK", 42] }
+                ]
+            });
+        "#);
+        assert!(result.is_err(), "non-string item in options should return a Scripting error");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("strings"), "error should mention 'strings', got: {msg}");
+    }
+
+    #[test]
+    fn test_negative_max_returns_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let result = registry.load_script(r#"
+            schema("Bad", #{
+                fields: [
+                    #{ name: "stars", type: "rating", max: -1 }
+                ]
+            });
+        "#);
+        assert!(result.is_err(), "negative max should return a Scripting error");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("max"), "error should mention 'max', got: {msg}");
     }
 
 }
