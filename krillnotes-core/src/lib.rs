@@ -12,7 +12,10 @@ pub mod core;
 #[doc(inline)]
 pub use core::{
     delete::{DeleteResult, DeleteStrategy},
-    export::{ExportError, ExportNotes, ImportResult, ScriptManifest, ScriptManifestEntry},
+    export::{
+        export_workspace, ExportError, ExportNotes, ImportResult, ScriptManifest,
+        ScriptManifestEntry, APP_VERSION,
+    },
     device::get_device_id,
     error::{KrillnotesError, Result},
     note::{FieldValue, Note},
