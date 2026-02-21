@@ -25,7 +25,7 @@ pub use note::{FieldValue, Note};
 #[doc(inline)]
 pub use operation::Operation;
 #[doc(inline)]
-pub use operation_log::{OperationLog, PurgeStrategy};
+pub use operation_log::{OperationLog, OperationSummary, PurgeStrategy};
 #[doc(inline)]
 pub use scripting::{FieldDefinition, HookRegistry, Schema, ScriptRegistry};
 #[doc(inline)]
