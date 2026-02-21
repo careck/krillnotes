@@ -47,6 +47,7 @@ export interface SchemaInfo {
   fields: FieldDefinition[];
   titleCanView: boolean;
   titleCanEdit: boolean;
+  childrenSort: 'asc' | 'desc' | 'none';
 }
 
 export enum DeleteStrategy {

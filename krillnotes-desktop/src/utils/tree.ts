@@ -3,8 +3,15 @@ import type { Note, TreeNode } from '../types';
 /**
  * Builds a tree structure from a flat array of notes.
  * Notes are expected to have parentId and position fields for hierarchy and ordering.
+ * When sortConfig is provided, children are sorted according to their parent's schema:
+ * - "asc": alphabetical by title (A→Z)
+ * - "desc": reverse alphabetical by title (Z→A)
+ * - "none" (default): by position (manual order)
  */
-export function buildTree(notes: Note[]): TreeNode[] {
+export function buildTree(
+  notes: Note[],
+  sortConfig?: Record<string, 'asc' | 'desc' | 'none'>
+): TreeNode[] {
   // 1. Group children by parent_id
   const childrenMap = new Map<string | null, Note[]>();
 
@@ -16,22 +23,26 @@ export function buildTree(notes: Note[]): TreeNode[] {
     childrenMap.get(parentId)!.push(note);
   });
 
-  // 2. Sort siblings by position
-  childrenMap.forEach(children => {
-    children.sort((a, b) => a.position - b.position);
-  });
-
-  // 3. Recursive builder
+  // 2. Recursive builder — sorts children based on parent's schema
   function buildNode(note: Note): TreeNode {
     const children = childrenMap.get(note.id) || [];
+    const mode = sortConfig?.[note.nodeType] ?? 'none';
+    if (mode === 'asc') {
+      children.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (mode === 'desc') {
+      children.sort((a, b) => b.title.localeCompare(a.title));
+    } else {
+      children.sort((a, b) => a.position - b.position);
+    }
     return {
       note,
       children: children.map(buildNode)
     };
   }
 
-  // 4. Return root-level nodes (parentId = null)
+  // 3. Sort root-level notes by position (roots have no parent schema)
   const roots = childrenMap.get(null) || [];
+  roots.sort((a, b) => a.position - b.position);
   return roots.map(buildNode);
 }
 
