@@ -30,6 +30,7 @@ pub struct Schema {
     pub fields: Vec<FieldDefinition>,
     pub title_can_view: bool,
     pub title_can_edit: bool,
+    pub children_sort: String,
 }
 
 impl Schema {
@@ -167,7 +168,12 @@ impl Schema {
             .and_then(|v| v.clone().try_cast::<bool>())
             .unwrap_or(true);
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit })
+        let children_sort = def
+            .get("children_sort")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_else(|| "none".to_string());
+
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort })
     }
 }
 
