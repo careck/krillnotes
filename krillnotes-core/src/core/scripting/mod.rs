@@ -92,6 +92,10 @@ impl ScriptRegistry {
                 map.insert("required".into(), Dynamic::from(field.required));
                 map.insert("can_view".into(), Dynamic::from(field.can_view));
                 map.insert("can_edit".into(), Dynamic::from(field.can_edit));
+                map.insert("options".into(), Dynamic::from(
+                    field.options.iter().map(|s| Dynamic::from(s.clone())).collect::<rhai::Array>()
+                ));
+                map.insert("max".into(), Dynamic::from(field.max));
                 arr.push(Dynamic::from(map));
             }
             Ok(Dynamic::from(arr))
@@ -616,6 +620,8 @@ mod tests {
             if fields.len() != 1 { throw "Expected 1 field, got " + fields.len(); }
             if fields[0].name != "body" { throw "Expected 'body', got " + fields[0].name; }
             if fields[0].type != "textarea" { throw "Expected 'textarea', got " + fields[0].type; }
+            if fields[0].options.len() != 0 { throw "Expected options length 0, got " + fields[0].options.len(); }
+            if fields[0].max != 0 { throw "Expected max 0, got " + fields[0].max; }
         "#).unwrap();
     }
 
