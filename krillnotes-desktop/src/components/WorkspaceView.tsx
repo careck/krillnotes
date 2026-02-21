@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import TreeView from './TreeView';
+import SearchBar from './SearchBar';
 import InfoPanel from './InfoPanel';
 import AddNoteDialog from './AddNoteDialog';
 import ContextMenu from './ContextMenu';
@@ -11,7 +12,7 @@ import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo } from '../types';
 import { DeleteStrategy } from '../types';
-import { buildTree, flattenVisibleTree, findNoteInTree } from '../utils/tree';
+import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds } from '../utils/tree';
 
 interface WorkspaceViewProps {
   workspaceInfo: WorkspaceInfo;
@@ -154,6 +155,29 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     } catch (err) {
       console.error('Failed to toggle expansion:', err);
     }
+  };
+
+  const handleSearchSelect = async (noteId: string) => {
+    // Expand any collapsed ancestors so the note becomes visible in the tree
+    const ancestors = getAncestorIds(notes, noteId);
+    const collapsedAncestors = ancestors.filter(
+      id => notes.find(n => n.id === id)?.isExpanded === false
+    );
+
+    for (const ancestorId of collapsedAncestors) {
+      await invoke('toggle_note_expansion', { noteId: ancestorId });
+    }
+
+    if (collapsedAncestors.length > 0) {
+      await loadNotes();
+    }
+
+    await handleSelectNote(noteId);
+
+    // Scroll the note into view in the tree
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-note-id="${noteId}"]`)?.scrollIntoView({ block: 'nearest' });
+    });
   };
 
   const handleTreeKeyDown = (e: React.KeyboardEvent) => {
@@ -345,17 +369,20 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       {/* Left sidebar - Tree */}
       <div
         ref={treePanelRef}
-        className="shrink-0 bg-background overflow-hidden"
+        className="shrink-0 bg-background overflow-hidden flex flex-col"
         style={{ width: treeWidth }}
       >
-        <TreeView
-          tree={tree}
-          selectedNoteId={selectedNoteId}
-          onSelect={handleSelectNote}
-          onToggleExpand={handleToggleExpand}
-          onContextMenu={handleContextMenu}
-          onKeyDown={handleTreeKeyDown}
-        />
+        <SearchBar notes={notes} onSelect={handleSearchSelect} />
+        <div className="flex-1 overflow-y-auto">
+          <TreeView
+            tree={tree}
+            selectedNoteId={selectedNoteId}
+            onSelect={handleSelectNote}
+            onToggleExpand={handleToggleExpand}
+            onContextMenu={handleContextMenu}
+            onKeyDown={handleTreeKeyDown}
+          />
+        </div>
       </div>
 
       {/* Resize divider */}
