@@ -13,8 +13,8 @@ pub mod core;
 pub use core::{
     delete::{DeleteResult, DeleteStrategy},
     export::{
-        export_workspace, ExportError, ExportNotes, ImportResult, ScriptManifest,
-        ScriptManifestEntry, APP_VERSION,
+        export_workspace, import_workspace, peek_import, ExportError, ExportNotes, ImportResult,
+        ScriptManifest, ScriptManifestEntry, APP_VERSION,
     },
     device::get_device_id,
     error::{KrillnotesError, Result},
