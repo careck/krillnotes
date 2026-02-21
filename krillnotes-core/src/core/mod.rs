@@ -18,7 +18,10 @@ pub mod workspace;
 #[doc(inline)]
 pub use delete::{DeleteResult, DeleteStrategy};
 #[doc(inline)]
-pub use export::{ExportError, ExportNotes, ImportResult, ScriptManifest, ScriptManifestEntry};
+pub use export::{
+    export_workspace, ExportError, ExportNotes, ImportResult, ScriptManifest, ScriptManifestEntry,
+    APP_VERSION,
+};
 #[doc(inline)]
 pub use device::get_device_id;
 #[doc(inline)]
