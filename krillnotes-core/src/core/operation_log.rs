@@ -44,7 +44,7 @@ impl OperationLog {
             rusqlite::params![
                 op.operation_id(),
                 op.timestamp(),
-                self.extract_device_id(op),
+                op.device_id(),
                 self.operation_type_name(op),
                 op_json,
             ],
@@ -80,15 +80,6 @@ impl OperationLog {
             }
         }
         Ok(())
-    }
-
-    fn extract_device_id<'a>(&self, op: &'a Operation) -> &'a str {
-        match op {
-            Operation::CreateNote { device_id, .. } => device_id,
-            Operation::UpdateField { device_id, .. } => device_id,
-            Operation::DeleteNote { device_id, .. } => device_id,
-            Operation::MoveNote { device_id, .. } => device_id,
-        }
     }
 
     fn operation_type_name(&self, op: &Operation) -> &str {

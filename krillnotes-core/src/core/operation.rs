@@ -103,6 +103,17 @@ impl Operation {
             Self::MoveNote { timestamp, .. } => *timestamp,
         }
     }
+
+    /// Returns the device identifier of the machine that created this operation.
+    #[must_use]
+    pub fn device_id(&self) -> &str {
+        match self {
+            Self::CreateNote { device_id, .. } => device_id,
+            Self::UpdateField { device_id, .. } => device_id,
+            Self::DeleteNote { device_id, .. } => device_id,
+            Self::MoveNote { device_id, .. } => device_id,
+        }
+    }
 }
 
 #[cfg(test)]
