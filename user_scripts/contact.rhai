@@ -1,5 +1,12 @@
-// @name: Contact
-// @description: A contact card with name, address, and communication details.
+// @name: Contacts
+// @description: A contact folder and contact card with name, address, and communication details.
+
+schema("ContactsFolder", #{
+    children_sort: "asc",
+    fields: [
+        #{ name: "notes", type: "textarea", required: false },       
+    ]
+});
 
 schema("Contact", #{
     title_can_edit: false,

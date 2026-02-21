@@ -79,6 +79,59 @@ pub enum Operation {
         /// New zero-based position among siblings.
         new_position: i32,
     },
+    /// A new user script was created.
+    CreateUserScript {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
+        timestamp: i64,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// ID assigned to the new script.
+        script_id: String,
+        /// Script name (from front matter).
+        name: String,
+        /// Script description (from front matter).
+        description: String,
+        /// Full Rhai source code.
+        source_code: String,
+        /// Position in load order.
+        load_order: i32,
+        /// Whether the script is active.
+        enabled: bool,
+    },
+    /// An existing user script was modified (source, enabled state, or load order).
+    UpdateUserScript {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
+        timestamp: i64,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// ID of the script that was modified.
+        script_id: String,
+        /// Updated script name.
+        name: String,
+        /// Updated script description.
+        description: String,
+        /// Updated full source code.
+        source_code: String,
+        /// Updated load order.
+        load_order: i32,
+        /// Updated enabled state.
+        enabled: bool,
+    },
+    /// A user script was deleted.
+    DeleteUserScript {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
+        timestamp: i64,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// ID of the deleted script.
+        script_id: String,
+    },
 }
 
 impl Operation {
@@ -86,10 +139,13 @@ impl Operation {
     #[must_use]
     pub fn operation_id(&self) -> &str {
         match self {
-            Self::CreateNote { operation_id, .. } => operation_id,
-            Self::UpdateField { operation_id, .. } => operation_id,
-            Self::DeleteNote { operation_id, .. } => operation_id,
-            Self::MoveNote { operation_id, .. } => operation_id,
+            Self::CreateNote { operation_id, .. }
+            | Self::UpdateField { operation_id, .. }
+            | Self::DeleteNote { operation_id, .. }
+            | Self::MoveNote { operation_id, .. }
+            | Self::CreateUserScript { operation_id, .. }
+            | Self::UpdateUserScript { operation_id, .. }
+            | Self::DeleteUserScript { operation_id, .. } => operation_id,
         }
     }
 
@@ -97,10 +153,13 @@ impl Operation {
     #[must_use]
     pub fn timestamp(&self) -> i64 {
         match self {
-            Self::CreateNote { timestamp, .. } => *timestamp,
-            Self::UpdateField { timestamp, .. } => *timestamp,
-            Self::DeleteNote { timestamp, .. } => *timestamp,
-            Self::MoveNote { timestamp, .. } => *timestamp,
+            Self::CreateNote { timestamp, .. }
+            | Self::UpdateField { timestamp, .. }
+            | Self::DeleteNote { timestamp, .. }
+            | Self::MoveNote { timestamp, .. }
+            | Self::CreateUserScript { timestamp, .. }
+            | Self::UpdateUserScript { timestamp, .. }
+            | Self::DeleteUserScript { timestamp, .. } => *timestamp,
         }
     }
 
@@ -108,10 +167,13 @@ impl Operation {
     #[must_use]
     pub fn device_id(&self) -> &str {
         match self {
-            Self::CreateNote { device_id, .. } => device_id,
-            Self::UpdateField { device_id, .. } => device_id,
-            Self::DeleteNote { device_id, .. } => device_id,
-            Self::MoveNote { device_id, .. } => device_id,
+            Self::CreateNote { device_id, .. }
+            | Self::UpdateField { device_id, .. }
+            | Self::DeleteNote { device_id, .. }
+            | Self::MoveNote { device_id, .. }
+            | Self::CreateUserScript { device_id, .. }
+            | Self::UpdateUserScript { device_id, .. }
+            | Self::DeleteUserScript { device_id, .. } => device_id,
         }
     }
 }
