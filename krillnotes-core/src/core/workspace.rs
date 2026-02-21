@@ -168,45 +168,15 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::Database`] if the note is not found or
     /// if `fields_json` cannot be deserialised.
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
-        let (id, title, node_type, parent_id, position,
-             created_at, modified_at, created_by, modified_by,
-             fields_json, is_expanded_int) =
-            self.connection().query_row(
-                "SELECT id, title, node_type, parent_id, position,
-                        created_at, modified_at, created_by, modified_by,
-                        fields_json, is_expanded
-                 FROM notes WHERE id = ?",
-                [note_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
-                        row.get::<_, i64>(7)?,
-                        row.get::<_, i64>(8)?,
-                        row.get::<_, String>(9)?,
-                        row.get::<_, i64>(10)?,
-                    ))
-                },
-            )?;
-
-        Ok(Note {
-            id,
-            title,
-            node_type,
-            parent_id,
-            position: position as i32,
-            created_at,
-            modified_at,
-            created_by,
-            modified_by,
-            fields: serde_json::from_str(&fields_json)?,
-            is_expanded: is_expanded_int == 1,
-        })
+        let row = self.connection().query_row(
+            "SELECT id, title, node_type, parent_id, position,
+                    created_at, modified_at, created_by, modified_by,
+                    fields_json, is_expanded
+             FROM notes WHERE id = ?",
+            [note_id],
+            map_note_row,
+        )?;
+        note_from_row_tuple(row)
     }
 
     /// Creates a new note of `note_type` relative to `selected_note_id`.
@@ -411,44 +381,11 @@ impl Workspace {
              FROM notes ORDER BY parent_id, position",
         )?;
 
-        let raw_rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
-                    row.get::<_, i64>(8)?,
-                    row.get::<_, String>(9)?,
-                    row.get::<_, i64>(10)?,
-                ))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map([], map_note_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        raw_rows
-            .into_iter()
-            .map(|(id, title, node_type, parent_id, position,
-                   created_at, modified_at, created_by, modified_by,
-                   fields_json, is_expanded_int)| {
-                Ok(Note {
-                    id,
-                    title,
-                    node_type,
-                    parent_id,
-                    position: position as i32,
-                    created_at,
-                    modified_at,
-                    created_by,
-                    modified_by,
-                    fields: serde_json::from_str(&fields_json)?,
-                    is_expanded: is_expanded_int == 1,
-                })
-            })
-            .collect()
+        rows.into_iter().map(note_from_row_tuple).collect()
     }
 
     /// Returns the names of all registered note types (schema names).
@@ -560,46 +497,11 @@ impl Workspace {
              FROM notes WHERE parent_id = ?1 ORDER BY position",
         )?;
 
-        let raw_rows = stmt
-            .query_map(rusqlite::params![parent_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
-                    row.get::<_, i64>(8)?,
-                    row.get::<_, String>(9)?,
-                    row.get::<_, i64>(10)?,
-                ))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map(rusqlite::params![parent_id], map_note_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        raw_rows
-            .into_iter()
-            .map(
-                |(id, title, node_type, note_parent_id, position,
-                  created_at, modified_at, created_by, modified_by,
-                  fields_json, is_expanded_int)| {
-                    Ok(Note {
-                        id,
-                        title,
-                        node_type,
-                        parent_id: note_parent_id,
-                        position: position as i32,
-                        created_at,
-                        modified_at,
-                        created_by,
-                        modified_by,
-                        fields: serde_json::from_str(&fields_json)?,
-                        is_expanded: is_expanded_int == 1,
-                    })
-                },
-            )
-            .collect()
+        rows.into_iter().map(note_from_row_tuple).collect()
     }
 
     /// Deletes `note_id` and all of its descendants recursively.
@@ -890,6 +792,48 @@ impl Workspace {
         // in a single place.
         self.get_note(note_id)
     }
+}
+
+/// Raw 11-column tuple extracted from a `notes` SQLite row.
+type NoteRow = (String, String, String, Option<String>, i64, i64, i64, i64, i64, String, i64);
+
+/// Row-mapping closure for `rusqlite::Row` → raw tuple.
+///
+/// Returns the 11-column tuple that `note_from_row_tuple` converts into a `Note`.
+/// Extracted to avoid duplicating column-index logic across every query.
+fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
+    Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, String>(2)?,
+        row.get::<_, Option<String>>(3)?,
+        row.get::<_, i64>(4)?,
+        row.get::<_, i64>(5)?,
+        row.get::<_, i64>(6)?,
+        row.get::<_, i64>(7)?,
+        row.get::<_, i64>(8)?,
+        row.get::<_, String>(9)?,
+        row.get::<_, i64>(10)?,
+    ))
+}
+
+/// Converts a raw 11-column tuple into a [`Note`], parsing `fields_json`.
+fn note_from_row_tuple(
+    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int): NoteRow,
+) -> Result<Note> {
+    Ok(Note {
+        id,
+        title,
+        node_type,
+        parent_id,
+        position: position as i32,
+        created_at,
+        modified_at,
+        created_by,
+        modified_by,
+        fields: serde_json::from_str(&fields_json)?,
+        is_expanded: is_expanded_int == 1,
+    })
 }
 
 fn humanize(filename: &str) -> String {
