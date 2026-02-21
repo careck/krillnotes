@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -41,6 +41,34 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Script manager dialog state
   const [showScriptManager, setShowScriptManager] = useState(false);
+
+  // Resizable tree panel
+  const [treeWidth, setTreeWidth] = useState(300);
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true;
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = treeWidth;
+    e.preventDefault();
+  }, [treeWidth]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = e.clientX - dragStartX.current;
+      setTreeWidth(Math.max(180, Math.min(600, dragStartWidth.current + delta)));
+    };
+    const onMouseUp = () => { isDragging.current = false; };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   selectedNoteIdRef.current = selectedNoteId;
 
@@ -299,7 +327,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   return (
     <div className="flex h-screen">
       {/* Left sidebar - Tree */}
-      <div ref={treePanelRef} className="w-[300px] border-r border-secondary bg-background overflow-hidden">
+      <div
+        ref={treePanelRef}
+        className="shrink-0 bg-background overflow-hidden"
+        style={{ width: treeWidth }}
+      >
         <TreeView
           tree={tree}
           selectedNoteId={selectedNoteId}
@@ -310,8 +342,14 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         />
       </div>
 
+      {/* Resize divider */}
+      <div
+        className="w-1 shrink-0 cursor-col-resize bg-secondary hover:bg-primary/30 transition-colors"
+        onMouseDown={handleDividerMouseDown}
+      />
+
       {/* Right panel - Info */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-w-0 overflow-y-auto">
         <InfoPanel
           selectedNote={selectedNote}
           onNoteUpdated={handleNoteUpdated}
