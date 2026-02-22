@@ -489,6 +489,106 @@ impl Workspace {
         }
     }
 
+    /// Moves a note to a new parent and/or position within the tree.
+    ///
+    /// The move is performed inside a single SQLite transaction. Positions in
+    /// the old sibling group are closed (decremented) and positions in the new
+    /// sibling group are opened (incremented) before the note itself is
+    /// relocated. A `MoveNote` operation is logged for sync/undo.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::InvalidMove`] if the move would make a note
+    /// its own parent or create an ancestor cycle. Returns
+    /// [`KrillnotesError::NoteNotFound`] if `note_id` does not exist. Returns
+    /// [`KrillnotesError::Database`] for any SQLite failure.
+    pub fn move_note(
+        &mut self,
+        note_id: &str,
+        new_parent_id: Option<&str>,
+        new_position: i32,
+    ) -> Result<()> {
+        // 1. Self-move check
+        if new_parent_id == Some(note_id) {
+            return Err(KrillnotesError::InvalidMove(
+                "A note cannot be its own parent".to_string(),
+            ));
+        }
+
+        // 2. Cycle check: walk ancestor chain of new_parent_id
+        if let Some(target_parent) = new_parent_id {
+            let mut current = target_parent.to_string();
+            loop {
+                let parent: Option<String> = self
+                    .connection()
+                    .query_row(
+                        "SELECT parent_id FROM notes WHERE id = ?",
+                        [&current],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| {
+                        KrillnotesError::NoteNotFound(current.clone())
+                    })?;
+                match parent {
+                    Some(pid) => {
+                        if pid == note_id {
+                            return Err(KrillnotesError::InvalidMove(
+                                "Move would create a cycle".to_string(),
+                            ));
+                        }
+                        current = pid;
+                    }
+                    None => break,
+                }
+            }
+        }
+
+        // 3. Get the note's current parent_id and position
+        let note = self.get_note(note_id)?;
+        let old_parent_id = note.parent_id.clone();
+        let old_position = note.position;
+
+        let now = chrono::Utc::now().timestamp();
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // 4. Close the gap in the old sibling group
+        // Exclude the note itself: during a same-parent move it still occupies
+        // old_position in the DB until step 6.
+        tx.execute(
+            "UPDATE notes SET position = position - 1 WHERE parent_id IS ? AND position > ? AND id != ?",
+            rusqlite::params![old_parent_id, old_position, note_id],
+        )?;
+
+        // 5. Open a gap in the new sibling group
+        tx.execute(
+            "UPDATE notes SET position = position + 1 WHERE parent_id IS ? AND position >= ? AND id != ?",
+            rusqlite::params![new_parent_id, new_position, note_id],
+        )?;
+
+        // 6. Update the note itself
+        tx.execute(
+            "UPDATE notes SET parent_id = ?, position = ?, modified_at = ? WHERE id = ?",
+            rusqlite::params![new_parent_id, new_position, now, note_id],
+        )?;
+
+        // 7. Log a MoveNote operation
+        let op = Operation::MoveNote {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: now,
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            new_parent_id: new_parent_id.map(|s| s.to_string()),
+            new_position,
+        };
+        self.operation_log.log(&tx, &op)?;
+        self.operation_log.purge_if_needed(&tx)?;
+
+        // 8. Commit
+        tx.commit()?;
+
+        Ok(())
+    }
+
     /// Returns the direct children of `parent_id` as a [`Vec<Note>`], ordered
     /// by `position`.
     ///
@@ -1893,5 +1993,110 @@ mod tests {
         let notes = ws.list_all_notes().unwrap();
         let gc = notes.iter().find(|n| n.id == grandchild_id).unwrap();
         assert_eq!(gc.parent_id, Some(root.id));
+    }
+
+    // ── move_note tests ──────────────────────────────────────────
+
+    /// Helper: create a workspace with a root note and N children under it.
+    ///
+    /// The first child is created with `AsChild` (position 0). Subsequent
+    /// children are created with `AsSibling` relative to the previous child,
+    /// giving them sequential positions 0, 1, 2, .... The returned `Vec`
+    /// preserves that order: `child_ids[0]` is at position 0, etc.
+    fn setup_with_children(n: usize) -> (Workspace, String, Vec<String>, NamedTempFile) {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let mut child_ids: Vec<String> = Vec::new();
+        for i in 0..n {
+            let id = if i == 0 {
+                ws.create_note(&root.id, AddPosition::AsChild, "TextNote")
+                    .unwrap()
+            } else {
+                ws.create_note(&child_ids[i - 1], AddPosition::AsSibling, "TextNote")
+                    .unwrap()
+            };
+            child_ids.push(id);
+        }
+        (ws, root.id, child_ids, temp)
+    }
+
+    #[test]
+    fn test_move_note_reorder_siblings() {
+        let (mut ws, root_id, children, _temp) = setup_with_children(3);
+        ws.move_note(&children[2], Some(&root_id), 0).unwrap();
+        let kids = ws.get_children(&root_id).unwrap();
+        assert_eq!(kids[0].id, children[2]);
+        assert_eq!(kids[1].id, children[0]);
+        assert_eq!(kids[2].id, children[1]);
+        for (i, kid) in kids.iter().enumerate() {
+            assert_eq!(kid.position, i as i32, "Position mismatch at index {i}");
+        }
+    }
+
+    #[test]
+    fn test_move_note_to_different_parent() {
+        let (mut ws, root_id, children, _temp) = setup_with_children(2);
+        ws.move_note(&children[1], Some(&children[0]), 0).unwrap();
+        let root_kids = ws.get_children(&root_id).unwrap();
+        assert_eq!(root_kids.len(), 1);
+        assert_eq!(root_kids[0].id, children[0]);
+        assert_eq!(root_kids[0].position, 0);
+        let grandkids = ws.get_children(&children[0]).unwrap();
+        assert_eq!(grandkids.len(), 1);
+        assert_eq!(grandkids[0].id, children[1]);
+        assert_eq!(grandkids[0].position, 0);
+    }
+
+    #[test]
+    fn test_move_note_to_root() {
+        let (mut ws, root_id, children, _temp) = setup_with_children(2);
+        ws.move_note(&children[0], None, 1).unwrap();
+        let root_kids = ws.get_children(&root_id).unwrap();
+        assert_eq!(root_kids.len(), 1);
+        assert_eq!(root_kids[0].id, children[1]);
+        assert_eq!(root_kids[0].position, 0);
+        let moved = ws.get_note(&children[0]).unwrap();
+        assert_eq!(moved.parent_id, None);
+        assert_eq!(moved.position, 1);
+    }
+
+    #[test]
+    fn test_move_note_prevents_cycle() {
+        let (mut ws, _root_id, children, _temp) = setup_with_children(1);
+        let grandchild_id = ws
+            .create_note(&children[0], AddPosition::AsChild, "TextNote")
+            .unwrap();
+        let result = ws.move_note(&children[0], Some(&grandchild_id), 0);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("cycle"), "Expected cycle error, got: {err}");
+    }
+
+    #[test]
+    fn test_move_note_prevents_self_move() {
+        let (mut ws, _root_id, children, _temp) = setup_with_children(1);
+        let result = ws.move_note(&children[0], Some(&children[0]), 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_move_note_logs_operation() {
+        let (mut ws, root_id, children, _temp) = setup_with_children(2);
+        ws.move_note(&children[1], Some(&root_id), 0).unwrap();
+        let ops = ws.list_operations(None, None, None).unwrap();
+        let move_ops: Vec<_> = ops.iter().filter(|o| o.operation_type == "MoveNote").collect();
+        assert_eq!(move_ops.len(), 1, "Expected exactly one MoveNote operation");
+    }
+
+    #[test]
+    fn test_move_note_positions_gapless_after_cross_parent_move() {
+        let (mut ws, root_id, children, _temp) = setup_with_children(4);
+        ws.move_note(&children[1], Some(&children[0]), 0).unwrap();
+        let root_kids = ws.get_children(&root_id).unwrap();
+        assert_eq!(root_kids.len(), 3);
+        for (i, kid) in root_kids.iter().enumerate() {
+            assert_eq!(kid.position, i as i32, "Gap at index {i}");
+        }
     }
 }

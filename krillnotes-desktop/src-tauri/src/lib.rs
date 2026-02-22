@@ -523,6 +523,29 @@ fn delete_note(
         .map_err(|e| e.to_string())
 }
 
+/// Moves a note to a new parent and/or position.
+#[tauri::command]
+fn move_note(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    new_parent_id: Option<String>,
+    new_position: i32,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    workspace.move_note(
+        &note_id,
+        new_parent_id.as_deref(),
+        new_position,
+    )
+    .map_err(|e| e.to_string())
+}
+
 // ── User-script commands ──────────────────────────────────────────
 
 /// Returns all user scripts for the calling window's workspace.
@@ -811,6 +834,7 @@ pub fn run() {
             update_note,
             count_children,
             delete_note,
+            move_note,
             list_user_scripts,
             get_user_script,
             create_user_script,

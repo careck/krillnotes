@@ -25,6 +25,10 @@ pub enum KrillnotesError {
     #[error("Validation failed: {0}")]
     ValidationFailed(String),
 
+    /// A move operation would create a cycle or is otherwise invalid.
+    #[error("Invalid move: {0}")]
+    InvalidMove(String),
+
     /// The opened file is not a valid Krillnotes workspace.
     #[error("Invalid workspace: {0}")]
     InvalidWorkspace(String),
@@ -54,6 +58,7 @@ impl KrillnotesError {
             Self::Io(e) => format!("File error: {e}"),
             Self::Json(e) => format!("Data format error: {e}"),
             Self::ValidationFailed(msg) => msg.clone(),
+            Self::InvalidMove(msg) => msg.clone(),
         }
     }
 }
