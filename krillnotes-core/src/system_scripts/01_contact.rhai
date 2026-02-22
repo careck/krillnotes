@@ -36,3 +36,26 @@ on_save("Contact", |note| {
     }
     note
 });
+
+on_view("ContactsFolder", |note| {
+    let contacts = get_children(note.id);
+    if contacts.len() == 0 {
+        return text("No contacts yet. Add a contact using the context menu.");
+    }
+    let rows = contacts.map(|c| [
+        c.title,
+        c.fields.email  ?? "-",
+        c.fields.phone  ?? "-",
+        c.fields.mobile ?? "-"
+    ]);
+    let contacts_section = section(
+        "Contacts (" + contacts.len() + ")",
+        table(["Name", "Email", "Phone", "Mobile"], rows)
+    );
+    let notes_val = note.fields["notes"] ?? "";
+    if notes_val == "" {
+        contacts_section
+    } else {
+        stack([contacts_section, section("Notes", text(notes_val))])
+    }
+});
