@@ -1,4 +1,7 @@
-## Here are some things to improve 
+# This is the worksheet of tasks we will be implementing step by step
+# 
+# I will feed you one of these tasks at a time, but when you're done, 
+# please find it in this file and mark it as done in the same way the other tasks are already marked as done.
 
 ✅ DONE! Refactor the scripting engine so that the scripts aren't read in the schemaregistry, but that they are called from a scriptregistry. The schemaregistry should only know about schemas
 
@@ -27,6 +30,8 @@
 ✅ DONE! make a view which shows the operations log of unsynced operations. This would be a flat list of operations with date and time in the left hand column and the operation type (create, update, delete) in the right hand column. The user should be able to filter the list by operation type or by date range. There should also be a button to purge the log from the database to compress it.
 
 ✅ DONE! make an export feature which stores the whole workspace as a zip file with a json file for the notes data and all user scripts as separate .rhai files in the same folder. This would allow for sharing of workspaces between users without having to worry about syncing their entire database. Also allow for importing of other people's workspaces into a new workspace from a zip file of the export format. When exporting a workspace remove all operation logs, as these are not relevant for an export file. The import/export actions should be available from the File menu.
+
+[ ] enable node operations to change their position among their siblings as well as move the note and all its children up or down in the tree structure (basically change the parent node). Special consideration should be given if a child node should be moved to a root node as then you don't have a parent node to point to for dropping purposes. Move actions should be via mouse drag and drop.
 
 [ ] make a view hook which is called when a note is displayed in the view panel, the hook function (in a rhai script) will return some templated html code to display the note. The view should also have access to all children of the note and query and display their content as well. This would allow for displaying notes with nested child notes.
 
