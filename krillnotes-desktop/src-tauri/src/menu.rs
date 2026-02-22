@@ -73,7 +73,7 @@ fn build_tools_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri:
 
 /// Builds the File submenu.
 ///
-/// On macOS, Quit is intentionally absent — it belongs in the Krillnotes app menu (added in Task 5).
+/// On macOS, Quit is intentionally absent — it belongs in the Krillnotes app menu.
 /// On all other platforms, Quit is included at the bottom of File.
 ///
 /// # Errors
@@ -106,7 +106,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::
 
 /// Builds the Edit submenu.
 ///
-/// On macOS, Settings is intentionally absent — it belongs in the Krillnotes app menu (added in Task 5).
+/// On macOS, Settings is intentionally absent — it belongs in the Krillnotes app menu.
 /// On all other platforms, Settings... (⌘,) is included between the first separator and the undo/redo block.
 ///
 /// # Errors
