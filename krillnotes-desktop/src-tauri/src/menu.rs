@@ -186,3 +186,49 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::
 
     builder.items(&[&undo, &redo, &copy, &paste]).build()
 }
+
+/// Builds the macOS app menu (the first menu in the menu bar, labeled with the app name).
+///
+/// macOS replaces whatever label string you pass to `SubmenuBuilder` with the bundle display name,
+/// so the "Krillnotes" string here is a no-op at runtime but makes the source intent clear.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item fails to build.
+#[cfg(target_os = "macos")]
+fn build_macos_app_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+    SubmenuBuilder::new(app, "Krillnotes")
+        .items(&[
+            &PredefinedMenuItem::about(app, None, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItemBuilder::with_id("edit_settings", "Settings...")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ])
+        .build()
+}
+
+/// Builds the Help submenu for non-macOS platforms.
+///
+/// On macOS, About is in the app menu instead; this submenu is excluded there.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item fails to build.
+#[cfg(not(target_os = "macos"))]
+fn build_help_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+    SubmenuBuilder::new(app, "Help")
+        .items(&[
+            &MenuItemBuilder::with_id("help_about", "About Krillnotes")
+                .build(app)?,
+        ])
+        .build()
+}
