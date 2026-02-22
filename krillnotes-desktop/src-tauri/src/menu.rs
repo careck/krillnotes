@@ -79,3 +79,41 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Erro
 
     Ok(menu)
 }
+
+/// Builds the View submenu (Fullscreen, separator, Refresh).
+///
+/// Operations Log is excluded from this helper (it belongs in `build_tools_menu`); the inline `build_menu` still references it until Task 6 wires these helpers in.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item fails to build.
+fn build_view_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+    SubmenuBuilder::new(app, "View")
+        .items(&[
+            &PredefinedMenuItem::fullscreen(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItemBuilder::with_id("view_refresh", "Refresh")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?,
+        ])
+        .build()
+}
+
+/// Builds the Tools submenu (Manage Scripts, Operations Log).
+///
+/// Item IDs are kept identical to their previous locations so that existing
+/// frontend event-routing code continues to work without changes.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item fails to build.
+fn build_tools_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+    SubmenuBuilder::new(app, "Tools")
+        .items(&[
+            &MenuItemBuilder::with_id("edit_manage_scripts", "Manage Scripts...")
+                .build(app)?,
+            &MenuItemBuilder::with_id("view_operations_log", "Operations Log...")
+                .build(app)?,
+        ])
+        .build()
+}
