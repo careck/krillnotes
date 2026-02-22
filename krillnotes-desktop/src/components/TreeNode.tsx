@@ -62,19 +62,28 @@ function TreeNode({
       position = 'child';
     }
 
-    // Schema allowed_parent_types check: suppress drop indicator for invalid placements
+    // Schema constraint checks: suppress drop indicator for invalid placements
     const draggedNote = notes.find(n => n.id === draggedNoteId);
     if (draggedNote) {
+      // Compute prospective parent type once for both checks
+      let prospectiveParentType: string | null;
+      if (position === 'child') {
+        prospectiveParentType = node.note.nodeType;
+      } else {
+        const parentNote = node.note.parentId ? notes.find(n => n.id === node.note.parentId) : null;
+        prospectiveParentType = parentNote ? parentNote.nodeType : null;
+      }
+
+      // Child constraint: dragged type's allowedParentTypes
       const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
       if (apt.length > 0) {
-        let prospectiveParentType: string | null;
-        if (position === 'child') {
-          prospectiveParentType = node.note.nodeType;
-        } else {
-          const parentNote = node.note.parentId ? notes.find(n => n.id === node.note.parentId) : null;
-          prospectiveParentType = parentNote ? parentNote.nodeType : null;
-        }
         if (!prospectiveParentType || !apt.includes(prospectiveParentType)) return;
+      }
+
+      // Parent constraint: prospective parent's allowedChildrenTypes
+      if (prospectiveParentType !== null) {
+        const act = schemas[prospectiveParentType]?.allowedChildrenTypes ?? [];
+        if (act.length > 0 && !act.includes(draggedNote.nodeType)) return;
       }
     }
 
@@ -119,13 +128,25 @@ function TreeNode({
       }
     }
 
-    // Schema allowed_parent_types check: block invalid drops
+    // Schema constraint checks: block invalid drops
     const draggedNote = notes.find(n => n.id === draggedNoteId);
     if (draggedNote) {
+      const parentNote = newParentId ? notes.find(n => n.id === newParentId) : null;
+
+      // Child constraint: dragged type's allowedParentTypes
       const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
       if (apt.length > 0) {
-        const parentNote = newParentId ? notes.find(n => n.id === newParentId) : null;
         if (!parentNote || !apt.includes(parentNote.nodeType)) {
+          setDraggedNoteId(null);
+          setDropIndicator(null);
+          return;
+        }
+      }
+
+      // Parent constraint: new parent's allowedChildrenTypes
+      if (parentNote) {
+        const act = schemas[parentNote.nodeType]?.allowedChildrenTypes ?? [];
+        if (act.length > 0 && !act.includes(draggedNote.nodeType)) {
           setDraggedNoteId(null);
           setDropIndicator(null);
           return;

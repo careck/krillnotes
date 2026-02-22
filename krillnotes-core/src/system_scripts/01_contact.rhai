@@ -3,8 +3,9 @@
 
 schema("ContactsFolder", #{
     children_sort: "asc",
+    allowed_children_types: ["Contact"],
     fields: [
-        #{ name: "notes", type: "textarea", required: false },       
+        #{ name: "notes", type: "textarea", required: false },
     ]
 });
 

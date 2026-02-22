@@ -38,6 +38,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     titleCanEdit: true,
     childrenSort: 'none',
     allowedParentTypes: [],
+    allowedChildrenTypes: [],
   });
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
@@ -54,7 +55,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   useEffect(() => {
     schemaLoadedRef.current = false;
     if (!selectedNote) {
-      setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none', allowedParentTypes: [] });
+      setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none', allowedParentTypes: [], allowedChildrenTypes: [] });
       setIsEditing(false);
       pendingEditModeRef.current = false;
       return;
@@ -80,7 +81,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       })
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
-        setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none', allowedParentTypes: [] });
+        setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none', allowedParentTypes: [], allowedChildrenTypes: [] });
         schemaLoadedRef.current = true;
         if (pendingEditModeRef.current) {
           setIsEditing(true);

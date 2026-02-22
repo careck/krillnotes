@@ -276,6 +276,20 @@ impl Workspace {
             }
         }
 
+        // Validate allowed_children_types on the parent schema
+        if let Some(pid) = &final_parent {
+            let parent_note = self.get_note(pid)?;
+            let parent_schema = self.script_registry.get_schema(&parent_note.node_type)?;
+            if !parent_schema.allowed_children_types.is_empty()
+                && !parent_schema.allowed_children_types.contains(&note_type.to_string())
+            {
+                return Err(KrillnotesError::InvalidMove(format!(
+                    "Note type '{}' is not allowed as a child of '{}'",
+                    note_type, parent_note.node_type
+                )));
+            }
+        }
+
         let note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
@@ -629,6 +643,20 @@ impl Workspace {
                         )));
                     }
                 }
+            }
+        }
+
+        // 3b. Allowed-children-types check on the new parent
+        if let Some(pid) = new_parent_id {
+            let parent_note = self.get_note(pid)?;
+            let parent_schema = self.script_registry.get_schema(&parent_note.node_type)?;
+            if !parent_schema.allowed_children_types.is_empty()
+                && !parent_schema.allowed_children_types.contains(&note_to_move.node_type)
+            {
+                return Err(KrillnotesError::InvalidMove(format!(
+                    "Note type '{}' is not allowed as a child of '{}'",
+                    note_to_move.node_type, parent_note.node_type
+                )));
             }
         }
 

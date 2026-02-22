@@ -49,6 +49,7 @@ export interface SchemaInfo {
   titleCanEdit: boolean;
   childrenSort: 'asc' | 'desc' | 'none';
   allowedParentTypes: string[];
+  allowedChildrenTypes: string[];
 }
 
 export enum DeleteStrategy {
