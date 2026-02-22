@@ -83,3 +83,13 @@ export interface OperationSummary {
   operationType: string;
   targetName: string;
 }
+
+export interface AppSettings {
+  workspaceDirectory: string;
+}
+
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+  isOpen: boolean;
+}

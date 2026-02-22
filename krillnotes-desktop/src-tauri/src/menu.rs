@@ -42,6 +42,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Erro
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItemBuilder::with_id("edit_manage_scripts", "Manage Scripts...")
                         .build(app)?,
+                    &MenuItemBuilder::with_id("edit_settings", "Settings...")
+                        .accelerator("CmdOrCtrl+,")
+                        .build(app)?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::undo(app, None)?,
                     &PredefinedMenuItem::redo(app, None)?,

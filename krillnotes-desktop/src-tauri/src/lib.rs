@@ -5,6 +5,7 @@
 //! [`AppState`] and the window label.
 
 pub mod menu;
+pub mod settings;
 
 use tauri::Emitter;
 
@@ -764,6 +765,81 @@ fn get_app_version() -> String {
     APP_VERSION.to_string()
 }
 
+// ── Settings commands ─────────────────────────────────────────────
+
+/// Returns the current application settings.
+#[tauri::command]
+fn get_settings() -> std::result::Result<settings::AppSettings, String> {
+    Ok(settings::load_settings())
+}
+
+/// Updates and persists the application settings.
+#[tauri::command]
+fn update_settings(settings: settings::AppSettings) -> std::result::Result<(), String> {
+    settings::save_settings(&settings)
+}
+
+/// Entry returned by [`list_workspace_files`], representing a `.db` file
+/// in the configured workspace directory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceEntry {
+    /// Filename without extension.
+    name: String,
+    /// Absolute path to the `.db` file.
+    path: String,
+    /// Whether this workspace is currently open in a window.
+    is_open: bool,
+}
+
+/// Lists all `.db` files in the configured workspace directory.
+///
+/// Each entry includes an `is_open` flag indicating whether the workspace
+/// is currently open in a window, so the frontend can grey those out.
+#[tauri::command]
+fn list_workspace_files(
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<WorkspaceEntry>, String> {
+    let app_settings = settings::load_settings();
+    let dir = PathBuf::from(&app_settings.workspace_directory);
+
+    // Create the directory if it doesn't exist yet
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
+    }
+
+    // Collect currently open workspace paths for the is_open check
+    let open_paths: Vec<PathBuf> = state
+        .workspace_paths
+        .lock()
+        .expect("Mutex poisoned")
+        .values()
+        .cloned()
+        .collect();
+
+    let mut entries = Vec::new();
+    let read_dir = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Failed to read directory: {e}"))?;
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.extension().map(|e| e == "db").unwrap_or(false) {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let is_open = open_paths.iter().any(|p| *p == path);
+                entries.push(WorkspaceEntry {
+                    name: stem.to_string(),
+                    path: path.display().to_string(),
+                    is_open,
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -775,6 +851,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("view_refresh", "View > Refresh clicked"),
     ("help_about", "Help > About Krillnotes clicked"),
     ("edit_manage_scripts", "Edit > Manage Scripts clicked"),
+    ("edit_settings", "Edit > Settings clicked"),
     ("view_operations_log", "View > Operations Log clicked"),
 ];
 
@@ -818,6 +895,14 @@ pub fn run() {
         .setup(|app| {
             let menu = menu::build_menu(app.handle())?;
             app.set_menu(menu)?;
+
+            // Ensure default workspace directory exists on startup
+            let app_settings = settings::load_settings();
+            let dir = std::path::Path::new(&app_settings.workspace_directory);
+            if !dir.exists() {
+                std::fs::create_dir_all(dir).ok();
+            }
+
             Ok(())
         })
         .on_menu_event(handle_menu_event)
@@ -849,6 +934,9 @@ pub fn run() {
             peek_import_cmd,
             execute_import,
             get_app_version,
+            get_settings,
+            update_settings,
+            list_workspace_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

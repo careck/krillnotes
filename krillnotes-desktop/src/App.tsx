@@ -6,53 +6,31 @@ import WorkspaceView from './components/WorkspaceView';
 import WelcomeDialog from './components/WelcomeDialog';
 import EmptyState from './components/EmptyState';
 import StatusMessage from './components/StatusMessage';
-import type { WorkspaceInfo as WorkspaceInfoType } from './types';
+import NewWorkspaceDialog from './components/NewWorkspaceDialog';
+import OpenWorkspaceDialog from './components/OpenWorkspaceDialog';
+import SettingsDialog from './components/SettingsDialog';
+import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
 import './styles/globals.css';
 
+interface ImportState {
+  zipPath: string;
+  noteCount: number;
+  scriptCount: number;
+}
+
 const createMenuHandlers = (
-  _setWorkspace: (info: WorkspaceInfoType | null) => void,
-  setStatus: (msg: string, isError?: boolean) => void
+  setStatus: (msg: string, isError?: boolean) => void,
+  setShowNewWorkspace: (show: boolean) => void,
+  setShowOpenWorkspace: (show: boolean) => void,
+  setShowSettings: (show: boolean) => void,
+  setImportState: (state: ImportState | null) => void,
 ) => ({
-  'File > New Workspace clicked': async () => {
-    try {
-      const path = await save({
-        filters: [{ name: 'Krillnotes Database', extensions: ['db'] }],
-        defaultPath: 'workspace.db',
-        title: 'Create New Workspace'
-      });
-
-      if (!path) return;
-
-      await invoke<WorkspaceInfoType>('create_workspace', { path })
-        .catch(err => {
-          if (err !== 'focused_existing') {
-            setStatus(`Error: ${err}`, true);
-          }
-        });
-    } catch (error) {
-      setStatus(`Error: ${error}`, true);
-    }
+  'File > New Workspace clicked': () => {
+    setShowNewWorkspace(true);
   },
 
-  'File > Open Workspace clicked': async () => {
-    try {
-      const path = await open({
-        filters: [{ name: 'Krillnotes Database', extensions: ['db'] }],
-        multiple: false,
-        title: 'Open Workspace'
-      });
-
-      if (!path || Array.isArray(path)) return;
-
-      await invoke<WorkspaceInfoType>('open_workspace', { path })
-        .catch(err => {
-          if (err !== 'focused_existing') {
-            setStatus(`Error: ${err}`, true);
-          }
-        });
-    } catch (error) {
-      setStatus(`Error: ${error}`, true);
-    }
+  'File > Open Workspace clicked': () => {
+    setShowOpenWorkspace(true);
   },
 
   'File > Export Workspace clicked': async () => {
@@ -98,21 +76,19 @@ const createMenuHandlers = (
         if (!proceed) return;
       }
 
-      // Pick where to save the new .db file
-      const dbPath = await save({
-        filters: [{ name: 'Krillnotes Database', extensions: ['db'] }],
-        defaultPath: 'imported-workspace.db',
-        title: 'Save Imported Workspace As'
+      // Show name-entry dialog instead of save dialog
+      setImportState({
+        zipPath: zipPath as string,
+        noteCount: result.noteCount,
+        scriptCount: result.scriptCount,
       });
-
-      if (!dbPath) return;
-
-      // Execute the import
-      await invoke('execute_import', { zipPath, dbPath });
-      setStatus(`Imported ${result.noteCount} notes and ${result.scriptCount} scripts`);
     } catch (error) {
       setStatus(`Import failed: ${error}`, true);
     }
+  },
+
+  'Edit > Settings clicked': () => {
+    setShowSettings(true);
   },
 });
 
@@ -121,6 +97,13 @@ function App() {
   const [workspace, setWorkspace] = useState<WorkspaceInfoType | null>(null);
   const [status, setStatus] = useState('');
   const [isError, setIsError] = useState(false);
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [showOpenWorkspace, setShowOpenWorkspace] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [importState, setImportState] = useState<ImportState | null>(null);
+  const [importName, setImportName] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const welcomed = localStorage.getItem('krillnotes_welcomed');
@@ -142,14 +125,19 @@ function App() {
     });
   }, []);
 
+  const statusSetter = (msg: string, error = false) => {
+    setStatus(msg);
+    setIsError(error);
+    setTimeout(() => setStatus(''), 5000);
+  };
+
   useEffect(() => {
     const handlers = createMenuHandlers(
-      setWorkspace,
-      (msg, error = false) => {
-        setStatus(msg);
-        setIsError(error);
-        setTimeout(() => setStatus(''), 5000);
-      }
+      statusSetter,
+      setShowNewWorkspace,
+      setShowOpenWorkspace,
+      setShowSettings,
+      setImportState,
     );
 
     const unlisten = listen<string>('menu-action', async (event) => {
@@ -167,6 +155,43 @@ function App() {
     return () => { unlisten.then(f => f()); };
   }, []);
 
+  // Reset import dialog state when it opens
+  useEffect(() => {
+    if (importState) {
+      setImportName('imported-workspace');
+      setImportError('');
+      setImporting(false);
+    }
+  }, [importState]);
+
+  const handleImportConfirm = async () => {
+    if (!importState) return;
+
+    const trimmed = importName.trim();
+    if (!trimmed) {
+      setImportError('Please enter a workspace name.');
+      return;
+    }
+    if (/[/\\:*?"<>|]/.test(trimmed)) {
+      setImportError('Name contains invalid characters.');
+      return;
+    }
+
+    setImporting(true);
+    setImportError('');
+
+    try {
+      const settings = await invoke<AppSettings>('get_settings');
+      const dbPath = `${settings.workspaceDirectory}/${trimmed}.db`;
+      await invoke('execute_import', { zipPath: importState.zipPath, dbPath });
+      statusSetter(`Imported ${importState.noteCount} notes and ${importState.scriptCount} scripts`);
+      setImportState(null);
+    } catch (error) {
+      setImportError(`${error}`);
+      setImporting(false);
+    }
+  };
+
   const handleDismissWelcome = () => {
     localStorage.setItem('krillnotes_welcomed', 'true');
     setShowWelcome(false);
@@ -180,6 +205,69 @@ function App() {
     <div className="min-h-screen bg-background text-foreground">
       {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <div className="p-8"><EmptyState /></div>}
       {status && <StatusMessage message={status} isError={isError} />}
+
+      <NewWorkspaceDialog
+        isOpen={showNewWorkspace}
+        onClose={() => setShowNewWorkspace(false)}
+      />
+      <OpenWorkspaceDialog
+        isOpen={showOpenWorkspace}
+        onClose={() => setShowOpenWorkspace(false)}
+      />
+      <SettingsDialog
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
+
+      {/* Import name dialog — inline since it's a lightweight prompt */}
+      {importState && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background border border-secondary p-6 rounded-lg w-96">
+            <h2 className="text-xl font-bold mb-4">Import Workspace</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Importing {importState.noteCount} notes and {importState.scriptCount} scripts.
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
+                Workspace Name
+              </label>
+              <input
+                type="text"
+                value={importName}
+                onChange={(e) => setImportName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !importing) handleImportConfirm(); }}
+                placeholder="imported-workspace"
+                className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoFocus
+                disabled={importing}
+              />
+            </div>
+
+            {importError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
+                {importError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setImportState(null)}
+                className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
+                disabled={importing}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImportConfirm}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
+                disabled={importing || !importName.trim()}
+              >
+                {importing ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
