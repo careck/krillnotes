@@ -2,87 +2,40 @@
 
 use tauri::{menu::*, AppHandle, Runtime};
 
-/// Builds the application menu with File, Edit, View, and Help submenus.
+/// Builds the application menu using platform-conditional assembly.
+///
+/// On macOS: App menu (Krillnotes), File, Edit, Tools, View.
+/// On other platforms: File, Edit, Tools, View, Help.
 ///
 /// # Errors
 ///
 /// Returns [`tauri::Error`] if any menu item or submenu fails to build.
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Error> {
-    let menu = MenuBuilder::new(app)
-        // File menu
-        .items(&[
-            &SubmenuBuilder::new(app, "File")
-                .items(&[
-                    &MenuItemBuilder::with_id("file_new", "New Workspace")
-                        .accelerator("CmdOrCtrl+N")
-                        .build(app)?,
-                    &MenuItemBuilder::with_id("file_open", "Open Workspace...")
-                        .accelerator("CmdOrCtrl+O")
-                        .build(app)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &MenuItemBuilder::with_id("file_export", "Export Workspace...")
-                        .build(app)?,
-                    &MenuItemBuilder::with_id("file_import", "Import Workspace...")
-                        .build(app)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::close_window(app, None)?,
-                    &PredefinedMenuItem::quit(app, None)?,
-                ])
-                .build()?,
+    let file_menu = build_file_menu(app)?;
+    let edit_menu = build_edit_menu(app)?;
+    let tools_menu = build_tools_menu(app)?;
+    let view_menu = build_view_menu(app)?;
 
-            // Edit menu
-            &SubmenuBuilder::new(app, "Edit")
-                .items(&[
-                    &MenuItemBuilder::with_id("edit_add_note", "Add Note")
-                        .accelerator("CmdOrCtrl+Shift+N")
-                        .build(app)?,
-                    &MenuItemBuilder::with_id("edit_delete_note", "Delete Note")
-                        .accelerator("CmdOrCtrl+Backspace")
-                        .build(app)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &MenuItemBuilder::with_id("edit_manage_scripts", "Manage Scripts...")
-                        .build(app)?,
-                    &MenuItemBuilder::with_id("edit_settings", "Settings...")
-                        .accelerator("CmdOrCtrl+,")
-                        .build(app)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::undo(app, None)?,
-                    &PredefinedMenuItem::redo(app, None)?,
-                    &PredefinedMenuItem::copy(app, None)?,
-                    &PredefinedMenuItem::paste(app, None)?,
-                ])
-                .build()?,
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = build_macos_app_menu(app)?;
+        return MenuBuilder::new(app)
+            .items(&[&app_menu, &file_menu, &edit_menu, &tools_menu, &view_menu])
+            .build();
+    }
 
-            // View menu
-            &SubmenuBuilder::new(app, "View")
-                .items(&[
-                    &PredefinedMenuItem::fullscreen(app, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &MenuItemBuilder::with_id("view_operations_log", "Operations Log...")
-                        .build(app)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &MenuItemBuilder::with_id("view_refresh", "Refresh")
-                        .accelerator("CmdOrCtrl+R")
-                        .build(app)?,
-                ])
-                .build()?,
-
-            // Help menu
-            &SubmenuBuilder::new(app, "Help")
-                .items(&[
-                    &MenuItemBuilder::with_id("help_about", "About Krillnotes")
-                        .build(app)?,
-                ])
-                .build()?,
-        ])
-        .build()?;
-
-    Ok(menu)
+    #[cfg(not(target_os = "macos"))]
+    {
+        let help_menu = build_help_menu(app)?;
+        return MenuBuilder::new(app)
+            .items(&[&file_menu, &edit_menu, &tools_menu, &view_menu, &help_menu])
+            .build();
+    }
 }
 
 /// Builds the View submenu (Fullscreen, separator, Refresh).
 ///
-/// Operations Log is excluded from this helper (it belongs in `build_tools_menu`); the inline `build_menu` still references it until Task 6 wires these helpers in.
+/// Operations Log is excluded from this helper — it belongs in `build_tools_menu`.
 ///
 /// # Errors
 ///
