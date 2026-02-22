@@ -258,6 +258,24 @@ impl Workspace {
             AddPosition::AsSibling => (selected.parent_id.clone(), selected.position + 1),
         };
 
+        // Validate allowed_parent_types
+        if !schema.allowed_parent_types.is_empty() {
+            match &final_parent {
+                None => return Err(KrillnotesError::InvalidMove(format!(
+                    "Note type '{}' cannot be placed at root level", note_type
+                ))),
+                Some(pid) => {
+                    let parent_note = self.get_note(pid)?;
+                    if !schema.allowed_parent_types.contains(&parent_note.node_type) {
+                        return Err(KrillnotesError::InvalidMove(format!(
+                            "Note type '{}' cannot be placed under '{}'",
+                            note_type, parent_note.node_type
+                        )));
+                    }
+                }
+            }
+        }
+
         let note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
@@ -333,6 +351,13 @@ impl Workspace {
     pub fn create_note_root(&mut self, node_type: &str) -> Result<String> {
         let now = chrono::Utc::now().timestamp();
         let schema = self.script_registry.get_schema(node_type)?;
+
+        // Validate allowed_parent_types — root notes have no parent
+        if !schema.allowed_parent_types.is_empty() {
+            return Err(KrillnotesError::InvalidMove(format!(
+                "Note type '{}' cannot be placed at root level", node_type
+            )));
+        }
 
         let new_note = Note {
             id: Uuid::new_v4().to_string(),
@@ -587,7 +612,27 @@ impl Workspace {
             }
         }
 
-        // 3. Get the note's current parent_id and position
+        // 3. Allowed-parent-types check
+        let note_to_move = self.get_note(note_id)?;
+        let schema = self.script_registry.get_schema(&note_to_move.node_type)?;
+        if !schema.allowed_parent_types.is_empty() {
+            match new_parent_id {
+                None => return Err(KrillnotesError::InvalidMove(format!(
+                    "Note type '{}' cannot be placed at root level", note_to_move.node_type
+                ))),
+                Some(pid) => {
+                    let parent_note = self.get_note(pid)?;
+                    if !schema.allowed_parent_types.contains(&parent_note.node_type) {
+                        return Err(KrillnotesError::InvalidMove(format!(
+                            "Note type '{}' cannot be placed under '{}'",
+                            note_to_move.node_type, parent_note.node_type
+                        )));
+                    }
+                }
+            }
+        }
+
+        // 4. Get the note's current parent_id and position
         let note = self.get_note(note_id)?;
         let old_parent_id = note.parent_id.clone();
         let old_position = note.position;
@@ -595,27 +640,27 @@ impl Workspace {
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
 
-        // 4. Close the gap in the old sibling group
+        // 5. Close the gap in the old sibling group
         // Exclude the note itself: during a same-parent move it still occupies
-        // old_position in the DB until step 6.
+        // old_position in the DB until step 7.
         tx.execute(
             "UPDATE notes SET position = position - 1 WHERE parent_id IS ? AND position > ? AND id != ?",
             rusqlite::params![old_parent_id, old_position, note_id],
         )?;
 
-        // 5. Open a gap in the new sibling group
+        // 6. Open a gap in the new sibling group
         tx.execute(
             "UPDATE notes SET position = position + 1 WHERE parent_id IS ? AND position >= ? AND id != ?",
             rusqlite::params![new_parent_id, new_position, note_id],
         )?;
 
-        // 6. Update the note itself
+        // 7. Update the note itself
         tx.execute(
             "UPDATE notes SET parent_id = ?, position = ?, modified_at = ? WHERE id = ?",
             rusqlite::params![new_parent_id, new_position, now, note_id],
         )?;
 
-        // 7. Log a MoveNote operation
+        // 8. Log a MoveNote operation
         let op = Operation::MoveNote {
             operation_id: Uuid::new_v4().to_string(),
             timestamp: now,
@@ -627,7 +672,7 @@ impl Workspace {
         self.operation_log.log(&tx, &op)?;
         self.operation_log.purge_if_needed(&tx)?;
 
-        // 8. Commit
+        // 9. Commit
         tx.commit()?;
 
         Ok(())
@@ -1768,8 +1813,12 @@ mod tests {
         // Contact schema is already loaded from starter scripts.
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        // Contact must be created under a ContactsFolder (allowed_parent_types constraint).
+        let folder_id = ws
+            .create_note(&root_id, AddPosition::AsChild, "ContactsFolder")
+            .unwrap();
         let contact_id = ws
-            .create_note(&root_id, AddPosition::AsChild, "Contact")
+            .create_note(&folder_id, AddPosition::AsChild, "Contact")
             .unwrap();
 
         // first_name is required but empty — save must fail.
@@ -1863,8 +1912,12 @@ mod tests {
         let notes = ws.list_all_notes().unwrap();
         let root_id = notes[0].id.clone();
 
+        // Contact must be created under a ContactsFolder (allowed_parent_types constraint).
+        let folder_id = ws
+            .create_note(&root_id, AddPosition::AsChild, "ContactsFolder")
+            .unwrap();
         let contact_id = ws
-            .create_note(&root_id, AddPosition::AsChild, "Contact")
+            .create_note(&folder_id, AddPosition::AsChild, "Contact")
             .unwrap();
 
         let mut fields = HashMap::new();

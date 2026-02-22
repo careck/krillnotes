@@ -378,6 +378,7 @@ struct SchemaInfo {
     title_can_view: bool,
     title_can_edit: bool,
     children_sort: String,
+    allowed_parent_types: Vec<String>,
 }
 
 /// Returns the field definitions for the schema identified by `node_type`.
@@ -408,6 +409,7 @@ fn get_schema_fields(
         title_can_view: schema.title_can_view,
         title_can_edit: schema.title_can_edit,
         children_sort: schema.children_sort,
+        allowed_parent_types: schema.allowed_parent_types,
     })
 }
 
@@ -429,6 +431,7 @@ fn get_all_schemas(
             title_can_view: schema.title_can_view,
             title_can_edit: schema.title_can_edit,
             children_sort: schema.children_sort,
+            allowed_parent_types: schema.allowed_parent_types,
         });
     }
     Ok(result)

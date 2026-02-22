@@ -20,6 +20,7 @@ interface WorkspaceViewProps {
 
 function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [notes, setNotes] = useState<Note[]>([]);
+  const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const selectedNoteIdRef = useRef(selectedNoteId);
@@ -119,6 +120,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         invoke<Record<string, SchemaInfo>>('get_all_schemas'),
       ]);
       setNotes(fetchedNotes);
+      setSchemas(allSchemas);
 
       // Build sort config from schemas
       const sortConfig: Record<string, 'asc' | 'desc' | 'none'> = {};
@@ -399,6 +401,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             onContextMenu={handleContextMenu}
             onKeyDown={handleTreeKeyDown}
             notes={notes}
+            schemas={schemas}
             draggedNoteId={draggedNoteId}
             setDraggedNoteId={setDraggedNoteId}
             dropIndicator={dropIndicator}
@@ -433,6 +436,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         onNoteCreated={handleNoteCreated}
         selectedNoteId={selectedNoteId}
         hasNotes={notes.length > 0}
+        notes={notes}
+        schemas={schemas}
       />
 
       {/* Context Menu */}

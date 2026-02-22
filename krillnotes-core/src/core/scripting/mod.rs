@@ -298,6 +298,7 @@ mod tests {
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
+            allowed_parent_types: vec![],
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -339,6 +340,7 @@ mod tests {
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
+            allowed_parent_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -360,6 +362,7 @@ mod tests {
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
+            allowed_parent_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));

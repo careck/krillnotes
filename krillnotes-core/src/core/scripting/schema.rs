@@ -31,6 +31,9 @@ pub struct Schema {
     pub title_can_view: bool,
     pub title_can_edit: bool,
     pub children_sort: String,
+    /// Note types that are allowed as parents of this note type.
+    /// Empty means no restriction (any parent or root is allowed).
+    pub allowed_parent_types: Vec<String>,
 }
 
 impl Schema {
@@ -173,7 +176,20 @@ impl Schema {
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_else(|| "none".to_string());
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort })
+        let mut allowed_parent_types: Vec<String> = Vec::new();
+        if let Some(arr) = def
+            .get("allowed_parent_types")
+            .and_then(|v| v.clone().try_cast::<rhai::Array>())
+        {
+            for item in arr {
+                let s = item.try_cast::<String>().ok_or_else(|| {
+                    KrillnotesError::Scripting("allowed_parent_types must contain only strings".into())
+                })?;
+                allowed_parent_types.push(s);
+            }
+        }
+
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_types })
     }
 }
 

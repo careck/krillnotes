@@ -1,5 +1,5 @@
 import TreeNode from './TreeNode';
-import type { TreeNode as TreeNodeType, Note, DropIndicator } from '../types';
+import type { TreeNode as TreeNodeType, Note, DropIndicator, SchemaInfo } from '../types';
 
 interface TreeViewProps {
   tree: TreeNodeType[];
@@ -9,6 +9,7 @@ interface TreeViewProps {
   onContextMenu: (e: React.MouseEvent, noteId: string) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   notes: Note[];
+  schemas: Record<string, SchemaInfo>;
   draggedNoteId: string | null;
   setDraggedNoteId: (id: string | null) => void;
   dropIndicator: DropIndicator | null;
@@ -19,7 +20,7 @@ interface TreeViewProps {
 
 function TreeView({
   tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu, onKeyDown,
-  notes, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
+  notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
 }: TreeViewProps) {
 
   const handleRootDragOver = (e: React.DragEvent) => {
@@ -33,6 +34,18 @@ function TreeView({
   const handleRootDrop = (e: React.DragEvent) => {
     e.preventDefault();
     if (!draggedNoteId) return;
+
+    // Block if dragged note's schema restricts parent types (root has no parent)
+    const draggedNote = notes.find(n => n.id === draggedNoteId);
+    if (draggedNote) {
+      const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
+      if (apt.length > 0) {
+        setDraggedNoteId(null);
+        setDropIndicator(null);
+        return;
+      }
+    }
+
     const rootCount = notes.filter(n => n.parentId === null).length;
     onMoveNote(draggedNoteId, null, rootCount);
     setDraggedNoteId(null);
@@ -79,6 +92,7 @@ function TreeView({
           onToggleExpand={onToggleExpand}
           onContextMenu={onContextMenu}
           notes={notes}
+          schemas={schemas}
           draggedNoteId={draggedNoteId}
           setDraggedNoteId={setDraggedNoteId}
           dropIndicator={dropIndicator}

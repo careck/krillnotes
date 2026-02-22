@@ -10,6 +10,7 @@ schema("ContactsFolder", #{
 
 schema("Contact", #{
     title_can_edit: false,
+    allowed_parent_types: ["ContactsFolder"],
     fields: [
         #{ name: "first_name",      type: "text",  required: true  },
         #{ name: "middle_name",     type: "text",  required: false },

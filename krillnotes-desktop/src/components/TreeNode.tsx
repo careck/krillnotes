@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { TreeNode as TreeNodeType, Note, DropIndicator } from '../types';
+import type { TreeNode as TreeNodeType, Note, DropIndicator, SchemaInfo } from '../types';
 
 interface TreeNodeProps {
   node: TreeNodeType;
@@ -9,6 +9,7 @@ interface TreeNodeProps {
   onToggleExpand: (noteId: string) => void;
   onContextMenu: (e: React.MouseEvent, noteId: string) => void;
   notes: Note[];
+  schemas: Record<string, SchemaInfo>;
   draggedNoteId: string | null;
   setDraggedNoteId: (id: string | null) => void;
   dropIndicator: DropIndicator | null;
@@ -19,7 +20,7 @@ interface TreeNodeProps {
 
 function TreeNode({
   node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu,
-  notes, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
+  notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
 }: TreeNodeProps) {
   const hasChildren = node.children.length > 0;
   const isSelected = node.note.id === selectedNoteId;
@@ -47,8 +48,6 @@ function TreeNode({
     // Cycle check: can't drop onto a descendant
     if (dragDescendants.has(node.note.id)) return;
 
-    e.dataTransfer.dropEffect = 'move';
-
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const height = rect.height;
@@ -63,8 +62,25 @@ function TreeNode({
       position = 'child';
     }
 
+    // Schema allowed_parent_types check: suppress drop indicator for invalid placements
+    const draggedNote = notes.find(n => n.id === draggedNoteId);
+    if (draggedNote) {
+      const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
+      if (apt.length > 0) {
+        let prospectiveParentType: string | null;
+        if (position === 'child') {
+          prospectiveParentType = node.note.nodeType;
+        } else {
+          const parentNote = node.note.parentId ? notes.find(n => n.id === node.note.parentId) : null;
+          prospectiveParentType = parentNote ? parentNote.nodeType : null;
+        }
+        if (!prospectiveParentType || !apt.includes(prospectiveParentType)) return;
+      }
+    }
+
+    e.dataTransfer.dropEffect = 'move';
     setDropIndicator({ noteId: node.note.id, position });
-  }, [draggedNoteId, node.note.id, dragDescendants, setDropIndicator]);
+  }, [draggedNoteId, node.note, notes, schemas, dragDescendants, setDropIndicator]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     const related = e.relatedTarget as HTMLElement | null;
@@ -103,6 +119,20 @@ function TreeNode({
       }
     }
 
+    // Schema allowed_parent_types check: block invalid drops
+    const draggedNote = notes.find(n => n.id === draggedNoteId);
+    if (draggedNote) {
+      const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
+      if (apt.length > 0) {
+        const parentNote = newParentId ? notes.find(n => n.id === newParentId) : null;
+        if (!parentNote || !apt.includes(parentNote.nodeType)) {
+          setDraggedNoteId(null);
+          setDropIndicator(null);
+          return;
+        }
+      }
+    }
+
     // No-op: skip if same location
     const dragged = notes.find(n => n.id === draggedNoteId);
     if (dragged && dragged.parentId === newParentId && dragged.position === newPosition) {
@@ -114,7 +144,7 @@ function TreeNode({
     onMoveNote(draggedNoteId, newParentId, newPosition);
     setDraggedNoteId(null);
     setDropIndicator(null);
-  }, [draggedNoteId, node, notes, dragDescendants, isExpanded, hasChildren, onToggleExpand, onMoveNote, setDraggedNoteId, setDropIndicator]);
+  }, [draggedNoteId, node, notes, schemas, dragDescendants, isExpanded, hasChildren, onToggleExpand, onMoveNote, setDraggedNoteId, setDropIndicator]);
 
   const indentPx = level * 20 + 8;
 
@@ -175,6 +205,7 @@ function TreeNode({
               onToggleExpand={onToggleExpand}
               onContextMenu={onContextMenu}
               notes={notes}
+              schemas={schemas}
               draggedNoteId={draggedNoteId}
               setDraggedNoteId={setDraggedNoteId}
               dropIndicator={dropIndicator}
