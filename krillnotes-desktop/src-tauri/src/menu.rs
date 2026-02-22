@@ -150,3 +150,39 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::
 
     builder.build()
 }
+
+/// Builds the Edit submenu.
+///
+/// On macOS, Settings is intentionally absent — it belongs in the Krillnotes app menu (added in Task 5).
+/// On all other platforms, Settings... (⌘,) is included between the first separator and the undo/redo block.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item fails to build.
+fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+    let add_note = MenuItemBuilder::with_id("edit_add_note", "Add Note")
+        .accelerator("CmdOrCtrl+Shift+N")
+        .build(app)?;
+    let delete_note = MenuItemBuilder::with_id("edit_delete_note", "Delete Note")
+        .accelerator("CmdOrCtrl+Backspace")
+        .build(app)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let undo = PredefinedMenuItem::undo(app, None)?;
+    let redo = PredefinedMenuItem::redo(app, None)?;
+    let copy = PredefinedMenuItem::copy(app, None)?;
+    let paste = PredefinedMenuItem::paste(app, None)?;
+
+    let builder = SubmenuBuilder::new(app, "Edit")
+        .items(&[&add_note, &delete_note, &sep1]);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = {
+        let settings = MenuItemBuilder::with_id("edit_settings", "Settings...")
+            .accelerator("CmdOrCtrl+,")
+            .build(app)?;
+        let sep2 = PredefinedMenuItem::separator(app)?;
+        builder.item(&settings).item(&sep2)
+    };
+
+    builder.items(&[&undo, &redo, &copy, &paste]).build()
+}
