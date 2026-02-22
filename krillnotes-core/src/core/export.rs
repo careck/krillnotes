@@ -390,9 +390,9 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path()).unwrap();
 
-        // Add a user script
+        // Add a user script (unique name to avoid collision with starters)
         let script_source =
-            "// @name: Contacts\n// @description: Contact cards\nschema(\"Contact\", #{});";
+            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{});";
         ws.create_user_script(script_source).unwrap();
 
         // Export to a buffer
@@ -413,14 +413,16 @@ mod tests {
         // Must contain scripts/scripts.json
         let manifest_file = archive.by_name("scripts/scripts.json").unwrap();
         let manifest: ScriptManifest = serde_json::from_reader(manifest_file).unwrap();
-        assert_eq!(manifest.scripts.len(), 1);
-        assert_eq!(manifest.scripts[0].filename, "contacts.rhai");
+        // Starter scripts + the user-created Widget script
+        assert!(manifest.scripts.len() >= 2, "Should have starter scripts plus user script");
+        let widget_entry = manifest.scripts.iter().find(|s| s.filename == "custom-widget.rhai");
+        assert!(widget_entry.is_some(), "Should contain custom-widget.rhai in manifest");
 
         // Must contain the .rhai file
-        let mut rhai_file = archive.by_name("scripts/contacts.rhai").unwrap();
+        let mut rhai_file = archive.by_name("scripts/custom-widget.rhai").unwrap();
         let mut source = String::new();
         std::io::Read::read_to_string(&mut rhai_file, &mut source).unwrap();
-        assert!(source.contains("@name: Contacts"));
+        assert!(source.contains("@name: Custom Widget"));
     }
 
     #[test]
@@ -430,7 +432,7 @@ mod tests {
         let mut ws = Workspace::create(temp.path()).unwrap();
 
         let script_source =
-            "// @name: Contacts\n// @description: Contact cards\nschema(\"Contact\", #{});";
+            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{});";
         ws.create_user_script(script_source).unwrap();
 
         // Export to a buffer
@@ -441,7 +443,8 @@ mod tests {
         let result = peek_import(Cursor::new(&buf)).unwrap();
         assert_eq!(result.app_version, APP_VERSION);
         assert_eq!(result.note_count, 1); // root note
-        assert_eq!(result.script_count, 1);
+        // Starter scripts + the user-created Widget script
+        assert!(result.script_count >= 2, "Should have starters + user script, got {}", result.script_count);
     }
 
     /// NOTE: This test works because export currently reads through the Workspace API
@@ -469,7 +472,7 @@ mod tests {
             .unwrap();
 
         let script_source =
-            "// @name: Contacts\n// @description: Contact cards\nschema(\"Contact\", #{});";
+            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{});";
         ws.create_user_script(script_source).unwrap();
 
         // Export
@@ -482,7 +485,8 @@ mod tests {
 
         assert_eq!(result.app_version, APP_VERSION);
         assert_eq!(result.note_count, 3);
-        assert_eq!(result.script_count, 1);
+        // Starter scripts + the user-created Widget script
+        assert!(result.script_count >= 2, "Should have starters + user script, got {}", result.script_count);
 
         // Open the imported workspace and verify contents
         let imported_ws = Workspace::open(temp_dst.path()).unwrap();
@@ -507,10 +511,10 @@ mod tests {
 
         // Verify scripts
         let scripts = imported_ws.list_user_scripts().unwrap();
-        assert_eq!(scripts.len(), 1);
-        assert_eq!(scripts[0].name, "Contacts");
-        assert_eq!(scripts[0].description, "Contact cards");
-        assert!(scripts[0].source_code.contains("@name: Contacts"));
+        assert!(scripts.len() >= 2, "Should have starters + user script");
+        let widget = scripts.iter().find(|s| s.name == "Custom Widget").unwrap();
+        assert_eq!(widget.description, "Widget cards");
+        assert!(widget.source_code.contains("@name: Custom Widget"));
     }
 
     #[test]
