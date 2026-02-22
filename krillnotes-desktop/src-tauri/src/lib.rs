@@ -106,6 +106,7 @@ fn create_workspace_window(
     )
     .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
+    .disable_drag_drop_handler()
     .build()
     .map_err(|e| format!("Failed to create window: {e}"))
 }
