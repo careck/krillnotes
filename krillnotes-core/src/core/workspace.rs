@@ -45,7 +45,7 @@ impl Workspace {
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut storage = Storage::create(&path)?;
-        let script_registry = ScriptRegistry::new()?;
+        let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 
         // Get hardware-based device ID
@@ -61,6 +61,50 @@ impl Workspace {
             ["current_user_id", "0"],
         )?;
 
+        // Seed the workspace with bundled starter scripts.
+        let now = chrono::Utc::now().timestamp();
+        let starters = ScriptRegistry::starter_scripts();
+        {
+            let tx = storage.connection_mut().transaction()?;
+            for (load_order, starter) in starters.iter().enumerate() {
+                let fm = user_script::parse_front_matter(&starter.source_code);
+                let id = Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    rusqlite::params![id, fm.name, fm.description, &starter.source_code, load_order as i32, true, now, now],
+                )?;
+            }
+            tx.commit()?;
+        }
+
+        // Load all scripts from the DB into the registry.
+        let scripts = {
+            let mut stmt = storage.connection().prepare(
+                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at
+                 FROM user_scripts ORDER BY load_order ASC, created_at ASC",
+            )?;
+            let results: Vec<UserScript> = stmt.query_map([], |row| {
+                Ok(UserScript {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    source_code: row.get(3)?,
+                    load_order: row.get(4)?,
+                    enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
+                    created_at: row.get(6)?,
+                    modified_at: row.get(7)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+            results
+        };
+        for script in scripts.iter().filter(|s| s.enabled) {
+            if let Err(e) = script_registry.load_script(&script.source_code) {
+                eprintln!("Failed to load starter script '{}': {}", script.name, e);
+            }
+        }
+
         // Create root note from filename
         let filename = path
             .as_ref()
@@ -75,8 +119,8 @@ impl Workspace {
             node_type: "TextNote".to_string(),
             parent_id: None,
             position: 0,
-            created_at: chrono::Utc::now().timestamp(),
-            modified_at: chrono::Utc::now().timestamp(),
+            created_at: now,
+            modified_at: now,
             created_by: 0,
             modified_by: 0,
             fields: script_registry.get_schema("TextNote")?.default_fields(),
@@ -149,11 +193,11 @@ impl Workspace {
             current_user_id,
         };
 
-        // Load enabled user scripts in load_order.
-        let user_scripts = ws.list_user_scripts()?;
-        for script in user_scripts.iter().filter(|s| s.enabled) {
-            if let Err(e) = ws.script_registry.load_user_script(&script.source_code) {
-                eprintln!("Failed to load user script '{}': {}", script.name, e);
+        // Load enabled scripts from the workspace DB.
+        let scripts = ws.list_user_scripts()?;
+        for script in scripts.iter().filter(|s| s.enabled) {
+            if let Err(e) = ws.script_registry.load_script(&script.source_code) {
+                eprintln!("Failed to load script '{}': {}", script.name, e);
             }
         }
 
@@ -966,7 +1010,7 @@ impl Workspace {
         let id = Uuid::new_v4().to_string();
 
         // Try to compile and load the script (before opening transaction)
-        let compile_ok = self.script_registry.load_user_script(source_code).is_ok();
+        let compile_ok = self.script_registry.load_script(source_code).is_ok();
 
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -1000,8 +1044,8 @@ impl Workspace {
         tx.commit()?;
 
         if !compile_ok {
-            // Reload all user scripts to clean up any partial state
-            self.reload_user_scripts()?;
+            // Reload all scripts to clean up any partial state
+            self.reload_scripts()?;
         }
 
         self.get_user_script(&id)
@@ -1052,7 +1096,7 @@ impl Workspace {
 
         tx.commit()?;
 
-        self.reload_user_scripts()?;
+        self.reload_scripts()?;
         self.get_user_script(script_id)
     }
 
@@ -1075,7 +1119,7 @@ impl Workspace {
 
         tx.commit()?;
 
-        self.reload_user_scripts()
+        self.reload_scripts()
     }
 
     /// Toggles the enabled state of a user script and reloads.
@@ -1112,7 +1156,7 @@ impl Workspace {
 
         tx.commit()?;
 
-        self.reload_user_scripts()
+        self.reload_scripts()
     }
 
     /// Changes the load order of a user script and reloads.
@@ -1149,7 +1193,7 @@ impl Workspace {
 
         tx.commit()?;
 
-        self.reload_user_scripts()
+        self.reload_scripts()
     }
 
     // ── Operations log queries ───────────────────────────────────────
@@ -1169,13 +1213,13 @@ impl Workspace {
         self.operation_log.purge_all(self.connection())
     }
 
-    /// Clears all user-registered schemas/hooks and re-executes enabled user scripts.
-    fn reload_user_scripts(&mut self) -> Result<()> {
-        self.script_registry.clear_user_registrations();
+    /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB.
+    fn reload_scripts(&mut self) -> Result<()> {
+        self.script_registry.clear_all();
         let scripts = self.list_user_scripts()?;
         for script in scripts.iter().filter(|s| s.enabled) {
-            if let Err(e) = self.script_registry.load_user_script(&script.source_code) {
-                eprintln!("Failed to load user script '{}': {}", script.name, e);
+            if let Err(e) = self.script_registry.load_script(&script.source_code) {
+                eprintln!("Failed to load script '{}': {}", script.name, e);
             }
         }
         Ok(())
@@ -1721,10 +1765,7 @@ mod tests {
     fn test_update_contact_rejects_empty_required_fields() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path()).unwrap();
-        ws.create_user_script(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../user_scripts/contact.rhai"
-        ))).unwrap();
+        // Contact schema is already loaded from starter scripts.
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
         let contact_id = ws
@@ -1817,12 +1858,8 @@ mod tests {
     fn test_update_contact_derives_title_from_hook() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path()).unwrap();
-        ws.create_user_script(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../user_scripts/contact.rhai"
-        ))).unwrap();
+        // Contact schema is already loaded from starter scripts.
 
-        // Create a root note to act as parent
         let notes = ws.list_all_notes().unwrap();
         let root_id = notes[0].id.clone();
 
@@ -1859,23 +1896,28 @@ mod tests {
     // ── User-script CRUD tests ──────────────────────────────────
 
     #[test]
-    fn test_list_user_scripts_empty() {
+    fn test_workspace_created_with_starter_scripts() {
         let temp = NamedTempFile::new().unwrap();
         let workspace = Workspace::create(temp.path()).unwrap();
         let scripts = workspace.list_user_scripts().unwrap();
-        assert!(scripts.is_empty());
+        assert!(!scripts.is_empty(), "New workspace should have starter scripts");
+        // Verify first starter script is TextNote
+        assert_eq!(scripts[0].name, "Text Note");
+        assert!(scripts[0].enabled);
+        assert_eq!(scripts[0].load_order, 0);
     }
 
     #[test]
     fn test_create_user_script() {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path()).unwrap();
+        let starter_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ fields: [] });";
         let script = workspace.create_user_script(source).unwrap();
         assert_eq!(script.name, "Test Script");
         assert_eq!(script.description, "A test");
         assert!(script.enabled);
-        assert_eq!(script.load_order, 0);
+        assert_eq!(script.load_order, starter_count as i32);
     }
 
     #[test]
@@ -1903,12 +1945,13 @@ mod tests {
     fn test_delete_user_script() {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path()).unwrap();
+        let initial_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: ToDelete\nschema(\"Del\", #{ fields: [] });";
         let script = workspace.create_user_script(source).unwrap();
+        assert_eq!(workspace.list_user_scripts().unwrap().len(), initial_count + 1);
 
         workspace.delete_user_script(&script.id).unwrap();
-        let scripts = workspace.list_user_scripts().unwrap();
-        assert!(scripts.is_empty());
+        assert_eq!(workspace.list_user_scripts().unwrap().len(), initial_count);
     }
 
     #[test]
@@ -1920,23 +1963,27 @@ mod tests {
         assert!(script.enabled);
 
         workspace.toggle_user_script(&script.id, false).unwrap();
-        let scripts = workspace.list_user_scripts().unwrap();
-        assert!(!scripts[0].enabled);
+        let updated = workspace.get_user_script(&script.id).unwrap();
+        assert!(!updated.enabled);
     }
 
     #[test]
     fn test_user_scripts_sorted_by_load_order() {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path()).unwrap();
+        let starter_count = workspace.list_user_scripts().unwrap().len();
+
         let s1 = "// @name: Second\nschema(\"S2\", #{ fields: [] });";
         let s2 = "// @name: First\nschema(\"S1\", #{ fields: [] });";
         workspace.create_user_script(s1).unwrap();
         let second = workspace.create_user_script(s2).unwrap();
+        // Move "First" before all starters
         workspace.reorder_user_script(&second.id, -1).unwrap();
 
         let scripts = workspace.list_user_scripts().unwrap();
-        assert_eq!(scripts[0].name, "First");
-        assert_eq!(scripts[1].name, "Second");
+        assert_eq!(scripts[0].name, "First", "Reordered script should come first");
+        // "Second" should come after all starters
+        assert_eq!(scripts[starter_count + 1].name, "Second");
     }
 
     #[test]

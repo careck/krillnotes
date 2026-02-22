@@ -8,6 +8,7 @@ mod schema;
 
 pub use hooks::HookRegistry;
 pub use schema::{FieldDefinition, Schema};
+// StarterScript is defined in this file and re-exported via lib.rs.
 
 use crate::{FieldValue, KrillnotesError, Result};
 use hooks::HookEntry;
@@ -16,7 +17,15 @@ use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, AST};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-static SYSTEM_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
+static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
+
+/// A bundled starter script with its filename and source code.
+pub struct StarterScript {
+    /// The filename (e.g. `"00_text_note.rhai"`), used to derive load order.
+    pub filename: String,
+    /// The full Rhai source code.
+    pub source_code: String,
+}
 
 /// Orchestrating registry that owns the Rhai engine and delegates to
 /// [`SchemaRegistry`](schema::SchemaRegistry) and [`HookRegistry`].
@@ -31,12 +40,10 @@ pub struct ScriptRegistry {
 }
 
 impl ScriptRegistry {
-    /// Creates a new registry and loads the built-in system schemas.
+    /// Creates a new, empty registry with no scripts loaded.
     ///
-    /// # Errors
-    ///
-    /// Returns [`KrillnotesError::Scripting`] if a bundled system script
-    /// fails to parse or if any `schema(...)` call within it is malformed.
+    /// Use [`starter_scripts()`](Self::starter_scripts) to get the bundled
+    /// starter scripts for seeding a new workspace.
     pub fn new() -> Result<Self> {
         let mut engine = Engine::new();
         let schema_registry = schema::SchemaRegistry::new();
@@ -45,36 +52,26 @@ impl ScriptRegistry {
 
         // Register schema() host function — writes into SchemaRegistry.
         let schemas_arc = schema_registry.schemas_arc();
-        let user_schemas_arc = schema_registry.user_schemas_arc();
-        let source_arc = schema_registry.current_source_arc();
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
-            schemas_arc.lock().unwrap().insert(name.clone(), s);
-            if *source_arc.lock().unwrap() == schema::ScriptSource::User {
-                user_schemas_arc.lock().unwrap().push(name);
-            }
+            schemas_arc.lock().unwrap().insert(name, s);
             Ok(Dynamic::UNIT)
         });
 
         // Register on_save() host function — writes into HookRegistry.
         let hooks_arc = hook_registry.on_save_hooks_arc();
-        let user_hooks_arc = hook_registry.user_hooks_arc();
         let ast_arc = Arc::clone(&current_loading_ast);
-        let hook_source_arc = schema_registry.current_source_arc();
         engine.register_fn("on_save", move |name: String, fn_ptr: FnPtr| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let maybe_ast = ast_arc.lock().unwrap().clone();
             let ast = maybe_ast.ok_or_else(|| -> Box<EvalAltResult> {
                 "on_save called outside of load_script".to_string().into()
             })?;
-            hooks_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast });
-            if *hook_source_arc.lock().unwrap() == schema::ScriptSource::User {
-                user_hooks_arc.lock().unwrap().push(name);
-            }
+            hooks_arc.lock().unwrap().insert(name, HookEntry { fn_ptr, ast });
             Ok(Dynamic::UNIT)
         });
 
-        // Register schema_exists() — query function for user scripts.
+        // Register schema_exists() — query function for scripts.
         let exists_arc = schema_registry.schemas_arc();
         engine.register_fn("schema_exists", move |name: String| -> bool {
             exists_arc.lock().unwrap().contains_key(&name)
@@ -104,19 +101,30 @@ impl ScriptRegistry {
             Ok(Dynamic::from(arr))
         });
 
-        let mut registry = Self {
+        Ok(Self {
             engine,
             current_loading_ast,
             schema_registry,
             hook_registry,
-        };
-        for file in SYSTEM_SCRIPTS.files() {
-            if let Some(contents) = file.contents_utf8() {
-                registry.load_script(contents)?;
-            }
-        }
+        })
+    }
 
-        Ok(registry)
+    /// Returns the bundled starter scripts, sorted by filename (load order).
+    ///
+    /// These are embedded in the binary at compile time and used to seed new
+    /// workspaces. Each script has a numbered prefix (e.g. `00_text_note.rhai`)
+    /// that determines its load order.
+    pub fn starter_scripts() -> Vec<StarterScript> {
+        let mut scripts: Vec<StarterScript> = STARTER_SCRIPTS
+            .files()
+            .filter_map(|file| {
+                let filename = file.path().file_name()?.to_str()?.to_string();
+                let source_code = file.contents_utf8()?.to_string();
+                Some(StarterScript { filename, source_code })
+            })
+            .collect();
+        scripts.sort_by(|a, b| a.filename.cmp(&b.filename));
+        scripts
     }
 
     /// Evaluates `script` and registers any schemas and hooks it defines.
@@ -195,18 +203,10 @@ impl ScriptRegistry {
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
     }
 
-    /// Loads a user script, marking all registrations as user-sourced.
-    pub fn load_user_script(&mut self, script: &str) -> Result<()> {
-        self.schema_registry.set_source(schema::ScriptSource::User);
-        let result = self.load_script(script);
-        self.schema_registry.set_source(schema::ScriptSource::System);
-        result
-    }
-
-    /// Removes all schemas and hooks registered by user scripts.
-    pub fn clear_user_registrations(&self) {
-        self.schema_registry.clear_user();
-        self.hook_registry.clear_user();
+    /// Removes all registered schemas and hooks so scripts can be reloaded.
+    pub fn clear_all(&self) {
+        self.schema_registry.clear();
+        self.hook_registry.clear();
     }
 
     /// Returns `true` if a schema with `name` is registered.
@@ -220,7 +220,15 @@ impl ScriptRegistry {
 mod tests {
     use super::*;
 
-    // ── New test for the hooks() accessor ────────────────────────────────────
+    /// Helper: loads the bundled TextNote starter script into a registry.
+    fn load_text_note(registry: &mut ScriptRegistry) {
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/system_scripts/00_text_note.rhai"
+        ))).expect("TextNote starter script should load");
+    }
+
+    // ── hooks() accessor ────────────────────────────────────────────────────
 
     #[test]
     fn test_hooks_accessor_returns_hook_registry() {
@@ -239,7 +247,7 @@ mod tests {
         assert!(!registry.hooks().has_hook("Missing"));
     }
 
-    // ── Ported tests (previously in scripting.rs) ────────────────────────────
+    // ── Schema registration ─────────────────────────────────────────────────
 
     #[test]
     fn test_schema_registration() {
@@ -298,13 +306,21 @@ mod tests {
     }
 
     #[test]
-    fn test_text_note_schema_loaded() {
-        let registry = ScriptRegistry::new().unwrap();
+    fn test_text_note_schema_loaded_from_starter() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        load_text_note(&mut registry);
         let schema = registry.get_schema("TextNote").unwrap();
         assert_eq!(schema.name, "TextNote");
         assert_eq!(schema.fields.len(), 1);
         assert_eq!(schema.fields[0].name, "body");
         assert_eq!(schema.fields[0].field_type, "textarea");
+    }
+
+    #[test]
+    fn test_new_registry_is_empty() {
+        let registry = ScriptRegistry::new().unwrap();
+        assert!(registry.get_schema("TextNote").is_err(), "New registry should have no schemas");
+        assert!(registry.list_types().unwrap().is_empty());
     }
 
     #[test]
@@ -352,9 +368,9 @@ mod tests {
     #[test]
     fn test_contact_schema_loaded() {
         let mut registry = ScriptRegistry::new().unwrap();
-        registry.load_user_script(include_str!(concat!(
+        registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../user_scripts/contact.rhai"
+            "/src/system_scripts/01_contact.rhai"
         ))).unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert_eq!(schema.name, "Contact");
@@ -371,6 +387,8 @@ mod tests {
         let last_name_field = schema.fields.iter().find(|f| f.name == "last_name").unwrap();
         assert!(last_name_field.required, "last_name should be required");
     }
+
+    // ── on_save hooks ───────────────────────────────────────────────────────
 
     #[test]
     fn test_run_on_save_hook_sets_title() {
@@ -408,7 +426,8 @@ mod tests {
 
     #[test]
     fn test_run_on_save_hook_no_hook_returns_none() {
-        let registry = ScriptRegistry::new().unwrap();
+        let mut registry = ScriptRegistry::new().unwrap();
+        load_text_note(&mut registry);
         let fields = HashMap::new();
         let result = registry
             .run_on_save_hook("TextNote", "id-1", "TextNote", "title", &fields)
@@ -419,9 +438,9 @@ mod tests {
     #[test]
     fn test_contact_on_save_hook_derives_title() {
         let mut registry = ScriptRegistry::new().unwrap();
-        registry.load_user_script(include_str!(concat!(
+        registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../user_scripts/contact.rhai"
+            "/src/system_scripts/01_contact.rhai"
         ))).unwrap();
         assert!(registry.hooks().has_hook("Contact"), "Contact schema should have an on_save hook");
 
@@ -446,6 +465,9 @@ mod tests {
 
         assert_eq!(result.0, "Smith, Jane");
     }
+
+    // ── Field flags ─────────────────────────────────────────────────────────
+
     #[test]
     fn test_field_can_view_can_edit_defaults_to_true() {
         let mut registry = ScriptRegistry::new().unwrap();
@@ -497,6 +519,7 @@ mod tests {
         assert!(!schema.fields[1].can_edit, "explicit can_edit: false should parse as false");
     }
 
+    // ── Title flags ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_schema_title_flags_default_to_true() {
@@ -544,19 +567,21 @@ mod tests {
         let schema = registry.get_schema("TitleExplicit").unwrap();
         assert!(schema.title_can_view,  "explicit title_can_view: true should parse as true");
         assert!(schema.title_can_edit,  "explicit title_can_edit: true should parse as true");
-
     }
+
     #[test]
     fn test_contact_title_can_edit_false() {
         let mut registry = ScriptRegistry::new().unwrap();
-        registry.load_user_script(include_str!(concat!(
+        registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../user_scripts/contact.rhai"
+            "/src/system_scripts/01_contact.rhai"
         ))).unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert!(!schema.title_can_edit, "Contact title_can_edit should be false");
         assert!(schema.title_can_view, "Contact title_can_view should still be true");
     }
+
+    // ── Boolean / default value edge cases ──────────────────────────────────
 
     #[test]
     fn test_boolean_field_defaults_to_false_when_absent_from_hook_result() {
@@ -592,39 +617,42 @@ mod tests {
         );
     }
 
+    // ── clear_all ───────────────────────────────────────────────────────────
+
     #[test]
-    fn test_load_user_script_and_clear() {
+    fn test_load_script_and_clear_all() {
         let mut registry = ScriptRegistry::new().unwrap();
-        registry.load_user_script(r#"
-            schema("UserType", #{ fields: [#{ name: "x", type: "text" }] });
+        registry.load_script(r#"
+            schema("MyType", #{ fields: [#{ name: "x", type: "text" }] });
         "#).unwrap();
 
-        assert!(registry.get_schema("UserType").is_ok());
+        assert!(registry.get_schema("MyType").is_ok());
 
-        registry.clear_user_registrations();
+        registry.clear_all();
 
-        assert!(registry.get_schema("UserType").is_err());
-        // System schemas should still work
-        assert!(registry.get_schema("TextNote").is_ok());
+        assert!(registry.get_schema("MyType").is_err());
     }
 
     #[test]
-    fn test_clear_user_does_not_remove_system_schemas() {
+    fn test_clear_all_removes_everything() {
         let mut registry = ScriptRegistry::new().unwrap();
-        registry.load_user_script(r#"
+        load_text_note(&mut registry);
+        registry.load_script(r#"
             schema("Custom", #{ fields: [#{ name: "a", type: "text" }] });
         "#).unwrap();
 
-        registry.clear_user_registrations();
+        registry.clear_all();
 
         let types = registry.list_types().unwrap();
-        assert!(types.contains(&"TextNote".to_string()));
-        assert!(!types.contains(&"Custom".to_string()));
+        assert!(types.is_empty(), "clear_all should remove all schemas");
     }
+
+    // ── Host functions ──────────────────────────────────────────────────────
 
     #[test]
     fn test_schema_exists_host_function() {
         let mut registry = ScriptRegistry::new().unwrap();
+        load_text_note(&mut registry);
         assert!(registry.schema_exists("TextNote"));
         assert!(!registry.schema_exists("NonExistent"));
 
@@ -640,6 +668,7 @@ mod tests {
     #[test]
     fn test_get_schema_fields_host_function() {
         let mut registry = ScriptRegistry::new().unwrap();
+        load_text_note(&mut registry);
         registry.load_script(r#"
             let fields = get_schema_fields("TextNote");
             if fields.len() != 1 { throw "Expected 1 field, got " + fields.len(); }
@@ -651,17 +680,19 @@ mod tests {
     }
 
     #[test]
-    fn test_user_hooks_cleared_on_clear() {
+    fn test_hooks_cleared_on_clear_all() {
         let mut registry = ScriptRegistry::new().unwrap();
-        registry.load_user_script(r#"
+        registry.load_script(r#"
             schema("Hooked", #{ fields: [#{ name: "x", type: "text" }] });
             on_save("Hooked", |note| { note });
         "#).unwrap();
         assert!(registry.hooks().has_hook("Hooked"));
 
-        registry.clear_user_registrations();
+        registry.clear_all();
         assert!(!registry.hooks().has_hook("Hooked"));
     }
+
+    // ── Select / rating fields ──────────────────────────────────────────────
 
     #[test]
     fn test_select_field_parses_options() {
@@ -693,7 +724,8 @@ mod tests {
 
     #[test]
     fn test_regular_fields_have_empty_options_and_zero_max() {
-        let registry = ScriptRegistry::new().unwrap();
+        let mut registry = ScriptRegistry::new().unwrap();
+        load_text_note(&mut registry);
         let fields = get_schema_fields_for_test(&registry, "TextNote");
         assert!(fields[0].options.is_empty());
         assert_eq!(fields[0].max, 0);
@@ -718,40 +750,36 @@ mod tests {
         assert!(msg.contains("strings"), "error should mention 'strings', got: {msg}");
     }
 
+    // ── Starter scripts ─────────────────────────────────────────────────────
+
     #[test]
-    fn test_example_user_scripts_load_without_error() {
+    fn test_starter_scripts_load_without_error() {
         let mut registry = ScriptRegistry::new().unwrap();
+        let starters = ScriptRegistry::starter_scripts();
+        assert!(!starters.is_empty(), "Should have bundled starter scripts");
 
-        let task_script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/task.rhai")
-        ).expect("task.rhai should exist");
-        registry.load_user_script(&task_script).expect("task.rhai should load");
+        for starter in &starters {
+            registry.load_script(&starter.source_code)
+                .unwrap_or_else(|e| panic!("{} should load: {e}", starter.filename));
+        }
 
-        let project_script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/project.rhai")
-        ).expect("project.rhai should exist");
-        registry.load_user_script(&project_script).expect("project.rhai should load");
-
-        let book_script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/book.rhai")
-        ).expect("book.rhai should exist");
-        registry.load_user_script(&book_script).expect("book.rhai should load");
-
-        let product_script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/product.rhai")
-        ).expect("product.rhai should exist");
-        registry.load_user_script(&product_script).expect("product.rhai should load");
-
-        let recipe_script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/recipe.rhai")
-        ).expect("recipe.rhai should exist");
-        registry.load_user_script(&recipe_script).expect("recipe.rhai should load");
-
+        assert!(registry.schema_exists("TextNote"));
+        assert!(registry.schema_exists("Contact"));
+        assert!(registry.schema_exists("ContactsFolder"));
         assert!(registry.schema_exists("Task"));
         assert!(registry.schema_exists("Project"));
         assert!(registry.schema_exists("Book"));
         assert!(registry.schema_exists("Product"));
         assert!(registry.schema_exists("Recipe"));
+    }
+
+    #[test]
+    fn test_starter_scripts_sorted_by_filename() {
+        let starters = ScriptRegistry::starter_scripts();
+        let filenames: Vec<&str> = starters.iter().map(|s| s.filename.as_str()).collect();
+        let mut sorted = filenames.clone();
+        sorted.sort();
+        assert_eq!(filenames, sorted, "Starter scripts should be sorted by filename");
     }
 
     #[test]
@@ -874,6 +902,8 @@ mod tests {
         assert_eq!(result.1["stars"], FieldValue::Number(0.0));
     }
 
+    // ── children_sort ───────────────────────────────────────────────────────
+
     #[test]
     fn test_children_sort_defaults_to_none() {
         let mut registry = ScriptRegistry::new().unwrap();
@@ -912,13 +942,15 @@ mod tests {
         assert_eq!(schema.children_sort, "desc");
     }
 
+    // ── Book hook edge case ─────────────────────────────────────────────────
+
     #[test]
     fn test_book_hook_with_unset_dates_does_not_error() {
         let mut registry = ScriptRegistry::new().unwrap();
-        let book_script = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../user_scripts/book.rhai")
-        ).expect("book.rhai should exist");
-        registry.load_user_script(&book_script).expect("book.rhai should load");
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/system_scripts/04_book.rhai"
+        ))).expect("book.rhai should load");
 
         let mut fields = std::collections::HashMap::new();
         fields.insert("book_title".to_string(), crate::FieldValue::Text("Dune".to_string()));
@@ -931,14 +963,11 @@ mod tests {
         fields.insert("read_duration".to_string(), crate::FieldValue::Text(String::new()));
         fields.insert("notes".to_string(), crate::FieldValue::Text(String::new()));
 
-        let schema = registry.get_schema("Book").unwrap();
         let result = registry.run_on_save_hook("Book", "id1", "Book", "Dune", &fields);
         assert!(result.is_ok(), "book hook should not error with unset dates: {:?}", result);
         let (title, out_fields) = result.unwrap().unwrap();
         assert_eq!(title, "Herbert: Dune");
         assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
-        // suppress unused variable warning
-        let _ = schema;
     }
 
 }
