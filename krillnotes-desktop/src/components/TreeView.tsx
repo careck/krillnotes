@@ -1,10 +1,5 @@
 import TreeNode from './TreeNode';
-import type { TreeNode as TreeNodeType, Note } from '../types';
-
-interface DropIndicator {
-  noteId: string;
-  position: 'before' | 'after' | 'child';
-}
+import type { TreeNode as TreeNodeType, Note, DropIndicator } from '../types';
 
 interface TreeViewProps {
   tree: TreeNodeType[];
@@ -18,12 +13,13 @@ interface TreeViewProps {
   setDraggedNoteId: (id: string | null) => void;
   dropIndicator: DropIndicator | null;
   setDropIndicator: (indicator: DropIndicator | null) => void;
+  dragDescendants: Set<string>;
   onMoveNote: (noteId: string, newParentId: string | null, newPosition: number) => void;
 }
 
 function TreeView({
   tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu, onKeyDown,
-  notes, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, onMoveNote,
+  notes, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
 }: TreeViewProps) {
 
   const handleRootDragOver = (e: React.DragEvent) => {
@@ -87,6 +83,7 @@ function TreeView({
           setDraggedNoteId={setDraggedNoteId}
           dropIndicator={dropIndicator}
           setDropIndicator={setDropIndicator}
+          dragDescendants={dragDescendants}
           onMoveNote={onMoveNote}
         />
       ))}

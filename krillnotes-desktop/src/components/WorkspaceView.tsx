@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -10,9 +10,9 @@ import ContextMenu from './ContextMenu';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
 import { DeleteStrategy } from '../types';
-import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds } from '../utils/tree';
+import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
 
 interface WorkspaceViewProps {
   workspaceInfo: WorkspaceInfo;
@@ -49,7 +49,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Drag and drop state
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
-  const [dropIndicator, setDropIndicator] = useState<{ noteId: string; position: 'before' | 'after' | 'child' } | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
+  const dragDescendants = useMemo(
+    () => draggedNoteId ? getDescendantIds(notes, draggedNoteId) : new Set<string>(),
+    [notes, draggedNoteId]
+  );
 
   // Resizable tree panel
   const [treeWidth, setTreeWidth] = useState(300);
@@ -399,6 +403,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             setDraggedNoteId={setDraggedNoteId}
             dropIndicator={dropIndicator}
             setDropIndicator={setDropIndicator}
+            dragDescendants={dragDescendants}
             onMoveNote={handleMoveNote}
           />
         </div>

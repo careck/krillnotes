@@ -100,14 +100,20 @@ export function getAncestorIds(notes: Note[], noteId: string): string[] {
  * Used for client-side cycle prevention during drag-and-drop.
  */
 export function getDescendantIds(notes: Note[], noteId: string): Set<string> {
+  const childrenMap = new Map<string | null, Note[]>();
+  for (const note of notes) {
+    const list = childrenMap.get(note.parentId);
+    if (list) list.push(note);
+    else childrenMap.set(note.parentId, [note]);
+  }
   const descendants = new Set<string>();
   const queue = [noteId];
   while (queue.length > 0) {
     const current = queue.pop()!;
-    for (const note of notes) {
-      if (note.parentId === current && !descendants.has(note.id)) {
-        descendants.add(note.id);
-        queue.push(note.id);
+    for (const child of childrenMap.get(current) ?? []) {
+      if (!descendants.has(child.id)) {
+        descendants.add(child.id);
+        queue.push(child.id);
       }
     }
   }

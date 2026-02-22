@@ -71,6 +71,11 @@ export interface UserScript {
   modifiedAt: number;
 }
 
+export interface DropIndicator {
+  noteId: string;
+  position: 'before' | 'after' | 'child';
+}
+
 export interface OperationSummary {
   operationId: string;
   timestamp: number;

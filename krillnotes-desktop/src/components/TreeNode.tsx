@@ -1,11 +1,5 @@
 import { useCallback } from 'react';
-import type { TreeNode as TreeNodeType, Note } from '../types';
-import { getDescendantIds } from '../utils/tree';
-
-interface DropIndicator {
-  noteId: string;
-  position: 'before' | 'after' | 'child';
-}
+import type { TreeNode as TreeNodeType, Note, DropIndicator } from '../types';
 
 interface TreeNodeProps {
   node: TreeNodeType;
@@ -19,12 +13,13 @@ interface TreeNodeProps {
   setDraggedNoteId: (id: string | null) => void;
   dropIndicator: DropIndicator | null;
   setDropIndicator: (indicator: DropIndicator | null) => void;
+  dragDescendants: Set<string>;
   onMoveNote: (noteId: string, newParentId: string | null, newPosition: number) => void;
 }
 
 function TreeNode({
   node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu,
-  notes, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, onMoveNote,
+  notes, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
 }: TreeNodeProps) {
   const hasChildren = node.children.length > 0;
   const isSelected = node.note.id === selectedNoteId;
@@ -50,8 +45,7 @@ function TreeNode({
     if (!draggedNoteId || draggedNoteId === node.note.id) return;
 
     // Cycle check: can't drop onto a descendant
-    const descendants = getDescendantIds(notes, draggedNoteId);
-    if (descendants.has(node.note.id)) return;
+    if (dragDescendants.has(node.note.id)) return;
 
     e.dataTransfer.dropEffect = 'move';
 
@@ -70,16 +64,14 @@ function TreeNode({
     }
 
     setDropIndicator({ noteId: node.note.id, position });
-  }, [draggedNoteId, node.note.id, notes, setDropIndicator]);
+  }, [draggedNoteId, node.note.id, dragDescendants, setDropIndicator]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     const related = e.relatedTarget as HTMLElement | null;
     if (!e.currentTarget.contains(related)) {
-      if (dropIndicator?.noteId === node.note.id) {
-        setDropIndicator(null);
-      }
+      setDropIndicator(null);
     }
-  }, [node.note.id, dropIndicator, setDropIndicator]);
+  }, [setDropIndicator]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -87,8 +79,7 @@ function TreeNode({
 
     if (!draggedNoteId || draggedNoteId === node.note.id) return;
 
-    const descendants = getDescendantIds(notes, draggedNoteId);
-    if (descendants.has(node.note.id)) return;
+    if (dragDescendants.has(node.note.id)) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
@@ -123,7 +114,7 @@ function TreeNode({
     onMoveNote(draggedNoteId, newParentId, newPosition);
     setDraggedNoteId(null);
     setDropIndicator(null);
-  }, [draggedNoteId, node, notes, isExpanded, hasChildren, onToggleExpand, onMoveNote, setDraggedNoteId, setDropIndicator]);
+  }, [draggedNoteId, node, notes, dragDescendants, isExpanded, hasChildren, onToggleExpand, onMoveNote, setDraggedNoteId, setDropIndicator]);
 
   const indentPx = level * 20 + 8;
 
@@ -188,6 +179,7 @@ function TreeNode({
               setDraggedNoteId={setDraggedNoteId}
               dropIndicator={dropIndicator}
               setDropIndicator={setDropIndicator}
+              dragDescendants={dragDescendants}
               onMoveNote={onMoveNote}
             />
           ))}
