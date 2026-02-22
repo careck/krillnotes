@@ -94,3 +94,22 @@ export function getAncestorIds(notes: Note[], noteId: string): string[] {
   }
   return ancestors;
 }
+
+/**
+ * Returns all descendant IDs of the given noteId (children, grandchildren, etc.).
+ * Used for client-side cycle prevention during drag-and-drop.
+ */
+export function getDescendantIds(notes: Note[], noteId: string): Set<string> {
+  const descendants = new Set<string>();
+  const queue = [noteId];
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    for (const note of notes) {
+      if (note.parentId === current && !descendants.has(note.id)) {
+        descendants.add(note.id);
+        queue.push(note.id);
+      }
+    }
+  }
+  return descendants;
+}

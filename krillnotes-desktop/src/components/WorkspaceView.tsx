@@ -47,6 +47,10 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // Operations log dialog state
   const [showOperationsLog, setShowOperationsLog] = useState(false);
 
+  // Drag and drop state
+  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{ noteId: string; position: 'before' | 'after' | 'child' } | null>(null);
+
   // Resizable tree panel
   const [treeWidth, setTreeWidth] = useState(300);
   const isDragging = useRef(false);
@@ -154,6 +158,15 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       await loadNotes();
     } catch (err) {
       console.error('Failed to toggle expansion:', err);
+    }
+  };
+
+  const handleMoveNote = async (noteId: string, newParentId: string | null, newPosition: number) => {
+    try {
+      await invoke('move_note', { noteId, newParentId, newPosition });
+      await loadNotes();
+    } catch (err) {
+      console.error('Failed to move note:', err);
     }
   };
 
@@ -381,6 +394,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             onToggleExpand={handleToggleExpand}
             onContextMenu={handleContextMenu}
             onKeyDown={handleTreeKeyDown}
+            notes={notes}
+            draggedNoteId={draggedNoteId}
+            setDraggedNoteId={setDraggedNoteId}
+            dropIndicator={dropIndicator}
+            setDropIndicator={setDropIndicator}
+            onMoveNote={handleMoveNote}
           />
         </div>
       </div>
