@@ -117,3 +117,36 @@ fn build_tools_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri:
         ])
         .build()
 }
+
+/// Builds the File submenu.
+///
+/// On macOS, Quit is intentionally absent — it belongs in the Krillnotes app menu (added in Task 5).
+/// On all other platforms, Quit is included at the bottom of File.
+///
+/// # Errors
+///
+/// Returns [`tauri::Error`] if any menu item fails to build.
+fn build_file_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+    let new_item = MenuItemBuilder::with_id("file_new", "New Workspace")
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let open_item = MenuItemBuilder::with_id("file_open", "Open Workspace...")
+        .accelerator("CmdOrCtrl+O")
+        .build(app)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let export_item = MenuItemBuilder::with_id("file_export", "Export Workspace...").build(app)?;
+    let import_item = MenuItemBuilder::with_id("file_import", "Import Workspace...").build(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let close_item = PredefinedMenuItem::close_window(app, None)?;
+
+    let builder = SubmenuBuilder::new(app, "File")
+        .items(&[&new_item, &open_item, &sep1, &export_item, &import_item, &sep2, &close_item]);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = {
+        let quit_item = PredefinedMenuItem::quit(app, None)?;
+        builder.item(&quit_item)
+    };
+
+    builder.build()
+}
