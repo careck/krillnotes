@@ -38,10 +38,20 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, selectedNoteId, hasNote
     }
 
     return allTypes.filter(type => {
+      // Child constraint: check this type's allowedParentTypes
       const apt = schemas[type]?.allowedParentTypes ?? [];
-      if (apt.length === 0) return true;
-      if (effectiveParentType === null) return false;
-      return apt.includes(effectiveParentType);
+      if (apt.length > 0) {
+        if (effectiveParentType === null) return false;
+        if (!apt.includes(effectiveParentType)) return false;
+      }
+
+      // Parent constraint: check parent's allowedChildrenTypes
+      if (effectiveParentType !== null) {
+        const act = schemas[effectiveParentType]?.allowedChildrenTypes ?? [];
+        if (act.length > 0 && !act.includes(type)) return false;
+      }
+
+      return true;
     });
   }, [schemas, notes, selectedNoteId, hasNotes, position]);
 
