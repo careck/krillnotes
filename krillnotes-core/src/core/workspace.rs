@@ -3,8 +3,10 @@
 use crate::core::user_script;
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
-    Operation, OperationLog, PurgeStrategy, Result, ScriptRegistry, Storage, UserScript,
+    Operation, OperationLog, PurgeStrategy, QueryContext, Result, ScriptRegistry, Storage,
+    UserScript,
 };
+use rhai::Dynamic;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::Path;
@@ -478,6 +480,49 @@ impl Workspace {
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         rows.into_iter().map(note_from_row_tuple).collect()
+    }
+
+    /// Runs the `on_view` hook registered for the note's schema, if any.
+    ///
+    /// Fetches all notes from the database to build a [`QueryContext`] so that
+    /// `get_children`, `get_note`, and `get_notes_of_type` are available to
+    /// the hook script.
+    ///
+    /// Returns `Ok(None)` if no view hook is registered for the note's schema.
+    /// Returns `Ok(Some(html))` with the generated HTML string on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Database`] if the note or any workspace note
+    /// cannot be fetched, or [`KrillnotesError::Scripting`] if the hook fails.
+    pub fn run_view_hook(&self, note_id: &str) -> Result<Option<String>> {
+        let note = self.get_note(note_id)?;
+
+        // Short-circuit: avoid fetching all notes if no hook is registered.
+        if !self.script_registry.has_view_hook(&note.node_type) {
+            return Ok(None);
+        }
+
+        let all_notes = self.list_all_notes()?;
+
+        let mut notes_by_id: std::collections::HashMap<String, Dynamic> =
+            std::collections::HashMap::new();
+        let mut children_by_id: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
+        let mut notes_by_type: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
+
+        for n in &all_notes {
+            let dyn_map = note_to_rhai_dynamic(n);
+            notes_by_id.insert(n.id.clone(), dyn_map.clone());
+            if let Some(pid) = &n.parent_id {
+                children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
+            }
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map);
+        }
+
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
+        self.script_registry.run_on_view_hook(&note, context)
     }
 
     /// Returns the names of all registered note types (schema names).
@@ -1339,6 +1384,24 @@ fn note_from_row_tuple(
         fields: serde_json::from_str(&fields_json)?,
         is_expanded: is_expanded_int == 1,
     })
+}
+
+/// Converts a [`Note`] into a Rhai `Dynamic` map for use in `on_view` query functions.
+///
+/// Produces the same `{ id, node_type, title, fields }` shape as the map passed to
+/// `on_save` hooks, so scripts can use a consistent note representation.
+fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
+    use crate::core::scripting::field_value_to_dynamic;
+    let mut fields_map = rhai::Map::new();
+    for (k, v) in &note.fields {
+        fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+    }
+    let mut note_map = rhai::Map::new();
+    note_map.insert("id".into(), Dynamic::from(note.id.clone()));
+    note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+    note_map.insert("title".into(), Dynamic::from(note.title.clone()));
+    note_map.insert("fields".into(), Dynamic::from(fields_map));
+    Dynamic::from(note_map)
 }
 
 fn humanize(filename: &str) -> String {

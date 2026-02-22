@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import DOMPurify from 'dompurify';
 import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
@@ -39,7 +40,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     childrenSort: 'none',
     allowedParentTypes: [],
     allowedChildrenTypes: [],
+    hasViewHook: false,
   });
+  const [customViewHtml, setCustomViewHtml] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
@@ -52,10 +55,16 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   // schema is already available, rather than waiting for a .then() that already ran.
   const schemaLoadedRef = useRef(false);
 
+  const emptySchemaInfo: SchemaInfo = {
+    fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none',
+    allowedParentTypes: [], allowedChildrenTypes: [], hasViewHook: false,
+  };
+
   useEffect(() => {
     schemaLoadedRef.current = false;
     if (!selectedNote) {
-      setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none', allowedParentTypes: [], allowedChildrenTypes: [] });
+      setSchemaInfo(emptySchemaInfo);
+      setCustomViewHtml(null);
       setIsEditing(false);
       pendingEditModeRef.current = false;
       return;
@@ -78,10 +87,19 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           setIsEditing(true);
           pendingEditModeRef.current = false;
         }
+        // Fetch custom view HTML if the schema has an on_view hook.
+        if (info.hasViewHook) {
+          invoke<string | null>('get_note_view', { noteId: selectedNote.id })
+            .then(html => setCustomViewHtml(html ?? null))
+            .catch(() => setCustomViewHtml(null));
+        } else {
+          setCustomViewHtml(null);
+        }
       })
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
-        setSchemaInfo({ fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none', allowedParentTypes: [], allowedChildrenTypes: [] });
+        setSchemaInfo(emptySchemaInfo);
+        setCustomViewHtml(null);
         schemaLoadedRef.current = true;
         if (pendingEditModeRef.current) {
           setIsEditing(true);
@@ -142,6 +160,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   };
 
   const handleEdit = () => {
+    setCustomViewHtml(null); // clear while editing; will re-fetch on return to view
     setIsEditing(true);
   };
 
@@ -173,6 +192,12 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       setIsDirty(false);
       onNoteUpdated();
       onEditDone();
+      // Re-fetch custom view HTML after save (on_save may have changed field values).
+      if (schemaInfo.hasViewHook) {
+        invoke<string | null>('get_note_view', { noteId: selectedNote.id })
+          .then(html => setCustomViewHtml(html ?? null))
+          .catch(() => setCustomViewHtml(null));
+      }
     } catch (err) {
       alert(`Failed to save: ${err}`);
     }
@@ -260,7 +285,15 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
       {/* Fields Section */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold mb-4">Fields</h2>
+        {/* Custom view rendered by an on_view hook — shown only in view mode */}
+        {!isEditing && customViewHtml && (
+          <div
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml) }}
+          />
+        )}
+
+        {/* Default field rendering — shown in edit mode, or when no custom view exists */}
+        {(isEditing || !customViewHtml) && <h2 className="text-xl font-semibold mb-4">Fields</h2>}
 
         {isEditing ? (
           schemaInfo.fields
@@ -277,7 +310,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
             ))
-        ) : (() => {
+        ) : (!customViewHtml && (() => {
           const visibleFields = schemaInfo.fields
             .filter(field => field.canView)
             .filter(field => !isEmptyFieldValue(selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)));
@@ -295,9 +328,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               ))}
             </dl>
           );
-        })()}
+        })())}
 
-        {legacyFieldNames.length > 0 && (() => {
+        {(!customViewHtml || isEditing) && legacyFieldNames.length > 0 && (() => {
           if (isEditing) {
             return (
               <>
@@ -342,7 +375,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           );
         })()}
 
-        {!isEditing &&
+        {!isEditing && !customViewHtml &&
           schemaInfo.fields.filter(f =>
             f.canView && !isEmptyFieldValue(selectedNote.fields[f.name] ?? defaultValueForFieldType(f.fieldType))
           ).length === 0 &&
