@@ -50,6 +50,7 @@ export interface SchemaInfo {
   childrenSort: 'asc' | 'desc' | 'none';
   allowedParentTypes: string[];
   allowedChildrenTypes: string[];
+  hasViewHook: boolean;
 }
 
 export enum DeleteStrategy {

@@ -3,19 +3,33 @@
 //! [`ScriptRegistry`] is the public entry point. It owns the Rhai [`Engine`],
 //! loads scripts, and delegates schema and hook concerns to internal sub-registries.
 
+mod display_helpers;
 mod hooks;
 mod schema;
 
 pub use hooks::HookRegistry;
+pub(crate) use hooks::field_value_to_dynamic;
 pub use schema::{FieldDefinition, Schema};
 // StarterScript is defined in this file and re-exported via lib.rs.
 
-use crate::{FieldValue, KrillnotesError, Result};
+use crate::{FieldValue, KrillnotesError, Note, Result};
 use hooks::HookEntry;
 use include_dir::{include_dir, Dir};
-use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, AST};
+use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// Pre-built index of all workspace notes, populated before each `on_view` hook call
+/// and cleared immediately afterwards.
+///
+/// Each note is stored as a Rhai map so it can be passed directly to scripts
+/// without conversion overhead at query time.
+#[derive(Debug)]
+pub struct QueryContext {
+    pub notes_by_id:    HashMap<String, Dynamic>,
+    pub children_by_id: HashMap<String, Vec<Dynamic>>,
+    pub notes_by_type:  HashMap<String, Vec<Dynamic>>,
+}
 
 static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
 
@@ -37,6 +51,7 @@ pub struct ScriptRegistry {
     current_loading_ast: Arc<Mutex<Option<AST>>>,
     schema_registry: schema::SchemaRegistry,
     hook_registry: HookRegistry,
+    query_context: Arc<Mutex<Option<QueryContext>>>,
 }
 
 impl ScriptRegistry {
@@ -71,6 +86,18 @@ impl ScriptRegistry {
             Ok(Dynamic::UNIT)
         });
 
+        // Register on_view() host function — writes into HookRegistry.
+        let view_hooks_arc = hook_registry.on_view_hooks_arc();
+        let ast_arc_view = Arc::clone(&current_loading_ast);
+        engine.register_fn("on_view", move |name: String, fn_ptr: FnPtr| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+            let maybe_ast = ast_arc_view.lock().unwrap().clone();
+            let ast = maybe_ast.ok_or_else(|| -> Box<EvalAltResult> {
+                "on_view called outside of load_script".to_string().into()
+            })?;
+            view_hooks_arc.lock().unwrap().insert(name, HookEntry { fn_ptr, ast });
+            Ok(Dynamic::UNIT)
+        });
+
         // Register schema_exists() — query function for scripts.
         let exists_arc = schema_registry.schemas_arc();
         engine.register_fn("schema_exists", move |name: String| -> bool {
@@ -101,11 +128,56 @@ impl ScriptRegistry {
             Ok(Dynamic::from(arr))
         });
 
+        // ── Query context for on_view hooks ──────────────────────────────────
+        let query_context: Arc<Mutex<Option<QueryContext>>> = Arc::new(Mutex::new(None));
+
+        // Register get_children() — returns direct children of a note by ID.
+        let qc1 = Arc::clone(&query_context);
+        engine.register_fn("get_children", move |id: String| -> rhai::Array {
+            let guard = qc1.lock().unwrap();
+            guard.as_ref()
+                .and_then(|ctx| ctx.children_by_id.get(&id).cloned())
+                .unwrap_or_default()
+        });
+
+        // Register get_note() — returns any note by ID.
+        let qc2 = Arc::clone(&query_context);
+        engine.register_fn("get_note", move |id: String| -> Dynamic {
+            let guard = qc2.lock().unwrap();
+            guard.as_ref()
+                .and_then(|ctx| ctx.notes_by_id.get(&id).cloned())
+                .unwrap_or(Dynamic::UNIT)
+        });
+
+        // Register get_notes_of_type() — returns all notes of a given schema type.
+        let qc3 = Arc::clone(&query_context);
+        engine.register_fn("get_notes_of_type", move |node_type: String| -> rhai::Array {
+            let guard = qc3.lock().unwrap();
+            guard.as_ref()
+                .and_then(|ctx| ctx.notes_by_type.get(&node_type).cloned())
+                .unwrap_or_default()
+        });
+
+        // ── Display helpers for on_view hooks ─────────────────────────────────
+        engine.register_fn("table",   display_helpers::table);
+        engine.register_fn("section", display_helpers::section);
+        engine.register_fn("stack",   display_helpers::stack);
+        engine.register_fn("columns", display_helpers::columns);
+        engine.register_fn("field",   display_helpers::field_row);
+        engine.register_fn("fields",  display_helpers::fields);
+        engine.register_fn("heading", display_helpers::heading);
+        engine.register_fn("text",    display_helpers::view_text);
+        engine.register_fn("list",    display_helpers::list);
+        engine.register_fn("badge",   display_helpers::badge);
+        engine.register_fn("badge",   display_helpers::badge_colored);
+        engine.register_fn("divider", display_helpers::divider);
+
         Ok(Self {
             engine,
             current_loading_ast,
             schema_registry,
             hook_registry,
+            query_context,
         })
     }
 
@@ -203,10 +275,46 @@ impl ScriptRegistry {
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
     }
 
+    /// Returns `true` if a view hook is registered for `schema_name`.
+    pub fn has_view_hook(&self, schema_name: &str) -> bool {
+        self.hook_registry.has_view_hook(schema_name)
+    }
+
+    /// Runs the view hook registered for the given note's schema, if any.
+    ///
+    /// Populates the query context from `context`, calls the hook, then clears
+    /// the context so query functions return empty results outside of a hook call.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for the note's schema.
+    /// Returns `Ok(Some(html))` with the generated HTML on success.
+    pub fn run_on_view_hook(
+        &self,
+        note: &Note,
+        context: QueryContext,
+    ) -> Result<Option<String>> {
+        // Build the note map (same structure as on_save).
+        let mut fields_map = Map::new();
+        for (k, v) in &note.fields {
+            fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+        let mut note_map = Map::new();
+        note_map.insert("id".into(), Dynamic::from(note.id.clone()));
+        note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+        note_map.insert("title".into(), Dynamic::from(note.title.clone()));
+        note_map.insert("fields".into(), Dynamic::from(fields_map));
+
+        // Install query context, run hook, then clear.
+        *self.query_context.lock().unwrap() = Some(context);
+        let result = self.hook_registry.run_on_view_hook(&self.engine, note_map);
+        *self.query_context.lock().unwrap() = None;
+        result
+    }
+
     /// Removes all registered schemas and hooks so scripts can be reloaded.
     pub fn clear_all(&self) {
         self.schema_registry.clear();
         self.hook_registry.clear();
+        *self.query_context.lock().unwrap() = None;
     }
 
     /// Returns `true` if a schema with `name` is registered.

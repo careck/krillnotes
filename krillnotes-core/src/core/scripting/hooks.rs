@@ -23,12 +23,14 @@ pub(super) struct HookEntry {
 #[derive(Debug)]
 pub struct HookRegistry {
     on_save_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_view_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
 }
 
 impl HookRegistry {
     pub(super) fn new() -> Self {
         Self {
             on_save_hooks: Arc::new(Mutex::new(HashMap::new())),
+            on_view_hooks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -37,9 +39,15 @@ impl HookRegistry {
         Arc::clone(&self.on_save_hooks)
     }
 
+    /// Returns a clone of the on_view `Arc` so Rhai host-function closures can write into it.
+    pub(super) fn on_view_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
+        Arc::clone(&self.on_view_hooks)
+    }
+
     /// Removes all registered hooks.
     pub(super) fn clear(&self) {
         self.on_save_hooks.lock().unwrap().clear();
+        self.on_view_hooks.lock().unwrap().clear();
     }
 
     /// Returns `true` if a pre-save hook is registered for `schema_name`.
@@ -47,6 +55,11 @@ impl HookRegistry {
         // SAFETY: mutex poisoning would require a panic while the lock is held,
         // which cannot happen in this codebase's single-threaded usage.
         self.on_save_hooks.lock().unwrap().contains_key(schema_name)
+    }
+
+    /// Returns `true` if a view hook is registered for `schema_name`.
+    pub fn has_view_hook(&self, schema_name: &str) -> bool {
+        self.on_view_hooks.lock().unwrap().contains_key(schema_name)
     }
 
     /// Runs the pre-save hook registered for `schema_name`, if any.
@@ -134,6 +147,51 @@ impl HookRegistry {
 
         Ok(Some((new_title, new_fields)))
     }
+
+    /// Runs the view hook registered for the schema identified by `node_type` in `note_map`,
+    /// if any.
+    ///
+    /// Returns `Ok(None)` when no hook is registered.
+    /// Returns `Ok(Some(html))` with the generated HTML string on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error or
+    /// does not return a string.
+    pub fn run_on_view_hook(
+        &self,
+        engine: &Engine,
+        note_map: Map,
+    ) -> Result<Option<String>> {
+        // Determine schema name from the note map.
+        let schema_name = note_map
+            .get("node_type")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_default();
+
+        // Clone the entry out of the mutex so the lock is not held during the call.
+        let entry = {
+            let hooks = self.on_view_hooks
+                .lock()
+                .map_err(|_| KrillnotesError::Scripting("on_view hook registry lock poisoned".to_string()))?;
+            hooks.get(&schema_name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("on_view hook error: {e}")))?;
+
+        let html = result.try_cast::<String>().ok_or_else(|| {
+            KrillnotesError::Scripting("on_view hook must return a string".to_string())
+        })?;
+
+        Ok(Some(html))
+    }
 }
 
 /// Converts a [`FieldValue`] to a Rhai [`Dynamic`] for passing into hook closures.
@@ -141,7 +199,7 @@ impl HookRegistry {
 /// `Date(None)` maps to `Dynamic::UNIT` (`()`).
 /// `Date(Some(d))` maps to an ISO 8601 string `"YYYY-MM-DD"`.
 /// All other variants map to their natural Rhai primitive.
-fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
+pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
     match fv {
         FieldValue::Text(s) => Dynamic::from(s.clone()),
         FieldValue::Number(n) => Dynamic::from(*n),
