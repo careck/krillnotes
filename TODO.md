@@ -43,6 +43,10 @@
 
 ✅ DONE! make a view hook which is called when a note is displayed in the view panel, the hook function (in a rhai script) will return some templated html code to display the note. The view should also have access to all children of the note and query and display their content as well. This would allow for displaying notes with nested child notes. An example is the ContactFolder in the system_scripts which only has contact note children. When viewing a contactfolder note then the view could show a tabular view of the contact children. Please explore options, as I want it to be html like, but also super simple to define various different types of views.
 
+✅ DONE! create a new File system menu and move load and save workspace to this. Move settings to the Krillnotes menu.
+
+[ ] add the view function link_to(note) to the view commands. As part of this feature you will also need to implement a note view history and back button functionality, so that the user can go back to the original viewed note after following a link from another note.
+
 [ ] I know how to manually build a MacOS app bundle using tauri build, but I would like to automate this using github actions. Please suggest ways to: 1. kick this off by either setting a release tag or pushing a tag to the repo; 2. create an artifact automatically for the release for windows, macos and linux.
 
 

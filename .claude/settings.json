@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ln:*)",
+      "Bash(/Users/careck/Source/Krillnotes/.worktrees/feat/allowed-children-types/krillnotes-desktop/node_modules/.bin/tsc:*)",
+      "Bash(/Users/careck/Source/Krillnotes/.worktrees/feat/menu-restructure/krillnotes-desktop/src-tauri/src/menu.rs:*)",
+      "Bash(/tmp/menu_patch.py:*)",
+      "Read(//Users/careck/.cargo/registry/src/**)"
+    ]
+  }
+}
