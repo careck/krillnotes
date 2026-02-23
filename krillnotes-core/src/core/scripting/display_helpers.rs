@@ -1,10 +1,12 @@
 //! HTML display helper functions for Rhai `on_view` hooks.
 //!
 //! Each function is registered as a top-level Rhai host function and returns
-//! an HTML string styled with `kn-view-*` CSS classes. All user-supplied
-//! content is HTML-escaped before insertion to prevent XSS.
+//! an HTML string styled with `kn-view-*` CSS classes. String parameters taken
+//! directly from user scripts are HTML-escaped; array/map cell values are passed
+//! through as-is so that HTML helpers like `link_to()` compose correctly.
+//! DOMPurify in the frontend is the final XSS sanitization layer.
 
-use rhai::{Array, Dynamic, Map};
+use rhai::{Array, Map};
 
 // ── Escaping ─────────────────────────────────────────────────────────────────
 
@@ -14,15 +16,6 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-/// Converts a Rhai `Dynamic` to a display string, HTML-escaped.
-fn dyn_to_escaped(d: &Dynamic) -> String {
-    if d.is_unit() {
-        String::new()
-    } else {
-        html_escape(&d.to_string())
-    }
 }
 
 // ── Structural helpers ────────────────────────────────────────────────────────
