@@ -12,6 +12,13 @@ import SettingsDialog from './components/SettingsDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
 import './styles/globals.css';
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 interface ImportState {
   zipPath: string;
   noteCount: number;
@@ -167,8 +174,10 @@ function App() {
       setImportError('Please enter a workspace name.');
       return;
     }
-    if (/[/\\:*?"<>|]/.test(trimmed)) {
-      setImportError('Name contains invalid characters.');
+
+    const slug = slugify(trimmed);
+    if (!slug) {
+      setImportError('Name must contain at least one letter or number.');
       return;
     }
 
@@ -177,7 +186,7 @@ function App() {
 
     try {
       const settings = await invoke<AppSettings>('get_settings');
-      const dbPath = `${settings.workspaceDirectory}/${trimmed}.db`;
+      const dbPath = `${settings.workspaceDirectory}/${slug}.db`;
       await invoke('execute_import', { zipPath: importState.zipPath, dbPath });
       statusSetter(`Imported ${importState.noteCount} notes and ${importState.scriptCount} scripts`);
       setImportState(null);
