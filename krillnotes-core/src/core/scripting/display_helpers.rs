@@ -6,6 +6,7 @@
 //! through as-is so that HTML helpers like `link_to()` compose correctly.
 //! DOMPurify in the frontend is the final XSS sanitization layer.
 
+use pulldown_cmark::{html as md_html, Options, Parser};
 use rhai::{Array, Map};
 
 // ── Escaping ─────────────────────────────────────────────────────────────────
@@ -16,6 +17,37 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+// ── Markdown rendering ────────────────────────────────────────────────────────
+
+/// Converts a CommonMark markdown string to an HTML string.
+///
+/// Enables strikethrough and tables (GFM extensions). The result is raw HTML —
+/// the caller is responsible for XSS sanitisation (DOMPurify handles this on
+/// the frontend for all view HTML).
+pub fn render_markdown_to_html(text: &str) -> String {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TABLES);
+    let parser = Parser::new_ext(text, options);
+    let mut html_output = String::new();
+    md_html::push_html(&mut html_output, parser);
+    html_output
+}
+
+/// Rhai host function wrapper for `render_markdown_to_html`.
+///
+/// Registered as `markdown(text)` in the Rhai engine so `on_view` hooks can
+/// explicitly render markdown:
+///
+/// ```rhai
+/// on_view("Note", |note| {
+///     markdown(note.fields["body"])
+/// });
+/// ```
+pub fn rhai_markdown(text: String) -> String {
+    render_markdown_to_html(&text)
 }
 
 // ── Structural helpers ────────────────────────────────────────────────────────
@@ -300,5 +332,35 @@ mod tests {
         let html = link_to(m);
         // Should not panic; should return a valid (empty-attribute) anchor
         assert!(html.contains("kn-view-link"));
+    }
+
+    #[test]
+    fn test_render_markdown_bold() {
+        let html = render_markdown_to_html("**bold text**");
+        assert!(html.contains("<strong>bold text</strong>"));
+    }
+
+    #[test]
+    fn test_render_markdown_heading() {
+        let html = render_markdown_to_html("# My Heading");
+        assert!(html.contains("<h1>") && html.contains("My Heading"));
+    }
+
+    #[test]
+    fn test_render_markdown_list() {
+        let html = render_markdown_to_html("- item one\n- item two");
+        assert!(html.contains("item one") && html.contains("item two"));
+    }
+
+    #[test]
+    fn test_render_markdown_plain_text() {
+        let html = render_markdown_to_html("just plain text");
+        assert!(html.contains("just plain text"));
+    }
+
+    #[test]
+    fn test_render_markdown_empty() {
+        let html = render_markdown_to_html("");
+        assert!(html.is_empty() || html == "\n");
     }
 }
