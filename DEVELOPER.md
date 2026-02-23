@@ -24,7 +24,7 @@ Krillnotes/
 │           ├── scripting/
 │           │   ├── mod.rs         # Scripting module root
 │           │   ├── schema.rs      # Schema registry (field types, flags)
-│           │   └── hooks.rs       # Hook registry (on_save hooks)
+│           │   └── hooks.rs       # Hook registry (placeholder for future global/lifecycle hooks)
 │           ├── storage.rs         # SQLite connection + migrations
 │           ├── device.rs          # Stable hardware device ID
 │           ├── error.rs           # KrillnotesError enum
@@ -127,15 +127,15 @@ Note types are not hard-coded. Each type is a *schema* defined by a [Rhai](https
 
 The scripting system is split into three registries:
 
-- **Schema Registry** ([scripting/schema.rs](krillnotes-core/src/core/scripting/schema.rs)) — Holds field definitions and per-schema flags. Scripts call `schema("TypeName", #{ ... })` to register types.
-- **Hook Registry** ([scripting/hooks.rs](krillnotes-core/src/core/scripting/hooks.rs)) — Holds `on_save` hook functions. Scripts call `on_save("TypeName", |note| { ... })` to register a hook that runs before a note is persisted.
+- **Schema Registry** ([scripting/schema.rs](krillnotes-core/src/core/scripting/schema.rs)) — Holds field definitions, per-schema flags, and schema-bound hooks (`on_save`, `on_view`). Scripts call `schema("TypeName", #{ ... })` to register types and their hooks together.
+- **Hook Registry** ([scripting/hooks.rs](krillnotes-core/src/core/scripting/hooks.rs)) — Placeholder for future global/lifecycle hooks (`on_load`, `on_export`, menu hooks). Currently empty.
 - **User Script storage** ([user_script.rs](krillnotes-core/src/core/user_script.rs)) — CRUD for per-workspace scripts stored in the `user_scripts` database table.
 
 **How it works:**
 
 1. On workspace open, the `rhai::Engine` is created and the built-in `text_note.rhai` system script is evaluated.
 2. All enabled user scripts (from the `user_scripts` table, ordered by `load_order`) are evaluated next.
-3. Each script can call `schema()` to register a type, `on_save()` to register a hook, or both.
+3. Each script calls `schema()` to register a type. Hooks (`on_save`, `on_view`) are defined as keys inside the `schema()` map — there are no standalone hook functions.
 
 **Defining a schema with hooks:**
 
@@ -151,13 +151,12 @@ schema("Task", #{
     ],
     title_can_edit: false,   // title is computed by the on_save hook
     children_sort: "asc",    // sort child notes alphabetically
-});
-
-on_save("Task", |note| {
-    let name = note.fields.get("name");
-    let status = note.fields.get("status");
-    note.title = `[${status}] ${name}`;
-    note
+    on_save: |note| {
+        let name   = note.fields["name"];
+        let status = note.fields["status"];
+        note.title = "[" + status + "] " + name;
+        note
+    }
 });
 ```
 
@@ -252,7 +251,7 @@ When a note is inserted as a sibling, all following siblings have their `positio
 
 1. Open the Script Manager (View menu).
 2. Click "New Script" and write a Rhai script that calls `schema("MyType", #{ fields: [...] })`.
-3. Optionally add an `on_save("MyType", |note| { ... })` hook.
+3. Optionally add an `on_save: |note| { ... }` hook key inside the `schema()` map.
 4. Save — the registries reload automatically and the new type appears in the Add Note dialog.
 
 **From code (system scripts):**
@@ -336,7 +335,7 @@ Tests live alongside the code they test in `#[cfg(test)]` modules at the bottom 
 | [krillnotes-core/src/core/operation.rs](krillnotes-core/src/core/operation.rs) | Operation enum definition (notes + user scripts) |
 | [krillnotes-core/src/core/operation_log.rs](krillnotes-core/src/core/operation_log.rs) | Log append + purge strategies |
 | [krillnotes-core/src/core/scripting/schema.rs](krillnotes-core/src/core/scripting/schema.rs) | Schema registry (field types, flags) |
-| [krillnotes-core/src/core/scripting/hooks.rs](krillnotes-core/src/core/scripting/hooks.rs) | Hook registry (on_save hooks) |
+| [krillnotes-core/src/core/scripting/hooks.rs](krillnotes-core/src/core/scripting/hooks.rs) | Hook registry (placeholder for future global/lifecycle hooks) |
 | [krillnotes-core/src/core/user_script.rs](krillnotes-core/src/core/user_script.rs) | UserScript type + CRUD |
 | [krillnotes-core/src/core/export.rs](krillnotes-core/src/core/export.rs) | Workspace export/import (zip) |
 | [krillnotes-core/src/core/delete.rs](krillnotes-core/src/core/delete.rs) | Delete strategies (DeleteAll, PromoteChildren) |
