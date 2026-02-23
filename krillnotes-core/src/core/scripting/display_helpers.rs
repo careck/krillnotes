@@ -8,6 +8,8 @@
 
 use pulldown_cmark::{html as md_html, Options, Parser};
 use rhai::{Array, Map};
+use crate::{FieldValue, Note};
+use super::schema::Schema;
 
 // ── Escaping ─────────────────────────────────────────────────────────────────
 
@@ -290,6 +292,144 @@ fn humanise_key(key: &str) -> String {
         .join(" ")
 }
 
+// ── Default view renderer ────────────────────────────────────────────────────
+
+/// Like `field_row` but accepts pre-rendered HTML for the value (no escaping).
+/// Used internally by `render_default_view` where the value may be markdown HTML.
+fn field_row_html(label: &str, value_html: &str) -> String {
+    format!(
+        "<div class=\"kn-view-field-row\">\
+           <span class=\"kn-view-field-label\">{}</span>\
+           <div class=\"kn-view-field-value\">{}</div>\
+         </div>",
+        html_escape(label),
+        value_html
+    )
+}
+
+/// Formats a single field value as HTML, choosing between markdown rendering
+/// (for `textarea`) and HTML-escaped plain text (for all other types).
+fn format_field_value_html(value: &FieldValue, field_type: &str, max: i64) -> String {
+    match (value, field_type) {
+        (FieldValue::Text(s), "textarea") => {
+            format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(s))
+        }
+        (FieldValue::Text(s), _) => {
+            format!("<span>{}</span>", html_escape(s))
+        }
+        (FieldValue::Email(s), _) => {
+            format!("<span>{}</span>", html_escape(s))
+        }
+        (FieldValue::Number(n), "rating") => {
+            let rating = *n as i64;
+            let max_stars = if max > 0 { max } else { 5 };
+            let stars: String = (0..max_stars)
+                .map(|i| if i < rating { '★' } else { '☆' })
+                .collect();
+            format!("<span>{stars}</span>")
+        }
+        (FieldValue::Number(n), _) => format!("<span>{n}</span>"),
+        (FieldValue::Boolean(b), _) => {
+            format!("<span>{}</span>", if *b { "Yes" } else { "No" })
+        }
+        (FieldValue::Date(Some(d)), _) => {
+            format!("<span>{}</span>", d.format("%Y-%m-%d"))
+        }
+        (FieldValue::Date(None), _) => String::new(),
+    }
+}
+
+/// Returns `true` if the field value is considered empty (and should be hidden).
+fn is_field_empty(value: &FieldValue) -> bool {
+    match value {
+        FieldValue::Text(s) | FieldValue::Email(s) => s.is_empty(),
+        FieldValue::Date(d) => d.is_none(),
+        FieldValue::Number(_) | FieldValue::Boolean(_) => false,
+    }
+}
+
+/// Generates a default HTML view for `note` when no `on_view` Rhai hook is
+/// registered.
+///
+/// Schema fields are rendered in schema order, with `textarea` values converted
+/// to CommonMark HTML and all other values HTML-escaped.
+///
+/// Fields present in `note.fields` but absent from the schema are appended in
+/// a "Legacy Fields" section.
+///
+/// Accepts `None` for `schema` — in that case all fields are rendered as plain
+/// text in sorted order.
+pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Some(schema) = schema {
+        // Render schema-defined fields in declaration order.
+        for field_def in &schema.fields {
+            if !field_def.can_view {
+                continue;
+            }
+            let Some(value) = note.fields.get(&field_def.name) else { continue };
+            if is_field_empty(value) {
+                continue;
+            }
+            let label = humanise_key(&field_def.name);
+            let value_html =
+                format_field_value_html(value, &field_def.field_type, field_def.max);
+            if value_html.is_empty() {
+                continue;
+            }
+            parts.push(field_row_html(&label, &value_html));
+        }
+
+        // Render any fields not in the schema as "legacy".
+        let schema_names: std::collections::HashSet<&str> =
+            schema.fields.iter().map(|f| f.name.as_str()).collect();
+        let mut legacy: Vec<(&String, &FieldValue)> = note
+            .fields
+            .iter()
+            .filter(|(k, _)| !schema_names.contains(k.as_str()))
+            .collect();
+        legacy.sort_by_key(|(k, _)| k.as_str());
+
+        let mut legacy_parts: Vec<String> = Vec::new();
+        for (key, value) in &legacy {
+            if is_field_empty(value) {
+                continue;
+            }
+            let label = humanise_key(key);
+            let value_html = format_field_value_html(value, "text", 0);
+            if !value_html.is_empty() {
+                legacy_parts.push(field_row_html(&label, &value_html));
+            }
+        }
+        if !legacy_parts.is_empty() {
+            parts.push(format!(
+                "<div class=\"kn-view-section\" style=\"margin-top:0.75rem\">\
+                   <div class=\"kn-view-section-title\">Legacy Fields</div>\
+                   {}\
+                 </div>",
+                legacy_parts.join("")
+            ));
+        }
+    } else {
+        // No schema — render all fields as plain text in sorted order.
+        let mut all: Vec<(&String, &FieldValue)> = note.fields.iter().collect();
+        all.sort_by_key(|(k, _)| k.as_str());
+        for (key, value) in &all {
+            if is_field_empty(value) {
+                continue;
+            }
+            let label = humanise_key(key);
+            let value_html = format_field_value_html(value, "text", 0);
+            if !value_html.is_empty() {
+                parts.push(field_row_html(&label, &value_html));
+            }
+        }
+    }
+
+    parts.join("")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +502,125 @@ mod tests {
     fn test_render_markdown_empty() {
         let html = render_markdown_to_html("");
         assert!(html.is_empty() || html == "\n");
+    }
+
+    #[test]
+    fn test_render_default_view_textarea_renders_markdown() {
+        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use std::collections::HashMap;
+
+        let mut fields = HashMap::new();
+        fields.insert("notes".into(), FieldValue::Text("**bold**".into()));
+
+        let note = Note {
+            id: "id1".into(), title: "Test".into(), node_type: "T".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0, fields, is_expanded: false,
+        };
+        let schema = Schema {
+            name: "T".into(),
+            fields: vec![FieldDefinition {
+                name: "notes".into(), field_type: "textarea".into(),
+                required: false, can_view: true, can_edit: true,
+                options: vec![], max: 0,
+            }],
+            title_can_view: true, title_can_edit: true,
+            children_sort: "none".into(),
+            allowed_parent_types: vec![], allowed_children_types: vec![],
+        };
+
+        let html = render_default_view(&note, Some(&schema));
+        assert!(html.contains("<strong>bold</strong>"), "expected rendered markdown, got: {html}");
+        assert!(html.contains("kn-view-markdown"), "expected markdown wrapper class");
+    }
+
+    #[test]
+    fn test_render_default_view_text_field_html_escaped() {
+        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use std::collections::HashMap;
+
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), FieldValue::Text("<script>alert(1)</script>".into()));
+
+        let note = Note {
+            id: "id2".into(), title: "T".into(), node_type: "T".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0, fields, is_expanded: false,
+        };
+        let schema = Schema {
+            name: "T".into(),
+            fields: vec![FieldDefinition {
+                name: "name".into(), field_type: "text".into(),
+                required: false, can_view: true, can_edit: true,
+                options: vec![], max: 0,
+            }],
+            title_can_view: true, title_can_edit: true,
+            children_sort: "none".into(),
+            allowed_parent_types: vec![], allowed_children_types: vec![],
+        };
+
+        let html = render_default_view(&note, Some(&schema));
+        assert!(!html.contains("<script>"), "raw script tag must not appear");
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn test_render_default_view_skips_can_view_false() {
+        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use std::collections::HashMap;
+
+        let mut fields = HashMap::new();
+        fields.insert("secret".into(), FieldValue::Text("hidden".into()));
+
+        let note = Note {
+            id: "id3".into(), title: "T".into(), node_type: "T".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0, fields, is_expanded: false,
+        };
+        let schema = Schema {
+            name: "T".into(),
+            fields: vec![FieldDefinition {
+                name: "secret".into(), field_type: "text".into(),
+                required: false, can_view: false, can_edit: true,
+                options: vec![], max: 0,
+            }],
+            title_can_view: true, title_can_edit: true,
+            children_sort: "none".into(),
+            allowed_parent_types: vec![], allowed_children_types: vec![],
+        };
+
+        let html = render_default_view(&note, Some(&schema));
+        assert!(!html.contains("hidden"), "can_view:false fields must not appear");
+    }
+
+    #[test]
+    fn test_render_default_view_legacy_fields_shown() {
+        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use std::collections::HashMap;
+
+        let mut fields = HashMap::new();
+        fields.insert("known".into(), FieldValue::Text("hello".into()));
+        fields.insert("old_field".into(), FieldValue::Text("legacy value".into()));
+
+        let note = Note {
+            id: "id4".into(), title: "T".into(), node_type: "T".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0, fields, is_expanded: false,
+        };
+        let schema = Schema {
+            name: "T".into(),
+            fields: vec![FieldDefinition {
+                name: "known".into(), field_type: "text".into(),
+                required: false, can_view: true, can_edit: true,
+                options: vec![], max: 0,
+            }],
+            title_can_view: true, title_can_edit: true,
+            children_sort: "none".into(),
+            allowed_parent_types: vec![], allowed_children_types: vec![],
+        };
+
+        let html = render_default_view(&note, Some(&schema));
+        assert!(html.contains("legacy value"), "legacy fields must be shown");
+        assert!(html.contains("Legacy Fields"), "legacy section header must appear");
     }
 }
