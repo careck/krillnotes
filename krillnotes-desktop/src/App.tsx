@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
@@ -140,14 +140,7 @@ function App() {
       setImportState,
     );
 
-    const unlisten = listen<string>('menu-action', async (event) => {
-      // Only handle menu events if this window is focused
-      const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const window = getCurrentWebviewWindow();
-      const isFocused = await window.isFocused();
-
-      if (!isFocused) return;
-
+    const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
       const handler = handlers[event.payload as keyof typeof handlers];
       if (handler) handler();
     });

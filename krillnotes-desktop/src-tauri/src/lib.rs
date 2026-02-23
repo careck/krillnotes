@@ -29,6 +29,10 @@ pub struct AppState {
     pub workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
     /// Map from window label to the filesystem path of the open database.
     pub workspace_paths: Arc<Mutex<HashMap<String, PathBuf>>>,
+    /// Label of the window that most recently gained focus. Used to route
+    /// native menu events to the correct window without relying on async
+    /// focus checks in the frontend (which are unreliable on Windows).
+    pub focused_window: Arc<Mutex<Option<String>>>,
 }
 
 /// Serialisable summary of an open workspace, returned to the frontend.
@@ -887,13 +891,36 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
-/// broadcast to all windows.
+/// emitted only to the window that was most recently focused.
+///
+/// [`tauri::Emitter::emit_to`] with [`tauri::EventTarget::WebviewWindow`]
+/// delivers the event exclusively to that window's
+/// `getCurrentWebviewWindow().listen()` handler on the frontend, so multiple
+/// open workspace windows do not all react to the same menu click.
+///
+/// This also fixes Windows, where clicking a native menu item briefly
+/// unfocuses the application window before the event fires, making async
+/// focus checks in the frontend unreliable.
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
-    MENU_MESSAGES.iter()
+    let Some((_, message)) = MENU_MESSAGES.iter()
         .find(|(id, _)| id == &event.id().as_ref())
-        .map(|(_, message)| app.emit("menu-action", message))
-        .transpose()
-        .ok();
+    else {
+        return;
+    };
+
+    let state = app.state::<AppState>();
+    let label = state.focused_window.lock().expect("Mutex poisoned").clone();
+    if let Some(label) = label {
+        let _ = app.emit_to(
+            tauri::EventTarget::WebviewWindow { label },
+            "menu-action",
+            message,
+        );
+    } else {
+        // Fallback: a menu click always has a focused window in practice,
+        // so this path is only reachable during an unusual startup race.
+        let _ = app.emit("menu-action", message);
+    }
 }
 
 /// Configures and starts the Tauri application event loop.
@@ -912,15 +939,24 @@ pub fn run() {
         .manage(AppState {
             workspaces: Arc::new(Mutex::new(HashMap::new())),
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
+            focused_window: Arc::new(Mutex::new(None)),
         })
         .on_window_event(|window, event| {
-            // Remove workspace state when a window is destroyed so the same file
-            // can be reopened after its window has been closed.
-            if let tauri::WindowEvent::Destroyed = event {
-                let label = window.label().to_string();
-                let state = window.state::<AppState>();
-                state.workspaces.lock().expect("Mutex poisoned").remove(&label);
-                state.workspace_paths.lock().expect("Mutex poisoned").remove(&label);
+            let label = window.label().to_string();
+            let state = window.state::<AppState>();
+            match event {
+                // Remove workspace state when a window is destroyed so the same
+                // file can be reopened after its window has been closed.
+                tauri::WindowEvent::Destroyed => {
+                    state.workspaces.lock().expect("Mutex poisoned").remove(&label);
+                    state.workspace_paths.lock().expect("Mutex poisoned").remove(&label);
+                }
+                // Track which window is currently active so that menu events
+                // can be routed to the correct window (see handle_menu_event).
+                tauri::WindowEvent::Focused(true) => {
+                    *state.focused_window.lock().expect("Mutex poisoned") = Some(label);
+                }
+                _ => {}
             }
         })
         .setup(|app| {
