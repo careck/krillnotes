@@ -49,7 +49,5 @@
 
 ✅ DONE! I know how to manually build a MacOS app bundle using tauri build, but I would like to automate this using github actions. Please suggest ways to: 1. kick this off by either setting a release tag or pushing a tag to the repo; 2. create an artifact automatically for the release for windows, macos and linux.
 
-
-
-
+[x] enable markdown rendering for all textarea fields. The default view should automatically render the value as markdown, however when accessing the value via the API in a rhai script, the value should be returned as plain text. Add a markdown render view command for rhai scripting.
 
