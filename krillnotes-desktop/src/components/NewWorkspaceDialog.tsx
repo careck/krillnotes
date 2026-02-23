@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings, WorkspaceInfo } from '../types';
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 interface NewWorkspaceDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -42,15 +49,16 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
       return;
     }
 
-    if (/[/\\:*?"<>|]/.test(trimmed)) {
-      setError('Name contains invalid characters.');
+    const slug = slugify(trimmed);
+    if (!slug) {
+      setError('Name must contain at least one letter or number.');
       return;
     }
 
     setCreating(true);
     setError('');
 
-    const path = `${workspaceDir}/${trimmed}.db`;
+    const path = `${workspaceDir}/${slug}.db`;
 
     try {
       await invoke<WorkspaceInfo>('create_workspace', { path });
@@ -88,7 +96,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
           />
           {workspaceDir && (
             <p className="text-xs text-muted-foreground mt-1">
-              Will be saved to: {workspaceDir}/{name.trim() || '...'}.db
+              Will be saved to: {workspaceDir}/{slugify(name.trim()) || '...'}.db
             </p>
           )}
         </div>
