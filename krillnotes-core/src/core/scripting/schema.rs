@@ -1,10 +1,18 @@
 //! Schema definitions and the private schema store for Krillnotes note types.
 
 use crate::{FieldValue, KrillnotesError, Result};
-use rhai::Map;
+use chrono::NaiveDate;
+use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// A stored hook entry: the Rhai closure and the AST it was defined in.
+#[derive(Clone, Debug)]
+pub(super) struct HookEntry {
+    pub(super) fn_ptr: FnPtr,
+    pub(super) ast: AST,
+}
 
 /// Describes a single typed field within a note schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,22 +217,34 @@ impl Schema {
     }
 }
 
-/// Private store for registered schemas. No Rhai dependency.
+/// Private store for registered schemas plus per-schema hook side-tables.
 #[derive(Debug)]
 pub(super) struct SchemaRegistry {
-    schemas: Arc<Mutex<HashMap<String, Schema>>>,
+    schemas:       Arc<Mutex<HashMap<String, Schema>>>,
+    on_save_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_view_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
 }
 
 impl SchemaRegistry {
     pub(super) fn new() -> Self {
         Self {
-            schemas: Arc::new(Mutex::new(HashMap::new())),
+            schemas:       Arc::new(Mutex::new(HashMap::new())),
+            on_save_hooks: Arc::new(Mutex::new(HashMap::new())),
+            on_view_hooks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Returns a clone of the inner `Arc` so Rhai host-function closures can write into it.
     pub(super) fn schemas_arc(&self) -> Arc<Mutex<HashMap<String, Schema>>> {
         Arc::clone(&self.schemas)
+    }
+
+    pub(super) fn on_save_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
+        Arc::clone(&self.on_save_hooks)
+    }
+
+    pub(super) fn on_view_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
+        Arc::clone(&self.on_view_hooks)
     }
 
     pub(super) fn get(&self, name: &str) -> Result<Schema> {
@@ -237,19 +257,238 @@ impl SchemaRegistry {
     }
 
     pub(super) fn exists(&self, name: &str) -> bool {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().contains_key(name)
     }
 
     pub(super) fn list(&self) -> Vec<String> {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().keys().cloned().collect()
     }
 
     pub(super) fn all(&self) -> HashMap<String, Schema> {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().clone()
     }
 
-    /// Removes all registered schemas.
     pub(super) fn clear(&self) {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().clear();
+        self.on_save_hooks.lock().unwrap().clear();
+        self.on_view_hooks.lock().unwrap().clear();
+    }
+
+    /// Returns `true` if an on_save hook is registered for `schema_name`.
+    pub(super) fn has_hook(&self, schema_name: &str) -> bool {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
+        self.on_save_hooks.lock().unwrap().contains_key(schema_name)
+    }
+
+    /// Returns `true` if an on_view hook is registered for `schema_name`.
+    pub(super) fn has_view_hook(&self, schema_name: &str) -> bool {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
+        self.on_view_hooks.lock().unwrap().contains_key(schema_name)
+    }
+
+    /// Runs the on_save hook for `schema_name`, if registered.
+    ///
+    /// Called from [`ScriptRegistry::run_on_save_hook`](super::ScriptRegistry::run_on_save_hook).
+    pub(super) fn run_on_save_hook(
+        &self,
+        engine: &Engine,
+        schema: &Schema,
+        note_id: &str,
+        node_type: &str,
+        title: &str,
+        fields: &HashMap<String, FieldValue>,
+    ) -> Result<Option<(String, HashMap<String, FieldValue>)>> {
+        let entry = {
+            let hooks = self.on_save_hooks
+                .lock()
+                .map_err(|_| KrillnotesError::Scripting("on_save hook lock poisoned".to_string()))?;
+            hooks.get(&schema.name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        let mut fields_map = Map::new();
+        for (k, v) in fields {
+            fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+        let mut note_map = Map::new();
+        note_map.insert("id".into(),        Dynamic::from(note_id.to_string()));
+        note_map.insert("node_type".into(), Dynamic::from(node_type.to_string()));
+        note_map.insert("title".into(),     Dynamic::from(title.to_string()));
+        note_map.insert("fields".into(),    Dynamic::from(fields_map));
+
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error: {e}")))?;
+
+        let result_map = result.try_cast::<Map>().ok_or_else(|| {
+            KrillnotesError::Scripting("on_save hook must return the note map".to_string())
+        })?;
+
+        let new_title = result_map
+            .get("title")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .ok_or_else(|| KrillnotesError::Scripting("hook result 'title' must be a string".to_string()))?;
+
+        let new_fields_dyn = result_map
+            .get("fields")
+            .and_then(|v| v.clone().try_cast::<Map>())
+            .ok_or_else(|| KrillnotesError::Scripting("hook result 'fields' must be a map".to_string()))?;
+
+        let mut new_fields = HashMap::new();
+        for field_def in &schema.fields {
+            let dyn_val = new_fields_dyn
+                .get(field_def.name.as_str())
+                .cloned()
+                .unwrap_or(Dynamic::UNIT);
+            let fv = dynamic_to_field_value(dyn_val, &field_def.field_type).map_err(|e| {
+                KrillnotesError::Scripting(format!("field '{}': {}", field_def.name, e))
+            })?;
+            new_fields.insert(field_def.name.clone(), fv);
+        }
+
+        Ok(Some((new_title, new_fields)))
+    }
+
+    /// Runs the on_view hook for `schema_name`, if registered.
+    ///
+    /// Called from [`ScriptRegistry::run_on_view_hook`](super::ScriptRegistry::run_on_view_hook).
+    pub(super) fn run_on_view_hook(
+        &self,
+        engine: &Engine,
+        note_map: Map,
+    ) -> Result<Option<String>> {
+        let schema_name = note_map
+            .get("node_type")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_default();
+
+        let entry = {
+            let hooks = self.on_view_hooks
+                .lock()
+                .map_err(|_| KrillnotesError::Scripting("on_view hook lock poisoned".to_string()))?;
+            hooks.get(&schema_name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("on_view hook error: {e}")))?;
+
+        let html = result.try_cast::<String>().ok_or_else(|| {
+            KrillnotesError::Scripting("on_view hook must return a string".to_string())
+        })?;
+
+        Ok(Some(html))
+    }
+}
+
+/// Converts a [`FieldValue`] to a Rhai [`Dynamic`] for passing into hook closures.
+///
+/// `Date(None)` maps to `Dynamic::UNIT` (`()`).
+/// `Date(Some(d))` maps to an ISO 8601 string `"YYYY-MM-DD"`.
+/// All other variants map to their natural Rhai primitive.
+pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
+    match fv {
+        FieldValue::Text(s) => Dynamic::from(s.clone()),
+        FieldValue::Number(n) => Dynamic::from(*n),
+        FieldValue::Boolean(b) => Dynamic::from(*b),
+        FieldValue::Date(None) => Dynamic::UNIT,
+        FieldValue::Date(Some(d)) => Dynamic::from(d.format("%Y-%m-%d").to_string()),
+        FieldValue::Email(s) => Dynamic::from(s.clone()),
+    }
+}
+
+/// Converts a Rhai [`Dynamic`] back to a [`FieldValue`] given the field's type string.
+///
+/// Returns [`KrillnotesError::Scripting`] if the Dynamic value cannot be
+/// converted to the expected Rust type.
+pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
+    match field_type {
+        "text" | "textarea" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Text(String::new()));
+            }
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("text field must be a string".into()))?;
+            Ok(FieldValue::Text(s))
+        }
+        "number" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Number(0.0));
+            }
+            let n = d
+                .try_cast::<f64>()
+                .ok_or_else(|| KrillnotesError::Scripting("number field must be a float".into()))?;
+            Ok(FieldValue::Number(n))
+        }
+        "boolean" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Boolean(false));
+            }
+            let b = d
+                .try_cast::<bool>()
+                .ok_or_else(|| KrillnotesError::Scripting("boolean field must be a bool".into()))?;
+            Ok(FieldValue::Boolean(b))
+        }
+        "date" => {
+            if d.is_unit() {
+                Ok(FieldValue::Date(None))
+            } else {
+                let s = d.try_cast::<String>().ok_or_else(|| {
+                    KrillnotesError::Scripting("date field must be a string or ()".into())
+                })?;
+                let nd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
+                    KrillnotesError::Scripting(format!("invalid date '{s}': {e}"))
+                })?;
+                Ok(FieldValue::Date(Some(nd)))
+            }
+        }
+        "email" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Email(String::new()));
+            }
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
+            Ok(FieldValue::Email(s))
+        }
+        "select" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Text(String::new()));
+            }
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("select field must be a string".into()))?;
+            Ok(FieldValue::Text(s))
+        }
+        "rating" => {
+            if d.is_unit() {
+                return Ok(FieldValue::Number(0.0));
+            }
+            let n = d
+                .try_cast::<f64>()
+                .ok_or_else(|| KrillnotesError::Scripting("rating field must be a float".into()))?;
+            Ok(FieldValue::Number(n))
+        }
+        _ => Ok(FieldValue::Text(String::new())),
     }
 }
