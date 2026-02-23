@@ -1,6 +1,6 @@
 # This is the worksheet of tasks we will be implementing step by step
-# 
-# I will feed you one of these tasks at a time, but when you're done, 
+#
+# I will feed you one of these tasks at a time, but when you're done,
 # please find it in this file and mark it as done in the same way the other tasks are already marked as done.
 
 ✅ DONE! Refactor the scripting engine so that the scripts aren't read in the schemaregistry, but that they are called from a scriptregistry. The schemaregistry should only know about schemas
@@ -23,7 +23,7 @@
 
 ✅ DONE!  make the split between tree and view/edit panel resizable view mouse dragging
 
-✅ DONE! add a system note property which tells the tree to sort the note's children by title either asc or desc or don't sort at all (use the note position instead). This should be settable via the schema definition just like title_can_edit. 
+✅ DONE! add a system note property which tells the tree to sort the note's children by title either asc or desc or don't sort at all (use the note position instead). This should be settable via the schema definition just like title_can_edit.
 
 ✅ DONE! add a search bar at the very top above the tree. when typing anything it will find any note with that text anywhere in its fields and display them in a drop down. once you click on a note in the dropdown it will open up the note for editing and show it in the tree. If the note was previous not visible because its parent was collapsed then its parent and all grandparents will also be shown.
 
@@ -35,7 +35,7 @@
 
 ✅ DONE! remove the save dialog from "new" and open file dialog from "open". Instead add a settings dialog and data structure where the user can set the default workspace directory. All new workspaces will then automatically be created in this directory. Loading a workspace can have a new dialog which lists all available workspaces in that directory and allows for loading of any existing workspace (which is not currently open). There should be default workspace directory which makes sense depending on the operating system (e.g. ~/Documents/Krillnotes). The settings should  be stored in a location which makes sense for each OS (e.g. ~/.krillnotes/settings.json). Remember that this will also change the way Import works, as it can now create the new workspace directly in the default directory instead of having to ask for a path.
 
-✅ DONE! let's remove the difference between user scripts and system scripts! move all the existing user scripts into the system_scripts folder, and load them all on startup of a new workspace as if they are user scripts. this way a user can even change the initial text note schema. Switch all scripts on at the start, and the user can then switch off the ones they don't need. Also add a "delete" button next to a user script so that any scripts which the user doesn't need can also be removed completely from the workspace. System scripts will only be loaded when a workspace is created, not when loaded as by then the workspace has its own scripts. 
+✅ DONE! let's remove the difference between user scripts and system scripts! move all the existing user scripts into the system_scripts folder, and load them all on startup of a new workspace as if they are user scripts. this way a user can even change the initial text note schema. Switch all scripts on at the start, and the user can then switch off the ones they don't need. Also add a "delete" button next to a user script so that any scripts which the user doesn't need can also be removed completely from the workspace. System scripts will only be loaded when a workspace is created, not when loaded as by then the workspace has its own scripts.
 
 ✅ DONE! allow a note schema to define which schema a parent may have to add this note. This would be useful for creating the contactfolder, where each contact note only shows up as an option on add note if the selected note is of that allowed type and the operation is "add as a child". This would need to make the add note dialog more dynamic so that the note type dropdown changes according to a) the selected note type and b) "as child" operation. In the schema definition the allowed parent schema type should be a string array of allowed parent schema types. When moving a note, the new parent note where the note would be dropped needs to be checked against the allowed parent schema types and in case it doesn't match it should be a no op.
 
@@ -49,5 +49,12 @@
 
 ✅ DONE! I know how to manually build a MacOS app bundle using tauri build, but I would like to automate this using github actions. Please suggest ways to: 1. kick this off by either setting a release tag or pushing a tag to the repo; 2. create an artifact automatically for the release for windows, macos and linux.
 
-[x] enable markdown rendering for all textarea fields. The default view should automatically render the value as markdown, however when accessing the value via the API in a rhai script, the value should be returned as plain text. Add a markdown render view command for rhai scripting.
+✅ DONE! enable markdown rendering for all textarea fields. The default view should automatically render the value as markdown, however when accessing the value via the API in a rhai script, the value should be returned as plain text. Add a markdown render view command for rhai scripting.
 
+[ ] I thought about the design decision to have on_save() and on_view() hooks outside the schema definition and I think it causes more trouble than it's worth. I thought it would enable a user to override existing functionality, but since we have eliminated the distinction between system scripts and user scripts, a user can just edit existing schema and hooks directly without the need to override anything. In fact, having these hooks outside the schema now makes the headache of load and execution order! Which on_view() to call when there are two registered for the same schema in different scripts? It's even worse for on_save()! I would like to move the on_save() and on_view() hooks back into the schema definition and change their rhai method signature to only accept a note, since the schema is already known through the encapsulation. This would make the schema definition more self-contained and eliminate any ambiguities of which hook to call when.
+
+[ ] in edit mode, if the last field in a schema is a textarea field, then display the textarea input field with a height so that it stretches all the way to the bottom of the window.
+
+[ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way, but old workspaces should be opened with a warning and a dialog to add a password to encrypt it. Try to use OS keychain management if possible.
+
+[ ] Exports should stay in clear text, but offer the option to encrypt the zip file with a password. On import the app should recognise if a zip is encrypted and prompt the user for the password to decrypt before opening it.
