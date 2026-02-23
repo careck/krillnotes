@@ -43,7 +43,7 @@ on_view("ContactsFolder", |note| {
         return text("No contacts yet. Add a contact using the context menu.");
     }
     let rows = contacts.map(|c| [
-        c.title,
+        link_to(c),
         c.fields.email  ?? "-",
         c.fields.phone  ?? "-",
         c.fields.mobile ?? "-"
