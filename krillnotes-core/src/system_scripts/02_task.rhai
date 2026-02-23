@@ -21,25 +21,24 @@ schema("Task", #{
         #{ name: "notes",          type: "textarea", required: false                    },
         #{ name: "priority_label", type: "text",     required: false,
            can_edit: false                                                               },
-    ]
-});
+    ],
+    on_save: |note| {
+        let name   = note.fields["name"];
+        let status = note.fields["status"];
 
-on_save("Task", |note| {
-    let name   = note.fields["name"];
-    let status = note.fields["status"];
+        let symbol = if status == "DONE" { "✓" }
+                     else if status == "WIP" { "→" }
+                     else { " " };
 
-    let symbol = if status == "DONE" { "✓" }
-                 else if status == "WIP" { "→" }
-                 else { " " };
+        note.title = "[" + symbol + "] " + name;
 
-    note.title = "[" + symbol + "] " + name;
+        let priority = note.fields["priority"];
+        note.fields["priority_label"] =
+            if priority == "high"        { "🔴 High" }
+            else if priority == "medium" { "🟡 Medium" }
+            else if priority == "low"    { "🟢 Low" }
+            else                         { "" };
 
-    let priority = note.fields["priority"];
-    note.fields["priority_label"] =
-        if priority == "high"        { "🔴 High" }
-        else if priority == "medium" { "🟡 Medium" }
-        else if priority == "low"    { "🟢 Low" }
-        else                         { "" };
-
-    note
+        note
+    }
 });

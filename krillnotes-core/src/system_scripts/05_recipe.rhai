@@ -16,24 +16,23 @@ schema("Recipe", #{
         #{ name: "ingredients", type: "textarea", required: false                  },
         #{ name: "steps",       type: "textarea", required: false                  },
         #{ name: "total_time",  type: "text",     required: false, can_edit: false  },
-    ]
-});
+    ],
+    on_save: |note| {
+        let prep  = note.fields["prep_time"];
+        let cook  = note.fields["cook_time"];
+        let total = (prep + cook).to_int();
 
-on_save("Recipe", |note| {
-    let prep  = note.fields["prep_time"];
-    let cook  = note.fields["cook_time"];
-    let total = (prep + cook).to_int();
+        note.fields["total_time"] = if total <= 0 {
+            ""
+        } else if total < 60 {
+            total.to_string() + " min"
+        } else {
+            let h = total / 60;
+            let m = total % 60;
+            if m == 0 { h.to_string() + "h" }
+            else      { h.to_string() + "h " + m.to_string() + "min" }
+        };
 
-    note.fields["total_time"] = if total <= 0 {
-        ""
-    } else if total < 60 {
-        total.to_string() + " min"
-    } else {
-        let h = total / 60;
-        let m = total % 60;
-        if m == 0 { h.to_string() + "h" }
-        else      { h.to_string() + "h " + m.to_string() + "min" }
-    };
-
-    note
+        note
+    }
 });

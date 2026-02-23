@@ -16,17 +16,16 @@ schema("Project", #{
         #{ name: "description", type: "textarea", required: false              },
         #{ name: "health",      type: "text",     required: false,
            can_edit: false                                                      },
-    ]
-});
+    ],
+    on_save: |note| {
+        let status = note.fields["status"];
 
-on_save("Project", |note| {
-    let status = note.fields["status"];
+        note.fields["health"] =
+            if status == "Done"          { "✅ Done" }
+            else if status == "Active"   { "🚧 Active" }
+            else if status == "On Hold"  { "⏸ On Hold" }
+            else                         { "📋 Planning" };
 
-    note.fields["health"] =
-        if status == "Done"          { "✅ Done" }
-        else if status == "Active"   { "🚧 Active" }
-        else if status == "On Hold"  { "⏸ On Hold" }
-        else                         { "📋 Planning" };
-
-    note
+        note
+    }
 });
