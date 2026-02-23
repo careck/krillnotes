@@ -171,6 +171,7 @@ impl ScriptRegistry {
         engine.register_fn("badge",   display_helpers::badge);
         engine.register_fn("badge",   display_helpers::badge_colored);
         engine.register_fn("divider", display_helpers::divider);
+        engine.register_fn("link_to", display_helpers::link_to);
 
         Ok(Self {
             engine,
@@ -1082,6 +1083,49 @@ mod tests {
         let (title, out_fields) = result.unwrap().unwrap();
         assert_eq!(title, "Herbert: Dune");
         assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
+    }
+
+    // ── link_to integration ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_link_to_is_callable_from_on_view_script() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("LinkTest", #{
+                fields: [#{ name: "ref_id", type: "text" }]
+            });
+            on_view("LinkTest", |note| {
+                let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, node_type: "TextNote" };
+                link_to(target)
+            });
+        "#).unwrap();
+
+        let note = Note {
+            id: "note-1".to_string(),
+            node_type: "LinkTest".to_string(),
+            title: "Test".to_string(),
+            parent_id: None,
+            position: 0,
+            created_at: 0,
+            modified_at: 0,
+            created_by: 0,
+            modified_by: 0,
+            fields: HashMap::new(),
+            is_expanded: false,
+        };
+
+        let context = QueryContext {
+            notes_by_id: HashMap::new(),
+            children_by_id: HashMap::new(),
+            notes_by_type: HashMap::new(),
+        };
+
+        let result = registry.run_on_view_hook(&note, context).unwrap();
+        assert!(result.is_some());
+        let html = result.unwrap();
+        assert!(html.contains("kn-view-link"), "html should contain kn-view-link class");
+        assert!(html.contains("target-id-123"), "html should contain the target note id");
+        assert!(html.contains("Target Note"), "html should contain the target note title");
     }
 
 }

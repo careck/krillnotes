@@ -222,6 +222,31 @@ pub fn divider() -> String {
     "<hr class=\"kn-view-divider\">".to_string()
 }
 
+/// Renders a clickable link that navigates to another note when clicked.
+///
+/// When clicked in the view panel, the app navigates to the linked note
+/// and pushes the current note onto the navigation history stack so the
+/// user can press the back button to return.
+///
+/// ```rhai
+/// link_to(get_note(some_id))
+/// ```
+pub fn link_to(note: Map) -> String {
+    let id = note
+        .get("id")
+        .and_then(|v| v.clone().into_string().ok())
+        .unwrap_or_default();
+    let title = note
+        .get("title")
+        .and_then(|v| v.clone().into_string().ok())
+        .unwrap_or_default();
+    format!(
+        r#"<a class="kn-view-link" data-note-id="{}">{}</a>"#,
+        html_escape(&id),
+        html_escape(&title),
+    )
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 /// Converts a snake_case field key to a Title Case display label.
@@ -238,4 +263,49 @@ fn humanise_key(key: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rhai::Map;
+
+    fn make_note_map(id: &str, title: &str) -> Map {
+        let mut m = Map::new();
+        m.insert("id".into(),    rhai::Dynamic::from(id.to_string()));
+        m.insert("title".into(), rhai::Dynamic::from(title.to_string()));
+        m
+    }
+
+    #[test]
+    fn test_link_to_renders_anchor_with_id_and_title() {
+        let m = make_note_map("abc-123", "My Note");
+        let html = link_to(m);
+        assert!(html.contains(r#"class="kn-view-link""#));
+        assert!(html.contains(r#"data-note-id="abc-123""#));
+        assert!(html.contains("My Note"));
+    }
+
+    #[test]
+    fn test_link_to_escapes_title() {
+        let m = make_note_map("id-1", "<script>alert('xss')</script>");
+        let html = link_to(m);
+        assert!(!html.contains("<script>"), "raw <script> tag must not appear in output");
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn test_link_to_escapes_id() {
+        let m = make_note_map(r#"id"with"quotes"#, "Title");
+        let html = link_to(m);
+        assert!(!html.contains(r#"id"with"quotes"#), "raw quotes in id must be escaped");
+    }
+
+    #[test]
+    fn test_link_to_empty_map_returns_anchor_with_empty_values() {
+        let m = Map::new();
+        let html = link_to(m);
+        // Should not panic; should return a valid (empty-attribute) anchor
+        assert!(html.contains("kn-view-link"));
+    }
 }
