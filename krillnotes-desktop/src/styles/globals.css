@@ -129,3 +129,49 @@ body {
                           color: var(--color-primary); font-size: 0.875rem;
                           padding: 0; }
 .kn-view-back button:hover { opacity: 0.8; }
+
+/* Markdown-rendered textarea content ────────────────────────────────────── */
+/* Scoped under .kn-view-markdown so generated element styles (h1, p, ul…)  */
+/* do not bleed into surrounding UI.                                          */
+
+.kn-view-markdown                  { font-size: 0.875rem; line-height: 1.6; }
+.kn-view-markdown p                { margin: 0 0 0.5rem 0; }
+.kn-view-markdown p:last-child     { margin-bottom: 0; }
+.kn-view-markdown h1               { font-size: 1.2rem; font-weight: 700; margin: 0.75rem 0 0.3rem; }
+.kn-view-markdown h2               { font-size: 1.05rem; font-weight: 600; margin: 0.65rem 0 0.25rem; }
+.kn-view-markdown h3               { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.2rem; }
+.kn-view-markdown h4,
+.kn-view-markdown h5,
+.kn-view-markdown h6               { font-size: 0.875rem; font-weight: 600; margin: 0.4rem 0 0.15rem; }
+.kn-view-markdown ul               { list-style-type: disc; padding-left: 1.25rem; margin: 0.25rem 0; }
+.kn-view-markdown ol               { list-style-type: decimal; padding-left: 1.25rem; margin: 0.25rem 0; }
+.kn-view-markdown li               { margin-bottom: 0.15rem; }
+.kn-view-markdown li > p           { margin: 0; }
+.kn-view-markdown pre              { background: var(--color-secondary);
+                                     border-radius: var(--radius-sm);
+                                     padding: 0.5rem 0.75rem; font-size: 0.8rem;
+                                     overflow-x: auto; margin: 0.4rem 0; }
+.kn-view-markdown code             { font-family: ui-monospace, SFMono-Regular, monospace;
+                                     font-size: 0.85em;
+                                     background: var(--color-secondary);
+                                     border-radius: var(--radius-sm);
+                                     padding: 0.1rem 0.3rem; }
+.kn-view-markdown pre code         { background: transparent; padding: 0; font-size: inherit; }
+.kn-view-markdown blockquote       { border-left: 3px solid var(--color-border);
+                                     margin: 0.4rem 0; padding: 0.1rem 0.75rem;
+                                     color: var(--color-muted-foreground); }
+.kn-view-markdown strong           { font-weight: 600; }
+.kn-view-markdown em               { font-style: italic; }
+.kn-view-markdown del              { text-decoration: line-through; }
+.kn-view-markdown hr               { border: none;
+                                     border-top: 1px solid var(--color-border);
+                                     margin: 0.75rem 0; }
+.kn-view-markdown a                { color: var(--color-primary); text-decoration: underline; }
+.kn-view-markdown table            { width: 100%; border-collapse: collapse;
+                                     margin: 0.4rem 0; font-size: 0.875rem; }
+.kn-view-markdown th               { text-align: left; font-weight: 500;
+                                     color: var(--color-muted-foreground);
+                                     padding: 0 0.75rem 0.35rem 0;
+                                     border-bottom: 1px solid var(--color-border); }
+.kn-view-markdown td               { padding: 0.25rem 0.75rem 0.25rem 0;
+                                     vertical-align: top; }
