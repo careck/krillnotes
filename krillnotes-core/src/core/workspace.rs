@@ -487,20 +487,21 @@ impl Workspace {
     /// Fetches all notes from the database to build a [`QueryContext`] so that
     /// `get_children`, `get_note`, and `get_notes_of_type` are available to
     /// the hook script.
+    /// Runs the `on_view` hook for the note's schema, falling back to a default
+    /// HTML view when no hook is registered.
     ///
-    /// Returns `Ok(None)` if no view hook is registered for the note's schema.
-    /// Returns `Ok(Some(html))` with the generated HTML string on success.
+    /// The default view auto-renders `textarea` fields as CommonMark markdown.
     ///
     /// # Errors
     ///
     /// Returns [`KrillnotesError::Database`] if the note or any workspace note
     /// cannot be fetched, or [`KrillnotesError::Scripting`] if the hook fails.
-    pub fn run_view_hook(&self, note_id: &str) -> Result<Option<String>> {
+    pub fn run_view_hook(&self, note_id: &str) -> Result<String> {
         let note = self.get_note(note_id)?;
 
-        // Short-circuit: avoid fetching all notes if no hook is registered.
+        // No hook registered: generate the default view without fetching all notes.
         if !self.script_registry.has_view_hook(&note.node_type) {
-            return Ok(None);
+            return Ok(self.script_registry.render_default_view(&note));
         }
 
         let all_notes = self.list_all_notes()?;
@@ -522,7 +523,11 @@ impl Workspace {
         }
 
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
-        self.script_registry.run_on_view_hook(&note, context)
+        // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
+        Ok(self
+            .script_registry
+            .run_on_view_hook(&note, context)?
+            .unwrap_or_default())
     }
 
     /// Returns the names of all registered note types (schema names).
@@ -2289,5 +2294,41 @@ mod tests {
         for (i, kid) in root_kids.iter().enumerate() {
             assert_eq!(kid.position, i as i32, "Gap at index {i}");
         }
+    }
+
+    #[test]
+    fn test_run_view_hook_returns_html_without_hook() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        // Load a schema with a textarea field but no on_view hook.
+        ws.create_user_script(
+            r#"// @name: Memo
+schema("Memo", #{
+    fields: [
+        #{ name: "body", type: "textarea", required: false }
+    ]
+});
+"#,
+        )
+        .unwrap();
+
+        // Create a Memo note under the root.
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let note_id = ws
+            .create_note(&root.id, AddPosition::AsChild, "Memo")
+            .unwrap();
+
+        // Update the note's body field with Markdown content.
+        let mut fields = HashMap::new();
+        fields.insert("body".into(), FieldValue::Text("**hello**".into()));
+        ws.update_note(&note_id, "My Memo".into(), fields).unwrap();
+
+        let html = ws.run_view_hook(&note_id).unwrap();
+        assert!(!html.is_empty(), "default view must return non-empty HTML");
+        assert!(
+            html.contains("<strong>hello</strong>"),
+            "textarea body should be markdown-rendered, got: {html}"
+        );
     }
 }
