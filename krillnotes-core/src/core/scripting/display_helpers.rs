@@ -49,7 +49,7 @@ pub fn render_markdown_to_html(text: &str) -> String {
 /// });
 /// ```
 pub fn rhai_markdown(text: String) -> String {
-    render_markdown_to_html(&text)
+    format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&text))
 }
 
 // ── Structural helpers ────────────────────────────────────────────────────────
@@ -472,6 +472,16 @@ mod tests {
         let html = link_to(m);
         // Should not panic; should return a valid (empty-attribute) anchor
         assert!(html.contains("kn-view-link"));
+    }
+
+    #[test]
+    fn test_rhai_markdown_wraps_in_kn_view_markdown() {
+        let html = rhai_markdown("**bold text**".to_string());
+        assert!(
+            html.contains("kn-view-markdown"),
+            "rhai_markdown must wrap output in kn-view-markdown div, got: {html}"
+        );
+        assert!(html.contains("<strong>bold text</strong>"), "got: {html}");
     }
 
     #[test]
