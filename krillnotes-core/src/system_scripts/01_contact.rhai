@@ -6,7 +6,29 @@ schema("ContactsFolder", #{
     allowed_children_types: ["Contact"],
     fields: [
         #{ name: "notes", type: "textarea", required: false },
-    ]
+    ],
+    on_view: |note| {
+        let contacts = get_children(note.id);
+        if contacts.len() == 0 {
+            return text("No contacts yet. Add a contact using the context menu.");
+        }
+        let rows = contacts.map(|c| [
+            link_to(c),
+            c.fields.email  ?? "-",
+            c.fields.phone  ?? "-",
+            c.fields.mobile ?? "-"
+        ]);
+        let contacts_section = section(
+            "Contacts (" + contacts.len() + ")",
+            table(["Name", "Email", "Phone", "Mobile"], rows)
+        );
+        let notes_val = note.fields["notes"] ?? "";
+        if notes_val == "" {
+            contacts_section
+        } else {
+            stack([contacts_section, section("Notes", text(notes_val))])
+        }
+    }
 });
 
 schema("Contact", #{
@@ -25,37 +47,13 @@ schema("Contact", #{
         #{ name: "address_zip",     type: "text",  required: false },
         #{ name: "address_country", type: "text",  required: false },
         #{ name: "is_family",       type: "boolean",  required: false },
-    ]
-});
-
-on_save("Contact", |note| {
-    let last  = note.fields["last_name"];
-    let first = note.fields["first_name"];
-    if last != "" || first != "" {
-        note.title = last + ", " + first;
-    }
-    note
-});
-
-on_view("ContactsFolder", |note| {
-    let contacts = get_children(note.id);
-    if contacts.len() == 0 {
-        return text("No contacts yet. Add a contact using the context menu.");
-    }
-    let rows = contacts.map(|c| [
-        link_to(c),
-        c.fields.email  ?? "-",
-        c.fields.phone  ?? "-",
-        c.fields.mobile ?? "-"
-    ]);
-    let contacts_section = section(
-        "Contacts (" + contacts.len() + ")",
-        table(["Name", "Email", "Phone", "Mobile"], rows)
-    );
-    let notes_val = note.fields["notes"] ?? "";
-    if notes_val == "" {
-        contacts_section
-    } else {
-        stack([contacts_section, section("Notes", text(notes_val))])
+    ],
+    on_save: |note| {
+        let last  = note.fields["last_name"];
+        let first = note.fields["first_name"];
+        if last != "" || first != "" {
+            note.title = last + ", " + first;
+        }
+        note
     }
 });

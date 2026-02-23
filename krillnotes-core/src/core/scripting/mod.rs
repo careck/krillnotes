@@ -7,13 +7,14 @@ mod display_helpers;
 mod hooks;
 mod schema;
 
+// Re-exported for API stability; currently a placeholder for future global/lifecycle hooks.
 pub use hooks::HookRegistry;
-pub(crate) use hooks::field_value_to_dynamic;
+pub(crate) use schema::field_value_to_dynamic;
 pub use schema::{FieldDefinition, Schema};
 // StarterScript is defined in this file and re-exported via lib.rs.
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
-use hooks::HookEntry;
+use schema::HookEntry;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
 use std::collections::HashMap;
@@ -42,7 +43,7 @@ pub struct StarterScript {
 }
 
 /// Orchestrating registry that owns the Rhai engine and delegates to
-/// [`SchemaRegistry`](schema::SchemaRegistry) and [`HookRegistry`].
+/// [`SchemaRegistry`](schema::SchemaRegistry) for schema parsing and hook execution.
 ///
 /// This is the primary scripting entry point used by [`Workspace`](crate::Workspace).
 #[derive(Debug)]
@@ -50,7 +51,6 @@ pub struct ScriptRegistry {
     engine: Engine,
     current_loading_ast: Arc<Mutex<Option<AST>>>,
     schema_registry: schema::SchemaRegistry,
-    hook_registry: HookRegistry,
     query_context: Arc<Mutex<Option<QueryContext>>>,
 }
 
@@ -62,39 +62,36 @@ impl ScriptRegistry {
     pub fn new() -> Result<Self> {
         let mut engine = Engine::new();
         let schema_registry = schema::SchemaRegistry::new();
-        let hook_registry = HookRegistry::new();
         let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
 
-        // Register schema() host function — writes into SchemaRegistry.
-        let schemas_arc = schema_registry.schemas_arc();
+        // Register schema() host function — writes schema and schema-bound hooks into SchemaRegistry.
+        let schemas_arc    = schema_registry.schemas_arc();
+        let on_save_arc    = schema_registry.on_save_hooks_arc();
+        let on_view_arc    = schema_registry.on_view_hooks_arc();
+        let schema_ast_arc = Arc::clone(&current_loading_ast);
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
-            schemas_arc.lock().unwrap().insert(name, s);
-            Ok(Dynamic::UNIT)
-        });
+            schemas_arc.lock().unwrap().insert(name.clone(), s);
 
-        // Register on_save() host function — writes into HookRegistry.
-        let hooks_arc = hook_registry.on_save_hooks_arc();
-        let ast_arc = Arc::clone(&current_loading_ast);
-        engine.register_fn("on_save", move |name: String, fn_ptr: FnPtr| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
-            let maybe_ast = ast_arc.lock().unwrap().clone();
-            let ast = maybe_ast.ok_or_else(|| -> Box<EvalAltResult> {
-                "on_save called outside of load_script".to_string().into()
-            })?;
-            hooks_arc.lock().unwrap().insert(name, HookEntry { fn_ptr, ast });
-            Ok(Dynamic::UNIT)
-        });
+            // Extract optional on_save closure.
+            if let Some(fn_ptr) = def.get("on_save").and_then(|v| v.clone().try_cast::<FnPtr>()) {
+                let ast = schema_ast_arc.lock().unwrap().clone()
+                    .ok_or_else(|| -> Box<EvalAltResult> {
+                        "schema() called outside of load_script".to_string().into()
+                    })?;
+                on_save_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast });
+            }
 
-        // Register on_view() host function — writes into HookRegistry.
-        let view_hooks_arc = hook_registry.on_view_hooks_arc();
-        let ast_arc_view = Arc::clone(&current_loading_ast);
-        engine.register_fn("on_view", move |name: String, fn_ptr: FnPtr| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
-            let maybe_ast = ast_arc_view.lock().unwrap().clone();
-            let ast = maybe_ast.ok_or_else(|| -> Box<EvalAltResult> {
-                "on_view called outside of load_script".to_string().into()
-            })?;
-            view_hooks_arc.lock().unwrap().insert(name, HookEntry { fn_ptr, ast });
+            // Extract optional on_view closure.
+            if let Some(fn_ptr) = def.get("on_view").and_then(|v| v.clone().try_cast::<FnPtr>()) {
+                let ast = schema_ast_arc.lock().unwrap().clone()
+                    .ok_or_else(|| -> Box<EvalAltResult> {
+                        "schema() called outside of load_script".to_string().into()
+                    })?;
+                on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast });
+            }
+
             Ok(Dynamic::UNIT)
         });
 
@@ -178,7 +175,6 @@ impl ScriptRegistry {
             engine,
             current_loading_ast,
             schema_registry,
-            hook_registry,
             query_context,
         })
     }
@@ -248,14 +244,9 @@ impl ScriptRegistry {
         self.schema_registry.all()
     }
 
-    /// Returns a reference to the [`HookRegistry`] for hook state queries.
-    pub fn hooks(&self) -> &HookRegistry {
-        &self.hook_registry
-    }
-
     /// Runs the pre-save hook registered for `schema_name`, if any.
     ///
-    /// Delegates to [`HookRegistry::run_on_save_hook`] with this registry's engine.
+    /// Delegates to [`SchemaRegistry::run_on_save_hook`](schema::SchemaRegistry::run_on_save_hook) with this registry's engine.
     ///
     /// Returns `Ok(None)` when no hook is registered for `schema_name`.
     /// Returns `Ok(Some((title, fields)))` with the hook's output on success.
@@ -273,13 +264,18 @@ impl ScriptRegistry {
         fields: &HashMap<String, FieldValue>,
     ) -> Result<Option<(String, HashMap<String, FieldValue>)>> {
         let schema = self.schema_registry.get(schema_name)?;
-        self.hook_registry
+        self.schema_registry
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
+    }
+
+    /// Returns `true` if an on_save hook is registered for `schema_name`.
+    pub fn has_hook(&self, schema_name: &str) -> bool {
+        self.schema_registry.has_hook(schema_name)
     }
 
     /// Returns `true` if a view hook is registered for `schema_name`.
     pub fn has_view_hook(&self, schema_name: &str) -> bool {
-        self.hook_registry.has_view_hook(schema_name)
+        self.schema_registry.has_view_hook(schema_name)
     }
 
     /// Renders a default HTML view for `note` using schema field type information.
@@ -319,7 +315,7 @@ impl ScriptRegistry {
 
         // Install query context, run hook, then clear.
         *self.query_context.lock().unwrap() = Some(context);
-        let result = self.hook_registry.run_on_view_hook(&self.engine, note_map);
+        let result = self.schema_registry.run_on_view_hook(&self.engine, note_map);
         *self.query_context.lock().unwrap() = None;
         result
     }
@@ -327,7 +323,6 @@ impl ScriptRegistry {
     /// Removes all registered schemas and hooks so scripts can be reloaded.
     pub fn clear_all(&self) {
         self.schema_registry.clear();
-        self.hook_registry.clear();
         *self.query_context.lock().unwrap() = None;
     }
 
@@ -350,23 +345,83 @@ mod tests {
         ))).expect("TextNote starter script should load");
     }
 
-    // ── hooks() accessor ────────────────────────────────────────────────────
+    // ── hooks-inside-schema (new style) ─────────────────────────────────────
 
     #[test]
-    fn test_hooks_accessor_returns_hook_registry() {
+    fn test_on_save_inside_schema_sets_title() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Person", #{
+                fields: [
+                    #{ name: "first", type: "text", required: false },
+                    #{ name: "last",  type: "text", required: false },
+                ],
+                on_save: |note| {
+                    note.title = note.fields["last"] + ", " + note.fields["first"];
+                    note
+                }
+            });
+        "#).unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
+        fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
+
+        let result = registry
+            .run_on_save_hook("Person", "id-1", "Person", "old title", &fields)
+            .unwrap();
+
+        assert!(result.is_some());
+        let (new_title, _) = result.unwrap();
+        assert_eq!(new_title, "Doe, John");
+    }
+
+    #[test]
+    fn test_on_view_inside_schema_returns_html() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [],
+                on_view: |note| {
+                    text("hello from view")
+                }
+            });
+        "#).unwrap();
+
+        use crate::Note;
+        let note = Note {
+            id: "n1".to_string(), node_type: "Folder".to_string(),
+            title: "F".to_string(), parent_id: None, position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            fields: std::collections::HashMap::new(), is_expanded: false,
+        };
+        let ctx = QueryContext {
+            notes_by_id: std::collections::HashMap::new(),
+            children_by_id: std::collections::HashMap::new(),
+            notes_by_type: std::collections::HashMap::new(),
+        };
+        let html = registry.run_on_view_hook(&note, ctx).unwrap();
+        assert!(html.is_some());
+        assert!(html.unwrap().contains("hello from view"));
+    }
+
+    // ── has_hook() ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_has_hook_after_schema_with_on_save() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry
             .load_script(
                 r#"
                 schema("Widget", #{
-                    fields: [ #{ name: "label", type: "text", required: false } ]
+                    fields: [ #{ name: "label", type: "text", required: false } ],
+                    on_save: |note| { note }
                 });
-                on_save("Widget", |note| { note });
             "#,
             )
             .unwrap();
-        assert!(registry.hooks().has_hook("Widget"));
-        assert!(!registry.hooks().has_hook("Missing"));
+        assert!(registry.has_hook("Widget"));
+        assert!(!registry.has_hook("Missing"));
     }
 
     // ── Schema registration ─────────────────────────────────────────────────
@@ -528,11 +583,11 @@ mod tests {
                     fields: [
                         #{ name: "first", type: "text", required: false },
                         #{ name: "last",  type: "text", required: false },
-                    ]
-                });
-                on_save("Person", |note| {
-                    note.title = note.fields["last"] + ", " + note.fields["first"];
-                    note
+                    ],
+                    on_save: |note| {
+                        note.title = note.fields["last"] + ", " + note.fields["first"];
+                        note
+                    }
                 });
             "#,
             )
@@ -570,7 +625,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
         ))).unwrap();
-        assert!(registry.hooks().has_hook("Contact"), "Contact schema should have an on_save hook");
+        assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
 
         let mut fields = HashMap::new();
         fields.insert("first_name".to_string(), FieldValue::Text("Jane".to_string()));
@@ -720,11 +775,11 @@ mod tests {
                 schema("FlagNote", #{
                     fields: [
                         #{ name: "flag", type: "boolean", required: false },
-                    ]
-                });
-                on_save("FlagNote", |note| {
-                    // intentionally does NOT touch note.fields["flag"]
-                    note
+                    ],
+                    on_save: |note| {
+                        // intentionally does NOT touch note.fields["flag"]
+                        note
+                    }
                 });
             "#,
             )
@@ -811,13 +866,15 @@ mod tests {
     fn test_hooks_cleared_on_clear_all() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Hooked", #{ fields: [#{ name: "x", type: "text" }] });
-            on_save("Hooked", |note| { note });
+            schema("Hooked", #{
+                fields: [#{ name: "x", type: "text" }],
+                on_save: |note| { note }
+            });
         "#).unwrap();
-        assert!(registry.hooks().has_hook("Hooked"));
+        assert!(registry.has_hook("Hooked"));
 
         registry.clear_all();
-        assert!(!registry.hooks().has_hook("Hooked"));
+        assert!(!registry.has_hook("Hooked"));
     }
 
     // ── Select / rating fields ──────────────────────────────────────────────
@@ -947,11 +1004,11 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("S", #{
-                fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ]
-            });
-            on_save("S", |note| {
-                note.fields.status = "B";
-                note
+                fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ],
+                on_save: |note| {
+                    note.fields.status = "B";
+                    note
+                }
             });
         "#).unwrap();
 
@@ -970,11 +1027,11 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("R", #{
-                fields: [ #{ name: "stars", type: "rating", max: 5 } ]
-            });
-            on_save("R", |note| {
-                note.fields.stars = 4.0;
-                note
+                fields: [ #{ name: "stars", type: "rating", max: 5 } ],
+                on_save: |note| {
+                    note.fields.stars = 4.0;
+                    note
+                }
             });
         "#).unwrap();
 
@@ -993,11 +1050,11 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("S2", #{
-                fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ]
-            });
-            on_save("S2", |note| {
-                // deliberately do NOT set note.fields.status
-                note
+                fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ],
+                on_save: |note| {
+                    // deliberately do NOT set note.fields.status
+                    note
+                }
             });
         "#).unwrap();
 
@@ -1014,11 +1071,11 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("R2", #{
-                fields: [ #{ name: "stars", type: "rating", max: 5 } ]
-            });
-            on_save("R2", |note| {
-                // deliberately do NOT set note.fields.stars
-                note
+                fields: [ #{ name: "stars", type: "rating", max: 5 } ],
+                on_save: |note| {
+                    // deliberately do NOT set note.fields.stars
+                    note
+                }
             });
         "#).unwrap();
 
@@ -1146,11 +1203,11 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("LinkTest", #{
-                fields: [#{ name: "ref_id", type: "text" }]
-            });
-            on_view("LinkTest", |note| {
-                let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, node_type: "TextNote" };
-                link_to(target)
+                fields: [#{ name: "ref_id", type: "text" }],
+                on_view: |note| {
+                    let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, node_type: "TextNote" };
+                    link_to(target)
+                }
             });
         "#).unwrap();
 

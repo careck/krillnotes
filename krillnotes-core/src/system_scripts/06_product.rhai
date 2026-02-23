@@ -15,28 +15,27 @@ schema("Product", #{
         #{ name: "category",     type: "text",     required: false                  },
         #{ name: "description",  type: "textarea", required: false                  },
         #{ name: "stock_status", type: "text",     required: false, can_edit: false  },
-    ]
-});
+    ],
+    on_save: |note| {
+        let name = note.fields["product_name"];
+        let sku  = note.fields["sku"];
 
-on_save("Product", |note| {
-    let name = note.fields["product_name"];
-    let sku  = note.fields["sku"];
+        note.title = if sku != "" {
+            name + " (" + sku + ")"
+        } else {
+            name
+        };
 
-    note.title = if sku != "" {
-        name + " (" + sku + ")"
-    } else {
-        name
-    };
+        let stock = note.fields["stock"];
+        // Note: stock defaults to 0.0 when not set. We treat 0.0 as "not entered"
+        // and only show a status badge when stock has been explicitly recorded.
+        // If you always want to show "Out of Stock" for zero stock, remove this guard.
+        note.fields["stock_status"] =
+            if stock < 0.0         { "❌ Out of Stock" }
+            else if stock == 0.0   { "" }
+            else if stock < 5.0    { "⚠️ Low Stock" }
+            else                   { "✅ In Stock" };
 
-    let stock = note.fields["stock"];
-    // Note: stock defaults to 0.0 when not set. We treat 0.0 as "not entered"
-    // and only show a status badge when stock has been explicitly recorded.
-    // If you always want to show "Out of Stock" for zero stock, remove this guard.
-    note.fields["stock_status"] =
-        if stock < 0.0         { "❌ Out of Stock" }
-        else if stock == 0.0   { "" }
-        else if stock < 5.0    { "⚠️ Low Stock" }
-        else                   { "✅ In Stock" };
-
-    note
+        note
+    }
 });
