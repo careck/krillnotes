@@ -23,6 +23,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [viewHistory, setViewHistory] = useState<string[]>([]);
   const selectedNoteIdRef = useRef(selectedNoteId);
   const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -150,12 +151,33 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   };
 
   const handleSelectNote = async (noteId: string) => {
+    setViewHistory([]);
     setSelectedNoteId(noteId);
     try {
       await invoke('set_selected_note', { noteId });
     } catch (err) {
       console.error('Failed to save selection:', err);
     }
+  };
+
+  const handleLinkNavigate = (noteId: string) => {
+    if (selectedNoteId) {
+      setViewHistory(h => [...h, selectedNoteId]);
+    }
+    setSelectedNoteId(noteId);
+    invoke('set_selected_note', { noteId }).catch(err =>
+      console.error('Failed to save selection:', err)
+    );
+  };
+
+  const handleBack = () => {
+    if (viewHistory.length === 0) return;
+    const prev = viewHistory[viewHistory.length - 1];
+    setViewHistory(h => h.slice(0, -1));
+    setSelectedNoteId(prev);
+    invoke('set_selected_note', { noteId: prev }).catch(err =>
+      console.error('Failed to save selection:', err)
+    );
   };
 
   const handleToggleExpand = async (noteId: string) => {
@@ -375,6 +397,10 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     ? notes.find(n => n.id === pendingDeleteId) || null
     : null;
 
+  const backNoteTitle = viewHistory.length > 0
+    ? (notes.find(n => n.id === viewHistory[viewHistory.length - 1])?.title ?? '…')
+    : undefined;
+
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -426,6 +452,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           onDeleteRequest={handleDeleteRequest}
           requestEditMode={requestEditMode}
           onEditDone={handleEditDone}
+          onLinkNavigate={handleLinkNavigate}
+          onBack={handleBack}
+          backNoteTitle={backNoteTitle}
         />
       </div>
 

@@ -12,6 +12,9 @@ interface InfoPanelProps {
   onDeleteRequest: (noteId: string) => void;
   requestEditMode: number;
   onEditDone: () => void;
+  onLinkNavigate: (noteId: string) => void;
+  onBack: () => void;
+  backNoteTitle?: string;
 }
 
 function defaultValueForFieldType(fieldType: string): FieldValue {
@@ -32,7 +35,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
   return false; // Number and Boolean are never empty
 }
 
-function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone }: InfoPanelProps) {
+function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle }: InfoPanelProps) {
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
     titleCanView: true,
@@ -283,12 +286,27 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         </div>
       </div>
 
+      {/* Back navigation — shown whenever history is non-empty, regardless of view type */}
+      {!isEditing && backNoteTitle !== undefined && (
+        <div className="kn-view-back">
+          <button onClick={onBack}>← Back to "{backNoteTitle}"</button>
+        </div>
+      )}
+
       {/* Fields Section */}
       <div className="mb-6">
         {/* Custom view rendered by an on_view hook — shown only in view mode */}
         {!isEditing && customViewHtml && (
           <div
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml) }}
+            onClick={(e) => {
+              const link = (e.target as Element).closest('.kn-view-link');
+              if (link) {
+                e.preventDefault();
+                const noteId = link.getAttribute('data-note-id');
+                if (noteId) onLinkNavigate(noteId);
+              }
+            }}
           />
         )}
 
