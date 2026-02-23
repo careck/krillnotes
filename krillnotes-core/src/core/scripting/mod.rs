@@ -282,6 +282,18 @@ impl ScriptRegistry {
         self.hook_registry.has_view_hook(schema_name)
     }
 
+    /// Renders a default HTML view for `note` using schema field type information.
+    ///
+    /// Used when no `on_view` hook is registered for the note's type — the result
+    /// is sent to the frontend instead of falling back to `FieldDisplay.tsx`.
+    ///
+    /// Textarea fields are rendered as CommonMark HTML; all other fields are
+    /// HTML-escaped plain text. Fields not in the schema appear in a legacy section.
+    pub fn render_default_view(&self, note: &Note) -> String {
+        let schema = self.schema_registry.get(&note.node_type).ok();
+        display_helpers::render_default_view(note, schema.as_ref())
+    }
+
     /// Runs the view hook registered for the given note's schema, if any.
     ///
     /// Populates the query context from `context`, calls the hook, then clears
@@ -1084,6 +1096,34 @@ mod tests {
         let (title, out_fields) = result.unwrap().unwrap();
         assert_eq!(title, "Herbert: Dune");
         assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
+    }
+
+    // ── render_default_view on ScriptRegistry ───────────────────────────────
+
+    #[test]
+    fn test_script_registry_render_default_view_textarea_markdown() {
+        use crate::{FieldValue, Note};
+        use std::collections::HashMap;
+
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Memo", #{
+                fields: [
+                    #{ name: "body", type: "textarea", required: false }
+                ]
+            });
+        "#).unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("body".into(), FieldValue::Text("**important**".into()));
+        let note = Note {
+            id: "n1".into(), title: "Test".into(), node_type: "Memo".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0, fields, is_expanded: false,
+        };
+
+        let html = registry.render_default_view(&note);
+        assert!(html.contains("<strong>important</strong>"), "got: {html}");
     }
 
     // ── markdown() Rhai host function ───────────────────────────────────────
