@@ -298,7 +298,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         {/* Custom view rendered by an on_view hook — shown only in view mode */}
         {!isEditing && customViewHtml && (
           <div
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml) }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id'] }) }}
             onClick={(e) => {
               const link = (e.target as Element).closest('.kn-view-link');
               if (link) {
