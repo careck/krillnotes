@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import TreeView from './TreeView';
 import SearchBar from './SearchBar';
@@ -94,10 +93,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Set up menu listener
   useEffect(() => {
-    const unlisten = listen<string>('menu-action', async (event) => {
-      const isFocused = await getCurrentWebviewWindow().isFocused();
-      if (!isFocused) return;
-
+    const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
       if (event.payload === 'Edit > Add Note clicked') {
         setShowAddDialog(true);
       }
