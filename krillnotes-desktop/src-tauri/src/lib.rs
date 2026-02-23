@@ -97,13 +97,20 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
 
 /// Opens a new 1024×768 webview window with the given `label`.
 ///
+/// The menu is built and attached explicitly so that Windows workspace windows
+/// get a menu bar. On macOS the app-level menu set in `setup()` is shared
+/// globally, but on Windows each window owns its own menu bar and does not
+/// inherit the app-level default when created after startup.
+///
 /// # Errors
 ///
-/// Returns an error string if Tauri fails to construct the window.
+/// Returns an error string if Tauri fails to build the menu or the window.
 fn create_workspace_window(
     app: &AppHandle,
     label: &str
 ) -> std::result::Result<tauri::WebviewWindow, String> {
+    let menu = menu::build_menu(app)
+        .map_err(|e| format!("Failed to build menu: {e}"))?;
     tauri::WebviewWindowBuilder::new(
         app,
         label,
@@ -112,6 +119,7 @@ fn create_workspace_window(
     .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
     .disable_drag_drop_handler()
+    .menu(menu)
     .build()
     .map_err(|e| format!("Failed to create window: {e}"))
 }
