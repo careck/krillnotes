@@ -24,6 +24,7 @@ const createMenuHandlers = (
   setShowOpenWorkspace: (show: boolean) => void,
   setShowSettings: (show: boolean) => void,
   setImportState: (state: ImportState | null) => void,
+  workspace: WorkspaceInfoType | null,
 ) => ({
   'File > New Workspace clicked': () => {
     setShowNewWorkspace(true);
@@ -37,7 +38,7 @@ const createMenuHandlers = (
     try {
       const path = await save({
         filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
-        defaultPath: 'workspace.krillnotes.zip',
+        defaultPath: `${(workspace?.filename ?? 'workspace').replace(/\.db$/, '')}.krillnotes.zip`,
         title: 'Export Workspace'
       });
 
@@ -138,6 +139,7 @@ function App() {
       setShowOpenWorkspace,
       setShowSettings,
       setImportState,
+      workspace,
     );
 
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
@@ -146,7 +148,7 @@ function App() {
     });
 
     return () => { unlisten.then(f => f()); };
-  }, []);
+  }, [workspace]);
 
   // Reset import dialog state when it opens
   useEffect(() => {
