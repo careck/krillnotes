@@ -172,6 +172,7 @@ impl ScriptRegistry {
         engine.register_fn("badge",   display_helpers::badge_colored);
         engine.register_fn("divider", display_helpers::divider);
         engine.register_fn("link_to", display_helpers::link_to);
+        engine.register_fn("markdown", display_helpers::rhai_markdown);
 
         Ok(Self {
             engine,
@@ -1083,6 +1084,19 @@ mod tests {
         let (title, out_fields) = result.unwrap().unwrap();
         assert_eq!(title, "Herbert: Dune");
         assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
+    }
+
+    // ── markdown() Rhai host function ───────────────────────────────────────
+
+    #[test]
+    fn test_markdown_rhai_function_renders_bold() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let script = r#"
+            let result = markdown("**hello**");
+            result
+        "#;
+        let result = registry.engine.eval::<String>(script).unwrap();
+        assert!(result.contains("<strong>hello</strong>"), "got: {result}");
     }
 
     // ── link_to integration ─────────────────────────────────────────────────
