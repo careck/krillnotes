@@ -482,11 +482,6 @@ impl Workspace {
         rows.into_iter().map(note_from_row_tuple).collect()
     }
 
-    /// Runs the `on_view` hook registered for the note's schema, if any.
-    ///
-    /// Fetches all notes from the database to build a [`QueryContext`] so that
-    /// `get_children`, `get_note`, and `get_notes_of_type` are available to
-    /// the hook script.
     /// Runs the `on_view` hook for the note's schema, falling back to a default
     /// HTML view when no hook is registered.
     ///

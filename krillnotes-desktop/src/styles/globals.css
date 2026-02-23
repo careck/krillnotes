@@ -175,3 +175,4 @@ body {
                                      border-bottom: 1px solid var(--color-border); }
 .kn-view-markdown td               { padding: 0.25rem 0.75rem 0.25rem 0;
                                      vertical-align: top; }
+.kn-view-section--legacy        { margin-top: 0.75rem; }
