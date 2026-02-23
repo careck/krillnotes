@@ -404,7 +404,7 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
         }
         if !legacy_parts.is_empty() {
             parts.push(format!(
-                "<div class=\"kn-view-section\" style=\"margin-top:0.75rem\">\
+                "<div class=\"kn-view-section kn-view-section--legacy\">\
                    <div class=\"kn-view-section-title\">Legacy Fields</div>\
                    {}\
                  </div>",
@@ -591,6 +591,45 @@ mod tests {
 
         let html = render_default_view(&note, Some(&schema));
         assert!(!html.contains("hidden"), "can_view:false fields must not appear");
+    }
+
+    #[test]
+    fn test_render_default_view_textarea_passes_html_to_domhpurify() {
+        // pulldown-cmark passes inline HTML through; DOMPurify on the frontend
+        // is the only XSS defence for the textarea path. This test documents
+        // that contract so it is not accidentally "fixed" by escaping at this layer.
+        use crate::{FieldValue, Note};
+        use crate::{FieldDefinition, Schema};
+        use std::collections::HashMap;
+
+        let mut fields = HashMap::new();
+        fields.insert("body".into(), FieldValue::Text("<em>italic</em> and **bold**".into()));
+
+        let note = Note {
+            id: "sec1".into(), title: "T".into(), node_type: "T".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0, fields, is_expanded: false,
+        };
+        let schema = Schema {
+            name: "T".into(),
+            fields: vec![FieldDefinition {
+                name: "body".into(), field_type: "textarea".into(),
+                required: false, can_view: true, can_edit: true,
+                options: vec![], max: 0,
+            }],
+            title_can_view: true, title_can_edit: true,
+            children_sort: "none".into(),
+            allowed_parent_types: vec![], allowed_children_types: vec![],
+        };
+
+        let html = render_default_view(&note, Some(&schema));
+        // Must be wrapped in the markdown class (backend renders it).
+        assert!(html.contains("kn-view-markdown"), "got: {html}");
+        // pulldown-cmark renders **bold** as <strong>bold</strong>
+        assert!(html.contains("<strong>bold</strong>"), "got: {html}");
+        // The inline HTML <em>italic</em> is passed through by pulldown-cmark
+        // (not double-escaped) — DOMPurify handles final sanitisation.
+        assert!(html.contains("<em>italic</em>"), "inline HTML should pass through, got: {html}");
     }
 
     #[test]
