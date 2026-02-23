@@ -90,14 +90,11 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           setIsEditing(true);
           pendingEditModeRef.current = false;
         }
-        // Fetch custom view HTML if the schema has an on_view hook.
-        if (info.hasViewHook) {
-          invoke<string | null>('get_note_view', { noteId: selectedNote.id })
-            .then(html => setCustomViewHtml(html ?? null))
-            .catch(() => setCustomViewHtml(null));
-        } else {
-          setCustomViewHtml(null);
-        }
+        // Always fetch the view HTML; the backend generates a default view
+        // for notes without an on_view hook (textarea fields render as markdown).
+        invoke<string>('get_note_view', { noteId: selectedNote.id })
+          .then(html => setCustomViewHtml(html))
+          .catch(() => setCustomViewHtml(null));
       })
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
@@ -163,7 +160,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   };
 
   const handleEdit = () => {
-    setCustomViewHtml(null); // clear while editing; will re-fetch on return to view
+    // No need to clear customViewHtml — the HTML panel is hidden in edit mode
+    // by the !isEditing condition, so the old HTML stays ready for when the
+    // user cancels without saving.
     setIsEditing(true);
   };
 
@@ -195,12 +194,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       setIsDirty(false);
       onNoteUpdated();
       onEditDone();
-      // Re-fetch custom view HTML after save (on_save may have changed field values).
-      if (schemaInfo.hasViewHook) {
-        invoke<string | null>('get_note_view', { noteId: selectedNote.id })
-          .then(html => setCustomViewHtml(html ?? null))
-          .catch(() => setCustomViewHtml(null));
-      }
+      // Re-fetch view HTML after save — on_save may have changed field values.
+      invoke<string>('get_note_view', { noteId: selectedNote.id })
+        .then(html => setCustomViewHtml(html))
+        .catch(() => setCustomViewHtml(null));
     } catch (err) {
       alert(`Failed to save: ${err}`);
     }
