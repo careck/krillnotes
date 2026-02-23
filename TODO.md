@@ -45,9 +45,9 @@
 
 ✅ DONE! create a new File system menu and move load and save workspace to this. Move settings to the Krillnotes menu.
 
-[x] add the view function link_to(note) to the view commands. As part of this feature you will also need to implement a note view history and back button functionality, so that the user can go back to the original viewed note after following a link from another note.
+✅ DONE! add the view function link_to(note) to the view commands. As part of this feature you will also need to implement a note view history and back button functionality, so that the user can go back to the original viewed note after following a link from another note.
 
-[ ] I know how to manually build a MacOS app bundle using tauri build, but I would like to automate this using github actions. Please suggest ways to: 1. kick this off by either setting a release tag or pushing a tag to the repo; 2. create an artifact automatically for the release for windows, macos and linux.
+✅ DONE! I know how to manually build a MacOS app bundle using tauri build, but I would like to automate this using github actions. Please suggest ways to: 1. kick this off by either setting a release tag or pushing a tag to the repo; 2. create an artifact automatically for the release for windows, macos and linux.
 
 
 

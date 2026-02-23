@@ -83,6 +83,18 @@ The file is a standard SQLite 3 database and can be opened with any SQLite brows
 
 ---
 
+## macOS: "App is damaged" warning
+
+macOS Gatekeeper blocks unsigned apps with an "app is damaged and can't be opened" message. To bypass this after installing from the `.dmg`:
+
+```bash
+xattr -cr /Applications/krillnotes-desktop.app
+```
+
+This removes the quarantine flag macOS adds when mounting a DMG. The app will open normally afterwards.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
