@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] — 2026-02-24
+
+> **Breaking change:** The workspace file format has changed due to database encryption. Workspaces created with v0.1.x cannot be opened directly — export them from the old version and re-import into v0.2.0.
+
 ### Added
 - **Database encryption** — All workspaces are now encrypted at rest using SQLCipher (AES-256). Passwords are stored in the OS keychain by default, with a toggle to cache them in-session only. Existing unencrypted workspaces must be exported and re-imported.
 - **Encrypted exports** — Export archives can be password-protected with AES-256. Krillnotes automatically detects encrypted archives on import and prompts for the password.
@@ -14,8 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hooks inside schema** — `on_save` and `on_view` hooks are now defined directly inside the `schema()` block, making scripts self-contained and removing any ambiguity about which hook runs for a given note type.
 - **Script compile error reporting** — Saving a user script that contains a syntax or compile error now shows an error message instead of silently discarding the save.
 - **Script name in hook error messages** — Runtime errors thrown by `on_save` or `on_view` hooks now include the name of the script that caused the error, making debugging much easier.
-
-### Added
 - **Copy and paste notes** — Any note (and its entire descendant subtree) can be copied and pasted as a child or sibling of any compatible target note. Available via right-click context menu, Edit menu, and keyboard shortcuts (⌘C / ⌘V / ⌘⇧V). Schema constraints are enforced silently — invalid paste targets are ignored, matching the behaviour of drag-and-drop move.
 - **Humanised field labels** — field names are now displayed in Title Case in both view and edit mode (e.g. `note_title` → "Note Title", `first_name` → "First Name").
 - **Script load-order drag reordering** — User scripts in the Script Manager can now be reordered by dragging the grip handle on the left of each row. The visual order in the list is immediately persisted to the database and the script engine reloads in the new order.
@@ -98,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/careck/krillnotes/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/careck/krillnotes/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/careck/krillnotes/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/careck/krillnotes/releases/tag/v0.1.0
