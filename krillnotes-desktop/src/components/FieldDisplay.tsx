@@ -1,5 +1,6 @@
 import { Check, X } from 'lucide-react';
 import type { FieldValue, FieldType } from '../types';
+import { humaniseKey } from '../utils/humanise';
 
 interface FieldDisplayProps {
   fieldName: string;
@@ -44,7 +45,7 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
   return (
     <>
       <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">
-        {fieldName}
+        {humaniseKey(fieldName)}
       </dt>
       <dd className="m-0 text-foreground">
         {renderValue()}
