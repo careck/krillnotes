@@ -33,6 +33,9 @@ pub struct AppState {
     /// native menu events to the correct window without relying on async
     /// focus checks in the frontend (which are unreliable on Windows).
     pub focused_window: Arc<Mutex<Option<String>>>,
+    /// In-memory password cache keyed by workspace file path.
+    /// Populated only when settings.cacheWorkspacePasswords is true.
+    pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,
 }
 
 /// Serialisable summary of an open workspace, returned to the frontend.
@@ -954,6 +957,7 @@ pub fn run() {
             workspaces: Arc::new(Mutex::new(HashMap::new())),
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
+            workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();

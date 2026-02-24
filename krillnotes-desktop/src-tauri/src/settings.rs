@@ -13,6 +13,10 @@ use std::path::PathBuf;
 pub struct AppSettings {
     /// Directory where new workspaces are created and listed from.
     pub workspace_directory: String,
+    /// When true, the app caches workspace passwords in memory for the
+    /// duration of the session so the user is not re-prompted on reopen.
+    #[serde(default)]
+    pub cache_workspace_passwords: bool,
 }
 
 impl Default for AppSettings {
@@ -21,6 +25,7 @@ impl Default for AppSettings {
             workspace_directory: default_workspace_directory()
                 .to_string_lossy()
                 .to_string(),
+            cache_workspace_passwords: false,
         }
     }
 }
