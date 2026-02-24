@@ -203,7 +203,7 @@ async fn create_workspace(
         }
         None => {
             let label = generate_unique_label(&state, &path_buf);
-            let workspace = Workspace::create(&path_buf)
+            let workspace = Workspace::create(&path_buf, "")
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
             let new_window = create_workspace_window(&app, &label)?;

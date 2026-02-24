@@ -26,8 +26,10 @@ impl Storage {
     /// created or the schema SQL fails to execute.
     pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
-        let escaped = password.replace('\'', "''");
-        conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
+        if !password.is_empty() {
+            let escaped = password.replace('\'', "''");
+            conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
+        }
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(Self { conn })
     }
@@ -49,8 +51,10 @@ impl Storage {
     /// any other SQLite error.
     pub fn open<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let conn = Connection::open(path.as_ref())?;
-        let escaped = password.replace('\'', "''");
-        conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
+        if !password.is_empty() {
+            let escaped = password.replace('\'', "''");
+            conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
+        }
 
         // Attempt to read the schema. With a wrong password, SQLCipher returns
         // garbage bytes and the query either errors or returns zero matching tables.

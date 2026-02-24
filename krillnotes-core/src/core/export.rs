@@ -467,7 +467,7 @@ mod tests {
     fn test_export_workspace_creates_valid_zip() {
         // Create a workspace with a note and a script
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Add a user script (unique name to avoid collision with starters)
         let script_source =
@@ -508,7 +508,7 @@ mod tests {
     fn test_peek_import_reads_metadata() {
         // Create a workspace with a script
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let script_source =
             "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ fields: [] });";
@@ -534,7 +534,7 @@ mod tests {
     fn test_round_trip_export_import() {
         // Create a workspace with nested notes and a script
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path()).unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "Root Note".to_string()).unwrap();
@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn test_export_with_password_creates_encrypted_zip() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("hunter2")).unwrap();
@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn test_export_without_password_creates_plain_zip() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -655,7 +655,7 @@ mod tests {
     fn test_read_entry_wrong_password_returns_invalid_password() {
         // Export with a password
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("correct")).unwrap();
 
@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn test_peek_import_returns_encrypted_archive_error_when_no_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -679,7 +679,7 @@ mod tests {
     #[test]
     fn test_peek_import_with_correct_password_succeeds() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -692,7 +692,7 @@ mod tests {
     #[test]
     fn test_peek_import_with_wrong_password_returns_invalid_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn test_encrypted_round_trip_import() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path()).unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "Encrypted Root".to_string()).unwrap();
 

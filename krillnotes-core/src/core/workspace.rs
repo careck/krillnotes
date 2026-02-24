@@ -45,8 +45,8 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
-    pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let mut storage = Storage::create(&path, "")?;
+    pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
+        let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 
@@ -1439,7 +1439,7 @@ mod tests {
     #[test]
     fn test_create_workspace() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path()).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         // Verify root note exists
         let count: i64 = ws
@@ -1460,7 +1460,7 @@ mod tests {
     #[test]
     fn test_create_and_get_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws
@@ -1475,7 +1475,7 @@ mod tests {
     #[test]
     fn test_update_note_title() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "New Title".to_string())
@@ -1491,7 +1491,7 @@ mod tests {
 
         // Create workspace first
         {
-            let ws = Workspace::create(temp.path()).unwrap();
+            let ws = Workspace::create(temp.path(), "").unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
             assert_eq!(root.node_type, "TextNote");
         }
@@ -1508,7 +1508,7 @@ mod tests {
     #[test]
     fn test_is_expanded_defaults_to_true() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Check root note is expanded by default
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -1529,7 +1529,7 @@ mod tests {
 
         // Create workspace with notes
         {
-            let mut ws = Workspace::create(temp.path()).unwrap();
+            let mut ws = Workspace::create(temp.path(), "").unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
             ws.create_note(&root.id, AddPosition::AsChild, "TextNote")
                 .unwrap();
@@ -1546,7 +1546,7 @@ mod tests {
     #[test]
     fn test_toggle_note_expansion() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         assert!(root.is_expanded, "Root should start expanded");
@@ -1565,7 +1565,7 @@ mod tests {
     #[test]
     fn test_toggle_note_expansion_with_child_notes() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws
@@ -1586,7 +1586,7 @@ mod tests {
     #[test]
     fn test_toggle_note_expansion_nonexistent_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Try to toggle a note that doesn't exist
         let result = ws.toggle_note_expansion("nonexistent-id");
@@ -1596,7 +1596,7 @@ mod tests {
     #[test]
     fn test_set_and_get_selected_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
 
@@ -1621,7 +1621,7 @@ mod tests {
 
         // Create workspace and set selection
         {
-            let mut ws = Workspace::create(temp.path()).unwrap();
+            let mut ws = Workspace::create(temp.path(), "").unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
             ws.set_selected_note(Some(&root.id)).unwrap();
         }
@@ -1636,7 +1636,7 @@ mod tests {
     #[test]
     fn test_set_selected_note_overwrites_previous() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws
@@ -1657,7 +1657,7 @@ mod tests {
     #[test]
     fn test_create_note_root() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Delete existing root note to simulate empty workspace
         let existing_root = ws.list_all_notes().unwrap()[0].clone();
@@ -1680,7 +1680,7 @@ mod tests {
     #[test]
     fn test_create_note_root_invalid_type() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Delete existing root note
         let existing_root = ws.list_all_notes().unwrap()[0].clone();
@@ -1697,7 +1697,7 @@ mod tests {
     #[test]
     fn test_sibling_insertion_does_not_create_duplicate_positions() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
 
@@ -1721,7 +1721,7 @@ mod tests {
     #[test]
     fn test_get_note_with_corrupt_fields_json_returns_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
 
         // Corrupt the stored JSON directly.
@@ -1738,7 +1738,7 @@ mod tests {
     #[test]
     fn test_list_all_notes_with_corrupt_fields_json_returns_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
 
         ws.storage.connection_mut().execute(
@@ -1753,7 +1753,7 @@ mod tests {
     #[test]
     fn test_sibling_insertion_preserves_correct_order() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
 
@@ -1776,7 +1776,7 @@ mod tests {
     #[test]
     fn test_update_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Get the root note
         let notes = ws.list_all_notes().unwrap();
@@ -1802,7 +1802,7 @@ mod tests {
     #[test]
     fn test_update_note_not_found() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let result = ws.update_note("nonexistent-id", "Title".to_string(), HashMap::new());
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
@@ -1811,7 +1811,7 @@ mod tests {
     #[test]
     fn test_count_children() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Get root note
         let notes = ws.list_all_notes().unwrap();
@@ -1837,7 +1837,7 @@ mod tests {
     #[test]
     fn test_delete_note_recursive() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Get root note
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -1868,7 +1868,7 @@ mod tests {
     #[test]
     fn test_delete_note_recursive_not_found() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
         let result = ws.delete_note_recursive("nonexistent-id");
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
     }
@@ -1876,7 +1876,7 @@ mod tests {
     #[test]
     fn test_delete_note_promote() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Get root note
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -1910,7 +1910,7 @@ mod tests {
     #[test]
     fn test_update_contact_rejects_empty_required_fields() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
         // Contact schema is already loaded from starter scripts.
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
@@ -1948,7 +1948,7 @@ mod tests {
     #[test]
     fn test_delete_note_promote_not_found() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let result = ws.delete_note_promote("nonexistent-id");
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
@@ -1961,7 +1961,7 @@ mod tests {
     #[test]
     fn test_delete_note_promote_no_position_collision() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Build tree: root -> sib1 (pos 0) -> child1 (pos 0)
         //                                   -> child2 (pos 1)
@@ -2007,7 +2007,7 @@ mod tests {
     #[test]
     fn test_update_contact_derives_title_from_hook() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
         // Contact schema is already loaded from starter scripts.
 
         let notes = ws.list_all_notes().unwrap();
@@ -2052,7 +2052,7 @@ mod tests {
     #[test]
     fn test_workspace_created_with_starter_scripts() {
         let temp = NamedTempFile::new().unwrap();
-        let workspace = Workspace::create(temp.path()).unwrap();
+        let workspace = Workspace::create(temp.path(), "").unwrap();
         let scripts = workspace.list_user_scripts().unwrap();
         assert!(!scripts.is_empty(), "New workspace should have starter scripts");
         // Verify first starter script is TextNote
@@ -2064,7 +2064,7 @@ mod tests {
     #[test]
     fn test_create_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ fields: [] });";
         let script = workspace.create_user_script(source).unwrap();
@@ -2077,7 +2077,7 @@ mod tests {
     #[test]
     fn test_create_user_script_missing_name_fails() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let source = "// no name here\nschema(\"X\", #{ fields: [] });";
         let result = workspace.create_user_script(source);
         assert!(result.is_err());
@@ -2086,7 +2086,7 @@ mod tests {
     #[test]
     fn test_update_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let source = "// @name: Original\nschema(\"Orig\", #{ fields: [] });";
         let script = workspace.create_user_script(source).unwrap();
 
@@ -2098,7 +2098,7 @@ mod tests {
     #[test]
     fn test_delete_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let initial_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: ToDelete\nschema(\"Del\", #{ fields: [] });";
         let script = workspace.create_user_script(source).unwrap();
@@ -2111,7 +2111,7 @@ mod tests {
     #[test]
     fn test_toggle_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let source = "// @name: Toggle\nschema(\"Tog\", #{ fields: [] });";
         let script = workspace.create_user_script(source).unwrap();
         assert!(script.enabled);
@@ -2124,7 +2124,7 @@ mod tests {
     #[test]
     fn test_user_scripts_sorted_by_load_order() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path()).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
 
         let s1 = "// @name: Second\nschema(\"S2\", #{ fields: [] });";
@@ -2145,7 +2145,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
 
         {
-            let mut workspace = Workspace::create(temp.path()).unwrap();
+            let mut workspace = Workspace::create(temp.path(), "").unwrap();
             workspace.create_user_script(
                 "// @name: TestOpen\nschema(\"OpenType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap();
@@ -2160,7 +2160,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
 
         {
-            let mut workspace = Workspace::create(temp.path()).unwrap();
+            let mut workspace = Workspace::create(temp.path(), "").unwrap();
             let script = workspace.create_user_script(
                 "// @name: Disabled\nschema(\"DisType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap();
@@ -2174,7 +2174,7 @@ mod tests {
     #[test]
     fn test_delete_note_with_strategy() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
@@ -2206,7 +2206,7 @@ mod tests {
     /// preserves that order: `child_ids[0]` is at position 0, etc.
     fn setup_with_children(n: usize) -> (Workspace, String, Vec<String>, NamedTempFile) {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         let mut child_ids: Vec<String> = Vec::new();
         for i in 0..n {
@@ -2304,7 +2304,7 @@ mod tests {
     #[test]
     fn test_run_view_hook_returns_html_without_hook() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         // Load a schema with a textarea field but no on_view hook.
         ws.create_user_script(
@@ -2340,7 +2340,7 @@ schema("Memo", #{
     #[test]
     fn test_create_user_script_rejects_compile_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let initial_count = ws.list_user_scripts().unwrap().len();
 
@@ -2357,7 +2357,7 @@ schema("Memo", #{
     #[test]
     fn test_update_user_script_rejects_compile_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path()).unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
 
         let initial_count = ws.list_user_scripts().unwrap().len();
 
@@ -2379,5 +2379,29 @@ schema("Memo", #{
             saved.source_code, valid_script,
             "Source code must be unchanged after failed update"
         );
+    }
+
+    #[test]
+    fn test_create_workspace_with_password() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path(), "secret").unwrap();
+        // Should have at least one note (the root note)
+        assert!(!ws.list_all_notes().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_open_workspace_with_password() {
+        let temp = NamedTempFile::new().unwrap();
+        Workspace::create(temp.path(), "secret").unwrap();
+        let ws = Workspace::open(temp.path(), "secret").unwrap();
+        assert!(!ws.list_all_notes().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_open_workspace_wrong_password() {
+        let temp = NamedTempFile::new().unwrap();
+        Workspace::create(temp.path(), "secret").unwrap();
+        let result = Workspace::open(temp.path(), "wrong");
+        assert!(matches!(result, Err(KrillnotesError::WrongPassword)));
     }
 }
