@@ -221,19 +221,30 @@ pub fn export_workspace<W: Write + Seek>(
 ///
 /// # Errors
 ///
-/// Returns [`ExportError::InvalidFormat`] if the format version is not `1` or
-/// `notes.json` is missing. Returns other `ExportError` variants for I/O, zip,
-/// or JSON failures.
-pub fn peek_import<R: Read + Seek>(reader: R) -> Result<ImportResult, ExportError> {
+/// Returns [`ExportError::EncryptedArchive`] if the archive is encrypted and no
+/// password is provided. Returns [`ExportError::InvalidPassword`] if the password
+/// is wrong. Returns [`ExportError::InvalidFormat`] if the format version is not
+/// `1` or `notes.json` is missing. Returns other `ExportError` variants for I/O,
+/// zip, or JSON failures.
+pub fn peek_import<R: Read + Seek>(reader: R, password: Option<&str>) -> Result<ImportResult, ExportError> {
     let mut archive = ZipArchive::new(reader)?;
 
-    // Read and parse notes.json
-    let notes_file = archive.by_name("notes.json").map_err(|_| {
-        ExportError::InvalidFormat("Missing notes.json in archive".to_string())
-    })?;
-    let export_notes: ExportNotes = serde_json::from_reader(notes_file)?;
+    // Detect encryption before trying to read data.
+    // by_index_raw reads metadata without decrypting, so .encrypted() is safe to call
+    // without a password.
+    {
+        let index = archive.index_for_name("notes.json").ok_or_else(|| {
+            ExportError::InvalidFormat("Missing notes.json in archive".to_string())
+        })?;
+        let check = archive.by_index_raw(index).map_err(ExportError::Zip)?;
+        if check.encrypted() && password.is_none() {
+            return Err(ExportError::EncryptedArchive);
+        }
+    }
 
-    // Validate format version
+    let notes_cursor = read_entry(&mut archive, "notes.json", password)?;
+    let export_notes: ExportNotes = serde_json::from_reader(notes_cursor)?;
+
     if export_notes.version != 1 {
         return Err(ExportError::InvalidFormat(format!(
             "Unsupported export format version: {}",
@@ -241,13 +252,12 @@ pub fn peek_import<R: Read + Seek>(reader: R) -> Result<ImportResult, ExportErro
         )));
     }
 
-    // Count scripts from manifest (0 if missing)
-    let script_count = match archive.by_name("scripts/scripts.json") {
-        Ok(manifest_file) => {
-            let manifest: ScriptManifest = serde_json::from_reader(manifest_file)?;
+    let script_count = match try_read_entry(&mut archive, "scripts/scripts.json", password) {
+        Some(manifest_cursor) => {
+            let manifest: ScriptManifest = serde_json::from_reader(manifest_cursor)?;
             manifest.scripts.len()
         }
-        Err(_) => 0,
+        None => 0,
     };
 
     Ok(ImportResult {
@@ -501,7 +511,7 @@ mod tests {
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         // Peek at the export
-        let result = peek_import(Cursor::new(&buf)).unwrap();
+        let result = peek_import(Cursor::new(&buf), None).unwrap();
         assert_eq!(result.app_version, APP_VERSION);
         assert_eq!(result.note_count, 1); // root note
         // Starter scripts + the user-created Widget script
@@ -644,6 +654,42 @@ mod tests {
         // Try to read an entry with the wrong password
         let mut archive = ZipArchive::new(Cursor::new(&buf)).unwrap();
         let err = read_entry(&mut archive, "notes.json", Some("wrong")).unwrap_err();
+        assert!(matches!(err, ExportError::InvalidPassword), "got: {err:?}");
+    }
+    #[test]
+    fn test_peek_import_returns_encrypted_archive_error_when_no_password() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path()).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
+
+        let err = peek_import(Cursor::new(&buf), None).unwrap_err();
+        assert!(matches!(err, ExportError::EncryptedArchive), "got: {err:?}");
+    }
+
+    #[test]
+    fn test_peek_import_with_correct_password_succeeds() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path()).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
+
+        let result = peek_import(Cursor::new(&buf), Some("s3cr3t")).unwrap();
+        assert_eq!(result.app_version, APP_VERSION);
+        assert!(result.note_count >= 1);
+    }
+
+    #[test]
+    fn test_peek_import_with_wrong_password_returns_invalid_password() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path()).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
+
+        let err = peek_import(Cursor::new(&buf), Some("wrong-password")).unwrap_err();
         assert!(matches!(err, ExportError::InvalidPassword), "got: {err:?}");
     }
 }
