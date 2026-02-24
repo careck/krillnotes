@@ -16,7 +16,7 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 mac_address = "1.1"
 include_dir = "0.7"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate", "aes-crypto"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 
 [dev-dependencies]
