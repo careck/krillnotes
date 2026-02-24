@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { GripVertical } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import ScriptEditor from './ScriptEditor';
 import type { UserScript } from '../types';
@@ -28,6 +29,8 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   const [editorContent, setEditorContent] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const loadScripts = useCallback(async () => {
     try {
@@ -131,6 +134,46 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     }
   };
 
+  const handleDragStart = (index: number) => {
+    setDragIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  };
+
+  const handleDrop = async (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const reordered = [...scripts];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(dropIndex, 0, moved);
+    setScripts(reordered);
+    setDragIndex(null);
+    setDragOverIndex(null);
+
+    try {
+      await invoke('reorder_all_user_scripts', {
+        scriptIds: reordered.map(s => s.id),
+      });
+      onScriptsChanged?.();
+    } catch (err) {
+      setError(`Failed to reorder scripts: ${err}`);
+      await loadScripts();
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-border rounded-lg w-[700px] h-[80vh] flex flex-col">
@@ -155,11 +198,24 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {scripts.map(script => (
+                  {scripts.map((script, index) => (
                     <div
                       key={script.id}
-                      className="flex items-center gap-3 p-3 border border-border rounded-md hover:bg-secondary/50"
+                      draggable
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      onDragEnd={handleDragEnd}
+                      className={[
+                        'flex items-center gap-3 p-3 border border-border rounded-md hover:bg-secondary/50 transition-opacity',
+                        dragIndex === index ? 'opacity-40' : '',
+                        dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-primary' : '',
+                      ].join(' ')}
                     >
+                      <GripVertical
+                        size={16}
+                        className="shrink-0 text-muted-foreground cursor-grab active:cursor-grabbing"
+                      />
                       <input
                         type="checkbox"
                         checked={script.enabled}
@@ -177,9 +233,6 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                           </div>
                         )}
                       </div>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        #{script.loadOrder}
-                      </span>
                       <button
                         onClick={() => handleEdit(script)}
                         className="px-2 py-1 text-sm border border-border rounded hover:bg-secondary"
