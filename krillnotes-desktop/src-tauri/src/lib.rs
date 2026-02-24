@@ -646,6 +646,35 @@ fn deep_copy_note_cmd(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn set_paste_menu_enabled(
+    state: State<'_, AppState>,
+    window: tauri::Window,
+    enabled: bool,
+) -> std::result::Result<(), String> {
+    let label = window.label().to_string();
+
+    #[cfg(target_os = "macos")]
+    {
+        let items = state.paste_menu_items.lock().expect("Mutex poisoned");
+        if let Some((child_item, sibling_item)) = items.get("macos") {
+            child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+            sibling_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let items = state.paste_menu_items.lock().expect("Mutex poisoned");
+        if let Some((child_item, sibling_item)) = items.get(&label) {
+            child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+            sibling_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
 // ── User-script commands ──────────────────────────────────────────
 
 /// Returns all user scripts for the calling window's workspace.
@@ -996,6 +1025,9 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_manage_scripts", "Edit > Manage Scripts clicked"),
     ("edit_settings", "Edit > Settings clicked"),
     ("view_operations_log", "View > Operations Log clicked"),
+    ("edit_copy_note",        "Edit > Copy Note clicked"),
+    ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
+    ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -1110,6 +1142,7 @@ pub fn run() {
             delete_note,
             move_note,
             deep_copy_note_cmd,
+            set_paste_menu_enabled,
             list_user_scripts,
             get_user_script,
             create_user_script,
