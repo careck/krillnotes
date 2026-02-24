@@ -751,23 +751,29 @@ fn export_workspace_cmd(
     window: tauri::Window,
     state: State<'_, AppState>,
     path: String,
+    password: Option<String>,
 ) -> std::result::Result<(), String> {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
 
     let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-    export_workspace(workspace, file).map_err(|e| e.to_string())
+    export_workspace(workspace, file, password.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Reads metadata from an export archive without creating a workspace.
 #[tauri::command]
 fn peek_import_cmd(
     zip_path: String,
+    password: Option<String>,
 ) -> std::result::Result<ImportResult, String> {
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
-    peek_import(reader).map_err(|e| e.to_string())
+    peek_import(reader, password.as_deref()).map_err(|e| match e {
+        ExportError::EncryptedArchive => "ENCRYPTED_ARCHIVE".to_string(),
+        ExportError::InvalidPassword => "INVALID_PASSWORD".to_string(),
+        other => other.to_string(),
+    })
 }
 
 /// Imports an export archive into a new workspace and opens it in a new window.
@@ -778,15 +784,14 @@ async fn execute_import(
     state: State<'_, AppState>,
     zip_path: String,
     db_path: String,
+    password: Option<String>,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let db_path_buf = PathBuf::from(&db_path);
 
-    // Import from zip into new database
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
-    import_workspace(reader, &db_path_buf).map_err(|e| e.to_string())?;
+    import_workspace(reader, &db_path_buf, password.as_deref()).map_err(|e| e.to_string())?;
 
-    // Open the imported workspace in a new window
     let workspace = Workspace::open(&db_path_buf).map_err(|e| e.to_string())?;
     let label = generate_unique_label(&state, &db_path_buf);
 
