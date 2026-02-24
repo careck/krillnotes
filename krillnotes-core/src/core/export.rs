@@ -280,14 +280,22 @@ pub fn peek_import<R: Read + Seek>(reader: R, password: Option<&str>) -> Result<
 /// Returns [`ExportError::InvalidFormat`] if `notes.json` is missing or the format
 /// version is not `1`. Returns [`ExportError::Database`] for any storage or SQL
 /// failure. Returns other `ExportError` variants for I/O, zip, or JSON errors.
-pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path) -> Result<ImportResult, ExportError> {
+pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Option<&str>) -> Result<ImportResult, ExportError> {
     let mut archive = ZipArchive::new(reader)?;
 
-    // Read and parse notes.json
-    let notes_file = archive.by_name("notes.json").map_err(|_| {
-        ExportError::InvalidFormat("Missing notes.json in archive".to_string())
-    })?;
-    let export_notes: ExportNotes = serde_json::from_reader(notes_file)?;
+    // Detect encryption (same pattern as peek_import)
+    {
+        let index = archive.index_for_name("notes.json").ok_or_else(|| {
+            ExportError::InvalidFormat("Missing notes.json in archive".to_string())
+        })?;
+        let check = archive.by_index_raw(index).map_err(ExportError::Zip)?;
+        if check.encrypted() && password.is_none() {
+            return Err(ExportError::EncryptedArchive);
+        }
+    }
+
+    let notes_cursor = read_entry(&mut archive, "notes.json", password)?;
+    let export_notes: ExportNotes = serde_json::from_reader(notes_cursor)?;
 
     // Validate format version
     if export_notes.version != 1 {
@@ -298,12 +306,12 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path) -> Result<Imp
     }
 
     // Read script manifest and source files
-    let manifest = match archive.by_name("scripts/scripts.json") {
-        Ok(manifest_file) => {
-            let m: ScriptManifest = serde_json::from_reader(manifest_file)?;
+    let manifest = match try_read_entry(&mut archive, "scripts/scripts.json", password) {
+        Some(manifest_cursor) => {
+            let m: ScriptManifest = serde_json::from_reader(manifest_cursor)?;
             Some(m)
         }
-        Err(_) => None,
+        None => None,
     };
 
     // Read each .rhai script source from the archive
@@ -311,14 +319,14 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path) -> Result<Imp
     if let Some(ref manifest) = manifest {
         for entry in &manifest.scripts {
             let path = format!("scripts/{}", entry.filename);
-            let mut rhai_file = archive.by_name(&path).map_err(|e| {
+            let mut rhai_cursor = read_entry(&mut archive, &path, password).map_err(|e| {
                 ExportError::InvalidFormat(format!(
                     "Script file '{}' referenced in manifest but missing from archive: {}",
                     path, e
                 ))
             })?;
             let mut source = String::new();
-            rhai_file.read_to_string(&mut source)?;
+            rhai_cursor.read_to_string(&mut source)?;
             script_sources.push((source, entry.load_order, entry.enabled));
         }
     }
@@ -552,7 +560,7 @@ mod tests {
 
         // Import into a new workspace file
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path()).unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None).unwrap();
 
         assert_eq!(result.app_version, APP_VERSION);
         assert_eq!(result.note_count, 3);
@@ -591,7 +599,7 @@ mod tests {
     #[test]
     fn test_import_invalid_zip() {
         let garbage = b"this is not a zip file at all";
-        let result = import_workspace(Cursor::new(garbage), Path::new("/tmp/invalid.db"));
+        let result = import_workspace(Cursor::new(garbage), Path::new("/tmp/invalid.db"), None);
         assert!(result.is_err());
     }
 
@@ -608,7 +616,7 @@ mod tests {
             zip.finish().unwrap();
         }
 
-        let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"));
+        let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"), None);
         assert!(matches!(result, Err(ExportError::InvalidFormat(_))));
     }
 
@@ -691,5 +699,27 @@ mod tests {
 
         let err = peek_import(Cursor::new(&buf), Some("wrong-password")).unwrap_err();
         assert!(matches!(err, ExportError::InvalidPassword), "got: {err:?}");
+    }
+
+    #[test]
+    fn test_encrypted_round_trip_import() {
+        let temp_src = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp_src.path()).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_title(&root.id, "Encrypted Root".to_string()).unwrap();
+
+        // Export with password
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), Some("mypass")).unwrap();
+
+        // Import with correct password → should succeed
+        let temp_dst = NamedTempFile::new().unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), Some("mypass")).unwrap();
+        assert_eq!(result.note_count, 1);
+
+        // Verify imported note title
+        let imported_ws = Workspace::open(temp_dst.path()).unwrap();
+        let notes = imported_ws.list_all_notes().unwrap();
+        assert!(notes.iter().any(|n| n.title == "Encrypted Root"));
     }
 }
