@@ -33,6 +33,14 @@ pub enum KrillnotesError {
     #[error("Invalid workspace: {0}")]
     InvalidWorkspace(String),
 
+    /// The supplied password is wrong for this workspace.
+    #[error("Wrong password for this workspace")]
+    WrongPassword,
+
+    /// The file is a valid but unencrypted (pre-encryption) workspace.
+    #[error("This workspace was created with an older version of Krillnotes and cannot be opened here")]
+    UnencryptedWorkspace,
+
     /// An I/O operation on the filesystem failed.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -40,6 +48,23 @@ pub enum KrillnotesError {
     /// Stored note data could not be deserialized from JSON.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wrong_password_variant_exists() {
+        let e = KrillnotesError::WrongPassword;
+        assert!(e.to_string().contains("password") || e.to_string().contains("Password"));
+    }
+
+    #[test]
+    fn test_unencrypted_workspace_variant_exists() {
+        let e = KrillnotesError::UnencryptedWorkspace;
+        assert!(e.to_string().contains("encrypted") || e.to_string().contains("older version"));
+    }
 }
 
 /// Convenience alias that pins the error type to [`KrillnotesError`].
@@ -59,6 +84,8 @@ impl KrillnotesError {
             Self::Json(e) => format!("Data format error: {e}"),
             Self::ValidationFailed(msg) => msg.clone(),
             Self::InvalidMove(msg) => msg.clone(),
+            Self::WrongPassword => "Wrong password — please try again".to_string(),
+            Self::UnencryptedWorkspace => "This workspace was created with an older version of Krillnotes. Please open it in the previous version, export it via File → Export Workspace, then import it here.".to_string(),
         }
     }
 }
