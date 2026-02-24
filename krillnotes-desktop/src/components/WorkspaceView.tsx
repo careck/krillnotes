@@ -166,7 +166,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       }
       setSelectedNoteId(newId);
     } catch (err) {
-      setError(`Paste failed: ${err}`);
+      console.error('Failed to paste note:', err);
     }
   }, [copiedNoteId, selectedNoteId]);
 
