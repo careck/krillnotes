@@ -305,7 +305,7 @@ impl Workspace {
             None
         };
 
-        let note = Note {
+        let mut note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
             node_type: note_type.to_string(),
@@ -363,6 +363,10 @@ impl Workspace {
                         "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3 WHERE id = ?4",
                         rusqlite::params![new_title, fields_json, now, note.id],
                     )?;
+                    // Keep note in sync with what was persisted so the operation log
+                    // records the final stored values, not the pre-hook defaults.
+                    note.title  = new_title;
+                    note.fields = new_fields;
                 }
                 if let Some((new_title, new_fields)) = hook_result.parent {
                     let fields_json = serde_json::to_string(&new_fields)?;
@@ -2718,5 +2722,48 @@ schema("Memo", #{
         let folder = ws.get_note(&folder_id).unwrap();
         assert_eq!(folder.title, "Folder (1)");
         assert_eq!(folder.fields["count"], FieldValue::Number(1.0));
+    }
+
+    #[test]
+    fn test_on_add_child_hook_fires_for_sibling_under_hooked_parent() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.script_registry_mut().load_script(r#"
+            schema("Folder", #{
+                fields: [
+                    #{ name: "count", type: "number", required: false },
+                ],
+                on_add_child: |parent_note, child_note| {
+                    parent_note.fields["count"] = parent_note.fields["count"] + 1.0;
+                    #{ parent: parent_note, child: child_note }
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let folder_id = ws.create_note(&root.id, AddPosition::AsChild, "Folder").unwrap();
+        // First child created as child of Folder (hook fires, count=1)
+        let first_item_id = ws.create_note(&folder_id, AddPosition::AsChild, "Item").unwrap();
+        // Second item created as sibling of first (still a child of Folder, hook should fire again, count=2)
+        ws.create_note(&first_item_id, AddPosition::AsSibling, "Item").unwrap();
+
+        let folder = ws.get_note(&folder_id).unwrap();
+        assert_eq!(folder.fields["count"], FieldValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_on_add_child_hook_does_not_fire_for_root_level_creation() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        // No on_add_child hook registered — creating a sibling of root should work silently
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        // This creates a sibling of root, which has no parent — should not panic or error
+        let result = ws.create_note(&root.id, AddPosition::AsSibling, "TextNote");
+        assert!(result.is_ok(), "sibling of root should succeed without hook");
     }
 }
