@@ -61,10 +61,15 @@
 
 ✅ DONE! When saving a rhai script in the script editor it fails silently if the script does not compile due to an error. It would be better to show an error message in that case and not save the edited script at all.
 
-[ ] When a hook (on_save, on_view) throws a runtime error, the error popup should include the name of the script it came from, so the user knows where to look. The line number is already correct.
+✅ DONE! When a hook (on_save, on_view) throws a runtime error, the error popup should include the name of the script it came from, so the user knows where to look. The line number is already correct.
 
 [ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way. Try to use OS keychain management if possible. When user tries to open an old unencrypted workspace, reject with a message that they need to get an older version of the app and export the workspace, then come to this version and import it again in this version.
 
 [ ] implement copy and paste of notes. When pasting a note to a different location then ask whether as a sibling or child. Copying a note should make a deep copy ofthe note's data and also make deep copies of all its children and children's children, etc. We don't need cut and paste because we already have the ability to move notes around in the tree view.
 
 [ ] I see that the default view of a note still displays the field names as they are in the database. It would look a lot better if these were humanised. For example, "note_title" should become "Note Title", etc. 
+
+[ ] user scripts have a loading order, but currently there is no way in the manage_script dialog to change this order. I think it would be cool if the order of scripts could be changed via drag handles.
+
+[ ] we need to account for the situation in which two scripts define the same schema, but in different ways. So script A defines "Contact" and script B also defines "Contact". In this case the first script should win and an error should pop up saying that script B tries to re-define an existing schema which is not allowed.
+
