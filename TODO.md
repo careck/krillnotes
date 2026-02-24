@@ -61,4 +61,8 @@
 
 [ ] When saving a rhai script in the script editor it fails silently if the script does not compile due to an error. It would be better to show an error message in that case and not save the edited script at all.
 
-[ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way, but old workspaces should be opened with a warning and a dialog to add a password to encrypt it. Try to use OS keychain management if possible.
+[ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way. Try to use OS keychain management if possible. When user tries to open an old unencrypted workspace, reject with a message that they need to get an older version of the app and export the workspace, then come to this version and import it again in this version.
+
+[ ] implement copy and paste of notes. When pasting a note to a different location then ask whether as a sibling or child. Copying a note should make a deep copy ofthe note's data and also make deep copies of all its children and children's children, etc. We don't need cut and paste because we already have the ability to move notes around in the tree view.
+
+[ ] I see that the default view of a note still displays the field names as they are in the database. It would look a lot better if these were humanised. For example, "note_title" should become "Note Title", etc. 
