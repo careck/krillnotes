@@ -165,6 +165,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         await invoke('toggle_note_expansion', { noteId: selectedNoteId, expanded: true });
       }
       setSelectedNoteId(newId);
+      setCopiedNoteId(null);
+      invoke('set_paste_menu_enabled', { enabled: false }).catch(console.error);
     } catch (err) {
       console.error('Failed to paste note:', err);
     }
