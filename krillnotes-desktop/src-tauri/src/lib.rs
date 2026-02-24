@@ -726,6 +726,22 @@ fn reorder_user_script(
         .map_err(|e| e.to_string())
 }
 
+/// Reassigns sequential load order to all scripts given in order, then reloads.
+#[tauri::command]
+fn reorder_all_user_scripts(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    script_ids: Vec<String>,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.reorder_all_user_scripts(&script_ids)
+        .map_err(|e| e.to_string())
+}
+
 // ── Operations log commands ──────────────────────────────────────
 
 /// Returns operation summaries matching the given filters.
@@ -1053,6 +1069,7 @@ pub fn run() {
             delete_user_script,
             toggle_user_script,
             reorder_user_script,
+            reorder_all_user_scripts,
             list_operations,
             purge_operations,
             export_workspace_cmd,
