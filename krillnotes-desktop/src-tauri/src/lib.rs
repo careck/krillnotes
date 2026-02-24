@@ -36,6 +36,10 @@ pub struct AppState {
     /// In-memory password cache keyed by workspace file path.
     /// Populated only when settings.cacheWorkspacePasswords is true.
     pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,
+    /// Paste menu item handles for dynamic enable/disable.
+    /// On macOS: one global pair keyed by "macos" (the menu bar is shared).
+    /// On Windows: keyed by window label (each window owns its own menu bar).
+    pub paste_menu_items: Arc<Mutex<HashMap<String, (tauri::menu::MenuItem<tauri::Wry>, tauri::menu::MenuItem<tauri::Wry>)>>>,
 }
 
 /// Serialisable summary of an open workspace, returned to the frontend.
@@ -112,8 +116,18 @@ fn create_workspace_window(
     app: &AppHandle,
     label: &str
 ) -> std::result::Result<tauri::WebviewWindow, String> {
-    let menu = menu::build_menu(app)
+    let menu_result = menu::build_menu(app)
         .map_err(|e| format!("Failed to build menu: {e}"))?;
+
+    // On Windows, store the paste handles per window label so
+    // set_paste_menu_enabled can find them later.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let state = app.state::<AppState>();
+        state.paste_menu_items.lock().expect("Mutex poisoned")
+            .insert(label.to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
+    }
+
     tauri::WebviewWindowBuilder::new(
         app,
         label,
@@ -122,7 +136,7 @@ fn create_workspace_window(
     .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
     .disable_drag_drop_handler()
-    .menu(menu)
+    .menu(menu_result.menu)
     .build()
     .map_err(|e| format!("Failed to create window: {e}"))
 }
@@ -1035,6 +1049,7 @@ pub fn run() {
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
             workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
+            paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();
@@ -1055,8 +1070,18 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu = menu::build_menu(app.handle())?;
-            app.set_menu(menu)?;
+            let menu_result = menu::build_menu(app.handle())?;
+            app.set_menu(menu_result.menu)?;
+
+            // On macOS the menu bar is global (shared by all windows).
+            // Store the paste handles under the "macos" key so that
+            // set_paste_menu_enabled can find them from any window.
+            #[cfg(target_os = "macos")]
+            {
+                let state = app.state::<AppState>();
+                state.paste_menu_items.lock().expect("Mutex poisoned")
+                    .insert("macos".to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
+            }
 
             // Ensure default workspace directory exists on startup
             let app_settings = settings::load_settings();
