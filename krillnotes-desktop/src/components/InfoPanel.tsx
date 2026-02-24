@@ -94,7 +94,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         // for notes without an on_view hook (textarea fields render as markdown).
         invoke<string>('get_note_view', { noteId: selectedNote.id })
           .then(html => setCustomViewHtml(html))
-          .catch(() => setCustomViewHtml(null));
+          .catch(err => { alert(String(err)); setCustomViewHtml(null); });
       })
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
@@ -197,7 +197,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       // Re-fetch view HTML after save — on_save may have changed field values.
       invoke<string>('get_note_view', { noteId: selectedNote.id })
         .then(html => setCustomViewHtml(html))
-        .catch(() => setCustomViewHtml(null));
+        .catch(err => { alert(String(err)); setCustomViewHtml(null); });
     } catch (err) {
       alert(`Failed to save: ${err}`);
     }
