@@ -31,7 +31,7 @@ const createMenuHandlers = (
   setShowOpenWorkspace: (show: boolean) => void,
   setShowSettings: (show: boolean) => void,
   setImportState: (state: ImportState | null) => void,
-  workspace: WorkspaceInfoType | null,
+  setShowExportPasswordDialog: (show: boolean) => void,
 ) => ({
   'File > New Workspace clicked': () => {
     setShowNewWorkspace(true);
@@ -41,21 +41,8 @@ const createMenuHandlers = (
     setShowOpenWorkspace(true);
   },
 
-  'File > Export Workspace clicked': async () => {
-    try {
-      const path = await save({
-        filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
-        defaultPath: `${(workspace?.filename ?? 'workspace').replace(/\.db$/, '')}.krillnotes.zip`,
-        title: 'Export Workspace'
-      });
-
-      if (!path) return;
-
-      await invoke('export_workspace_cmd', { path });
-      setStatus('Workspace exported successfully');
-    } catch (error) {
-      setStatus(`Export failed: ${error}`, true);
-    }
+  'File > Export Workspace clicked': () => {
+    setShowExportPasswordDialog(true);
   },
 
   'File > Import Workspace clicked': async () => {
@@ -112,6 +99,9 @@ function App() {
   const [importName, setImportName] = useState('');
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [showExportPasswordDialog, setShowExportPasswordDialog] = useState(false);
+  const [exportPassword, setExportPassword] = useState('');
+  const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
 
   useEffect(() => {
     const welcomed = localStorage.getItem('krillnotes_welcomed');
@@ -146,7 +136,7 @@ function App() {
       setShowOpenWorkspace,
       setShowSettings,
       setImportState,
-      workspace,
+      setShowExportPasswordDialog,
     );
 
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
@@ -196,6 +186,27 @@ function App() {
     }
   };
 
+  const handleExportConfirm = async (password: string | null) => {
+    setShowExportPasswordDialog(false);
+    setExportPassword('');
+    setExportPasswordConfirm('');
+
+    try {
+      const path = await save({
+        filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
+        defaultPath: `${(workspace?.filename ?? 'workspace').replace(/\.db$/, '')}.krillnotes.zip`,
+        title: 'Export Workspace',
+      });
+
+      if (!path) return;
+
+      await invoke('export_workspace_cmd', { path, password });
+      statusSetter('Workspace exported successfully');
+    } catch (error) {
+      statusSetter(`Export failed: ${error}`, true);
+    }
+  };
+
   const handleDismissWelcome = () => {
     localStorage.setItem('krillnotes_welcomed', 'true');
     setShowWelcome(false);
@@ -222,6 +233,78 @@ function App() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+
+      {/* Export password dialog */}
+      {showExportPasswordDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background border border-secondary p-6 rounded-lg w-96">
+            <h2 className="text-xl font-bold mb-4">Protect with a password?</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Leave blank to export without encryption.
+            </p>
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-2">Password</label>
+              <input
+                type="password"
+                value={exportPassword}
+                onChange={(e) => setExportPassword(e.target.value)}
+                placeholder="Optional password"
+                className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoFocus
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Confirm password</label>
+              <input
+                type="password"
+                value={exportPasswordConfirm}
+                onChange={(e) => setExportPasswordConfirm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (!exportPassword || exportPassword === exportPasswordConfirm) {
+                      handleExportConfirm(exportPassword || null);
+                    }
+                  }
+                }}
+                placeholder="Confirm password"
+                className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+              />
+            </div>
+            {exportPassword && exportPasswordConfirm && exportPassword !== exportPasswordConfirm && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
+                Passwords do not match.
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setShowExportPasswordDialog(false);
+                  setExportPassword('');
+                  setExportPasswordConfirm('');
+                }}
+                className="text-sm text-muted-foreground hover:text-foreground underline"
+              >
+                Cancel
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleExportConfirm(null)}
+                  className="px-4 py-2 border border-secondary rounded hover:bg-secondary text-sm"
+                >
+                  Skip — no encryption
+                </button>
+                <button
+                  onClick={() => handleExportConfirm(exportPassword)}
+                  disabled={!exportPassword || exportPassword !== exportPasswordConfirm}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Encrypt
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Import name dialog — inline since it's a lightweight prompt */}
       {importState && (
