@@ -1,11 +1,12 @@
 //! Workspace export and import as `.zip` archives.
 
 use std::collections::HashSet;
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use zip::write::SimpleFileOptions;
+use zip::AesMode;
 use zip::{ZipArchive, ZipWriter};
 
 use crate::core::note::Note;
@@ -90,6 +91,54 @@ pub fn slugify_script_name(name: &str) -> String {
     if slug.is_empty() { "script".to_string() } else { slug }
 }
 
+
+/// Opens a named entry and reads all its bytes, decrypting with `password` if provided.
+/// Returns `ExportError::InvalidPassword` if the password is wrong (detected via MAC verification).
+/// Returns `ExportError::InvalidFormat` if the entry doesn't exist.
+fn read_entry<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    name: &str,
+    password: Option<&str>,
+) -> Result<Cursor<Vec<u8>>, ExportError> {
+    let mut content = Vec::new();
+    if let Some(pwd) = password {
+        let mut file = archive
+            .by_name_decrypt(name, pwd.as_bytes())
+            .map_err(|e| match e {
+                zip::result::ZipError::FileNotFound => {
+                    ExportError::InvalidFormat(format!("Missing '{name}' in archive"))
+                }
+                zip::result::ZipError::InvalidPassword => ExportError::InvalidPassword,
+                other => ExportError::Zip(other),
+            })?;
+        file.read_to_end(&mut content)
+            .map_err(|_| ExportError::InvalidPassword)?;
+    } else {
+        let mut file = archive
+            .by_name(name)
+            .map_err(|_| ExportError::InvalidFormat(format!("Missing '{name}' in archive")))?;
+        file.read_to_end(&mut content)?;
+    }
+    Ok(Cursor::new(content))
+}
+
+/// Like `read_entry` but returns `None` instead of an error when the entry is absent or unreadable.
+fn try_read_entry<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    name: &str,
+    password: Option<&str>,
+) -> Option<Cursor<Vec<u8>>> {
+    let mut content = Vec::new();
+    if let Some(pwd) = password {
+        let mut file = archive.by_name_decrypt(name, pwd.as_bytes()).ok()?;
+        file.read_to_end(&mut content).ok()?;
+    } else {
+        let mut file = archive.by_name(name).ok()?;
+        file.read_to_end(&mut content).ok()?;
+    }
+    Some(Cursor::new(content))
+}
+
 /// Exports the workspace contents as a zip archive.
 ///
 /// The archive contains:
@@ -101,6 +150,7 @@ pub fn slugify_script_name(name: &str) -> String {
 pub fn export_workspace<W: Write + Seek>(
     workspace: &Workspace,
     writer: W,
+    password: Option<&str>,
 ) -> Result<(), ExportError> {
     let notes = workspace
         .list_all_notes()
@@ -110,8 +160,13 @@ pub fn export_workspace<W: Write + Seek>(
         .map_err(|e| ExportError::Database(e.to_string()))?;
 
     let mut zip = ZipWriter::new(writer);
-    let options =
-        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = match password {
+        Some(pwd) => SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .with_aes_encryption(AesMode::Aes256, pwd),
+        None => SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated),
+    };
 
     // Write notes.json
     let export_notes = ExportNotes {
@@ -403,7 +458,7 @@ mod tests {
 
         // Export to a buffer
         let mut buf = Vec::new();
-        export_workspace(&ws, Cursor::new(&mut buf)).unwrap();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         // Read back the zip and verify structure
         let reader = Cursor::new(&buf);
@@ -443,7 +498,7 @@ mod tests {
 
         // Export to a buffer
         let mut buf = Vec::new();
-        export_workspace(&ws, Cursor::new(&mut buf)).unwrap();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         // Peek at the export
         let result = peek_import(Cursor::new(&buf)).unwrap();
@@ -483,7 +538,7 @@ mod tests {
 
         // Export
         let mut buf = Vec::new();
-        export_workspace(&ws, Cursor::new(&mut buf)).unwrap();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         // Import into a new workspace file
         let temp_dst = NamedTempFile::new().unwrap();
@@ -545,5 +600,50 @@ mod tests {
 
         let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"));
         assert!(matches!(result, Err(ExportError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn test_export_with_password_creates_encrypted_zip() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path()).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), Some("hunter2")).unwrap();
+
+        // notes.json should be marked as encrypted.
+        // Use by_index_raw to read metadata without decrypting.
+        let reader = Cursor::new(&buf);
+        let mut archive = ZipArchive::new(reader).unwrap();
+        let index = archive.index_for_name("notes.json").unwrap();
+        let notes_file = archive.by_index_raw(index).unwrap();
+        assert!(notes_file.encrypted(), "notes.json must be encrypted when password is provided");
+    }
+
+    #[test]
+    fn test_export_without_password_creates_plain_zip() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path()).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let reader = Cursor::new(&buf);
+        let mut archive = ZipArchive::new(reader).unwrap();
+        let notes_file = archive.by_name("notes.json").unwrap();
+        assert!(!notes_file.encrypted(), "notes.json must be plain when no password given");
+    }
+
+    #[test]
+    fn test_read_entry_wrong_password_returns_invalid_password() {
+        // Export with a password
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path()).unwrap();
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), Some("correct")).unwrap();
+
+        // Try to read an entry with the wrong password
+        let mut archive = ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let err = read_entry(&mut archive, "notes.json", Some("wrong")).unwrap_err();
+        assert!(matches!(err, ExportError::InvalidPassword), "got: {err:?}");
     }
 }
