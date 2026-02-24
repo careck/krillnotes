@@ -22,6 +22,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
   const [viewHistory, setViewHistory] = useState<string[]>([]);
   const selectedNoteIdRef = useRef(selectedNoteId);
   const treePanelRef = useRef<HTMLDivElement>(null);
@@ -145,6 +146,71 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       return [];
     }
   };
+
+  const copyNote = useCallback((noteId: string) => {
+    setCopiedNoteId(noteId);
+    invoke('set_paste_menu_enabled', { enabled: true }).catch(console.error);
+  }, []);
+
+  const pasteNote = useCallback(async (position: 'child' | 'sibling') => {
+    if (!copiedNoteId || !selectedNoteId) return;
+    try {
+      const newId = await invoke<string>('deep_copy_note_cmd', {
+        sourceNoteId: copiedNoteId,
+        targetNoteId: selectedNoteId,
+        position,
+      });
+      await loadNotes();
+      if (position === 'child') {
+        await invoke('toggle_note_expansion', { noteId: selectedNoteId, expanded: true });
+      }
+      setSelectedNoteId(newId);
+    } catch (err) {
+      setError(`Paste failed: ${err}`);
+    }
+  }, [copiedNoteId, selectedNoteId]);
+
+  // Keyboard shortcuts: Cmd/Ctrl+C copies selected note, Cmd/Ctrl+V pastes as child,
+  // Cmd/Ctrl+Shift+V pastes as sibling. Guards against input fields so normal
+  // text copy/paste is unaffected.
+  useEffect(() => {
+    const isInputFocused = () => {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (isInputFocused()) return;
+
+      if (e.key === 'c' && !e.shiftKey) {
+        if (selectedNoteId) { copyNote(selectedNoteId); e.preventDefault(); }
+      } else if (e.key === 'v' && !e.shiftKey) {
+        pasteNote('child'); e.preventDefault();
+      } else if (e.key === 'v' && e.shiftKey) {
+        pasteNote('sibling'); e.preventDefault();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNoteId, copiedNoteId, copyNote, pasteNote]);
+
+  // When this window regains focus, re-sync the native paste menu state.
+  // This matters on macOS where a single menu bar is shared by all workspace
+  // windows — the enabled state must reflect whichever window is now active.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    let unlisten: (() => void) | null = null;
+    win.onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        invoke('set_paste_menu_enabled', { enabled: copiedNoteId !== null }).catch(console.error);
+      }
+    }).then(fn => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [copiedNoteId]);
 
   const handleSelectNote = async (noteId: string) => {
     setViewHistory([]);
