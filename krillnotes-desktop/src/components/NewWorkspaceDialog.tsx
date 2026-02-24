@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings, WorkspaceInfo } from '../types';
+import SetPasswordDialog from './SetPasswordDialog';
 
 function slugify(name: string): string {
   return name
@@ -15,6 +16,7 @@ interface NewWorkspaceDialogProps {
 }
 
 function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
+  const [step, setStep] = useState<'name' | 'password'>('name');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -22,6 +24,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
 
   useEffect(() => {
     if (isOpen) {
+      setStep('name');
       setName('');
       setError('');
       setCreating(false);
@@ -34,46 +37,49 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !creating) onClose();
+      if (e.key === 'Escape' && !creating && step === 'name') onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, creating]);
+  }, [isOpen, onClose, creating, step]);
 
   if (!isOpen) return null;
 
-  const handleCreate = async () => {
+  const handleNameNext = () => {
     const trimmed = name.trim();
-    if (!trimmed) {
-      setError('Please enter a workspace name.');
-      return;
-    }
-
+    if (!trimmed) { setError('Please enter a workspace name.'); return; }
     const slug = slugify(trimmed);
-    if (!slug) {
-      setError('Name must contain at least one letter or number.');
-      return;
-    }
-
-    setCreating(true);
+    if (!slug) { setError('Name must contain at least one letter or number.'); return; }
     setError('');
+    setStep('password');
+  };
 
+  const handlePasswordConfirm = async (password: string) => {
+    const slug = slugify(name.trim());
     const path = `${workspaceDir}/${slug}.db`;
-
+    setCreating(true);
     try {
-      await invoke<WorkspaceInfo>('create_workspace', { path });
+      await invoke<WorkspaceInfo>('create_workspace', { path, password });
       onClose();
     } catch (err) {
       if (err !== 'focused_existing') {
         setError(`${err}`);
+        setStep('name');
       }
       setCreating(false);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !creating) handleCreate();
-  };
+  if (step === 'password') {
+    return (
+      <SetPasswordDialog
+        isOpen={true}
+        title="Set Workspace Password"
+        onConfirm={handlePasswordConfirm}
+        onCancel={() => setStep('name')}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -81,14 +87,12 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
         <h2 className="text-xl font-bold mb-4">New Workspace</h2>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">
-            Workspace Name
-          </label>
+          <label className="block text-sm font-medium mb-2">Workspace Name</label>
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={handleKeyPress}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !creating && handleNameNext()}
             placeholder="My Workspace"
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             autoFocus
@@ -108,19 +112,15 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
         )}
 
         <div className="flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
-            disabled={creating}
-          >
+          <button onClick={onClose} className="px-4 py-2 border border-secondary rounded hover:bg-secondary" disabled={creating}>
             Cancel
           </button>
           <button
-            onClick={handleCreate}
+            onClick={handleNameNext}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
             disabled={creating || !name.trim()}
           >
-            {creating ? 'Creating...' : 'Create'}
+            Next
           </button>
         </div>
       </div>
