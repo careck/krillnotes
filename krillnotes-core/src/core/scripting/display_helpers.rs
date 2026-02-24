@@ -296,12 +296,11 @@ fn humanise_key(key: &str) -> String {
 
 /// Like `field_row` but accepts pre-rendered HTML for the value (no escaping).
 /// Used internally by `render_default_view` where the value may be markdown HTML.
+/// Emits a `<dt>`/`<dd>` pair so they participate in the parent `kn-view-fields` grid.
 fn field_row_html(label: &str, value_html: &str) -> String {
     format!(
-        "<div class=\"kn-view-field-row\">\
-           <span class=\"kn-view-field-label\">{}</span>\
-           <div class=\"kn-view-field-value\">{}</div>\
-         </div>",
+        "<dt class=\"kn-view-field-label\">{}</dt>\
+         <dd class=\"kn-view-field-value\">{}</dd>",
         html_escape(label),
         value_html
     )
@@ -360,10 +359,11 @@ fn is_field_empty(value: &FieldValue) -> bool {
 /// Accepts `None` for `schema` — in that case all fields are rendered as plain
 /// text in sorted order.
 pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
-    let mut parts: Vec<String> = Vec::new();
+    let mut sections: Vec<String> = Vec::new();
 
     if let Some(schema) = schema {
         // Render schema-defined fields in declaration order.
+        let mut field_rows: Vec<String> = Vec::new();
         for field_def in &schema.fields {
             if !field_def.can_view {
                 continue;
@@ -378,7 +378,13 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
             if value_html.is_empty() {
                 continue;
             }
-            parts.push(field_row_html(&label, &value_html));
+            field_rows.push(field_row_html(&label, &value_html));
+        }
+        if !field_rows.is_empty() {
+            sections.push(format!(
+                "<dl class=\"kn-view-fields\">{}</dl>",
+                field_rows.join("")
+            ));
         }
 
         // Render any fields not in the schema as "legacy".
@@ -391,7 +397,7 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
             .collect();
         legacy.sort_by_key(|(k, _)| k.as_str());
 
-        let mut legacy_parts: Vec<String> = Vec::new();
+        let mut legacy_rows: Vec<String> = Vec::new();
         for (key, value) in &legacy {
             if is_field_empty(value) {
                 continue;
@@ -399,22 +405,23 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
             let label = humanise_key(key);
             let value_html = format_field_value_html(value, "text", 0);
             if !value_html.is_empty() {
-                legacy_parts.push(field_row_html(&label, &value_html));
+                legacy_rows.push(field_row_html(&label, &value_html));
             }
         }
-        if !legacy_parts.is_empty() {
-            parts.push(format!(
+        if !legacy_rows.is_empty() {
+            sections.push(format!(
                 "<div class=\"kn-view-section kn-view-section--legacy\">\
                    <div class=\"kn-view-section-title\">Legacy Fields</div>\
-                   {}\
+                   <dl class=\"kn-view-fields\">{}</dl>\
                  </div>",
-                legacy_parts.join("")
+                legacy_rows.join("")
             ));
         }
     } else {
         // No schema — render all fields as plain text in sorted order.
         let mut all: Vec<(&String, &FieldValue)> = note.fields.iter().collect();
         all.sort_by_key(|(k, _)| k.as_str());
+        let mut field_rows: Vec<String> = Vec::new();
         for (key, value) in &all {
             if is_field_empty(value) {
                 continue;
@@ -422,12 +429,18 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>) -> String {
             let label = humanise_key(key);
             let value_html = format_field_value_html(value, "text", 0);
             if !value_html.is_empty() {
-                parts.push(field_row_html(&label, &value_html));
+                field_rows.push(field_row_html(&label, &value_html));
             }
+        }
+        if !field_rows.is_empty() {
+            sections.push(format!(
+                "<dl class=\"kn-view-fields\">{}</dl>",
+                field_rows.join("")
+            ));
         }
     }
 
-    parts.join("")
+    sections.join("")
 }
 
 #[cfg(test)]
