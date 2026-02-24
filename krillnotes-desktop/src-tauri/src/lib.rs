@@ -36,6 +36,10 @@ pub struct AppState {
     /// In-memory password cache keyed by workspace file path.
     /// Populated only when settings.cacheWorkspacePasswords is true.
     pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,
+    /// Paste menu item handles for dynamic enable/disable.
+    /// On macOS: one global pair keyed by "macos" (the menu bar is shared).
+    /// On Windows: keyed by window label (each window owns its own menu bar).
+    pub paste_menu_items: Arc<Mutex<HashMap<String, (tauri::menu::MenuItem<tauri::Wry>, tauri::menu::MenuItem<tauri::Wry>)>>>,
 }
 
 /// Serialisable summary of an open workspace, returned to the frontend.
@@ -112,8 +116,18 @@ fn create_workspace_window(
     app: &AppHandle,
     label: &str
 ) -> std::result::Result<tauri::WebviewWindow, String> {
-    let menu = menu::build_menu(app)
+    let menu_result = menu::build_menu(app)
         .map_err(|e| format!("Failed to build menu: {e}"))?;
+
+    // On Windows, store the paste handles per window label so
+    // set_paste_menu_enabled can find them later.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let state = app.state::<AppState>();
+        state.paste_menu_items.lock().expect("Mutex poisoned")
+            .insert(label.to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
+    }
+
     tauri::WebviewWindowBuilder::new(
         app,
         label,
@@ -122,7 +136,7 @@ fn create_workspace_window(
     .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
     .disable_drag_drop_handler()
-    .menu(menu)
+    .menu(menu_result.menu)
     .build()
     .map_err(|e| format!("Failed to create window: {e}"))
 }
@@ -610,6 +624,56 @@ fn move_note(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn deep_copy_note_cmd(
+    state: State<'_, AppState>,
+    window: tauri::Window,
+    source_note_id: String,
+    target_note_id: String,
+    position: String, // "child" or "sibling"
+) -> std::result::Result<String, String> {
+    let label = window.label().to_string();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces
+        .get_mut(&label)
+        .ok_or_else(|| "No workspace open".to_string())?;
+    let pos = if position == "child" {
+        AddPosition::AsChild
+    } else {
+        AddPosition::AsSibling
+    };
+    ws.deep_copy_note(&source_note_id, &target_note_id, pos)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_paste_menu_enabled(
+    state: State<'_, AppState>,
+    _window: tauri::Window,
+    enabled: bool,
+) -> std::result::Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let items = state.paste_menu_items.lock().expect("Mutex poisoned");
+        if let Some((child_item, sibling_item)) = items.get("macos") {
+            child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+            sibling_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let label = _window.label().to_string();
+        let items = state.paste_menu_items.lock().expect("Mutex poisoned");
+        if let Some((child_item, sibling_item)) = items.get(&label) {
+            child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+            sibling_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
 // ── User-script commands ──────────────────────────────────────────
 
 /// Returns all user scripts for the calling window's workspace.
@@ -960,6 +1024,9 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_manage_scripts", "Edit > Manage Scripts clicked"),
     ("edit_settings", "Edit > Settings clicked"),
     ("view_operations_log", "View > Operations Log clicked"),
+    ("edit_copy_note",        "Edit > Copy Note clicked"),
+    ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
+    ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -1013,6 +1080,7 @@ pub fn run() {
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
             workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
+            paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();
@@ -1033,8 +1101,18 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu = menu::build_menu(app.handle())?;
-            app.set_menu(menu)?;
+            let menu_result = menu::build_menu(app.handle())?;
+            app.set_menu(menu_result.menu)?;
+
+            // On macOS the menu bar is global (shared by all windows).
+            // Store the paste handles under the "macos" key so that
+            // set_paste_menu_enabled can find them from any window.
+            #[cfg(target_os = "macos")]
+            {
+                let state = app.state::<AppState>();
+                state.paste_menu_items.lock().expect("Mutex poisoned")
+                    .insert("macos".to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
+            }
 
             // Ensure default workspace directory exists on startup
             let app_settings = settings::load_settings();
@@ -1062,6 +1140,8 @@ pub fn run() {
             count_children,
             delete_note,
             move_note,
+            deep_copy_note_cmd,
+            set_paste_menu_enabled,
             list_user_scripts,
             get_user_script,
             create_user_script,
