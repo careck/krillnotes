@@ -835,6 +835,27 @@ fn get_app_version() -> String {
     APP_VERSION.to_string()
 }
 
+/// Returns the cached password for the workspace at `path`, if one is stored.
+///
+/// Returns `None` when the `cache_workspace_passwords` setting is disabled or
+/// when no password has been cached for this path yet.
+#[tauri::command]
+fn get_cached_password(
+    state: State<'_, AppState>,
+    path: String,
+) -> Option<String> {
+    let settings = settings::load_settings();
+    if !settings.cache_workspace_passwords {
+        return None;
+    }
+    let path_buf = PathBuf::from(&path);
+    state.workspace_passwords
+        .lock()
+        .expect("Mutex poisoned")
+        .get(&path_buf)
+        .cloned()
+}
+
 // ── Settings commands ─────────────────────────────────────────────
 
 /// Returns the current application settings.
@@ -1041,6 +1062,7 @@ pub fn run() {
             get_settings,
             update_settings,
             list_workspace_files,
+            get_cached_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
