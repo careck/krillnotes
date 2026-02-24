@@ -50,6 +50,7 @@ pub struct StarterScript {
 pub struct ScriptRegistry {
     engine: Engine,
     current_loading_ast: Arc<Mutex<Option<AST>>>,
+    current_loading_script_name: Arc<Mutex<Option<String>>>,
     schema_registry: schema::SchemaRegistry,
     query_context: Arc<Mutex<Option<QueryContext>>>,
 }
@@ -63,12 +64,14 @@ impl ScriptRegistry {
         let mut engine = Engine::new();
         let schema_registry = schema::SchemaRegistry::new();
         let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
+        let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         // Register schema() host function — writes schema and schema-bound hooks into SchemaRegistry.
         let schemas_arc    = schema_registry.schemas_arc();
         let on_save_arc    = schema_registry.on_save_hooks_arc();
         let on_view_arc    = schema_registry.on_view_hooks_arc();
         let schema_ast_arc = Arc::clone(&current_loading_ast);
+        let schema_name_arc = Arc::clone(&current_loading_script_name);
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
@@ -80,7 +83,10 @@ impl ScriptRegistry {
                     .ok_or_else(|| -> Box<EvalAltResult> {
                         "schema() called outside of load_script".to_string().into()
                     })?;
-                on_save_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast });
+                let script_name = schema_name_arc.lock().unwrap()
+                    .clone()
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                on_save_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
             }
 
             // Extract optional on_view closure.
@@ -89,7 +95,10 @@ impl ScriptRegistry {
                     .ok_or_else(|| -> Box<EvalAltResult> {
                         "schema() called outside of load_script".to_string().into()
                     })?;
-                on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast });
+                let script_name = schema_name_arc.lock().unwrap()
+                    .clone()
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
             }
 
             Ok(Dynamic::UNIT)
@@ -174,6 +183,7 @@ impl ScriptRegistry {
         Ok(Self {
             engine,
             current_loading_ast,
+            current_loading_script_name,
             schema_registry,
             query_context,
         })
@@ -202,7 +212,7 @@ impl ScriptRegistry {
     /// # Errors
     ///
     /// Returns [`KrillnotesError::Scripting`] if the script fails to evaluate.
-    pub fn load_script(&mut self, script: &str) -> Result<()> {
+    pub fn load_script(&mut self, script: &str, name: &str) -> Result<()> {
         let ast = self
             .engine
             .compile(script)
@@ -211,6 +221,7 @@ impl ScriptRegistry {
         // SAFETY: mutex poisoning would require a panic while the lock is held,
         // which cannot happen in this codebase's single-threaded usage.
         *self.current_loading_ast.lock().unwrap() = Some(ast.clone());
+        *self.current_loading_script_name.lock().unwrap() = Some(name.to_string());
 
         let result = self
             .engine
@@ -220,6 +231,7 @@ impl ScriptRegistry {
         // Always clear: a failed script may have partially registered hooks;
         // leave no stale AST for the next load.
         *self.current_loading_ast.lock().unwrap() = None;
+        *self.current_loading_script_name.lock().unwrap() = None;
 
         result
     }
@@ -342,7 +354,7 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/00_text_note.rhai"
-        ))).expect("TextNote starter script should load");
+        )), "TextNote").expect("TextNote starter script should load");
     }
 
     // ── hooks-inside-schema (new style) ─────────────────────────────────────
@@ -361,7 +373,7 @@ mod tests {
                     note
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let mut fields = std::collections::HashMap::new();
         fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
@@ -386,7 +398,7 @@ mod tests {
                     text("hello from view")
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         use crate::Note;
         let note = Note {
@@ -418,7 +430,7 @@ mod tests {
                     on_save: |note| { note }
                 });
             "#,
-            )
+            "test")
             .unwrap();
         assert!(registry.has_hook("Widget"));
         assert!(!registry.has_hook("Missing"));
@@ -439,7 +451,7 @@ mod tests {
                     ]
                 });
             "#,
-            )
+            "test")
             .unwrap();
         let schema = registry.get_schema("TestNote").unwrap();
         assert_eq!(schema.name, "TestNote");
@@ -554,7 +566,7 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
-        ))).unwrap();
+        )), "Contact").unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert_eq!(schema.name, "Contact");
         assert_eq!(schema.fields.len(), 12);
@@ -590,7 +602,7 @@ mod tests {
                     }
                 });
             "#,
-            )
+            "test")
             .unwrap();
 
         let mut fields = HashMap::new();
@@ -624,7 +636,7 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
-        ))).unwrap();
+        )), "Contact").unwrap();
         assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
 
         let mut fields = HashMap::new();
@@ -660,7 +672,7 @@ mod tests {
                     #{ name: "f1", type: "text" },
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("TestVis").unwrap();
         assert!(schema.fields[0].can_view, "can_view should default to true");
         assert!(schema.fields[0].can_edit, "can_edit should default to true");
@@ -676,7 +688,7 @@ mod tests {
                     #{ name: "edit_only", type: "text", can_view: false },
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("TestVis2").unwrap();
         assert!(schema.fields[0].can_view);
         assert!(!schema.fields[0].can_edit);
@@ -694,7 +706,7 @@ mod tests {
                     #{ name: "both_false", type: "text", can_view: false, can_edit: false },
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("TestVisExplicit").unwrap();
         assert!(schema.fields[0].can_view,  "explicit can_view: true should parse as true");
         assert!(schema.fields[0].can_edit,  "explicit can_edit: true should parse as true");
@@ -713,7 +725,7 @@ mod tests {
                     #{ name: "name", type: "text" },
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("TitleTest").unwrap();
         assert!(schema.title_can_view, "title_can_view should default to true");
         assert!(schema.title_can_edit, "title_can_edit should default to true");
@@ -729,7 +741,7 @@ mod tests {
                     #{ name: "name", type: "text" },
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("TitleHidden").unwrap();
         assert!(schema.title_can_view);
         assert!(!schema.title_can_edit);
@@ -746,7 +758,7 @@ mod tests {
                     #{ name: "name", type: "text" },
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("TitleExplicit").unwrap();
         assert!(schema.title_can_view,  "explicit title_can_view: true should parse as true");
         assert!(schema.title_can_edit,  "explicit title_can_edit: true should parse as true");
@@ -758,7 +770,7 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
-        ))).unwrap();
+        )), "Contact").unwrap();
         let schema = registry.get_schema("Contact").unwrap();
         assert!(!schema.title_can_edit, "Contact title_can_edit should be false");
         assert!(schema.title_can_view, "Contact title_can_view should still be true");
@@ -782,7 +794,7 @@ mod tests {
                     }
                 });
             "#,
-            )
+            "test")
             .unwrap();
 
         // Do NOT include "flag" in the submitted fields — it must default to false.
@@ -807,7 +819,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("MyType", #{ fields: [#{ name: "x", type: "text" }] });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         assert!(registry.get_schema("MyType").is_ok());
 
@@ -822,7 +834,7 @@ mod tests {
         load_text_note(&mut registry);
         registry.load_script(r#"
             schema("Custom", #{ fields: [#{ name: "a", type: "text" }] });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         registry.clear_all();
 
@@ -845,7 +857,7 @@ mod tests {
             if !exists { throw "TextNote should exist"; }
             let missing = schema_exists("Missing");
             if missing { throw "Missing should not exist"; }
-        "#).unwrap();
+        "#, "test").unwrap();
     }
 
     #[test]
@@ -859,7 +871,7 @@ mod tests {
             if fields[0].type != "textarea" { throw "Expected 'textarea', got " + fields[0].type; }
             if fields[0].options.len() != 0 { throw "Expected options length 0, got " + fields[0].options.len(); }
             if fields[0].max != 0 { throw "Expected max 0, got " + fields[0].max; }
-        "#).unwrap();
+        "#, "test").unwrap();
     }
 
     #[test]
@@ -870,7 +882,7 @@ mod tests {
                 fields: [#{ name: "x", type: "text" }],
                 on_save: |note| { note }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         assert!(registry.has_hook("Hooked"));
 
         registry.clear_all();
@@ -888,7 +900,7 @@ mod tests {
                     #{ name: "status", type: "select", options: ["TODO", "WIP", "DONE"], required: true }
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let fields = get_schema_fields_for_test(&registry, "Ticket");
         assert_eq!(fields[0].options, vec!["TODO", "WIP", "DONE"]);
     }
@@ -902,7 +914,7 @@ mod tests {
                     #{ name: "stars", type: "rating", max: 5 }
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let fields = get_schema_fields_for_test(&registry, "Review");
         assert_eq!(fields[0].max, 5);
     }
@@ -929,7 +941,7 @@ mod tests {
                     #{ name: "status", type: "select", options: ["OK", 42] }
                 ]
             });
-        "#);
+        "#, "test");
         assert!(result.is_err(), "non-string item in options should return a Scripting error");
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("strings"), "error should mention 'strings', got: {msg}");
@@ -944,7 +956,7 @@ mod tests {
         assert!(!starters.is_empty(), "Should have bundled starter scripts");
 
         for starter in &starters {
-            registry.load_script(&starter.source_code)
+            registry.load_script(&starter.source_code, &starter.filename)
                 .unwrap_or_else(|e| panic!("{} should load: {e}", starter.filename));
         }
 
@@ -976,7 +988,7 @@ mod tests {
                     #{ name: "stars", type: "rating", max: -1 }
                 ]
             });
-        "#);
+        "#, "test");
         assert!(result.is_err(), "negative max should return a Scripting error");
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("max"), "error should mention 'max', got: {msg}");
@@ -992,7 +1004,7 @@ mod tests {
                     #{ name: "stars",  type: "rating",  max: 5 }
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("Widget").unwrap();
         let defaults = schema.default_fields();
         assert_eq!(defaults["status"], crate::FieldValue::Text(String::new()));
@@ -1010,7 +1022,7 @@ mod tests {
                     note
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let mut fields = HashMap::new();
         fields.insert("status".to_string(), FieldValue::Text("A".to_string()));
@@ -1033,7 +1045,7 @@ mod tests {
                     note
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let mut fields = HashMap::new();
         fields.insert("stars".to_string(), FieldValue::Number(0.0));
@@ -1056,7 +1068,7 @@ mod tests {
                     note
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let fields = HashMap::new(); // no status field
         let result = registry
@@ -1077,7 +1089,7 @@ mod tests {
                     note
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let fields = HashMap::new(); // no stars field
         let result = registry
@@ -1096,7 +1108,7 @@ mod tests {
             schema("SortTest", #{
                 fields: [#{ name: "x", type: "text" }]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("SortTest").unwrap();
         assert_eq!(schema.children_sort, "none", "children_sort should default to 'none'");
     }
@@ -1109,7 +1121,7 @@ mod tests {
                 children_sort: "asc",
                 fields: [#{ name: "x", type: "text" }]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("SortAsc").unwrap();
         assert_eq!(schema.children_sort, "asc");
     }
@@ -1122,7 +1134,7 @@ mod tests {
                 children_sort: "desc",
                 fields: [#{ name: "x", type: "text" }]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
         let schema = registry.get_schema("SortDesc").unwrap();
         assert_eq!(schema.children_sort, "desc");
     }
@@ -1135,7 +1147,7 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/04_book.rhai"
-        ))).expect("book.rhai should load");
+        )), "Book").expect("book.rhai should load");
 
         let mut fields = std::collections::HashMap::new();
         fields.insert("book_title".to_string(), crate::FieldValue::Text("Dune".to_string()));
@@ -1169,7 +1181,7 @@ mod tests {
                     #{ name: "body", type: "textarea", required: false }
                 ]
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let mut fields = HashMap::new();
         fields.insert("body".into(), FieldValue::Text("**important**".into()));
@@ -1209,7 +1221,7 @@ mod tests {
                     link_to(target)
                 }
             });
-        "#).unwrap();
+        "#, "test").unwrap();
 
         let note = Note {
             id: "note-1".to_string(),
@@ -1237,6 +1249,70 @@ mod tests {
         assert!(html.contains("kn-view-link"), "html should contain kn-view-link class");
         assert!(html.contains("target-id-123"), "html should contain the target note id");
         assert!(html.contains("Target Note"), "html should contain the target note title");
+    }
+
+
+    #[test]
+    fn test_on_save_runtime_error_includes_script_name() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(
+            r#"
+            schema("Boom", #{
+                fields: [ #{ name: "x", type: "text" } ],
+                on_save: |note| {
+                    throw "intentional runtime error";
+                    note
+                }
+            });
+            "#,
+            "My Exploding Script",
+        ).unwrap();
+
+        let fields = HashMap::new();
+        let err = registry
+            .run_on_save_hook("Boom", "id-1", "Boom", "title", &fields)
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("My Exploding Script"),
+            "error should include script name, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_on_view_runtime_error_includes_script_name() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(
+            r#"
+            schema("BoomView", #{
+                fields: [],
+                on_view: |note| {
+                    throw "intentional runtime error";
+                    text("x")
+                }
+            });
+            "#,
+            "My View Script",
+        ).unwrap();
+
+        use crate::Note;
+        let note = Note {
+            id: "n1".to_string(), node_type: "BoomView".to_string(),
+            title: "T".to_string(), parent_id: None, position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            fields: HashMap::new(), is_expanded: false,
+        };
+        let ctx = QueryContext {
+            notes_by_id: HashMap::new(),
+            children_by_id: HashMap::new(),
+            notes_by_type: HashMap::new(),
+        };
+        let err = registry.run_on_view_hook(&note, ctx).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("My View Script"),
+            "error should include script name, got: {msg}"
+        );
     }
 
 }
