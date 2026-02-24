@@ -1326,12 +1326,13 @@ impl Workspace {
 
     /// Re-assigns sequential load_order (1-based) to all scripts given in `ids` order, then reloads.
     pub fn reorder_all_user_scripts(&mut self, ids: &[String]) -> Result<()> {
+        // Bulk reorder is not logged to the operation log — it's a UI ordering gesture, not a sync-relevant change.
         {
             let conn = self.storage.connection_mut();
             let tx = conn.transaction()?;
             for (i, id) in ids.iter().enumerate() {
                 tx.execute(
-                    "UPDATE user_scripts SET load_order = ?1 WHERE id = ?2",
+                    "UPDATE user_scripts SET load_order = ? WHERE id = ?",
                     rusqlite::params![i as i32 + 1, id],
                 )?;
             }
