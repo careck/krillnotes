@@ -2,34 +2,61 @@
 
 use tauri::{menu::*, AppHandle, Runtime};
 
+/// Return type of [`build_menu`], carrying both the assembled menu and the
+/// paste-note `MenuItem` handles needed for dynamic enable/disable.
+pub struct MenuResult<R: Runtime> {
+    pub menu: Menu<R>,
+    pub paste_as_child: MenuItem<R>,
+    pub paste_as_sibling: MenuItem<R>,
+}
+
+/// Return type of [`build_edit_menu`], exposing the paste handles alongside the submenu.
+struct EditMenuResult<R: Runtime> {
+    submenu: Submenu<R>,
+    paste_as_child: MenuItem<R>,
+    paste_as_sibling: MenuItem<R>,
+}
+
 /// Builds the application menu using platform-conditional assembly.
 ///
 /// On macOS: App menu (Krillnotes), File, Edit, Tools, View.
 /// On other platforms: File, Edit, Tools, View, Help.
 ///
+/// Returns a [`MenuResult`] with the assembled menu and paste item handles.
+///
 /// # Errors
 ///
 /// Returns [`tauri::Error`] if any menu item or submenu fails to build.
-pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, tauri::Error> {
+pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<MenuResult<R>, tauri::Error> {
     let file_menu = build_file_menu(app)?;
-    let edit_menu = build_edit_menu(app)?;
+    let edit_result = build_edit_menu(app)?;
     let tools_menu = build_tools_menu(app)?;
     let view_menu = build_view_menu(app)?;
 
     #[cfg(target_os = "macos")]
     {
         let app_menu = build_macos_app_menu(app)?;
-        return MenuBuilder::new(app)
-            .items(&[&app_menu, &file_menu, &edit_menu, &tools_menu, &view_menu])
-            .build();
+        let menu = MenuBuilder::new(app)
+            .items(&[&app_menu, &file_menu, &edit_result.submenu, &tools_menu, &view_menu])
+            .build()?;
+        return Ok(MenuResult {
+            menu,
+            paste_as_child: edit_result.paste_as_child,
+            paste_as_sibling: edit_result.paste_as_sibling,
+        });
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let help_menu = build_help_menu(app)?;
-        return MenuBuilder::new(app)
-            .items(&[&file_menu, &edit_menu, &tools_menu, &view_menu, &help_menu])
-            .build();
+        let menu = MenuBuilder::new(app)
+            .items(&[&file_menu, &edit_result.submenu, &tools_menu, &view_menu, &help_menu])
+            .build()?;
+        return Ok(MenuResult {
+            menu,
+            paste_as_child: edit_result.paste_as_child,
+            paste_as_sibling: edit_result.paste_as_sibling,
+        });
     }
 }
 
@@ -112,7 +139,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::
 /// # Errors
 ///
 /// Returns [`tauri::Error`] if any menu item fails to build.
-fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::Error> {
+fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<EditMenuResult<R>, tauri::Error> {
     let add_note = MenuItemBuilder::with_id("edit_add_note", "Add Note")
         .accelerator("CmdOrCtrl+Shift+N")
         .build(app)?;
@@ -120,24 +147,38 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Submenu<R>, tauri::
         .accelerator("CmdOrCtrl+Backspace")
         .build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
+    let copy_note = MenuItemBuilder::with_id("edit_copy_note", "Copy Note")
+        .build(app)?;
+    let paste_child = MenuItemBuilder::with_id("edit_paste_as_child", "Paste as Child")
+        .enabled(false)
+        .build(app)?;
+    let paste_sibling = MenuItemBuilder::with_id("edit_paste_as_sibling", "Paste as Sibling")
+        .enabled(false)
+        .build(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
     let undo = PredefinedMenuItem::undo(app, None)?;
     let redo = PredefinedMenuItem::redo(app, None)?;
     let copy = PredefinedMenuItem::copy(app, None)?;
     let paste = PredefinedMenuItem::paste(app, None)?;
 
     let builder = SubmenuBuilder::new(app, "Edit")
-        .items(&[&add_note, &delete_note, &sep1]);
+        .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling, &sep2]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
         let settings = MenuItemBuilder::with_id("edit_settings", "Settings...")
             .accelerator("CmdOrCtrl+,")
             .build(app)?;
-        let sep2 = PredefinedMenuItem::separator(app)?;
-        builder.item(&settings).item(&sep2)
+        let sep3 = PredefinedMenuItem::separator(app)?;
+        builder.item(&settings).item(&sep3)
     };
 
-    builder.items(&[&undo, &redo, &copy, &paste]).build()
+    let submenu = builder.items(&[&undo, &redo, &copy, &paste]).build()?;
+    Ok(EditMenuResult {
+        submenu,
+        paste_as_child: paste_child,
+        paste_as_sibling: paste_sibling,
+    })
 }
 
 /// Builds the macOS app menu (the first menu in the menu bar, labeled with the app name).
