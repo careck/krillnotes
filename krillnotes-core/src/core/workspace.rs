@@ -212,6 +212,11 @@ impl Workspace {
         &self.script_registry
     }
 
+    /// Returns a mutable reference to the script registry for this workspace.
+    pub(crate) fn script_registry_mut(&mut self) -> &mut ScriptRegistry {
+        &mut self.script_registry
+    }
+
     /// Returns the underlying SQLite connection.
     pub fn connection(&self) -> &Connection {
         self.storage.connection()
@@ -293,6 +298,13 @@ impl Workspace {
             }
         }
 
+        // Fetch parent note before opening the transaction (avoids borrow conflict with `tx`).
+        let hook_parent = if let Some(ref pid) = final_parent {
+            Some(self.get_note(pid)?)
+        } else {
+            None
+        };
+
         let note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
@@ -335,6 +347,32 @@ impl Workspace {
                 true,
             ],
         )?;
+
+        // Run on_add_child hook if the parent's schema defines one.
+        // Allowed-parent and allowed-children checks have already passed above.
+        if let Some(ref parent_note) = hook_parent {
+            if let Some(hook_result) = self.script_registry.run_on_add_child_hook(
+                &parent_note.node_type,
+                &parent_note.id, &parent_note.node_type, &parent_note.title, &parent_note.fields,
+                &note.id, &note.node_type, &note.title, &note.fields,
+            )? {
+                let now = chrono::Utc::now().timestamp();
+                if let Some((new_title, new_fields)) = hook_result.child {
+                    let fields_json = serde_json::to_string(&new_fields)?;
+                    tx.execute(
+                        "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3 WHERE id = ?4",
+                        rusqlite::params![new_title, fields_json, now, note.id],
+                    )?;
+                }
+                if let Some((new_title, new_fields)) = hook_result.parent {
+                    let fields_json = serde_json::to_string(&new_fields)?;
+                    tx.execute(
+                        "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3 WHERE id = ?4",
+                        rusqlite::params![new_title, fields_json, now, parent_note.id],
+                    )?;
+                }
+            }
+        }
 
         // Log operation
         let op = Operation::CreateNote {
@@ -2648,5 +2686,37 @@ schema("Memo", #{
         assert_eq!(orig_a.parent_id, Some(root.id.clone()));
         let orig_b = ws.get_note(&note_b_id).unwrap();
         assert_eq!(orig_b.parent_id, Some(note_a_id.clone()));
+    }
+
+    #[test]
+    fn test_on_add_child_hook_fires_on_create() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.script_registry_mut().load_script(r#"
+            schema("Folder", #{
+                fields: [
+                    #{ name: "count", type: "number", required: false },
+                ],
+                on_add_child: |parent_note, child_note| {
+                    parent_note.fields["count"] = parent_note.fields["count"] + 1.0;
+                    parent_note.title = "Folder (1)";
+                    #{ parent: parent_note, child: child_note }
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let folder_id = ws.create_note(&root.id, AddPosition::AsChild, "Folder").unwrap();
+
+        // Create an Item under the Folder — this should trigger the hook
+        ws.create_note(&folder_id, AddPosition::AsChild, "Item").unwrap();
+
+        let folder = ws.get_note(&folder_id).unwrap();
+        assert_eq!(folder.title, "Folder (1)");
+        assert_eq!(folder.fields["count"], FieldValue::Number(1.0));
     }
 }
