@@ -59,6 +59,6 @@
 
 ✅ DONE! Exports stay in clear text, but offer the option to encrypt the zip file with a password (AES-256). On import the app detects if a zip is encrypted and prompts the user for the password to decrypt before opening it.
 
-[ ] When saving a rhai script in the script editor it fails silently if the script does not compile due to an error. It would be better to show an error message in that case and not save the edited script at all.
+✅ DONE! When saving a rhai script in the script editor it fails silently if the script does not compile due to an error. It would be better to show an error message in that case and not save the edited script at all.
 
 [ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way, but old workspaces should be opened with a warning and a dialog to add a password to encrypt it. Try to use OS keychain management if possible.
