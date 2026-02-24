@@ -19,6 +19,7 @@ pub(super) struct HookEntry {
 ///
 /// Each field is `Some((new_title, new_fields))` when the hook returned
 /// modifications for that note, or `None` when the hook left it unchanged.
+#[derive(Debug)]
 pub struct AddChildResult {
     pub parent: Option<(String, HashMap<String, FieldValue>)>,
     pub child:  Option<(String, HashMap<String, FieldValue>)>,
