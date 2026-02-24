@@ -280,7 +280,12 @@ pub fn peek_import<R: Read + Seek>(reader: R, password: Option<&str>) -> Result<
 /// Returns [`ExportError::InvalidFormat`] if `notes.json` is missing or the format
 /// version is not `1`. Returns [`ExportError::Database`] for any storage or SQL
 /// failure. Returns other `ExportError` variants for I/O, zip, or JSON errors.
-pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Option<&str>) -> Result<ImportResult, ExportError> {
+pub fn import_workspace<R: Read + Seek>(
+    reader: R,
+    db_path: &Path,
+    zip_password: Option<&str>,
+    workspace_password: &str,
+) -> Result<ImportResult, ExportError> {
     let mut archive = ZipArchive::new(reader)?;
 
     // Detect encryption (same pattern as peek_import)
@@ -289,12 +294,12 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Opt
             ExportError::InvalidFormat("Missing notes.json in archive".to_string())
         })?;
         let check = archive.by_index_raw(index).map_err(ExportError::Zip)?;
-        if check.encrypted() && password.is_none() {
+        if check.encrypted() && zip_password.is_none() {
             return Err(ExportError::EncryptedArchive);
         }
     }
 
-    let notes_cursor = read_entry(&mut archive, "notes.json", password)?;
+    let notes_cursor = read_entry(&mut archive, "notes.json", zip_password)?;
     let export_notes: ExportNotes = serde_json::from_reader(notes_cursor)?;
 
     // Validate format version
@@ -306,7 +311,7 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Opt
     }
 
     // Read script manifest and source files
-    let manifest = match try_read_entry(&mut archive, "scripts/scripts.json", password) {
+    let manifest = match try_read_entry(&mut archive, "scripts/scripts.json", zip_password) {
         Some(manifest_cursor) => {
             let m: ScriptManifest = serde_json::from_reader(manifest_cursor)?;
             Some(m)
@@ -319,7 +324,7 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Opt
     if let Some(ref manifest) = manifest {
         for entry in &manifest.scripts {
             let path = format!("scripts/{}", entry.filename);
-            let mut rhai_cursor = read_entry(&mut archive, &path, password).map_err(|e| {
+            let mut rhai_cursor = read_entry(&mut archive, &path, zip_password).map_err(|e| {
                 ExportError::InvalidFormat(format!(
                     "Script file '{}' referenced in manifest but missing from archive: {}",
                     path, e
@@ -332,7 +337,8 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Opt
     }
 
     // Create the database
-    let mut storage = Storage::create(db_path, "").map_err(|e| ExportError::Database(e.to_string()))?;
+    let mut storage = Storage::create(db_path, workspace_password)
+        .map_err(|e| ExportError::Database(e.to_string()))?;
 
     // Insert workspace metadata
     let device_id = get_device_id().map_err(|e| ExportError::Database(e.to_string()))?;
@@ -560,7 +566,7 @@ mod tests {
 
         // Import into a new workspace file
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None).unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
 
         assert_eq!(result.app_version, APP_VERSION);
         assert_eq!(result.note_count, 3);
@@ -599,7 +605,7 @@ mod tests {
     #[test]
     fn test_import_invalid_zip() {
         let garbage = b"this is not a zip file at all";
-        let result = import_workspace(Cursor::new(garbage), Path::new("/tmp/invalid.db"), None);
+        let result = import_workspace(Cursor::new(garbage), Path::new("/tmp/invalid.db"), None, "");
         assert!(result.is_err());
     }
 
@@ -616,7 +622,7 @@ mod tests {
             zip.finish().unwrap();
         }
 
-        let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"), None);
+        let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"), None, "");
         assert!(matches!(result, Err(ExportError::InvalidFormat(_))));
     }
 
@@ -714,7 +720,7 @@ mod tests {
 
         // Import with correct password → should succeed
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), Some("mypass")).unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), Some("mypass"), "").unwrap();
         assert_eq!(result.note_count, 1);
 
         // Verify imported note title
