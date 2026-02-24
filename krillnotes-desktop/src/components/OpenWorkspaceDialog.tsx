@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WorkspaceEntry, WorkspaceInfo } from '../types';
+import EnterPasswordDialog from './EnterPasswordDialog';
 
 interface OpenWorkspaceDialogProps {
   isOpen: boolean;
@@ -11,12 +12,16 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [opening, setOpening] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<WorkspaceEntry | null>(null);
+  const [passwordError, setPasswordError] = useState('');
+  const [opening, setOpening] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setError('');
-      setOpening(null);
+      setSelectedEntry(null);
+      setPasswordError('');
+      setOpening(false);
       setLoading(true);
       invoke<WorkspaceEntry[]>('list_workspace_files')
         .then(setEntries)
@@ -28,31 +33,50 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !opening) onClose();
+      if (e.key === 'Escape' && !opening && !selectedEntry) onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, opening]);
+  }, [isOpen, onClose, opening, selectedEntry]);
 
   if (!isOpen) return null;
 
-  const handleOpen = async (entry: WorkspaceEntry) => {
+  const handleSelectEntry = (entry: WorkspaceEntry) => {
     if (entry.isOpen) return;
+    setPasswordError('');
+    setSelectedEntry(entry);
+  };
 
-    setOpening(entry.path);
-    setError('');
+  const handlePasswordConfirm = async (password: string) => {
+    if (!selectedEntry) return;
+    setOpening(true);
+    setPasswordError('');
     try {
-      await invoke<WorkspaceInfo>('open_workspace', { path: entry.path });
+      await invoke<WorkspaceInfo>('open_workspace', { path: selectedEntry.path, password });
       onClose();
     } catch (err) {
-      if (err === 'focused_existing') {
-        onClose();
-      } else {
-        setError(`${err}`);
-      }
-      setOpening(null);
+      const errStr = `${err}`;
+      setPasswordError(errStr);
+      setOpening(false);
     }
   };
+
+  const handlePasswordCancel = () => {
+    setSelectedEntry(null);
+    setPasswordError('');
+  };
+
+  if (selectedEntry) {
+    return (
+      <EnterPasswordDialog
+        isOpen={true}
+        workspaceName={selectedEntry.name}
+        error={passwordError}
+        onConfirm={handlePasswordConfirm}
+        onCancel={handlePasswordCancel}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -63,13 +87,10 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
 
         <div className="flex-1 overflow-y-auto px-6">
           {loading ? (
-            <p className="text-muted-foreground text-center py-8">
-              Loading...
-            </p>
+            <p className="text-muted-foreground text-center py-8">Loading...</p>
           ) : entries.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
-              No workspaces found in the default directory.
-              <br />
+              No workspaces found in the default directory.<br />
               Use "New Workspace" to create one.
             </p>
           ) : (
@@ -77,8 +98,8 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
               {entries.map(entry => (
                 <button
                   key={entry.path}
-                  onClick={() => handleOpen(entry)}
-                  disabled={opening !== null || entry.isOpen}
+                  onClick={() => handleSelectEntry(entry)}
+                  disabled={opening || entry.isOpen}
                   className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between ${
                     entry.isOpen
                       ? 'opacity-40 cursor-not-allowed'
@@ -88,9 +109,6 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
                   <span className="font-medium truncate">{entry.name}</span>
                   {entry.isOpen && (
                     <span className="text-xs text-muted-foreground ml-2">Already open</span>
-                  )}
-                  {opening === entry.path && (
-                    <span className="text-xs text-muted-foreground ml-2">Opening...</span>
                   )}
                 </button>
               ))}
@@ -110,7 +128,7 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
           <button
             onClick={onClose}
             className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
-            disabled={opening !== null}
+            disabled={opening}
           >
             Cancel
           </button>
