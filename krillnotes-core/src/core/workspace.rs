@@ -1114,8 +1114,8 @@ impl Workspace {
 
     /// Creates a new user script from its source code, parsing front matter for name/description.
     ///
-    /// Returns an error if `@name` is missing from the front matter.
-    /// The script is compiled and executed; on failure it is saved but disabled.
+    /// Returns an error if `@name` is missing from the front matter, or if Rhai
+    /// compilation fails. On failure nothing is written to the database.
     pub fn create_user_script(&mut self, source_code: &str) -> Result<UserScript> {
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
