@@ -41,9 +41,28 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
 
   if (!isOpen) return null;
 
-  const handleSelectEntry = (entry: WorkspaceEntry) => {
+  const handleSelectEntry = async (entry: WorkspaceEntry) => {
     if (entry.isOpen) return;
     setPasswordError('');
+
+    // Try cached password first so the user isn't prompted again this session.
+    try {
+      const cached = await invoke<string | null>('get_cached_password', { path: entry.path });
+      if (cached) {
+        setOpening(true);
+        try {
+          await invoke<WorkspaceInfo>('open_workspace', { path: entry.path, password: cached });
+          onClose();
+          return;
+        } catch {
+          // Cached password no longer valid — fall through to password dialog.
+          setOpening(false);
+        }
+      }
+    } catch {
+      // Cache lookup failed — fall through to password dialog.
+    }
+
     setSelectedEntry(entry);
   };
 
