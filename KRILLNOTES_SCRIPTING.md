@@ -321,6 +321,32 @@ Whitespace-preserving paragraph. Use for multi-line text fields.
 text("Line one\nLine two")
 ```
 
+### `markdown(text)`
+
+Renders a string as **CommonMark markdown** and returns the resulting HTML. Use this when
+you want explicit markdown rendering inside a composed view — for example, a single field
+alongside other helpers.
+
+```rhai
+markdown(note.fields["notes"] ?? "")
+```
+
+In the default view (no `on_view` hook) `textarea` fields are already auto-rendered as
+markdown. Use `markdown()` explicitly in `on_view` hooks when you want markdown in a
+specific part of a composed layout.
+
+```rhai
+schema("Journal", #{
+    fields: [ /* … */ ],
+    on_view: |note| {
+        stack([
+            field("Date", note.fields["date"] ?? ""),
+            section("Entry", markdown(note.fields["body"] ?? ""))
+        ])
+    }
+});
+```
+
 ### `heading(text)`
 
 A bold section heading.
@@ -424,6 +450,49 @@ A horizontal rule.
 ```rhai
 divider()
 ```
+
+### `link_to(note)`
+
+Renders a clickable link that navigates to another note. When clicked in the view panel,
+the app switches to the linked note and pushes the originating note onto the navigation
+history stack — the user can press the **back button** to return.
+
+The argument must be a note map as returned by `get_note()`, `get_children()`, or
+`get_notes_of_type()`. The link label is the note's title.
+
+```rhai
+// Link to a specific note by ID
+let target = get_note(some_id);
+if target != () {
+    link_to(target)
+}
+```
+
+A common pattern is to link from a folder view to individual child notes:
+
+```rhai
+schema("ProjectFolder", #{
+    fields: [],
+    on_view: |note| {
+        let projects = get_children(note.id);
+        list(projects.map(|p| link_to(p)))
+    }
+});
+```
+
+You can also use `link_to` inside a table cell:
+
+```rhai
+let rows = contacts.map(|c| [
+    link_to(c),
+    c.fields["email"] ?? "-"
+]);
+table(["Name", "Email"], rows)
+```
+
+> **Note:** Clicking a `link_to` link navigates only within the view panel. It does not
+> scroll the tree to the linked note, but the back button in the view panel returns to
+> the previous note.
 
 ---
 
