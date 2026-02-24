@@ -89,6 +89,7 @@ export interface OperationSummary {
 
 export interface AppSettings {
   workspaceDirectory: string;
+  cacheWorkspacePasswords: boolean;
 }
 
 export interface WorkspaceEntry {

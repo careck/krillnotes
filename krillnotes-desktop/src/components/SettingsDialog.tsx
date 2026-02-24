@@ -10,6 +10,7 @@ interface SettingsDialogProps {
 
 function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [workspaceDir, setWorkspaceDir] = useState('');
+  const [cachePasswords, setCachePasswords] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -18,6 +19,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
       invoke<AppSettings>('get_settings')
         .then(s => {
           setWorkspaceDir(s.workspaceDirectory);
+          setCachePasswords(s.cacheWorkspacePasswords);
           setError('');
         })
         .catch(err => setError(`Failed to load settings: ${err}`));
@@ -51,7 +53,10 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     setError('');
     try {
       await invoke('update_settings', {
-        settings: { workspaceDirectory: workspaceDir },
+        settings: {
+          workspaceDirectory: workspaceDir,
+          cacheWorkspacePasswords: cachePasswords,
+        },
       });
       onClose();
     } catch (err) {
@@ -87,6 +92,23 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           <p className="text-xs text-muted-foreground mt-1">
             New workspaces will be created in this directory.
           </p>
+        </div>
+
+        <div className="mb-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cachePasswords}
+              onChange={e => setCachePasswords(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <div>
+              <span className="block text-sm font-medium">Remember workspace passwords for this session</span>
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                Passwords are kept in memory until the app closes. Off by default.
+              </span>
+            </div>
+          </label>
         </div>
 
         {error && (
