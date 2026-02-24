@@ -10,7 +10,7 @@ mod schema;
 // Re-exported for API stability; currently a placeholder for future global/lifecycle hooks.
 pub use hooks::HookRegistry;
 pub(crate) use schema::field_value_to_dynamic;
-pub use schema::{FieldDefinition, Schema};
+pub use schema::{AddChildResult, FieldDefinition, Schema};
 // StarterScript is defined in this file and re-exported via lib.rs.
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
@@ -67,11 +67,12 @@ impl ScriptRegistry {
         let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         // Register schema() host function — writes schema and schema-bound hooks into SchemaRegistry.
-        let schemas_arc    = schema_registry.schemas_arc();
-        let on_save_arc    = schema_registry.on_save_hooks_arc();
-        let on_view_arc    = schema_registry.on_view_hooks_arc();
-        let schema_ast_arc = Arc::clone(&current_loading_ast);
-        let schema_name_arc = Arc::clone(&current_loading_script_name);
+        let schemas_arc       = schema_registry.schemas_arc();
+        let on_save_arc       = schema_registry.on_save_hooks_arc();
+        let on_view_arc       = schema_registry.on_view_hooks_arc();
+        let on_add_child_arc  = schema_registry.on_add_child_hooks_arc();
+        let schema_ast_arc    = Arc::clone(&current_loading_ast);
+        let schema_name_arc   = Arc::clone(&current_loading_script_name);
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
@@ -99,6 +100,18 @@ impl ScriptRegistry {
                     .clone()
                     .unwrap_or_else(|| "<unknown>".to_string());
                 on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
+            }
+
+            // Extract optional on_add_child closure.
+            if let Some(fn_ptr) = def.get("on_add_child").and_then(|v| v.clone().try_cast::<FnPtr>()) {
+                let ast = schema_ast_arc.lock().unwrap().clone()
+                    .ok_or_else(|| -> Box<EvalAltResult> {
+                        "schema() called outside of load_script".to_string().into()
+                    })?;
+                let script_name = schema_name_arc.lock().unwrap()
+                    .clone()
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                on_add_child_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
             }
 
             Ok(Dynamic::UNIT)
@@ -278,6 +291,38 @@ impl ScriptRegistry {
         let schema = self.schema_registry.get(schema_name)?;
         self.schema_registry
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
+    }
+
+    /// Runs the `on_add_child` hook registered for `parent_schema_name`, if any.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for `parent_schema_name`.
+    /// Returns `Ok(Some(AddChildResult))` with optional parent/child updates on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error
+    /// or returns a malformed map.
+    pub fn run_on_add_child_hook(
+        &self,
+        parent_schema_name: &str,
+        parent_id: &str,
+        parent_type: &str,
+        parent_title: &str,
+        parent_fields: &HashMap<String, FieldValue>,
+        child_id: &str,
+        child_type: &str,
+        child_title: &str,
+        child_fields: &HashMap<String, FieldValue>,
+    ) -> Result<Option<AddChildResult>> {
+        let parent_schema = self.schema_registry.get(parent_schema_name)?;
+        let child_schema  = self.schema_registry.get(child_type)?;
+        self.schema_registry.run_on_add_child_hook(
+            &self.engine,
+            &parent_schema,
+            parent_id, parent_type, parent_title, parent_fields,
+            &child_schema,
+            child_id, child_type, child_title, child_fields,
+        )
     }
 
     /// Returns `true` if an on_save hook is registered for `schema_name`.
@@ -1291,7 +1336,7 @@ mod tests {
                 ],
                 on_add_child: |parent_note, child_note| {
                     parent_note.fields["count"] = parent_note.fields["count"] + 1.0;
-                    parent_note.title = "Folder (" + parent_note.fields["count"].to_string() + ")";
+                    parent_note.title = "Folder (" + parent_note.fields["count"].to_int().to_string() + ")";
                     child_note.title = "Child from hook";
                     #{ parent: parent_note, child: child_note }
                 }
