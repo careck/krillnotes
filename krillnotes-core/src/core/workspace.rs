@@ -899,6 +899,13 @@ impl Workspace {
             }
         }
 
+        // Fetch the new parent note before opening the transaction (avoids borrow conflict with `tx`).
+        let hook_new_parent = if let Some(pid) = new_parent_id {
+            Some(self.get_note(pid)?)
+        } else {
+            None
+        };
+
         // 4. Get the note's current parent_id and position
         let note = self.get_note(note_id)?;
         let old_parent_id = note.parent_id.clone();
@@ -926,6 +933,31 @@ impl Workspace {
             "UPDATE notes SET parent_id = ?, position = ?, modified_at = ? WHERE id = ?",
             rusqlite::params![new_parent_id, new_position, now, note_id],
         )?;
+
+        // Run on_add_child hook if the new parent's schema defines one.
+        if let Some(ref parent_note) = hook_new_parent {
+            if let Some(hook_result) = self.script_registry.run_on_add_child_hook(
+                &parent_note.node_type,
+                &parent_note.id, &parent_note.node_type, &parent_note.title, &parent_note.fields,
+                &note_to_move.id, &note_to_move.node_type, &note_to_move.title, &note_to_move.fields,
+            )? {
+                let hook_now = chrono::Utc::now().timestamp();
+                if let Some((new_title, new_fields)) = hook_result.child {
+                    let fields_json = serde_json::to_string(&new_fields)?;
+                    tx.execute(
+                        "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3 WHERE id = ?4",
+                        rusqlite::params![new_title, fields_json, hook_now, note_to_move.id],
+                    )?;
+                }
+                if let Some((new_title, new_fields)) = hook_result.parent {
+                    let fields_json = serde_json::to_string(&new_fields)?;
+                    tx.execute(
+                        "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3 WHERE id = ?4",
+                        rusqlite::params![new_title, fields_json, hook_now, parent_note.id],
+                    )?;
+                }
+            }
+        }
 
         // 8. Log a MoveNote operation
         let op = Operation::MoveNote {
@@ -2765,5 +2797,39 @@ schema("Memo", #{
         // This creates a sibling of root, which has no parent — should not panic or error
         let result = ws.create_note(&root.id, AddPosition::AsSibling, "TextNote");
         assert!(result.is_ok(), "sibling of root should succeed without hook");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_fires_on_move() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.script_registry_mut().load_script(r#"
+            schema("Folder", #{
+                fields: [
+                    #{ name: "count", type: "number", required: false },
+                ],
+                on_add_child: |parent_note, child_note| {
+                    parent_note.fields["count"] = parent_note.fields["count"] + 1.0;
+                    parent_note.title = "Folder (1)";
+                    #{ parent: parent_note, child: child_note }
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        // Create Folder and Item as siblings (both children of root)
+        let folder_id = ws.create_note(&root.id, AddPosition::AsChild, "Folder").unwrap();
+        let item_id   = ws.create_note(&root.id, AddPosition::AsChild, "Item").unwrap();
+
+        // Move Item under Folder — hook should fire
+        ws.move_note(&item_id, Some(&folder_id), 0).unwrap();
+
+        let folder = ws.get_note(&folder_id).unwrap();
+        assert_eq!(folder.title, "Folder (1)");
+        assert_eq!(folder.fields["count"], FieldValue::Number(1.0));
     }
 }
