@@ -245,7 +245,7 @@ async fn open_workspace(
         }
         None => {
             let label = generate_unique_label(&state, &path_buf);
-            let workspace = Workspace::open(&path_buf)
+            let workspace = Workspace::open(&path_buf, "")
                 .map_err(|e| format!("Failed to open: {e}"))?;
 
             let new_window = create_workspace_window(&app, &label)?;
@@ -792,7 +792,7 @@ async fn execute_import(
     let reader = std::io::BufReader::new(file);
     import_workspace(reader, &db_path_buf, password.as_deref()).map_err(|e| e.to_string())?;
 
-    let workspace = Workspace::open(&db_path_buf).map_err(|e| e.to_string())?;
+    let workspace = Workspace::open(&db_path_buf, "").map_err(|e| e.to_string())?;
     let label = generate_unique_label(&state, &db_path_buf);
 
     let new_window = create_workspace_window(&app, &label)?;

@@ -568,7 +568,7 @@ mod tests {
         assert!(result.script_count >= 2, "Should have starters + user script, got {}", result.script_count);
 
         // Open the imported workspace and verify contents
-        let imported_ws = Workspace::open(temp_dst.path()).unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "").unwrap();
 
         let notes = imported_ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 3);
@@ -718,7 +718,7 @@ mod tests {
         assert_eq!(result.note_count, 1);
 
         // Verify imported note title
-        let imported_ws = Workspace::open(temp_dst.path()).unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "").unwrap();
         let notes = imported_ws.list_all_notes().unwrap();
         assert!(notes.iter().any(|n| n.title == "Encrypted Root"));
     }

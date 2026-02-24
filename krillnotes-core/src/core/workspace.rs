@@ -162,11 +162,12 @@ impl Workspace {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::KrillnotesError::InvalidWorkspace`] if the file is not a
-    /// valid Krillnotes database, or [`crate::KrillnotesError::Database`] for
-    /// any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let storage = Storage::open(&path)?;
+    /// Returns [`crate::KrillnotesError::WrongPassword`] if the password is
+    /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
+    /// is a plain unencrypted SQLite database, or
+    /// [`crate::KrillnotesError::Database`] for any SQLite failure.
+    pub fn open<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
+        let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 
@@ -1496,7 +1497,7 @@ mod tests {
         }
 
         // Open it
-        let ws = Workspace::open(temp.path()).unwrap();
+        let ws = Workspace::open(temp.path(), "").unwrap();
 
         // Verify we can read notes
         let notes = ws.list_all_notes().unwrap();
@@ -1535,7 +1536,7 @@ mod tests {
         }
 
         // Open and verify is_expanded is true
-        let ws = Workspace::open(temp.path()).unwrap();
+        let ws = Workspace::open(temp.path(), "").unwrap();
         let notes = ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 2);
         assert!(notes[0].is_expanded, "Root note should be expanded");
@@ -1626,7 +1627,7 @@ mod tests {
         }
 
         // Open workspace and verify selection persists
-        let ws = Workspace::open(temp.path()).unwrap();
+        let ws = Workspace::open(temp.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         let selected = ws.get_selected_note().unwrap();
         assert_eq!(selected, Some(root.id), "Selection should persist across open");
@@ -2150,7 +2151,7 @@ mod tests {
             ).unwrap();
         }
 
-        let workspace = Workspace::open(temp.path()).unwrap();
+        let workspace = Workspace::open(temp.path(), "").unwrap();
         assert!(workspace.script_registry().get_schema("OpenType").is_ok());
     }
 
@@ -2166,7 +2167,7 @@ mod tests {
             workspace.toggle_user_script(&script.id, false).unwrap();
         }
 
-        let workspace = Workspace::open(temp.path()).unwrap();
+        let workspace = Workspace::open(temp.path(), "").unwrap();
         assert!(workspace.script_registry().get_schema("DisType").is_err());
     }
 
