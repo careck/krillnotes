@@ -46,7 +46,7 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let mut storage = Storage::create(&path)?;
+        let mut storage = Storage::create(&path, "")?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
 

@@ -332,7 +332,7 @@ pub fn import_workspace<R: Read + Seek>(reader: R, db_path: &Path, password: Opt
     }
 
     // Create the database
-    let mut storage = Storage::create(db_path).map_err(|e| ExportError::Database(e.to_string()))?;
+    let mut storage = Storage::create(db_path, "").map_err(|e| ExportError::Database(e.to_string()))?;
 
     // Insert workspace metadata
     let device_id = get_device_id().map_err(|e| ExportError::Database(e.to_string()))?;

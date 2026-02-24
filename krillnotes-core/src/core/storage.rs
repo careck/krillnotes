@@ -23,8 +23,10 @@ impl Storage {
     ///
     /// Returns [`crate::KrillnotesError::Database`] if the file cannot be
     /// created or the schema SQL fails to execute.
-    pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
+        let escaped = password.replace('\'', "''");
+        conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(Self { conn })
     }
@@ -117,9 +119,9 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn test_create_storage() {
+    fn test_create_encrypted_storage() {
         let temp = NamedTempFile::new().unwrap();
-        let storage = Storage::create(temp.path()).unwrap();
+        let storage = Storage::create(temp.path(), "hunter2").unwrap();
 
         let tables: Vec<String> = storage
             .connection()
@@ -138,7 +140,7 @@ mod tests {
     #[test]
     fn test_open_existing_storage() {
         let temp = NamedTempFile::new().unwrap();
-        Storage::create(temp.path()).unwrap();
+        Storage::create(temp.path(), "").unwrap();
         let storage = Storage::open(temp.path()).unwrap();
 
         let tables: Vec<String> = storage
