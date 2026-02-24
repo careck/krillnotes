@@ -652,8 +652,6 @@ fn set_paste_menu_enabled(
     window: tauri::Window,
     enabled: bool,
 ) -> std::result::Result<(), String> {
-    let label = window.label().to_string();
-
     #[cfg(target_os = "macos")]
     {
         let items = state.paste_menu_items.lock().expect("Mutex poisoned");
@@ -665,6 +663,7 @@ fn set_paste_menu_enabled(
 
     #[cfg(not(target_os = "macos"))]
     {
+        let label = window.label().to_string();
         let items = state.paste_menu_items.lock().expect("Mutex poisoned");
         if let Some((child_item, sibling_item)) = items.get(&label) {
             child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
