@@ -1127,8 +1127,12 @@ impl Workspace {
         let now = chrono::Utc::now().timestamp();
         let id = Uuid::new_v4().to_string();
 
-        // Try to compile and load the script (before opening transaction)
-        let compile_ok = self.script_registry.load_script(source_code).is_ok();
+        // Try to compile and load the script — return error immediately on failure
+        if let Err(e) = self.script_registry.load_script(source_code) {
+            // Restore the registry to its pre-validation state
+            self.reload_scripts()?;
+            return Err(e);
+        }
 
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -1141,7 +1145,7 @@ impl Workspace {
         tx.execute(
             "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            rusqlite::params![id, fm.name, fm.description, source_code, load_order, compile_ok, now, now],
+            rusqlite::params![id, fm.name, fm.description, source_code, load_order, true, now, now],
         )?;
 
         // Log operation
@@ -1154,17 +1158,12 @@ impl Workspace {
             description: fm.description.clone(),
             source_code: source_code.to_string(),
             load_order,
-            enabled: compile_ok,
+            enabled: true,
         };
         self.operation_log.log(&tx, &op)?;
         self.operation_log.purge_if_needed(&tx)?;
 
         tx.commit()?;
-
-        if !compile_ok {
-            // Reload all scripts to clean up any partial state
-            self.reload_scripts()?;
-        }
 
         self.get_user_script(&id)
     }
@@ -2325,5 +2324,22 @@ schema("Memo", #{
             html.contains("<strong>hello</strong>"),
             "textarea body should be markdown-rendered, got: {html}"
         );
+    }
+
+    #[test]
+    fn test_create_user_script_rejects_compile_error() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let initial_count = ws.list_user_scripts().unwrap().len();
+
+        // Clearly invalid Rhai: assignment with no identifier
+        let bad_script = "// @name: Bad Script\n\nlet = 5;";
+        let result = ws.create_user_script(bad_script);
+
+        assert!(result.is_err(), "Should return error for invalid Rhai");
+        // Confirm nothing was saved
+        let scripts = ws.list_user_scripts().unwrap();
+        assert_eq!(scripts.len(), initial_count, "No script should be saved on compile error");
     }
 }
