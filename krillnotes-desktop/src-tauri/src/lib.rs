@@ -190,15 +190,14 @@ async fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
+    password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let path_buf = PathBuf::from(&path);
 
-    // Validate path doesn't exist
     if path_buf.exists() {
         return Err("File already exists. Use Open Workspace instead.".to_string());
     }
 
-    // Check if this path is already open
     match find_window_for_path(&state, &path_buf) {
         Some(existing_label) => {
             focus_window(&app, &existing_label)?;
@@ -206,8 +205,15 @@ async fn create_workspace(
         }
         None => {
             let label = generate_unique_label(&state, &path_buf);
-            let workspace = Workspace::create(&path_buf, "")
+            let workspace = Workspace::create(&path_buf, &password)
                 .map_err(|e| format!("Failed to create: {e}"))?;
+
+            // Cache password if setting is enabled
+            let settings = settings::load_settings();
+            if settings.cache_workspace_passwords {
+                state.workspace_passwords.lock().expect("Mutex poisoned")
+                    .insert(path_buf.clone(), password);
+            }
 
             let new_window = create_workspace_window(&app, &label)?;
             store_workspace(&state, label.clone(), workspace, path_buf.clone());
@@ -215,7 +221,6 @@ async fn create_workspace(
             new_window.set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
 
-            // Close main window if this is first workspace
             if window.label() == "main" {
                 window.close().map_err(|e| e.to_string())?;
             }
@@ -232,15 +237,14 @@ async fn open_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
+    password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let path_buf = PathBuf::from(&path);
 
-    // Validate path exists
     if !path_buf.exists() {
         return Err("File does not exist".to_string());
     }
 
-    // Check for duplicate open
     match find_window_for_path(&state, &path_buf) {
         Some(existing_label) => {
             focus_window(&app, &existing_label)?;
@@ -248,8 +252,19 @@ async fn open_workspace(
         }
         None => {
             let label = generate_unique_label(&state, &path_buf);
-            let workspace = Workspace::open(&path_buf, "")
-                .map_err(|e| format!("Failed to open: {e}"))?;
+            let workspace = Workspace::open(&path_buf, &password)
+                .map_err(|e| match e {
+                    KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
+                    KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
+                    other => format!("Failed to open: {other}"),
+                })?;
+
+            // Cache password if setting is enabled
+            let settings = settings::load_settings();
+            if settings.cache_workspace_passwords {
+                state.workspace_passwords.lock().expect("Mutex poisoned")
+                    .insert(path_buf.clone(), password);
+            }
 
             let new_window = create_workspace_window(&app, &label)?;
             store_workspace(&state, label.clone(), workspace, path_buf.clone());
@@ -788,14 +803,17 @@ async fn execute_import(
     zip_path: String,
     db_path: String,
     password: Option<String>,
+    workspace_password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let db_path_buf = PathBuf::from(&db_path);
 
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
-    import_workspace(reader, &db_path_buf, password.as_deref()).map_err(|e| e.to_string())?;
+    import_workspace(reader, &db_path_buf, password.as_deref(), &workspace_password)
+        .map_err(|e| e.to_string())?;
 
-    let workspace = Workspace::open(&db_path_buf, "").map_err(|e| e.to_string())?;
+    let workspace = Workspace::open(&db_path_buf, &workspace_password)
+        .map_err(|e| e.to_string())?;
     let label = generate_unique_label(&state, &db_path_buf);
 
     let new_window = create_workspace_window(&app, &label)?;
