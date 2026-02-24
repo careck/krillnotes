@@ -67,6 +67,12 @@ pub enum ExportError {
 
     #[error("Database error: {0}")]
     Database(String),
+
+    #[error("Archive is password-protected; provide a password to decrypt")]
+    EncryptedArchive,
+
+    #[error("Incorrect password")]
+    InvalidPassword,
 }
 
 /// Converts a script name into a safe filename stem.
