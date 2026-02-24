@@ -61,6 +61,8 @@
 
 ✅ DONE! When saving a rhai script in the script editor it fails silently if the script does not compile due to an error. It would be better to show an error message in that case and not save the edited script at all.
 
+[ ] When a hook (on_save, on_view) throws a runtime error, the error popup should include the name of the script it came from, so the user knows where to look. The line number is already correct.
+
 [ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way. Try to use OS keychain management if possible. When user tries to open an old unencrypted workspace, reject with a message that they need to get an older version of the app and export the workspace, then come to this version and import it again in this version.
 
 [ ] implement copy and paste of notes. When pasting a note to a different location then ask whether as a sibling or child. Copying a note should make a deep copy ofthe note's data and also make deep copies of all its children and children's children, etc. We don't need cut and paste because we already have the ability to move notes around in the tree view.
