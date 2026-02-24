@@ -213,6 +213,7 @@ impl Workspace {
     }
 
     /// Returns a mutable reference to the script registry for this workspace.
+    #[cfg(test)]
     pub(crate) fn script_registry_mut(&mut self) -> &mut ScriptRegistry {
         &mut self.script_registry
     }
