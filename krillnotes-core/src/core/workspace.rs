@@ -1169,12 +1169,22 @@ impl Workspace {
     }
 
     /// Updates an existing user script's source code, re-parsing front matter.
+    ///
+    /// Returns an error if `@name` is missing from the front matter, or if Rhai
+    /// compilation fails. On failure nothing is written to the database.
     pub fn update_user_script(&mut self, script_id: &str, source_code: &str) -> Result<UserScript> {
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
                 "Script must include a '// @name:' front matter line".to_string(),
             ));
+        }
+
+        // Try to compile and load the script — return error immediately on failure
+        if let Err(e) = self.script_registry.load_script(source_code) {
+            // Restore the registry to its pre-validation state
+            self.reload_scripts()?;
+            return Err(e);
         }
 
         let now = chrono::Utc::now().timestamp();
@@ -2341,5 +2351,32 @@ schema("Memo", #{
         // Confirm nothing was saved
         let scripts = ws.list_user_scripts().unwrap();
         assert_eq!(scripts.len(), initial_count, "No script should be saved on compile error");
+    }
+
+    #[test]
+    fn test_update_user_script_rejects_compile_error() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path()).unwrap();
+
+        let initial_count = ws.list_user_scripts().unwrap().len();
+
+        // Create a valid script first
+        let valid_script = "// @name: Good Script\n\n// valid empty body";
+        let created = ws.create_user_script(valid_script).unwrap();
+
+        // Attempt update with invalid Rhai
+        let bad_script = "// @name: Good Script\n\nlet = 5;";
+        let result = ws.update_user_script(&created.id, bad_script);
+
+        assert!(result.is_err(), "Should return error for invalid Rhai on update");
+
+        // Original source code must be preserved
+        let scripts = ws.list_user_scripts().unwrap();
+        assert_eq!(scripts.len(), initial_count + 1, "Script count must be unchanged after failed update");
+        let saved = scripts.iter().find(|s| s.id == created.id).unwrap();
+        assert_eq!(
+            saved.source_code, valid_script,
+            "Source code must be unchanged after failed update"
+        );
     }
 }
