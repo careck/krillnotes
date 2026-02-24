@@ -1,4 +1,5 @@
 import type { FieldValue, FieldType } from '../types';
+import { humaniseKey } from '../utils/humanise';
 
 interface FieldEditorProps {
   fieldName: string;
@@ -116,7 +117,7 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, onCh
   return (
     <div className="mb-4">
       <label className="block text-sm font-medium mb-1">
-        {fieldName}
+        {humaniseKey(fieldName)}
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
       {renderEditor()}

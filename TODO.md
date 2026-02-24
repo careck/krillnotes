@@ -65,9 +65,9 @@
 
 ✅ DONE! Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way. Try to use OS keychain management if possible. When user tries to open an old unencrypted workspace, reject with a message that they need to get an older version of the app and export the workspace, then come to this version and import it again in this version.
 
-[ ] implement copy and paste of notes. When pasting a note to a different location then ask whether as a sibling or child. Copying a note should make a deep copy ofthe note's data and also make deep copies of all its children and children's children, etc. We don't need cut and paste because we already have the ability to move notes around in the tree view.
+✅ DONE! I see that the default view of a note still displays the field names as they are in the database. It would look a lot better if these were humanised. For example, "note_title" should become "Note Title", etc.
 
-[ ] I see that the default view of a note still displays the field names as they are in the database. It would look a lot better if these were humanised. For example, "note_title" should become "Note Title", etc. 
+[ ] implement copy and paste of notes. When pasting a note to a different location then ask whether as a sibling or child. Copying a note should make a deep copy ofthe note's data and also make deep copies of all its children and children's children, etc. We don't need cut and paste because we already have the ability to move notes around in the tree view.
 
 [ ] user scripts have a loading order, but currently there is no way in the manage_script dialog to change this order. I think it would be cool if the order of scripts could be changed via drag handles.
 
