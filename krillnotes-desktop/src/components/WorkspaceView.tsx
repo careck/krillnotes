@@ -536,8 +536,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          copiedNoteId={copiedNoteId}
           onAddNote={() => handleContextAddNote(contextMenu.noteId)}
           onEdit={() => handleContextEdit(contextMenu.noteId)}
+          onCopy={() => copyNote(contextMenu.noteId)}
+          onPasteAsChild={() => pasteNote('child')}
+          onPasteAsSibling={() => pasteNote('sibling')}
           onDelete={() => handleContextDelete(contextMenu.noteId)}
           onClose={() => setContextMenu(null)}
         />
