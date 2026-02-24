@@ -212,6 +212,25 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     return () => { unlisten?.(); };
   }, [copiedNoteId]);
 
+  // Handle copy/paste actions from the Edit menu.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    const unlisten = win.listen<string>('menu-action', (event) => {
+      switch (event.payload) {
+        case 'Edit > Copy Note clicked':
+          if (selectedNoteId) copyNote(selectedNoteId);
+          break;
+        case 'Edit > Paste as Child clicked':
+          pasteNote('child');
+          break;
+        case 'Edit > Paste as Sibling clicked':
+          pasteNote('sibling');
+          break;
+      }
+    });
+    return () => { unlisten.then(f => f()); };
+  }, [selectedNoteId, copiedNoteId, copyNote, pasteNote]);
+
   const handleSelectNote = async (noteId: string) => {
     setViewHistory([]);
     setSelectedNoteId(noteId);
