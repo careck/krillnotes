@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_log_and_purge() {
         let temp = NamedTempFile::new().unwrap();
-        let mut storage = Storage::create(temp.path()).unwrap();
+        let mut storage = Storage::create(temp.path(), "").unwrap();
         let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 5 });
 
         let tx = storage.connection_mut().transaction().unwrap();
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn test_list_operations() {
         let temp = NamedTempFile::new().unwrap();
-        let mut storage = Storage::create(temp.path()).unwrap();
+        let mut storage = Storage::create(temp.path(), "").unwrap();
         let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         // Insert two operations with different types and timestamps.
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn test_purge_all() {
         let temp = NamedTempFile::new().unwrap();
-        let mut storage = Storage::create(temp.path()).unwrap();
+        let mut storage = Storage::create(temp.path(), "").unwrap();
         let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         {
