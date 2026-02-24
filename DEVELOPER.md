@@ -53,6 +53,8 @@ Krillnotes/
             ├── AddNoteDialog.tsx           # New note dialog (type + position)
             ├── DeleteConfirmDialog.tsx     # Delete confirmation with strategy choice
             ├── ContextMenu.tsx            # Right-click tree menu
+            ├── SetPasswordDialog.tsx      # Set (+ confirm) workspace password
+            ├── EnterPasswordDialog.tsx    # Enter password to open a workspace
             ├── WelcomeDialog.tsx          # First-launch welcome
             ├── EmptyState.tsx             # No-workspace placeholder
             └── StatusMessage.tsx          # Transient success/error toast
@@ -184,7 +186,31 @@ The `rhai::Engine` is a long-lived field, not reconstructed per request. This av
 
 The `rhai/sync` Cargo feature is enabled, which replaces `Rc`/`RefCell` internals with `Arc`/`Mutex`, making `Engine: Send + Sync` without any `unsafe` code.
 
-### 4. User Script Management
+### 4. Encryption
+
+Every workspace database is encrypted with **SQLCipher** using the `bundled-sqlcipher-vendored-openssl` rusqlite feature. OpenSSL is compiled from source and statically linked — there are no system-level OpenSSL dependencies on any platform.
+
+**How it works:**
+
+- `PRAGMA key = '<password>'` is the very first SQL operation after opening a connection, before any schema access.
+- SQLCipher uses **AES-256-CBC** with **PBKDF2-HMAC-SHA512** (256,000 iterations) by default.
+- An empty password string is treated as "no encryption" (only used in tests; not reachable from the UI).
+
+**Opening an old unencrypted workspace:**
+
+1. Open connection, issue `PRAGMA key` with the provided password.
+2. Query `sqlite_master` for the three expected tables.
+3. If they are not found, open a second connection **without** a key.
+4. If the plain connection sees the tables → return `KrillnotesError::UnencryptedWorkspace`.
+5. Otherwise → return `KrillnotesError::WrongPassword`.
+
+These two error variants are mapped to sentinel strings (`"UNENCRYPTED_WORKSPACE"`, `"WRONG_PASSWORD"`) for the frontend to handle with appropriate UI.
+
+**Session password caching:**
+
+When the `cache_workspace_passwords` setting is enabled, the password is stored in `AppState.workspace_passwords` (keyed by file path) after a successful open. On subsequent opens of the same workspace within the same session, the cached password is used without prompting. The cache is never written to disk and is cleared when the app exits.
+
+### 5. User Script Management
 
 User scripts are stored in the `user_scripts` table inside each workspace database. This means each workspace has its own set of custom note types and hooks.
 
@@ -201,7 +227,9 @@ Workspaces can be exported as `.zip` archives ([export.rs](krillnotes-core/src/c
 
 Operations are excluded from exports as they are device-specific.
 
-Importing reads a zip, creates a fresh workspace database, inserts all notes and scripts, and opens the new workspace. A `peek_import` command allows inspecting the archive metadata (version, note count, script count) before committing to the import.
+The zip can optionally be encrypted with AES-256 using the `zip` crate's built-in AES support. This is a separate layer from the workspace database encryption — the zip password protects the archive in transit, and the workspace password protects the database at rest.
+
+Importing reads a zip (prompting for the zip password if encrypted), creates a fresh **SQLCipher-encrypted** workspace database (prompting for a new workspace password), inserts all notes and scripts, and opens the new workspace. A `peek_import` command allows inspecting the archive metadata (version, note count, script count) before committing to the import.
 
 ### 6. Multi-Window Architecture
 
@@ -211,10 +239,14 @@ Each open workspace gets its own Tauri window. The frontend is a single React ap
 
 ```rust
 pub struct AppState {
-    pub workspaces:      Arc<Mutex<HashMap<String, Workspace>>>,  // label → Workspace
-    pub workspace_paths: Arc<Mutex<HashMap<String, PathBuf>>>,    // label → path on disk
+    pub workspaces:          Arc<Mutex<HashMap<String, Workspace>>>,  // label → Workspace
+    pub workspace_paths:     Arc<Mutex<HashMap<String, PathBuf>>>,    // label → path on disk
+    pub focused_window:      Arc<Mutex<Option<String>>>,              // for menu routing
+    pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,    // path → password (session cache)
 }
 ```
+
+`workspace_passwords` is populated only when the `cache_workspace_passwords` setting is enabled. It is never persisted to disk — passwords are cleared when the app quits.
 
 Window labels are derived from the workspace filename (e.g., `notes` for `notes.krillnotes`), with a numeric suffix appended on collision (`notes-2`, `notes-3`, ...).
 
@@ -282,9 +314,10 @@ let workspace = workspaces.get(window.label()).ok_or("workspace not found")?;
 
 | Layer | Technology |
 |-------|-----------|
-| Core library | Rust, rusqlite (bundled SQLite), rhai, serde, zip |
+| Core library | Rust, rusqlite (bundled SQLCipher + vendored OpenSSL), rhai, serde, zip |
 | Desktop backend | Tauri v2, mimalloc (global allocator) |
 | Frontend | React 19, TypeScript 5, Vite, Tailwind CSS v4 |
+| Encryption | SQLCipher (AES-256-CBC, PBKDF2-HMAC-SHA512) for workspace DBs; AES-256 zip for exports |
 | Error handling | thiserror |
 | IDs | uuid v4 |
 | Timestamps | chrono |
@@ -322,8 +355,9 @@ Tests live alongside the code they test in `#[cfg(test)]` modules at the bottom 
 | 6 — Search | Done | Live search across titles and fields with ancestor expansion |
 | 7 — Operations log viewer | Done | Filterable history, date/type filters, purge |
 | 8 — Export / Import | Done | Zip-based workspace export and import with version checks |
-| 9 — Undo / redo | Planned | Replay / invert operation log |
-| 10 — Sync infrastructure | Planned | CRDT merge, conflict resolution, `synced` flag |
+| 9 — Encryption | Done | SQLCipher AES-256 for workspace DBs; optional AES-256 zip for exports |
+| 10 — Undo / redo | Planned | Replay / invert operation log |
+| 11 — Sync infrastructure | Planned | CRDT merge, conflict resolution, `synced` flag |
 
 ---
 
@@ -339,9 +373,9 @@ Tests live alongside the code they test in `#[cfg(test)]` modules at the bottom 
 | [krillnotes-core/src/core/user_script.rs](krillnotes-core/src/core/user_script.rs) | UserScript type + CRUD |
 | [krillnotes-core/src/core/export.rs](krillnotes-core/src/core/export.rs) | Workspace export/import (zip) |
 | [krillnotes-core/src/core/delete.rs](krillnotes-core/src/core/delete.rs) | Delete strategies (DeleteAll, PromoteChildren) |
-| [krillnotes-core/src/core/storage.rs](krillnotes-core/src/core/storage.rs) | SQLite connection management + migrations |
+| [krillnotes-core/src/core/storage.rs](krillnotes-core/src/core/storage.rs) | SQLCipher connection management, PRAGMA key, migrations, unencrypted-workspace detection |
 | [krillnotes-core/src/core/schema.sql](krillnotes-core/src/core/schema.sql) | Database DDL (4 tables) |
-| [krillnotes-desktop/src-tauri/src/lib.rs](krillnotes-desktop/src-tauri/src/lib.rs) | Tauri commands (24 commands) + AppState |
+| [krillnotes-desktop/src-tauri/src/lib.rs](krillnotes-desktop/src-tauri/src/lib.rs) | Tauri commands (25 commands) + AppState (incl. password cache) |
 | [krillnotes-desktop/src-tauri/src/menu.rs](krillnotes-desktop/src-tauri/src/menu.rs) | Native menu (File, Edit, View, Window, Help) |
 | [krillnotes-desktop/src/App.tsx](krillnotes-desktop/src/App.tsx) | React root, menu event wiring, export/import |
 | [krillnotes-desktop/src/types.ts](krillnotes-desktop/src/types.ts) | Shared TypeScript interfaces |
