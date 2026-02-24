@@ -357,6 +357,157 @@ impl Workspace {
         Ok(note.id)
     }
 
+    /// Deep-copies the note at `source_id` and its entire descendant subtree,
+    /// placing the copy at `target_id` with the given `position`.
+    ///
+    /// Returns the ID of the new root note.
+    ///
+    /// All notes in the subtree receive fresh UUIDs and current timestamps.
+    /// Schema constraints (`allowed_parent_types`, `allowed_children_types`) are
+    /// validated only for the root of the copy against the paste target.
+    /// Children's internal parent/child relationships are trusted and not re-validated.
+    pub fn deep_copy_note(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+        position: AddPosition,
+    ) -> Result<String> {
+        // 1. Load the full subtree rooted at source_id using an iterative BFS.
+        let mut subtree: Vec<Note> = Vec::new();
+        let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        queue.push_back(source_id.to_string());
+        while let Some(current_id) = queue.pop_front() {
+            let note = self.get_note(&current_id)?;
+            // Enqueue children
+            let child_ids: Vec<String> = self
+                .connection()
+                .prepare("SELECT id FROM notes WHERE parent_id = ? ORDER BY position")?
+                .query_map([&current_id], |row| row.get(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for cid in child_ids {
+                queue.push_back(cid);
+            }
+            subtree.push(note);
+        }
+
+        if subtree.is_empty() {
+            return Err(KrillnotesError::NoteNotFound(source_id.to_string()));
+        }
+
+        // 2. Validate the paste location for the root note only.
+        let root_source = subtree[0].clone();
+        let root_schema = self.script_registry.get_schema(&root_source.node_type)?;
+        let target_note = self.get_note(target_id)?;
+
+        let (new_parent_id, new_position) = match position {
+            AddPosition::AsChild => (Some(target_note.id.clone()), 0i32),
+            AddPosition::AsSibling => (target_note.parent_id.clone(), target_note.position + 1),
+        };
+
+        // Validate allowed_parent_types for the root copy
+        if !root_schema.allowed_parent_types.is_empty() {
+            match &new_parent_id {
+                None => return Err(KrillnotesError::InvalidMove(format!(
+                    "Note type '{}' cannot be placed at root level", root_source.node_type
+                ))),
+                Some(pid) => {
+                    let parent = self.get_note(pid)?;
+                    if !root_schema.allowed_parent_types.contains(&parent.node_type) {
+                        return Err(KrillnotesError::InvalidMove(format!(
+                            "Note type '{}' cannot be placed under '{}'",
+                            root_source.node_type, parent.node_type
+                        )));
+                    }
+                }
+            }
+        }
+
+        // Validate allowed_children_types on the paste parent
+        if let Some(pid) = &new_parent_id {
+            let parent = self.get_note(pid)?;
+            let parent_schema = self.script_registry.get_schema(&parent.node_type)?;
+            if !parent_schema.allowed_children_types.is_empty()
+                && !parent_schema.allowed_children_types.contains(&root_source.node_type)
+            {
+                return Err(KrillnotesError::InvalidMove(format!(
+                    "Note type '{}' is not allowed as a child of '{}'",
+                    root_source.node_type, parent.node_type
+                )));
+            }
+        }
+
+        // 3. Build old_id → new_id remap table.
+        let mut id_map: HashMap<String, String> = HashMap::new();
+        for note in &subtree {
+            id_map.insert(note.id.clone(), Uuid::new_v4().to_string());
+        }
+
+        let now = chrono::Utc::now().timestamp();
+
+        // 4. Insert all cloned notes in a single transaction.
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // If pasting as sibling, bump positions of following siblings to make room.
+        if let AddPosition::AsSibling = position {
+            tx.execute(
+                "UPDATE notes SET position = position + 1 WHERE parent_id IS ? AND position >= ?",
+                rusqlite::params![new_parent_id, new_position],
+            )?;
+        }
+
+        let root_new_id = id_map[source_id].clone();
+
+        for note in &subtree {
+            let new_id = id_map[&note.id].clone();
+            let new_parent = if note.id == source_id {
+                // Root of the copy gets the paste target as parent
+                new_parent_id.clone()
+            } else {
+                // Children remap their parent_id through the id_map
+                note.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned())
+            };
+            let this_position = if note.id == source_id { new_position } else { note.position };
+
+            tx.execute(
+                "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rusqlite::params![
+                    new_id,
+                    note.title,
+                    note.node_type,
+                    new_parent,
+                    this_position,
+                    now,
+                    now,
+                    self.current_user_id,
+                    self.current_user_id,
+                    serde_json::to_string(&note.fields)?,
+                    note.is_expanded,
+                ],
+            )?;
+
+            // Log a CreateNote operation for each inserted note.
+            let op = Operation::CreateNote {
+                operation_id: Uuid::new_v4().to_string(),
+                timestamp: now,
+                device_id: self.device_id.clone(),
+                note_id: new_id.clone(),
+                parent_id: new_parent,
+                position: this_position,
+                node_type: note.node_type.clone(),
+                title: note.title.clone(),
+                fields: note.fields.clone(),
+                created_by: self.current_user_id,
+            };
+            self.operation_log.log(&tx, &op)?;
+        }
+
+        self.operation_log.purge_if_needed(&tx)?;
+        tx.commit()?;
+
+        Ok(root_new_id)
+    }
+
     /// Creates a new root-level note of `node_type` with no parent.
     ///
     /// Returns the ID of the newly created note.
@@ -2420,5 +2571,82 @@ schema("Memo", #{
         Workspace::create(temp.path(), "secret").unwrap();
         let result = Workspace::open(temp.path(), "wrong");
         assert!(matches!(result, Err(KrillnotesError::WrongPassword)));
+    }
+
+    #[test]
+    fn test_deep_copy_note_as_child() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        // root → child
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws
+            .create_note(&root.id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+        ws.update_note_title(&child_id, "Original Child".to_string())
+            .unwrap();
+
+        // Copy child as another child of root
+        let copy_id = ws
+            .deep_copy_note(&child_id, &root.id, AddPosition::AsChild)
+            .unwrap();
+
+        // Copy has a new ID
+        assert_ne!(copy_id, child_id);
+
+        // Copy has same title and node_type
+        let copy = ws.get_note(&copy_id).unwrap();
+        assert_eq!(copy.title, "Original Child");
+        assert_eq!(copy.node_type, "TextNote");
+
+        // Original is unchanged
+        let original = ws.get_note(&child_id).unwrap();
+        assert_eq!(original.title, "Original Child");
+        assert_eq!(original.parent_id, Some(root.id.clone()));
+    }
+
+    #[test]
+    fn test_deep_copy_note_recursive() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        // root → note_a → note_b
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let note_a_id = ws
+            .create_note(&root.id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+        ws.update_note_title(&note_a_id, "Note A".to_string())
+            .unwrap();
+        let note_b_id = ws
+            .create_note(&note_a_id, AddPosition::AsChild, "TextNote")
+            .unwrap();
+        ws.update_note_title(&note_b_id, "Note B".to_string())
+            .unwrap();
+
+        // Copy note_a (with note_b inside) as a child of root
+        let copy_a_id = ws
+            .deep_copy_note(&note_a_id, &root.id, AddPosition::AsChild)
+            .unwrap();
+
+        // copy of note_a exists with a new ID and correct title
+        assert_ne!(copy_a_id, note_a_id);
+        let copy_a = ws.get_note(&copy_a_id).unwrap();
+        assert_eq!(copy_a.title, "Note A");
+
+        // A copy of note_b also exists — find it by parent = copy_a
+        let all_notes = ws.list_all_notes().unwrap();
+        let copy_b = all_notes
+            .iter()
+            .find(|n| n.parent_id.as_deref() == Some(&copy_a_id) && n.title == "Note B")
+            .expect("copy of note_b should exist under copy_a");
+
+        // copy of note_b has a new ID (not the original)
+        assert_ne!(copy_b.id, note_b_id);
+
+        // originals are untouched
+        let orig_a = ws.get_note(&note_a_id).unwrap();
+        assert_eq!(orig_a.parent_id, Some(root.id.clone()));
+        let orig_b = ws.get_note(&note_b_id).unwrap();
+        assert_eq!(orig_b.parent_id, Some(note_a_id.clone()));
     }
 }
