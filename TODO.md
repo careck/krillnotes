@@ -53,10 +53,10 @@
 
 ✅ DONE! I thought about the design decision to have on_save() and on_view() hooks outside the schema definition and I think it causes more trouble than it's worth. I thought it would enable a user to override existing functionality, but since we have eliminated the distinction between system scripts and user scripts, a user can just edit existing schema and hooks directly without the need to override anything. In fact, having these hooks outside the schema now makes the headache of load and execution order! Which on_view() to call when there are two registered for the same schema in different scripts? It's even worse for on_save()! I would like to move the on_save() and on_view() hooks back into the schema definition and change their rhai method signature to only accept a note, since the schema is already known through the encapsulation. This would make the schema definition more self-contained and eliminate any ambiguities of which hook to call when.
 
-[x] minor issue: when creating a new workspace, the input dialog allows spaces and other characters that are not valid in a filename. The workspace name should be sanitized to only allow valid filename characters.
+[x] minor issue: when creating a new workspace, the input dialog allows spaces, but then there's an error because somehow workspace names can't have spaces, or sqlite can't have spaces in its filename. Please allow a human readable name for workspaces, but transform it into an acceptable filename when creating the workspace.
 
-[x] another minor issue when exporting a workspace, the save dialog sets the default filename to something generic. Instead, the default filename should be based on the workspace name.
-
-[ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way, but old workspaces should be opened with a warning and a dialog to add a password to encrypt it. Try to use OS keychain management if possible.
+[x] another minor issue when exporting a workspace, the save dialog sets the default filename to "workspace...". It would be better to use the current workspace name instead.
 
 [ ] Exports should stay in clear text, but offer the option to encrypt the zip file with a password. On import the app should recognise if a zip is encrypted and prompt the user for the password to decrypt before opening it.
+
+[ ] Add encryption to the database file using SQLCipher. All new workspaces should be encrypted this way, but old workspaces should be opened with a warning and a dialog to add a password to encrypt it. Try to use OS keychain management if possible.
