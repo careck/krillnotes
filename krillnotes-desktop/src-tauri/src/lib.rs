@@ -649,7 +649,7 @@ fn deep_copy_note_cmd(
 #[tauri::command]
 fn set_paste_menu_enabled(
     state: State<'_, AppState>,
-    window: tauri::Window,
+    _window: tauri::Window,
     enabled: bool,
 ) -> std::result::Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -663,7 +663,7 @@ fn set_paste_menu_enabled(
 
     #[cfg(not(target_os = "macos"))]
     {
-        let label = window.label().to_string();
+        let label = _window.label().to_string();
         let items = state.paste_menu_items.lock().expect("Mutex poisoned");
         if let Some((child_item, sibling_item)) = items.get(&label) {
             child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
