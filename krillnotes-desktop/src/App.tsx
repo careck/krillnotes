@@ -30,8 +30,8 @@ const createMenuHandlers = (
   setShowNewWorkspace: (show: boolean) => void,
   setShowOpenWorkspace: (show: boolean) => void,
   setShowSettings: (show: boolean) => void,
-  setImportState: (state: ImportState | null) => void,
   setShowExportPasswordDialog: (show: boolean) => void,
+  doImport: (zipPath: string) => void,
 ) => ({
   'File > New Workspace clicked': () => {
     setShowNewWorkspace(true);
@@ -50,33 +50,10 @@ const createMenuHandlers = (
       const zipPath = await open({
         filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
         multiple: false,
-        title: 'Import Workspace'
+        title: 'Import Workspace',
       });
-
       if (!zipPath || Array.isArray(zipPath)) return;
-
-      // Peek at metadata to check version
-      const result = await invoke<{ appVersion: string; noteCount: number; scriptCount: number }>(
-        'peek_import_cmd', { zipPath }
-      );
-
-      // Check app version — warn if export is from a newer version
-      const currentVersion = await invoke<string>('get_app_version');
-      if (result.appVersion > currentVersion) {
-        const { confirm } = await import('@tauri-apps/plugin-dialog');
-        const proceed = await confirm(
-          `This export was created with Krillnotes v${result.appVersion}, but you are running v${currentVersion}. Some data may not import correctly.\n\nImport anyway?`,
-          { title: 'Version Mismatch', kind: 'warning' }
-        );
-        if (!proceed) return;
-      }
-
-      // Show name-entry dialog instead of save dialog
-      setImportState({
-        zipPath: zipPath as string,
-        noteCount: result.noteCount,
-        scriptCount: result.scriptCount,
-      });
+      doImport(zipPath as string);
     } catch (error) {
       setStatus(`Import failed: ${error}`, true);
     }
@@ -99,6 +76,11 @@ function App() {
   const [importName, setImportName] = useState('');
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [showImportPasswordDialog, setShowImportPasswordDialog] = useState(false);
+  const [importPassword, setImportPassword] = useState('');
+  const [importPasswordError, setImportPasswordError] = useState('');
+  const [pendingImportZipPath, setPendingImportZipPath] = useState<string | null>(null);
+  const [pendingImportPassword, setPendingImportPassword] = useState<string | null>(null);
   const [showExportPasswordDialog, setShowExportPasswordDialog] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
@@ -135,8 +117,8 @@ function App() {
       setShowNewWorkspace,
       setShowOpenWorkspace,
       setShowSettings,
-      setImportState,
       setShowExportPasswordDialog,
+      (zipPath) => proceedWithImport(zipPath, null),
     );
 
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
@@ -177,9 +159,10 @@ function App() {
     try {
       const settings = await invoke<AppSettings>('get_settings');
       const dbPath = `${settings.workspaceDirectory}/${slug}.db`;
-      await invoke('execute_import', { zipPath: importState.zipPath, dbPath });
+      await invoke('execute_import', { zipPath: importState.zipPath, dbPath, password: pendingImportPassword });
       statusSetter(`Imported ${importState.noteCount} notes and ${importState.scriptCount} scripts`);
       setImportState(null);
+      setPendingImportPassword(null);
     } catch (error) {
       setImportError(`${error}`);
       setImporting(false);
@@ -204,6 +187,45 @@ function App() {
       statusSetter('Workspace exported successfully');
     } catch (error) {
       statusSetter(`Export failed: ${error}`, true);
+    }
+  };
+
+  const proceedWithImport = async (zipPath: string, password: string | null) => {
+    try {
+      const result = await invoke<{ appVersion: string; noteCount: number; scriptCount: number }>(
+        'peek_import_cmd', { zipPath, password }
+      );
+
+      const currentVersion = await invoke<string>('get_app_version');
+      if (result.appVersion > currentVersion) {
+        const { confirm } = await import('@tauri-apps/plugin-dialog');
+        const proceed = await confirm(
+          `This export was created with Krillnotes v${result.appVersion}, but you are running v${currentVersion}. Some data may not import correctly.\n\nImport anyway?`,
+          { title: 'Version Mismatch', kind: 'warning' }
+        );
+        if (!proceed) return;
+      }
+
+      setShowImportPasswordDialog(false);
+      setImportPassword('');
+      setPendingImportPassword(password);
+      setImportState({
+        zipPath,
+        noteCount: result.noteCount,
+        scriptCount: result.scriptCount,
+      });
+    } catch (error) {
+      const errStr = `${error}`;
+      if (errStr === 'ENCRYPTED_ARCHIVE') {
+        setPendingImportZipPath(zipPath);
+        setImportPassword('');
+        setImportPasswordError('');
+        setShowImportPasswordDialog(true);
+      } else if (errStr === 'INVALID_PASSWORD') {
+        setImportPasswordError('Incorrect password — try again.');
+      } else {
+        statusSetter(`Import failed: ${errStr}`, true);
+      }
     }
   };
 
@@ -306,6 +328,64 @@ function App() {
         </div>
       )}
 
+      {/* Import password dialog */}
+      {showImportPasswordDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background border border-secondary p-6 rounded-lg w-96">
+            <h2 className="text-xl font-bold mb-4">This archive is password-protected</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Enter the password used when the workspace was exported.
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Password</label>
+              <input
+                type="password"
+                value={importPassword}
+                onChange={(e) => setImportPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && importPassword && pendingImportZipPath) {
+                    setImportPasswordError('');
+                    proceedWithImport(pendingImportZipPath, importPassword);
+                  }
+                }}
+                placeholder="Enter password"
+                className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoFocus
+              />
+            </div>
+            {importPasswordError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
+                {importPasswordError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowImportPasswordDialog(false);
+                  setPendingImportZipPath(null);
+                  setImportPassword('');
+                  setImportPasswordError('');
+                }}
+                className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!pendingImportZipPath) return;
+                  setImportPasswordError('');
+                  proceedWithImport(pendingImportZipPath, importPassword);
+                }}
+                disabled={!importPassword}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Decrypt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Import name dialog — inline since it's a lightweight prompt */}
       {importState && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -338,7 +418,7 @@ function App() {
 
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => setImportState(null)}
+                onClick={() => { setImportState(null); setPendingImportPassword(null); }}
                 className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
                 disabled={importing}
               >
