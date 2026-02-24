@@ -19,9 +19,9 @@ pub(super) struct HookEntry {
 ///
 /// Each field is `Some((new_title, new_fields))` when the hook returned
 /// modifications for that note, or `None` when the hook left it unchanged.
-pub(super) struct AddChildResult {
-    pub(super) parent: Option<(String, HashMap<String, FieldValue>)>,
-    pub(super) child:  Option<(String, HashMap<String, FieldValue>)>,
+pub struct AddChildResult {
+    pub parent: Option<(String, HashMap<String, FieldValue>)>,
+    pub child:  Option<(String, HashMap<String, FieldValue>)>,
 }
 
 /// Describes a single typed field within a note schema.
