@@ -1279,6 +1279,73 @@ mod tests {
         );
     }
 
+    // ── on_add_child hooks ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_on_add_child_hook_modifies_parent_and_child() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [
+                    #{ name: "count", type: "number", required: false },
+                ],
+                on_add_child: |parent_note, child_note| {
+                    parent_note.fields["count"] = parent_note.fields["count"] + 1.0;
+                    parent_note.title = "Folder (" + parent_note.fields["count"].to_string() + ")";
+                    child_note.title = "Child from hook";
+                    #{ parent: parent_note, child: child_note }
+                }
+            });
+            schema("Item", #{
+                fields: [
+                    #{ name: "name", type: "text", required: false },
+                ],
+            });
+        "#, "test").unwrap();
+
+        let mut parent_fields = std::collections::HashMap::new();
+        parent_fields.insert("count".to_string(), FieldValue::Number(0.0));
+
+        let mut child_fields = std::collections::HashMap::new();
+        child_fields.insert("name".to_string(), FieldValue::Text("".to_string()));
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Folder",
+                "parent-id", "Folder", "Folder", &parent_fields,
+                "child-id",  "Item",   "Untitled", &child_fields,
+            )
+            .unwrap();
+
+        let result = result.expect("hook should return a result");
+        let (p_title, p_fields) = result.parent.expect("should have parent update");
+        assert_eq!(p_title, "Folder (1)");
+        assert_eq!(p_fields["count"], FieldValue::Number(1.0));
+
+        let (c_title, _) = result.child.expect("should have child update");
+        assert_eq!(c_title, "Child from hook");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_absent_returns_none() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Plain", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Plain",
+                "p-id", "Plain", "Title", &std::collections::HashMap::new(),
+                "c-id", "Plain", "Child", &std::collections::HashMap::new(),
+            )
+            .unwrap();
+
+        assert!(result.is_none(), "no hook registered should return None");
+    }
+
     #[test]
     fn test_on_view_runtime_error_includes_script_name() {
         let mut registry = ScriptRegistry::new().unwrap();
