@@ -610,6 +610,28 @@ fn move_note(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn deep_copy_note_cmd(
+    state: State<'_, AppState>,
+    window: tauri::Window,
+    source_note_id: String,
+    target_note_id: String,
+    position: String, // "child" or "sibling"
+) -> std::result::Result<String, String> {
+    let label = window.label().to_string();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces
+        .get_mut(&label)
+        .ok_or_else(|| "No workspace open".to_string())?;
+    let pos = if position == "child" {
+        AddPosition::AsChild
+    } else {
+        AddPosition::AsSibling
+    };
+    ws.deep_copy_note(&source_note_id, &target_note_id, pos)
+        .map_err(|e| e.to_string())
+}
+
 // ── User-script commands ──────────────────────────────────────────
 
 /// Returns all user scripts for the calling window's workspace.
@@ -1062,6 +1084,7 @@ pub fn run() {
             count_children,
             delete_note,
             move_note,
+            deep_copy_note_cmd,
             list_user_scripts,
             get_user_script,
             create_user_script,
