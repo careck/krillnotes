@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 pub(super) struct HookEntry {
     pub(super) fn_ptr: FnPtr,
     pub(super) ast: AST,
+    pub(super) script_name: String,
 }
 
 /// Describes a single typed field within a note schema.
@@ -332,7 +333,7 @@ impl SchemaRegistry {
         let result = entry
             .fn_ptr
             .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error: {e}")))?;
+            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error in '{}': {e}", entry.script_name)))?;
 
         let result_map = result.try_cast::<Map>().ok_or_else(|| {
             KrillnotesError::Scripting("on_save hook must return the note map".to_string())
@@ -390,7 +391,7 @@ impl SchemaRegistry {
         let result = entry
             .fn_ptr
             .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("on_view hook error: {e}")))?;
+            .map_err(|e| KrillnotesError::Scripting(format!("on_view hook error in '{}': {e}", entry.script_name)))?;
 
         let html = result.try_cast::<String>().ok_or_else(|| {
             KrillnotesError::Scripting("on_view hook must return a string".to_string())

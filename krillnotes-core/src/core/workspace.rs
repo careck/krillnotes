@@ -102,7 +102,7 @@ impl Workspace {
             results
         };
         for script in scripts.iter().filter(|s| s.enabled) {
-            if let Err(e) = script_registry.load_script(&script.source_code) {
+            if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
                 eprintln!("Failed to load starter script '{}': {}", script.name, e);
             }
         }
@@ -198,7 +198,7 @@ impl Workspace {
         // Load enabled scripts from the workspace DB.
         let scripts = ws.list_user_scripts()?;
         for script in scripts.iter().filter(|s| s.enabled) {
-            if let Err(e) = ws.script_registry.load_script(&script.source_code) {
+            if let Err(e) = ws.script_registry.load_script(&script.source_code, &script.name) {
                 eprintln!("Failed to load script '{}': {}", script.name, e);
             }
         }
@@ -1128,7 +1128,7 @@ impl Workspace {
         let id = Uuid::new_v4().to_string();
 
         // Try to compile and load the script — return error immediately on failure
-        if let Err(e) = self.script_registry.load_script(source_code) {
+        if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
             // Restore the registry to its pre-validation state
             self.reload_scripts()?;
             return Err(e);
@@ -1181,7 +1181,7 @@ impl Workspace {
         }
 
         // Try to compile and load the script — return error immediately on failure
-        if let Err(e) = self.script_registry.load_script(source_code) {
+        if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
             // Restore the registry to its pre-validation state
             self.reload_scripts()?;
             return Err(e);
@@ -1345,7 +1345,7 @@ impl Workspace {
         self.script_registry.clear_all();
         let scripts = self.list_user_scripts()?;
         for script in scripts.iter().filter(|s| s.enabled) {
-            if let Err(e) = self.script_registry.load_script(&script.source_code) {
+            if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
                 eprintln!("Failed to load script '{}': {}", script.name, e);
             }
         }
