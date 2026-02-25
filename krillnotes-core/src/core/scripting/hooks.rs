@@ -32,7 +32,9 @@ impl std::fmt::Debug for TreeActionEntry {
 /// lifecycle hooks will be added here in future tasks.
 ///
 /// Constructed only by `ScriptRegistry::new()`.
-#[derive(Debug)]
+///
+/// Cheaply cloneable — the inner `Arc` is shared, so clones see the same data.
+#[derive(Debug, Clone)]
 pub struct HookRegistry {
     tree_actions: Arc<Mutex<Vec<TreeActionEntry>>>,
 }
@@ -42,11 +44,6 @@ impl HookRegistry {
         Self {
             tree_actions: Arc::new(Mutex::new(Vec::new())),
         }
-    }
-
-    /// Arc clone of tree_actions for use in Rhai host-function closures.
-    pub(super) fn tree_actions_arc(&self) -> Arc<Mutex<Vec<TreeActionEntry>>> {
-        Arc::clone(&self.tree_actions)
     }
 
     /// Appends a new tree action. Logs a warning if a duplicate label+type
@@ -64,6 +61,14 @@ impl HookRegistry {
             }
         }
         actions.push(entry);
+    }
+
+    /// Looks up a tree action by label and returns clones of its fn_ptr, ast, and script_name.
+    pub(super) fn find_tree_action(&self, label: &str) -> Option<(FnPtr, AST, String)> {
+        let actions = self.tree_actions.lock().unwrap();
+        actions.iter()
+            .find(|a| a.label == label)
+            .map(|a| (a.fn_ptr.clone(), a.ast.clone(), a.script_name.clone()))
     }
 
     /// Returns a map of `note_type → [action_label, …]` for every registered action.

@@ -82,7 +82,7 @@ impl ScriptRegistry {
         let hook_registry = hooks::HookRegistry::new();
 
         // Register add_tree_action() host function — writes tree context menu actions into HookRegistry.
-        let tree_actions_arc = hook_registry.tree_actions_arc();
+        let hook_registry_clone = hook_registry.clone();
         let add_tree_name_arc = Arc::clone(&current_loading_script_name);
         let add_tree_ast_arc  = Arc::clone(&current_loading_ast);
         engine.register_fn("add_tree_action",
@@ -107,7 +107,7 @@ impl ScriptRegistry {
                     fn_ptr,
                     ast,
                 };
-                tree_actions_arc.lock().unwrap().push(entry);
+                hook_registry_clone.register_tree_action(entry);
                 Ok(Dynamic::UNIT)
             }
         );
@@ -461,13 +461,7 @@ impl ScriptRegistry {
         note: &Note,
         context: QueryContext,
     ) -> Result<Option<Vec<String>>> {
-        let entry = {
-            let arc = self.hook_registry.tree_actions_arc();
-            let actions = arc.lock().unwrap();
-            actions.iter()
-                .find(|a| a.label == label)
-                .map(|a| (a.fn_ptr.clone(), a.ast.clone(), a.script_name.clone()))
-        };
+        let entry = self.hook_registry.find_tree_action(label);
 
         let (fn_ptr, ast, script_name) = entry.ok_or_else(|| {
             KrillnotesError::Scripting(format!("unknown tree action: {label:?}"))
