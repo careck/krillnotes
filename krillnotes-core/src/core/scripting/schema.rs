@@ -229,7 +229,7 @@ impl Schema {
 }
 
 /// Private store for registered schemas plus per-schema hook side-tables.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct SchemaRegistry {
     schemas:            Arc<Mutex<HashMap<String, Schema>>>,
     on_save_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,

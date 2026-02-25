@@ -756,9 +756,9 @@ impl Workspace {
         }
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
 
-        let reorder = self.script_registry.invoke_tree_action_hook(label, &note, context)?;
+        let result = self.script_registry.invoke_tree_action_hook(label, &note, context)?;
 
-        if let Some(ids) = reorder {
+        if let Some(ids) = result.reorder {
             for (position, id) in ids.iter().enumerate() {
                 self.move_note(id, Some(note_id), position as i32)?;
             }
