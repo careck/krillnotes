@@ -15,6 +15,16 @@ pub(super) struct HookEntry {
     pub(super) script_name: String,
 }
 
+/// Result returned by [`SchemaRegistry::run_on_add_child_hook`].
+///
+/// Each field is `Some((new_title, new_fields))` when the hook returned
+/// modifications for that note, or `None` when the hook left it unchanged.
+#[derive(Debug)]
+pub struct AddChildResult {
+    pub parent: Option<(String, HashMap<String, FieldValue>)>,
+    pub child:  Option<(String, HashMap<String, FieldValue>)>,
+}
+
 /// Describes a single typed field within a note schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -221,17 +231,19 @@ impl Schema {
 /// Private store for registered schemas plus per-schema hook side-tables.
 #[derive(Debug)]
 pub(super) struct SchemaRegistry {
-    schemas:       Arc<Mutex<HashMap<String, Schema>>>,
-    on_save_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
-    on_view_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    schemas:            Arc<Mutex<HashMap<String, Schema>>>,
+    on_save_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_view_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_add_child_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
 }
 
 impl SchemaRegistry {
     pub(super) fn new() -> Self {
         Self {
-            schemas:       Arc::new(Mutex::new(HashMap::new())),
-            on_save_hooks: Arc::new(Mutex::new(HashMap::new())),
-            on_view_hooks: Arc::new(Mutex::new(HashMap::new())),
+            schemas:            Arc::new(Mutex::new(HashMap::new())),
+            on_save_hooks:      Arc::new(Mutex::new(HashMap::new())),
+            on_view_hooks:      Arc::new(Mutex::new(HashMap::new())),
+            on_add_child_hooks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -246,6 +258,10 @@ impl SchemaRegistry {
 
     pub(super) fn on_view_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
         Arc::clone(&self.on_view_hooks)
+    }
+
+    pub(super) fn on_add_child_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
+        Arc::clone(&self.on_add_child_hooks)
     }
 
     pub(super) fn get(&self, name: &str) -> Result<Schema> {
@@ -281,6 +297,7 @@ impl SchemaRegistry {
         self.schemas.lock().unwrap().clear();
         self.on_save_hooks.lock().unwrap().clear();
         self.on_view_hooks.lock().unwrap().clear();
+        self.on_add_child_hooks.lock().unwrap().clear();
     }
 
     /// Returns `true` if an on_save hook is registered for `schema_name`.
@@ -398,6 +415,120 @@ impl SchemaRegistry {
         })?;
 
         Ok(Some(html))
+    }
+
+    /// Runs the on_add_child hook for `parent_schema`, if registered.
+    ///
+    /// Called from [`ScriptRegistry::run_on_add_child_hook`](super::ScriptRegistry::run_on_add_child_hook).
+    ///
+    /// Returns `Ok(None)` when no hook is registered for the parent schema.
+    /// Returns `Ok(Some(AddChildResult))` with optional parent/child updates on success.
+    pub(super) fn run_on_add_child_hook(
+        &self,
+        engine: &Engine,
+        parent_schema: &Schema,
+        parent_id: &str,
+        parent_type: &str,
+        parent_title: &str,
+        parent_fields: &HashMap<String, FieldValue>,
+        child_schema: &Schema,
+        child_id: &str,
+        child_type: &str,
+        child_title: &str,
+        child_fields: &HashMap<String, FieldValue>,
+    ) -> Result<Option<AddChildResult>> {
+        let entry = {
+            let hooks = self.on_add_child_hooks
+                .lock()
+                .map_err(|_| KrillnotesError::Scripting("on_add_child hook lock poisoned".to_string()))?;
+            hooks.get(&parent_schema.name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        // Build parent note map
+        let mut p_fields_map = Map::new();
+        for (k, v) in parent_fields {
+            p_fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+        let mut parent_map = Map::new();
+        parent_map.insert("id".into(),        Dynamic::from(parent_id.to_string()));
+        parent_map.insert("node_type".into(), Dynamic::from(parent_type.to_string()));
+        parent_map.insert("title".into(),     Dynamic::from(parent_title.to_string()));
+        parent_map.insert("fields".into(),    Dynamic::from(p_fields_map));
+
+        // Build child note map
+        let mut c_fields_map = Map::new();
+        for (k, v) in child_fields {
+            c_fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+        let mut child_map = Map::new();
+        child_map.insert("id".into(),        Dynamic::from(child_id.to_string()));
+        child_map.insert("node_type".into(), Dynamic::from(child_type.to_string()));
+        child_map.insert("title".into(),     Dynamic::from(child_title.to_string()));
+        child_map.insert("fields".into(),    Dynamic::from(c_fields_map));
+
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(parent_map), Dynamic::from(child_map)))
+            .map_err(|e| KrillnotesError::Scripting(
+                format!("on_add_child hook error in '{}': {e}", entry.script_name)
+            ))?;
+
+        // If the hook returned unit (no-op), treat as no modification
+        if result.is_unit() {
+            return Ok(Some(AddChildResult { parent: None, child: None }));
+        }
+
+        let result_map = result.try_cast::<Map>().ok_or_else(|| {
+            KrillnotesError::Scripting(
+                "on_add_child hook must return a map #{ parent: ..., child: ... } or ()".to_string()
+            )
+        })?;
+
+        // Extract optional parent modifications
+        let parent_update = if let Some(pm) = result_map.get("parent").and_then(|v| v.clone().try_cast::<Map>()) {
+            let new_title = pm.get("title")
+                .and_then(|v| v.clone().try_cast::<String>())
+                .ok_or_else(|| KrillnotesError::Scripting("hook result parent 'title' must be a string".to_string()))?;
+            let new_fields_dyn = pm.get("fields")
+                .and_then(|v| v.clone().try_cast::<Map>())
+                .ok_or_else(|| KrillnotesError::Scripting("hook result parent 'fields' must be a map".to_string()))?;
+            let mut new_fields = HashMap::new();
+            for field_def in &parent_schema.fields {
+                let dyn_val = new_fields_dyn.get(field_def.name.as_str()).cloned().unwrap_or(Dynamic::UNIT);
+                let fv = dynamic_to_field_value(dyn_val, &field_def.field_type)
+                    .map_err(|e| KrillnotesError::Scripting(format!("parent field '{}': {e}", field_def.name)))?;
+                new_fields.insert(field_def.name.clone(), fv);
+            }
+            Some((new_title, new_fields))
+        } else {
+            None
+        };
+
+        // Extract optional child modifications
+        let child_update = if let Some(cm) = result_map.get("child").and_then(|v| v.clone().try_cast::<Map>()) {
+            let new_title = cm.get("title")
+                .and_then(|v| v.clone().try_cast::<String>())
+                .ok_or_else(|| KrillnotesError::Scripting("hook result child 'title' must be a string".to_string()))?;
+            let new_fields_dyn = cm.get("fields")
+                .and_then(|v| v.clone().try_cast::<Map>())
+                .ok_or_else(|| KrillnotesError::Scripting("hook result child 'fields' must be a map".to_string()))?;
+            let mut new_fields = HashMap::new();
+            for field_def in &child_schema.fields {
+                let dyn_val = new_fields_dyn.get(field_def.name.as_str()).cloned().unwrap_or(Dynamic::UNIT);
+                let fv = dynamic_to_field_value(dyn_val, &field_def.field_type)
+                    .map_err(|e| KrillnotesError::Scripting(format!("child field '{}': {e}", field_def.name)))?;
+                new_fields.insert(field_def.name.clone(), fv);
+            }
+            Some((new_title, new_fields))
+        } else {
+            None
+        };
+
+        Ok(Some(AddChildResult { parent: parent_update, child: child_update }))
     }
 }
 
