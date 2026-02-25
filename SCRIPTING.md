@@ -456,25 +456,50 @@ Because all writes share a pending transaction, **`get_children()` and
 scripts to build subtrees:
 
 ```rhai
-add_tree_action("Create Sprint Template", ["Project"], |project| {
-    let sprint = create_note(project.id, "Sprint");
+// Right-click any TextNote → "Create Sprint Template"
+// Builds: TextNote (container) → TextNote (sprint) → 3 × Task
+add_tree_action("Create Sprint Template", ["TextNote"], |container| {
+    // Create the sprint note under the right-clicked note
+    let sprint = create_note(container.id, "TextNote");
     sprint.title = "Sprint 1";
-    sprint.fields.status = "Planning";
+    sprint.fields["body"] = "Sprint goals: TBD";
     update_note(sprint);
 
-    // sprint.id is already known — get_children will find it too
-    let task = create_note(sprint.id, "Task");
-    task.title = "Define goals";
-    update_note(task);
+    // Create tasks under the *newly created* sprint.
+    // sprint.id is not yet committed to the DB, but get_children / create_note
+    // can already see it within the same action (in-flight visibility).
 
-    // Update the project itself
-    project.fields.status = "Active";
-    update_note(project);
+    // Note: Task has an on_save hook that derives title from name + status.
+    // on_save is not called from tree actions, so set the title manually.
+    let t1 = create_note(sprint.id, "Task");
+    t1.title             = "[ ] Define scope";
+    t1.fields["name"]     = "Define scope";
+    t1.fields["status"]   = "TODO";
+    t1.fields["priority"] = "high";
+    update_note(t1);
+
+    let t2 = create_note(sprint.id, "Task");
+    t2.title             = "[ ] Set up environment";
+    t2.fields["name"]     = "Set up environment";
+    t2.fields["status"]   = "TODO";
+    t2.fields["priority"] = "medium";
+    update_note(t2);
+
+    let t3 = create_note(sprint.id, "Task");
+    t3.title             = "[ ] Write first tests";
+    t3.fields["name"]     = "Write first tests";
+    t3.fields["status"]   = "TODO";
+    t3.fields["priority"] = "low";
+    update_note(t3);
 });
 ```
 
 > `create_note` and `update_note` are **only available inside `add_tree_action`
 > closures**. They are not available in `on_save`, `on_add_child`, or `on_view`.
+>
+> **`on_save` is not invoked** for notes created or updated via `create_note` /
+> `update_note`. Schemas that derive their title from fields (such as `Task`)
+> require the title to be set manually inside the closure.
 
 ---
 
