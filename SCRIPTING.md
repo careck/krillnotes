@@ -77,6 +77,17 @@ schema("TypeName", #{
 });
 ```
 
+### Schema name uniqueness
+
+Schema names must be unique across all scripts. If two scripts both call
+`schema("Contact", …)`, the **first script to load wins** (scripts are loaded in
+ascending `load_order` order). The second script will fail to load and an error will
+be shown in the Scripts manager.
+
+> **Note:** A single script is allowed to call `schema()` with the same name more than
+> once — the last call in the script wins and no error is raised. Avoid doing this
+> intentionally; it is unsupported and the behaviour may change.
+
 ### Field definition
 
 Each entry in `fields` is a map:
@@ -768,6 +779,21 @@ schema("ProjectFolder", #{
 
 Note: this count only increases on add. It does not decrease when notes are deleted or
 moved away. For a live accurate count use `on_view` with `get_children()` instead.
+
+### Avoiding accidental schema collisions
+
+Schema names are checked for uniqueness across scripts at load time. If you copy a
+schema definition from one script into another, disable the original script, and then
+re-enable it later, the re-enabled script will fail to load because the name is now
+claimed by the other script.
+
+The safest rule: **one schema per script that defines it.** Do not copy `schema()`
+blocks between scripts; factor shared logic into helper functions or separate the
+schemas into their own scripts instead.
+
+One edge case to be aware of: calling `schema()` with the same name **twice inside
+the same script** is not an error — the second call overwrites the first silently.
+This is unlikely to be intentional and should be avoided.
 
 ---
 

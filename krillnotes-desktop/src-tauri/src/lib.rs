@@ -413,6 +413,15 @@ async fn create_note_with_type(
 }
 
 
+/// Response type for script mutation commands that return a result alongside
+/// any script load errors that occurred during the full registry reload.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScriptMutationResult<T: serde::Serialize> {
+    data: T,
+    load_errors: Vec<ScriptError>,
+}
+
 /// Response type for the `get_schema_fields` Tauri command, bundling field
 /// definitions with schema-level title visibility flags.
 #[derive(serde::Serialize)]
@@ -713,14 +722,15 @@ fn create_user_script(
     window: tauri::Window,
     state: State<'_, AppState>,
     source_code: String,
-) -> std::result::Result<UserScript, String> {
+) -> std::result::Result<ScriptMutationResult<UserScript>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label)
         .ok_or("No workspace open")?;
-    workspace.create_user_script(&source_code)
-        .map_err(|e| e.to_string())
+    let (data, load_errors) = workspace.create_user_script(&source_code)
+        .map_err(|e| e.to_string())?;
+    Ok(ScriptMutationResult { data, load_errors })
 }
 
 /// Updates an existing user script's source code.
@@ -730,14 +740,15 @@ fn update_user_script(
     state: State<'_, AppState>,
     script_id: String,
     source_code: String,
-) -> std::result::Result<UserScript, String> {
+) -> std::result::Result<ScriptMutationResult<UserScript>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label)
         .ok_or("No workspace open")?;
-    workspace.update_user_script(&script_id, &source_code)
-        .map_err(|e| e.to_string())
+    let (data, load_errors) = workspace.update_user_script(&script_id, &source_code)
+        .map_err(|e| e.to_string())?;
+    Ok(ScriptMutationResult { data, load_errors })
 }
 
 /// Deletes a user script by ID.
@@ -746,7 +757,7 @@ fn delete_user_script(
     window: tauri::Window,
     state: State<'_, AppState>,
     script_id: String,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Vec<ScriptError>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
@@ -763,7 +774,7 @@ fn toggle_user_script(
     state: State<'_, AppState>,
     script_id: String,
     enabled: bool,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Vec<ScriptError>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
@@ -780,7 +791,7 @@ fn reorder_user_script(
     state: State<'_, AppState>,
     script_id: String,
     new_load_order: i32,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Vec<ScriptError>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
@@ -796,7 +807,7 @@ fn reorder_all_user_scripts(
     window: tauri::Window,
     state: State<'_, AppState>,
     script_ids: Vec<String>,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Vec<ScriptError>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");

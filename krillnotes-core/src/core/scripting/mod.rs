@@ -42,6 +42,15 @@ pub struct StarterScript {
     pub source_code: String,
 }
 
+/// An error that occurred while loading a user script during a full registry reload.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScriptError {
+    /// The `name` field of the script that failed.
+    pub script_name: String,
+    /// The Rhai error or collision message.
+    pub message: String,
+}
+
 /// Orchestrating registry that owns the Rhai engine and delegates to
 /// [`SchemaRegistry`](schema::SchemaRegistry) for schema parsing and hook execution.
 ///
@@ -51,6 +60,8 @@ pub struct ScriptRegistry {
     engine: Engine,
     current_loading_ast: Arc<Mutex<Option<AST>>>,
     current_loading_script_name: Arc<Mutex<Option<String>>>,
+    /// Tracks which script name registered each schema name, for collision detection.
+    schema_owners: Arc<Mutex<HashMap<String, String>>>,
     schema_registry: schema::SchemaRegistry,
     query_context: Arc<Mutex<Option<QueryContext>>>,
 }
@@ -65,6 +76,7 @@ impl ScriptRegistry {
         let schema_registry = schema::SchemaRegistry::new();
         let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
         let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let schema_owners: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
         // Register schema() host function — writes schema and schema-bound hooks into SchemaRegistry.
         let schemas_arc       = schema_registry.schemas_arc();
@@ -73,7 +85,28 @@ impl ScriptRegistry {
         let on_add_child_arc  = schema_registry.on_add_child_hooks_arc();
         let schema_ast_arc    = Arc::clone(&current_loading_ast);
         let schema_name_arc   = Arc::clone(&current_loading_script_name);
+        let schema_owners_arc = Arc::clone(&schema_owners);
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+            let script_name = schema_name_arc.lock().unwrap()
+                .clone()
+                .unwrap_or_else(|| "<unknown>".to_string());
+
+            // Collision check: first script to register a schema name wins.
+            // A script is allowed to re-register a schema it already owns (e.g. during
+            // update pre-validation where the live registry still holds its previous schemas).
+            {
+                let owners = schema_owners_arc.lock().unwrap();
+                if let Some(owner) = owners.get(&name) {
+                    if owner != &script_name {
+                        return Err(format!(
+                            "Schema '{}' is already defined by script '{}'. Schema names must be unique.",
+                            name, owner
+                        ).into());
+                    }
+                }
+            }
+            schema_owners_arc.lock().unwrap().insert(name.clone(), script_name.clone());
+
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
             schemas_arc.lock().unwrap().insert(name.clone(), s);
@@ -84,10 +117,7 @@ impl ScriptRegistry {
                     .ok_or_else(|| -> Box<EvalAltResult> {
                         "schema() called outside of load_script".to_string().into()
                     })?;
-                let script_name = schema_name_arc.lock().unwrap()
-                    .clone()
-                    .unwrap_or_else(|| "<unknown>".to_string());
-                on_save_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
+                on_save_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name: script_name.clone() });
             }
 
             // Extract optional on_view closure.
@@ -96,10 +126,7 @@ impl ScriptRegistry {
                     .ok_or_else(|| -> Box<EvalAltResult> {
                         "schema() called outside of load_script".to_string().into()
                     })?;
-                let script_name = schema_name_arc.lock().unwrap()
-                    .clone()
-                    .unwrap_or_else(|| "<unknown>".to_string());
-                on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
+                on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name: script_name.clone() });
             }
 
             // Extract optional on_add_child closure.
@@ -108,10 +135,7 @@ impl ScriptRegistry {
                     .ok_or_else(|| -> Box<EvalAltResult> {
                         "schema() called outside of load_script".to_string().into()
                     })?;
-                let script_name = schema_name_arc.lock().unwrap()
-                    .clone()
-                    .unwrap_or_else(|| "<unknown>".to_string());
-                on_add_child_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
+                on_add_child_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name: script_name.clone() });
             }
 
             Ok(Dynamic::UNIT)
@@ -197,6 +221,7 @@ impl ScriptRegistry {
             engine,
             current_loading_ast,
             current_loading_script_name,
+            schema_owners,
             schema_registry,
             query_context,
         })
@@ -377,9 +402,10 @@ impl ScriptRegistry {
         result
     }
 
-    /// Removes all registered schemas and hooks so scripts can be reloaded.
+    /// Removes all registered schemas, hooks, and owner records so scripts can be reloaded.
     pub fn clear_all(&self) {
         self.schema_registry.clear();
+        self.schema_owners.lock().unwrap().clear();
         *self.query_context.lock().unwrap() = None;
     }
 
@@ -503,6 +529,66 @@ mod tests {
         assert_eq!(schema.fields.len(), 2);
         assert_eq!(schema.fields[0].name, "body");
         assert_eq!(schema.fields[0].field_type, "text");
+    }
+
+    // ── Schema collision detection ───────────────────────────────────────────
+
+    #[test]
+    fn test_schema_collision_returns_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+
+        // First script registers "Contact" — should succeed.
+        registry.load_script(r#"
+            schema("Contact", #{ fields: [] });
+        "#, "script_a").expect("first registration should succeed");
+
+        // Second script tries to register "Contact" — should fail.
+        let err = registry.load_script(r#"
+            schema("Contact", #{ fields: [] });
+        "#, "script_b").expect_err("second registration should fail");
+
+        let msg = err.to_string();
+        assert!(msg.contains("Contact"), "error should mention the schema name");
+        assert!(msg.contains("script_a"), "error should name the owning script");
+    }
+
+    #[test]
+    fn test_first_schema_wins_after_collision() {
+        let mut registry = ScriptRegistry::new().unwrap();
+
+        registry.load_script(r#"
+            schema("Widget", #{
+                fields: [ #{ name: "color", type: "text", required: false } ],
+            });
+        "#, "owner_script").unwrap();
+
+        // Collision attempt — should fail.
+        let _ = registry.load_script(r#"
+            schema("Widget", #{
+                fields: [ #{ name: "size", type: "number", required: false } ],
+            });
+        "#, "intruder_script");
+
+        // The schema registered by the first script must still be intact.
+        let schema = registry.get_schema("Widget").unwrap();
+        assert_eq!(schema.fields.len(), 1);
+        assert_eq!(schema.fields[0].name, "color", "first script's field definition should win");
+    }
+
+    #[test]
+    fn test_clear_all_resets_owners_for_reload() {
+        let mut registry = ScriptRegistry::new().unwrap();
+
+        registry.load_script(r#"
+            schema("Reloadable", #{ fields: [] });
+        "#, "script_one").unwrap();
+
+        // After clear_all, the owner record is gone — so the same name can be registered again.
+        registry.clear_all();
+
+        registry.load_script(r#"
+            schema("Reloadable", #{ fields: [] });
+        "#, "script_one").expect("re-registration after clear_all should succeed");
     }
 
     #[test]
