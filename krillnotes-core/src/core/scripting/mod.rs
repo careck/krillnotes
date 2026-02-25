@@ -293,6 +293,89 @@ impl ScriptRegistry {
             },
         );
 
+        // update_note(note) — persists title/field changes; only in tree action closures.
+        let action_ctx_update = Arc::clone(&action_ctx);
+        let schema_reg_update = schema_registry.clone();
+        engine.register_fn(
+            "update_note",
+            move |note_map: rhai::Dynamic|
+                -> std::result::Result<(), Box<rhai::EvalAltResult>>
+            {
+                let map = note_map.clone().try_cast::<rhai::Map>().ok_or_else(|| {
+                    Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        "update_note: argument must be a note map".into(),
+                        rhai::Position::NONE,
+                    ))
+                })?;
+
+                let note_id = map.get("id")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .ok_or_else(|| Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        "update_note: note map must have an `id` field".into(),
+                        rhai::Position::NONE,
+                    )))?;
+                let node_type = map.get("node_type")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .unwrap_or_default();
+                let title = map.get("title")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .unwrap_or_default();
+                let fields_dyn = map.get("fields")
+                    .and_then(|v| v.clone().try_cast::<rhai::Map>())
+                    .unwrap_or_default();
+
+                // Convert Dynamic fields → FieldValue using schema.
+                let schema = schema_reg_update.get(&node_type).map_err(|e| {
+                    Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        format!("update_note: unknown schema {:?}: {e}", node_type).into(),
+                        rhai::Position::NONE,
+                    ))
+                })?;
+                let mut fields = std::collections::HashMap::new();
+                for field_def in &schema.fields {
+                    let dyn_val = fields_dyn
+                        .get(field_def.name.as_str())
+                        .cloned()
+                        .unwrap_or(rhai::Dynamic::UNIT);
+                    let fv = schema::dynamic_to_field_value(dyn_val, &field_def.field_type)
+                        .map_err(|e| Box::new(rhai::EvalAltResult::ErrorRuntime(
+                            format!("update_note field {:?}: {e}", field_def.name).into(),
+                            rhai::Position::NONE,
+                        )))?;
+                    fields.insert(field_def.name.clone(), fv);
+                }
+
+                let mut ctx_guard = action_ctx_update.lock().unwrap();
+                let ctx = ctx_guard.as_mut().ok_or_else(|| {
+                    Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        "update_note() called outside a tree action".into(),
+                        rhai::Position::NONE,
+                    ))
+                })?;
+
+                // Update the note_cache so get_children/get_note sees the new values.
+                ctx.note_cache.insert(note_id.clone(), note_map);
+
+                // If the note is an in-flight create, update the create spec directly.
+                if let Some(create) = ctx.creates.iter_mut().find(|c| c.id == note_id) {
+                    create.title  = title;
+                    create.fields = fields;
+                    return Ok(());
+                }
+
+                // Otherwise queue an update for a pre-existing DB note.
+                // Replace any prior update for the same note (idempotent per note).
+                if let Some(existing) = ctx.updates.iter_mut().find(|u| u.note_id == note_id) {
+                    existing.title  = title;
+                    existing.fields = fields;
+                } else {
+                    ctx.updates.push(hooks::ActionUpdate { note_id, title, fields });
+                }
+
+                Ok(())
+            },
+        );
+
         // ── Display helpers for on_view hooks ─────────────────────────────────
         engine.register_fn("table",   display_helpers::table);
         engine.register_fn("section", display_helpers::section);
@@ -1955,6 +2038,62 @@ mod tests {
         assert_eq!(result.creates.len(), 1, "one pending create expected");
         assert_eq!(result.creates[0].node_type, "Task");
         assert_eq!(result.creates[0].parent_id, "parent1");
+    }
+
+    // ── update_note host function ────────────────────────────────────────────
+
+    #[test]
+    fn test_update_note_queues_update_for_existing_note() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{
+                fields: [
+                    #{ name: "status", type: "text", required: false },
+                ]
+            });
+            add_tree_action("Mark Done", ["Task"], |note| {
+                note.fields.status = "Done";
+                note.title = "Completed";
+                update_note(note);
+            });
+        "#, "test").unwrap();
+
+        let note = make_test_note("n1", "Task");
+        let result = registry.invoke_tree_action_hook("Mark Done", &note, make_empty_ctx()).unwrap();
+        assert_eq!(result.updates.len(), 1);
+        assert_eq!(result.updates[0].note_id, "n1");
+        assert_eq!(result.updates[0].title, "Completed");
+        assert_eq!(
+            result.updates[0].fields.get("status"),
+            Some(&crate::core::note::FieldValue::Text("Done".into())),
+        );
+    }
+
+    #[test]
+    fn test_update_note_on_inflight_note_updates_create_spec() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{
+                fields: [#{ name: "status", type: "text", required: false }]
+            });
+            add_tree_action("New Task", ["Task"], |note| {
+                let t = create_note(note.id, "Task");
+                t.title = "My Task";
+                t.fields.status = "Open";
+                update_note(t);
+            });
+        "#, "test").unwrap();
+
+        let note = make_test_note("parent1", "Task");
+        let result = registry.invoke_tree_action_hook("New Task", &note, make_empty_ctx()).unwrap();
+
+        assert_eq!(result.creates.len(), 1, "one create, not a separate update");
+        assert_eq!(result.updates.len(), 0, "no separate update for inflight note");
+        assert_eq!(result.creates[0].title, "My Task");
+        assert_eq!(
+            result.creates[0].fields.get("status"),
+            Some(&crate::core::note::FieldValue::Text("Open".into())),
+        );
     }
 
 }
