@@ -33,6 +33,8 @@ schema("Book", #{
 
         let started  = note.fields["started"];
         let finished = note.fields["finished"];
+        // Date fields are () (unit/null) when unset — type_of check is needed
+        // because the ?? operator only handles unit, not an absent string.
         note.fields["read_duration"] = if type_of(started) == "string" && started != ""
             && type_of(finished) == "string" && finished != "" {
             let s_parts = started.split("-");
@@ -44,6 +46,7 @@ schema("Book", #{
                        + parse_int(f_parts[1]) * 30
                        + parse_int(f_parts[2]);
             let diff = f_days - s_days;
+            // diff > 0: show "N days". Same-day or reversed dates produce blank.
             if diff > 0 { diff.to_string() + " days" } else { "" }
         } else {
             ""
