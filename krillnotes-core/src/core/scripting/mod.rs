@@ -214,17 +214,42 @@ impl ScriptRegistry {
         let action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>> = Arc::new(Mutex::new(None));
 
         // Register get_children() — returns direct children of a note by ID.
-        let qc1 = Arc::clone(&query_context);
+        let qc1           = Arc::clone(&query_context);
+        let action_ctx_gc = Arc::clone(&action_ctx);
         engine.register_fn("get_children", move |id: String| -> rhai::Array {
-            let guard = qc1.lock().unwrap();
-            guard.as_ref()
-                .and_then(|ctx| ctx.children_by_id.get(&id).cloned())
-                .unwrap_or_default()
+            // Collect pre-existing children from the snapshot.
+            let mut result: rhai::Array = {
+                let guard = qc1.lock().unwrap();
+                guard.as_ref()
+                    .and_then(|ctx| ctx.children_by_id.get(&id).cloned())
+                    .unwrap_or_default()
+            };
+
+            // Also include any in-flight creates with matching parent_id.
+            if let Some(ctx) = action_ctx_gc.lock().unwrap().as_ref() {
+                for create in &ctx.creates {
+                    if create.parent_id == id {
+                        if let Some(dyn_note) = ctx.note_cache.get(&create.id) {
+                            result.push(dyn_note.clone());
+                        }
+                    }
+                }
+            }
+
+            result
         });
 
         // Register get_note() — returns any note by ID.
-        let qc2 = Arc::clone(&query_context);
+        let qc2           = Arc::clone(&query_context);
+        let action_ctx_gn = Arc::clone(&action_ctx);
         engine.register_fn("get_note", move |id: String| -> Dynamic {
+            // Check action cache first (in-flight notes).
+            if let Some(ctx) = action_ctx_gn.lock().unwrap().as_ref() {
+                if let Some(dyn_note) = ctx.note_cache.get(&id) {
+                    return dyn_note.clone();
+                }
+            }
+            // Fall back to snapshot.
             let guard = qc2.lock().unwrap();
             guard.as_ref()
                 .and_then(|ctx| ctx.notes_by_id.get(&id).cloned())
@@ -2101,6 +2126,40 @@ mod tests {
             result.creates[0].fields.get("status"),
             Some(&crate::core::note::FieldValue::Text("Open".into())),
         );
+    }
+
+    #[test]
+    fn test_get_children_sees_inflight_creates() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{ fields: [] });
+            add_tree_action("Verify Children", ["Task"], |note| {
+                let t = create_note(note.id, "Task");
+                let children = get_children(note.id);
+                let found = children.filter(|c| c.id == t.id);
+                if found.len() != 1 { throw "inflight note not visible in get_children"; }
+            });
+        "#, "test").unwrap();
+
+        let note = make_test_note("parent1", "Task");
+        registry.invoke_tree_action_hook("Verify Children", &note, make_empty_ctx()).unwrap();
+    }
+
+    #[test]
+    fn test_get_note_sees_inflight_create() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{ fields: [] });
+            add_tree_action("Verify get_note", ["Task"], |note| {
+                let t = create_note(note.id, "Task");
+                let fetched = get_note(t.id);
+                if fetched == () { throw "inflight note not visible via get_note"; }
+                if fetched.id != t.id { throw "wrong note returned"; }
+            });
+        "#, "test").unwrap();
+
+        let note = make_test_note("parent1", "Task");
+        registry.invoke_tree_action_hook("Verify get_note", &note, make_empty_ctx()).unwrap();
     }
 
 }
