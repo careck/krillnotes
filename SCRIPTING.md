@@ -18,11 +18,12 @@ User scripts are managed through **Settings → Scripts**. The bundled system sc
 5. [on_save hook](#5-on_save-hook)
 6. [on_view hook](#6-on_view-hook)
 7. [on_add_child hook](#7-on_add_child-hook)
-8. [Display helpers](#8-display-helpers)
-9. [Query functions](#9-query-functions)
-10. [Introspection functions](#10-introspection-functions)
-11. [Tips and patterns](#11-tips-and-patterns)
-12. [Built-in script examples](#12-built-in-script-examples)
+8. [add_tree_action](#8-add_tree_action)
+9. [Display helpers](#9-display-helpers)
+10. [Query functions](#10-query-functions)
+11. [Introspection functions](#11-introspection-functions)
+12. [Tips and patterns](#12-tips-and-patterns)
+13. [Built-in script examples](#13-built-in-script-examples)
 
 ---
 
@@ -406,7 +407,39 @@ schema("TypeName", #{
 
 ---
 
-## 8. Display helpers
+## 8. `add_tree_action`
+
+`add_tree_action` registers a custom entry in the tree's right-click context menu.
+
+```rhai
+add_tree_action(label, allowed_types, callback)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | String | Menu item text shown to the user |
+| `allowed_types` | Array of Strings | Schema names for which the item appears |
+| `callback` | Closure `\|note\| { … }` | Called when the user clicks the item |
+
+The `note` argument has the same shape as in `on_save` — `id`, `node_type`, `title`, and `fields`.
+
+The callback can use query functions (`get_children`, `get_note`, etc.) to read workspace state. If it returns an array of note ID strings, the backend reorders those notes in the given order. Any other return value is ignored. The tree refreshes automatically after the callback completes.
+
+**Example — sort children alphabetically:**
+
+```rhai
+add_tree_action("Sort Children A→Z", ["Folder"], |note| {
+    let children = get_children(note.id);
+    children.sort_by(|a, b| a.title <= b.title);
+    children.map(|c| c.id)
+});
+```
+
+**Label uniqueness:** Labels must be unique per note type. If two scripts register the same label for the same type, the first-registered entry wins and a warning is printed.
+
+---
+
+## 9. Display helpers
 
 All helpers return an HTML string. All user-supplied text is HTML-escaped automatically.
 
@@ -593,7 +626,7 @@ table(["Name", "Email"], rows)
 
 ---
 
-## 9. Query functions
+## 10. Query functions
 
 Query functions are available inside `on_view` hooks. They let you fetch related notes
 from the workspace without leaving the scripting layer.
@@ -640,7 +673,7 @@ to hooks:
 
 ---
 
-## 10. Introspection functions
+## 11. Introspection functions
 
 These are available both at the top level and inside hooks.
 
@@ -665,7 +698,7 @@ let defs = get_schema_fields("Task");
 
 ---
 
-## 11. Tips and patterns
+## 12. Tips and patterns
 
 ### Null-coalescing with `??`
 
@@ -797,7 +830,7 @@ This is unlikely to be intentional and should be avoided.
 
 ---
 
-## 12. Built-in script examples
+## 13. Built-in script examples
 
 The following scripts ship with Krillnotes and can be studied as complete examples.
 
