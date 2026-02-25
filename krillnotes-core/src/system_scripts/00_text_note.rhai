@@ -14,3 +14,10 @@ add_tree_action("Sort Children A→Z", ["TextNote"], |note| {
     children.sort_by(|a, b| a.title <= b.title);
     children.map(|c| c.id)
 });
+
+// Example tree action: add a new child TextNote with a placeholder title.
+add_tree_action("Add Child Note", ["TextNote"], |note| {
+    let child = create_note(note.id, "TextNote");
+    child.title = "New note";
+    update_note(child);
+});

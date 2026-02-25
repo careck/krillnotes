@@ -437,6 +437,45 @@ add_tree_action("Sort Children A→Z", ["Folder"], |note| {
 
 **Label uniqueness:** Labels must be unique per note type. If two scripts register the same label for the same type, the first-registered entry wins and a warning is printed.
 
+#### Mutating notes from a tree action
+
+Tree action closures have access to two additional functions for writing to the
+workspace:
+
+**`create_note(parent_id, node_type)`** — creates a new note of the given type
+under the specified parent and returns a note map with schema defaults. The note
+is not in the database until the action completes; all writes are applied
+atomically. If the closure throws an error, nothing is written.
+
+**`update_note(note)`** — persists title and field changes on a note map back to
+the database. Works on any note — both the action target and notes returned by
+`get_children()` or `create_note()`.
+
+Because all writes share a pending transaction, **`get_children()` and
+`get_note()` will see notes created earlier in the same closure**, allowing
+scripts to build subtrees:
+
+```rhai
+add_tree_action("Create Sprint Template", ["Project"], |project| {
+    let sprint = create_note(project.id, "Sprint");
+    sprint.title = "Sprint 1";
+    sprint.fields.status = "Planning";
+    update_note(sprint);
+
+    // sprint.id is already known — get_children will find it too
+    let task = create_note(sprint.id, "Task");
+    task.title = "Define goals";
+    update_note(task);
+
+    // Update the project itself
+    project.fields.status = "Active";
+    update_note(project);
+});
+```
+
+> `create_note` and `update_note` are **only available inside `add_tree_action`
+> closures**. They are not available in `on_save`, `on_add_child`, or `on_view`.
+
 ---
 
 ## 9. Display helpers
