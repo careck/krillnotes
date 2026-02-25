@@ -729,6 +729,49 @@ impl Workspace {
         self.script_registry.list_types()
     }
 
+    /// Runs the tree action named `label` on the note identified by `note_id`.
+    ///
+    /// Builds a full `QueryContext` (same as `run_view_hook`), calls the registered
+    /// callback, and — if the callback returns an array of note IDs — reorders
+    /// those notes by calling `move_note` in the given order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the note or any workspace note cannot be fetched, if
+    /// no action is registered under `label`, or if the callback throws.
+    pub fn run_tree_action(&mut self, note_id: &str, label: &str) -> Result<()> {
+        let note = self.get_note(note_id)?;
+        let all_notes = self.list_all_notes()?;
+
+        let mut notes_by_id: HashMap<String, Dynamic> = HashMap::new();
+        let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_type: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        for n in &all_notes {
+            let dyn_map = note_to_rhai_dynamic(n);
+            notes_by_id.insert(n.id.clone(), dyn_map.clone());
+            if let Some(pid) = &n.parent_id {
+                children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
+            }
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map);
+        }
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
+
+        let reorder = self.script_registry.invoke_tree_action_hook(label, &note, context)?;
+
+        if let Some(ids) = reorder {
+            for (position, id) in ids.iter().enumerate() {
+                self.move_note(id, Some(note_id), position as i32)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns a map of `note_type → [action_label, …]` from the script registry.
+    pub fn tree_action_map(&self) -> HashMap<String, Vec<String>> {
+        self.script_registry.tree_action_map()
+    }
+
     // Note: toggle_note_expansion and set_selected_note intentionally do NOT write to the
     // operation log. These are transient UI state (not document mutations) and should not
     // participate in sync or undo. They are stored in workspace_meta / the notes table but
@@ -2847,5 +2890,45 @@ schema("Memo", #{
         let folder = ws.get_note(&folder_id).unwrap();
         assert_eq!(folder.title, "Folder (1)");
         assert_eq!(folder.fields["count"], FieldValue::Number(1.0));
+    }
+
+    // ── tree actions ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_run_tree_action_reorders_children() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let parent_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+
+        // Create first child: "B Note" (position 0)
+        let child_b_id = ws.create_note(&parent_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.update_note_title(&child_b_id, "B Note".to_string()).unwrap();
+
+        // Create second child as sibling: "A Note" (position 1)
+        let child_a_id = ws.create_note(&child_b_id, AddPosition::AsSibling, "TextNote").unwrap();
+        ws.update_note_title(&child_a_id, "A Note".to_string()).unwrap();
+
+        // Verify initial order: B Note first, A Note second
+        let kids_before = ws.get_children(&parent_id).unwrap();
+        assert_eq!(kids_before[0].title, "B Note");
+        assert_eq!(kids_before[1].title, "A Note");
+
+        // Load a script that sorts children alphabetically
+        ws.create_user_script(r#"
+// @name: SortTest
+add_tree_action("Sort A→Z", ["TextNote"], |note| {
+    let children = get_children(note.id);
+    children.sort_by(|a, b| a.title <= b.title);
+    children.map(|c| c.id)
+});
+        "#).unwrap();
+
+        ws.run_tree_action(&parent_id, "Sort A→Z").unwrap();
+
+        let kids = ws.get_children(&parent_id).unwrap();
+        assert_eq!(kids[0].title, "A Note");
+        assert_eq!(kids[1].title, "B Note");
     }
 }
