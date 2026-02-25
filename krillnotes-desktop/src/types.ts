@@ -74,6 +74,16 @@ export interface UserScript {
   modifiedAt: number;
 }
 
+export interface ScriptError {
+  scriptName: string;
+  message: string;
+}
+
+export interface ScriptMutationResult<T> {
+  data: T;
+  loadErrors: ScriptError[];
+}
+
 export interface DropIndicator {
   noteId: string;
   position: 'before' | 'after' | 'child';
