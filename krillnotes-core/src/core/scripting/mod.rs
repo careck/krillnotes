@@ -10,7 +10,7 @@ mod schema;
 // Re-exported for API stability; currently a placeholder for future global/lifecycle hooks.
 pub use hooks::HookRegistry;
 pub(crate) use schema::field_value_to_dynamic;
-pub use schema::{FieldDefinition, Schema};
+pub use schema::{AddChildResult, FieldDefinition, Schema};
 // StarterScript is defined in this file and re-exported via lib.rs.
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
@@ -67,11 +67,12 @@ impl ScriptRegistry {
         let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         // Register schema() host function — writes schema and schema-bound hooks into SchemaRegistry.
-        let schemas_arc    = schema_registry.schemas_arc();
-        let on_save_arc    = schema_registry.on_save_hooks_arc();
-        let on_view_arc    = schema_registry.on_view_hooks_arc();
-        let schema_ast_arc = Arc::clone(&current_loading_ast);
-        let schema_name_arc = Arc::clone(&current_loading_script_name);
+        let schemas_arc       = schema_registry.schemas_arc();
+        let on_save_arc       = schema_registry.on_save_hooks_arc();
+        let on_view_arc       = schema_registry.on_view_hooks_arc();
+        let on_add_child_arc  = schema_registry.on_add_child_hooks_arc();
+        let schema_ast_arc    = Arc::clone(&current_loading_ast);
+        let schema_name_arc   = Arc::clone(&current_loading_script_name);
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             let s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
@@ -99,6 +100,18 @@ impl ScriptRegistry {
                     .clone()
                     .unwrap_or_else(|| "<unknown>".to_string());
                 on_view_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
+            }
+
+            // Extract optional on_add_child closure.
+            if let Some(fn_ptr) = def.get("on_add_child").and_then(|v| v.clone().try_cast::<FnPtr>()) {
+                let ast = schema_ast_arc.lock().unwrap().clone()
+                    .ok_or_else(|| -> Box<EvalAltResult> {
+                        "schema() called outside of load_script".to_string().into()
+                    })?;
+                let script_name = schema_name_arc.lock().unwrap()
+                    .clone()
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                on_add_child_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name });
             }
 
             Ok(Dynamic::UNIT)
@@ -278,6 +291,38 @@ impl ScriptRegistry {
         let schema = self.schema_registry.get(schema_name)?;
         self.schema_registry
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
+    }
+
+    /// Runs the `on_add_child` hook registered for `parent_schema_name`, if any.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for `parent_schema_name`.
+    /// Returns `Ok(Some(AddChildResult))` with optional parent/child updates on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error
+    /// or returns a malformed map.
+    pub fn run_on_add_child_hook(
+        &self,
+        parent_schema_name: &str,
+        parent_id: &str,
+        parent_type: &str,
+        parent_title: &str,
+        parent_fields: &HashMap<String, FieldValue>,
+        child_id: &str,
+        child_type: &str,
+        child_title: &str,
+        child_fields: &HashMap<String, FieldValue>,
+    ) -> Result<Option<AddChildResult>> {
+        let parent_schema = self.schema_registry.get(parent_schema_name)?;
+        let child_schema  = self.schema_registry.get(child_type)?;
+        self.schema_registry.run_on_add_child_hook(
+            &self.engine,
+            &parent_schema,
+            parent_id, parent_type, parent_title, parent_fields,
+            &child_schema,
+            child_id, child_type, child_title, child_fields,
+        )
     }
 
     /// Returns `true` if an on_save hook is registered for `schema_name`.
@@ -1277,6 +1322,195 @@ mod tests {
             msg.contains("My Exploding Script"),
             "error should include script name, got: {msg}"
         );
+    }
+
+    // ── on_add_child hooks ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_on_add_child_hook_modifies_parent_and_child() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [
+                    #{ name: "count", type: "number", required: false },
+                ],
+                on_add_child: |parent_note, child_note| {
+                    parent_note.fields["count"] = parent_note.fields["count"] + 1.0;
+                    parent_note.title = "Folder (" + parent_note.fields["count"].to_int().to_string() + ")";
+                    child_note.title = "Child from hook";
+                    #{ parent: parent_note, child: child_note }
+                }
+            });
+            schema("Item", #{
+                fields: [
+                    #{ name: "name", type: "text", required: false },
+                ],
+            });
+        "#, "test").unwrap();
+
+        let mut parent_fields = std::collections::HashMap::new();
+        parent_fields.insert("count".to_string(), FieldValue::Number(0.0));
+
+        let mut child_fields = std::collections::HashMap::new();
+        child_fields.insert("name".to_string(), FieldValue::Text("".to_string()));
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Folder",
+                "parent-id", "Folder", "Folder", &parent_fields,
+                "child-id",  "Item",   "Untitled", &child_fields,
+            )
+            .unwrap();
+
+        let result = result.expect("hook should return a result");
+        let (p_title, p_fields) = result.parent.expect("should have parent update");
+        assert_eq!(p_title, "Folder (1)");
+        assert_eq!(p_fields["count"], FieldValue::Number(1.0));
+
+        let (c_title, _) = result.child.expect("should have child update");
+        assert_eq!(c_title, "Child from hook");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_absent_returns_none() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Plain", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Plain",
+                "p-id", "Plain", "Title", &std::collections::HashMap::new(),
+                "c-id", "Plain", "Child", &std::collections::HashMap::new(),
+            )
+            .unwrap();
+
+        assert!(result.is_none(), "no hook registered should return None");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_returns_unit_gives_no_modifications() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [],
+                on_add_child: |parent_note, child_note| {
+                    ()
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Folder",
+                "p-id", "Folder", "Title", &std::collections::HashMap::new(),
+                "c-id", "Item",   "Child", &std::collections::HashMap::new(),
+            )
+            .unwrap();
+
+        // Some(result) because hook exists, but both modifications are None
+        let result = result.expect("hook present: should return Some");
+        assert!(result.parent.is_none(), "unit return: parent should not be modified");
+        assert!(result.child.is_none(),  "unit return: child should not be modified");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_parent_only_modification() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [
+                    #{ name: "count", type: "number", required: false },
+                ],
+                on_add_child: |parent_note, child_note| {
+                    parent_note.fields["count"] = 5.0;
+                    #{ parent: parent_note }
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let mut parent_fields = std::collections::HashMap::new();
+        parent_fields.insert("count".to_string(), FieldValue::Number(0.0));
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Folder",
+                "p-id", "Folder", "Folder", &parent_fields,
+                "c-id", "Item",   "Untitled", &std::collections::HashMap::new(),
+            )
+            .unwrap();
+
+        let result = result.expect("hook present: should return Some");
+        let (_, p_fields) = result.parent.expect("parent modification expected");
+        assert_eq!(p_fields["count"], FieldValue::Number(5.0));
+        assert!(result.child.is_none(), "child should not be modified");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_child_only_modification() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [],
+                on_add_child: |parent_note, child_note| {
+                    child_note.title = "Initialized by hook";
+                    #{ child: child_note }
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "test").unwrap();
+
+        let result = registry
+            .run_on_add_child_hook(
+                "Folder",
+                "p-id", "Folder", "Folder", &std::collections::HashMap::new(),
+                "c-id", "Item",   "Untitled", &std::collections::HashMap::new(),
+            )
+            .unwrap();
+
+        let result = result.expect("hook present: should return Some");
+        assert!(result.parent.is_none(), "parent should not be modified");
+        let (c_title, _) = result.child.expect("child modification expected");
+        assert_eq!(c_title, "Initialized by hook");
+    }
+
+    #[test]
+    fn test_on_add_child_hook_runtime_error_includes_script_name() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Folder", #{
+                fields: [],
+                on_add_child: |parent_note, child_note| {
+                    throw "deliberate error";
+                }
+            });
+            schema("Item", #{
+                fields: [],
+            });
+        "#, "my_test_script").unwrap();
+
+        let err = registry
+            .run_on_add_child_hook(
+                "Folder",
+                "p-id", "Folder", "Title", &std::collections::HashMap::new(),
+                "c-id", "Item",   "Child", &std::collections::HashMap::new(),
+            )
+            .unwrap_err();
+
+        let msg = err.to_string();
+        assert!(msg.contains("my_test_script"), "error should include script name, got: {msg}");
+        assert!(msg.contains("on_add_child"), "error should mention hook name, got: {msg}");
     }
 
     #[test]
