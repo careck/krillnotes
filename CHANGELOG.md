@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.2] — 2026-02-26
+
 ### Added
 - **`create_note` and `update_note` in tree actions** — `add_tree_action` closures can now create new notes and modify existing ones, not just reorder children. `create_note(parent_id, node_type)` inserts a note with schema defaults and returns a map you can edit; `update_note(note)` persists title and field changes back to the database. All writes from a single action execute inside one SQLite transaction — any error rolls back everything. Notes created earlier in the same closure are immediately visible to `get_children()` and `get_note()`, so full subtrees can be built in one action.
 
@@ -117,7 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/careck/krillnotes/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/careck/krillnotes/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/careck/krillnotes/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/careck/krillnotes/compare/v0.1.1...v0.1.2
