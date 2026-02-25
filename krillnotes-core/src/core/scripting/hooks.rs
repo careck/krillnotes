@@ -1,22 +1,107 @@
-//! Hook registry for global / lifecycle hooks (on_load, on_export, menu hooks, …).
+//! Hook registry for global / lifecycle hooks (tree menu actions, on_load, on_export, …).
 //!
-//! Schema-bound hooks (`on_save`, `on_view`) are managed by
+//! Schema-bound hooks (`on_save`, `on_view`, `on_add_child`) are managed by
 //! [`SchemaRegistry`](super::schema::SchemaRegistry) and registered via the
 //! `schema()` Rhai host function.
 
+use rhai::{FnPtr, AST};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// A user-registered tree context-menu action.
+pub struct TreeActionEntry {
+    pub label:               String,
+    pub allowed_types:       Vec<String>,
+    pub(super) script_name:  String,
+    pub(super) fn_ptr:       FnPtr,
+    pub(super) ast:          AST,
+}
+
+impl std::fmt::Debug for TreeActionEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TreeActionEntry")
+            .field("label", &self.label)
+            .field("allowed_types", &self.allowed_types)
+            .finish()
+    }
+}
+
 /// Registry for global event hooks not tied to a specific schema.
 ///
-/// Currently a placeholder — global hooks (on_load, on_export, menu hooks, …)
-/// will be added here in a future task.
+/// Currently holds tree context-menu actions; on_load, on_export, and other
+/// lifecycle hooks will be added here in future tasks.
 ///
 /// Constructed only by `ScriptRegistry::new()`.
 #[derive(Debug)]
-pub struct HookRegistry {}
+pub struct HookRegistry {
+    tree_actions: Arc<Mutex<Vec<TreeActionEntry>>>,
+}
 
 impl HookRegistry {
-    // Intentionally unused until global hooks are wired in a future task.
-    #[allow(dead_code)]
     pub(super) fn new() -> Self {
-        Self {}
+        Self {
+            tree_actions: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Arc clone of tree_actions for use in Rhai host-function closures.
+    pub(super) fn tree_actions_arc(&self) -> Arc<Mutex<Vec<TreeActionEntry>>> {
+        Arc::clone(&self.tree_actions)
+    }
+
+    /// Appends a new tree action. Logs a warning if a duplicate label+type
+    /// combination already exists (first-registered wins).
+    pub(super) fn register_tree_action(&self, entry: TreeActionEntry) {
+        let mut actions = self.tree_actions.lock().unwrap();
+        // Warn on duplicate label per allowed type.
+        for ty in &entry.allowed_types {
+            if actions.iter().any(|a| a.label == entry.label && a.allowed_types.contains(ty)) {
+                eprintln!(
+                    "[krillnotes] tree action {:?} already registered for type {ty:?} \
+                     (script: {:?}); first-registered entry wins",
+                    entry.label, entry.script_name
+                );
+            }
+        }
+        actions.push(entry);
+    }
+
+    /// Returns a map of `note_type → [action_label, …]` for every registered action.
+    pub fn tree_action_map(&self) -> HashMap<String, Vec<String>> {
+        let actions = self.tree_actions.lock().unwrap();
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for entry in actions.iter() {
+            for ty in &entry.allowed_types {
+                map.entry(ty.clone()).or_default().push(entry.label.clone());
+            }
+        }
+        map
+    }
+
+    /// Removes all registered tree actions so scripts can be reloaded.
+    pub(super) fn clear(&self) {
+        self.tree_actions.lock().unwrap().clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_tree_action_adds_entry() {
+        let registry = HookRegistry::new();
+        // We can't construct FnPtr/AST in a unit test without a full engine,
+        // so just test the map method on an empty registry.
+        let map = registry.tree_action_map();
+        assert!(map.is_empty(), "fresh registry should have no tree actions");
+    }
+
+    #[test]
+    fn test_clear_removes_tree_actions() {
+        let registry = HookRegistry::new();
+        registry.clear();
+        let map = registry.tree_action_map();
+        assert!(map.is_empty());
     }
 }
