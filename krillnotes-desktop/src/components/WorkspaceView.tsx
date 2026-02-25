@@ -20,6 +20,7 @@ interface WorkspaceViewProps {
 function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
+  const [treeActionMap, setTreeActionMap] = useState<Record<string, string[]>>({});
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
@@ -32,7 +33,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const isRefreshing = useRef(false);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string; noteType: string } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -113,12 +114,14 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   const loadNotes = async (): Promise<Note[]> => {
     try {
-      const [fetchedNotes, allSchemas] = await Promise.all([
+      const [fetchedNotes, allSchemas, actionMap] = await Promise.all([
         invoke<Note[]>('list_notes'),
         invoke<Record<string, SchemaInfo>>('get_all_schemas'),
+        invoke<Record<string, string[]>>('get_tree_action_map'),
       ]);
       setNotes(fetchedNotes);
       setSchemas(allSchemas);
+      setTreeActionMap(actionMap);
 
       // Build sort config from schemas
       const sortConfig: Record<string, 'asc' | 'desc' | 'none'> = {};
@@ -171,6 +174,15 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       console.error('Failed to paste note:', err);
     }
   }, [copiedNoteId, selectedNoteId]);
+
+  const handleTreeAction = useCallback(async (noteId: string, label: string) => {
+    try {
+      await invoke('invoke_tree_action', { noteId, label });
+      await loadNotes();
+    } catch (err) {
+      setError(`Tree action failed: ${err}`);
+    }
+  }, []);
 
   // Keyboard shortcuts: Cmd/Ctrl+C copies selected note, Cmd/Ctrl+V pastes as child,
   // Cmd/Ctrl+Shift+V pastes as sibling. Guards against input fields so normal
@@ -396,7 +408,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // --- Context menu handlers ---
 
   const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId });
+    const note = notes.find(n => n.id === noteId);
+    const noteType = note?.nodeType ?? '';
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType });
   };
 
   const handleContextAddNote = (noteId: string) => {
@@ -558,11 +572,13 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           x={contextMenu.x}
           y={contextMenu.y}
           copiedNoteId={copiedNoteId}
+          treeActions={treeActionMap[contextMenu.noteType] ?? []}
           onAddNote={() => handleContextAddNote(contextMenu.noteId)}
           onEdit={() => handleContextEdit(contextMenu.noteId)}
           onCopy={() => copyNote(contextMenu.noteId)}
           onPasteAsChild={() => pasteNote('child')}
           onPasteAsSibling={() => pasteNote('sibling')}
+          onTreeAction={(label) => handleTreeAction(contextMenu.noteId, label)}
           onDelete={() => handleContextDelete(contextMenu.noteId)}
           onClose={() => setContextMenu(null)}
         />

@@ -5,16 +5,18 @@ interface ContextMenuProps {
   x: number;
   y: number;
   copiedNoteId: string | null;
+  treeActions: string[];
   onAddNote: () => void;
   onEdit: () => void;
   onCopy: () => void;
   onPasteAsChild: () => void;
   onPasteAsSibling: () => void;
+  onTreeAction: (label: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
-function ContextMenu({ x, y, copiedNoteId, onAddNote, onEdit, onCopy, onPasteAsChild, onPasteAsSibling, onDelete, onClose }: ContextMenuProps) {
+function ContextMenu({ x, y, copiedNoteId, treeActions, onAddNote, onEdit, onCopy, onPasteAsChild, onPasteAsSibling, onTreeAction, onDelete, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +72,20 @@ function ContextMenu({ x, y, copiedNoteId, onAddNote, onEdit, onCopy, onPasteAsC
       >
         Paste as Sibling
       </button>
+      {treeActions.length > 0 && (
+        <>
+          <div className="border-t border-secondary my-1" />
+          {treeActions.map((label) => (
+            <button
+              key={label}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+              onClick={() => { onTreeAction(label); onClose(); }}
+            >
+              {label}
+            </button>
+          ))}
+        </>
+      )}
       <div className="border-t border-secondary my-1" />
       <button
         className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary text-red-500"
