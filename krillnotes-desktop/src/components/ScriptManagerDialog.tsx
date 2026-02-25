@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { GripVertical } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import ScriptEditor from './ScriptEditor';
-import type { UserScript } from '../types';
+import type { UserScript, ScriptError, ScriptMutationResult } from '../types';
 
 interface ScriptManagerDialogProps {
   isOpen: boolean;
@@ -81,11 +81,20 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     setView('editor');
   };
 
+  const formatLoadErrors = (loadErrors: ScriptError[]): string =>
+    loadErrors.map(e => `Script "${e.scriptName}": ${e.message}`).join('\n');
+
   const handleToggle = async (script: UserScript) => {
     try {
-      await invoke('toggle_user_script', { scriptId: script.id, enabled: !script.enabled });
+      const loadErrors = await invoke<ScriptError[]>('toggle_user_script', {
+        scriptId: script.id,
+        enabled: !script.enabled,
+      });
       await loadScripts();
       onScriptsChanged?.();
+      if (loadErrors.length > 0) {
+        setError(`Script reload errors:\n${formatLoadErrors(loadErrors)}`);
+      }
     } catch (err) {
       setError(`Failed to toggle script: ${err}`);
     }
@@ -95,19 +104,25 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     setSaving(true);
     setError('');
     try {
+      let loadErrors: ScriptError[];
       if (editingScript) {
-        await invoke<UserScript>('update_user_script', {
+        const result = await invoke<ScriptMutationResult<UserScript>>('update_user_script', {
           scriptId: editingScript.id,
           sourceCode: editorContent,
         });
+        loadErrors = result.loadErrors;
       } else {
-        await invoke<UserScript>('create_user_script', {
+        const result = await invoke<ScriptMutationResult<UserScript>>('create_user_script', {
           sourceCode: editorContent,
         });
+        loadErrors = result.loadErrors;
       }
       await loadScripts();
       setView('list');
       onScriptsChanged?.();
+      if (loadErrors.length > 0) {
+        setError(`Script reload errors:\n${formatLoadErrors(loadErrors)}`);
+      }
     } catch (err) {
       setError(`${err}`);
     } finally {
@@ -124,10 +139,10 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     );
     if (!confirmed) return;
     try {
-      await invoke('delete_user_script', { scriptId: editingScript.id });
+      const loadErrors = await invoke<ScriptError[]>('delete_user_script', { scriptId: editingScript.id });
       await loadScripts();
       setView('list');
-      setError('');
+      setError(loadErrors.length > 0 ? `Script reload errors:\n${formatLoadErrors(loadErrors)}` : '');
       onScriptsChanged?.();
     } catch (err) {
       setError(`Failed to delete: ${err}`);
@@ -159,10 +174,13 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     setDragOverIndex(null);
 
     try {
-      await invoke('reorder_all_user_scripts', {
+      const loadErrors = await invoke<ScriptError[]>('reorder_all_user_scripts', {
         scriptIds: reordered.map(s => s.id),
       });
       onScriptsChanged?.();
+      if (loadErrors.length > 0) {
+        setError(`Script reload errors:\n${formatLoadErrors(loadErrors)}`);
+      }
     } catch (err) {
       setError(`Failed to reorder scripts: ${err}`);
       await loadScripts();
