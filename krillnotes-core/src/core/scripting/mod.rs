@@ -63,6 +63,7 @@ pub struct ScriptRegistry {
     /// Tracks which script name registered each schema name, for collision detection.
     schema_owners: Arc<Mutex<HashMap<String, String>>>,
     schema_registry: schema::SchemaRegistry,
+    hook_registry: hooks::HookRegistry,
     query_context: Arc<Mutex<Option<QueryContext>>>,
 }
 
@@ -77,6 +78,39 @@ impl ScriptRegistry {
         let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
         let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let schema_owners: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let hook_registry = hooks::HookRegistry::new();
+
+        // Register add_tree_action() host function — writes tree context menu actions into HookRegistry.
+        let tree_actions_arc = hook_registry.tree_actions_arc();
+        let add_tree_name_arc = Arc::clone(&current_loading_script_name);
+        let add_tree_ast_arc  = Arc::clone(&current_loading_ast);
+        engine.register_fn("add_tree_action",
+            move |label: String, types: rhai::Array, fn_ptr: FnPtr|
+            -> std::result::Result<Dynamic, Box<EvalAltResult>>
+            {
+                let ast = add_tree_ast_arc.lock().unwrap().clone()
+                    .ok_or_else(|| -> Box<EvalAltResult> {
+                        "add_tree_action() called outside of load_script".to_string().into()
+                    })?;
+                let script_name = add_tree_name_arc.lock().unwrap()
+                    .clone()
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                let allowed_types: Vec<String> = types
+                    .into_iter()
+                    .filter_map(|v| v.try_cast::<String>())
+                    .collect();
+                let entry = hooks::TreeActionEntry {
+                    label,
+                    allowed_types,
+                    script_name,
+                    fn_ptr,
+                    ast,
+                };
+                tree_actions_arc.lock().unwrap().push(entry);
+                Ok(Dynamic::UNIT)
+            }
+        );
 
         // Register schema() host function — writes schema and schema-bound hooks into SchemaRegistry.
         let schemas_arc       = schema_registry.schemas_arc();
@@ -223,6 +257,7 @@ impl ScriptRegistry {
             current_loading_script_name,
             schema_owners,
             schema_registry,
+            hook_registry,
             query_context,
         })
     }
@@ -406,7 +441,68 @@ impl ScriptRegistry {
     pub fn clear_all(&self) {
         self.schema_registry.clear();
         self.schema_owners.lock().unwrap().clear();
+        self.hook_registry.clear();
         *self.query_context.lock().unwrap() = None;
+    }
+
+    /// Returns a map of `note_type → [action_label, …]` for every registered tree action.
+    pub fn tree_action_map(&self) -> HashMap<String, Vec<String>> {
+        self.hook_registry.tree_action_map()
+    }
+
+    /// Runs the tree action registered under `label`, passing `note` to the callback.
+    ///
+    /// Returns `Ok(Some(ids))` if the callback returns an array of strings (a reorder request).
+    /// Returns `Ok(None)` if the callback returns any other value.
+    /// Returns `Err(...)` if the callback throws a Rhai error.
+    pub fn invoke_tree_action_hook(
+        &self,
+        label: &str,
+        note: &Note,
+        context: QueryContext,
+    ) -> Result<Option<Vec<String>>> {
+        let entry = {
+            let arc = self.hook_registry.tree_actions_arc();
+            let actions = arc.lock().unwrap();
+            actions.iter()
+                .find(|a| a.label == label)
+                .map(|a| (a.fn_ptr.clone(), a.ast.clone(), a.script_name.clone()))
+        };
+
+        let (fn_ptr, ast, script_name) = entry.ok_or_else(|| {
+            KrillnotesError::Scripting(format!("unknown tree action: {label:?}"))
+        })?;
+
+        // Build note map — same shape as on_save / on_view.
+        let mut fields_map = Map::new();
+        for (k, v) in &note.fields {
+            fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+        let mut note_map = Map::new();
+        note_map.insert("id".into(),        Dynamic::from(note.id.clone()));
+        note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+        note_map.insert("title".into(),     Dynamic::from(note.title.clone()));
+        note_map.insert("fields".into(),    Dynamic::from(fields_map));
+
+        // Install query context, run, then clear.
+        *self.query_context.lock().unwrap() = Some(context);
+        let raw = fn_ptr
+            .call::<Dynamic>(&self.engine, &ast, (Dynamic::from_map(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(
+                format!("[{script_name}] tree action {label:?}: {e}")
+            ));
+        *self.query_context.lock().unwrap() = None;
+        let raw = raw?;
+
+        // If callback returns an Array of Strings, treat as reorder request.
+        if let Some(arr) = raw.try_cast::<rhai::Array>() {
+            let ids: Vec<String> = arr.into_iter()
+                .filter_map(|v| v.try_cast::<String>())
+                .collect();
+            return Ok(Some(ids));
+        }
+
+        Ok(None)
     }
 
     /// Returns `true` if a schema with `name` is registered.
@@ -1633,6 +1729,122 @@ mod tests {
             msg.contains("My View Script"),
             "error should include script name, got: {msg}"
         );
+    }
+
+    // ── tree actions ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_add_tree_action_registers_entry() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            add_tree_action("Sort Children", ["TextNote"], |note| { () });
+        "#, "test_script").unwrap();
+        let map = registry.tree_action_map();
+        assert_eq!(map.get("TextNote"), Some(&vec!["Sort Children".to_string()]));
+    }
+
+    #[test]
+    fn test_tree_action_map_empty_before_load() {
+        let registry = ScriptRegistry::new().unwrap();
+        assert!(registry.tree_action_map().is_empty());
+    }
+
+    #[test]
+    fn test_clear_all_removes_tree_actions() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            add_tree_action("Do Thing", ["TextNote"], |note| { () });
+        "#, "test_script").unwrap();
+        registry.clear_all();
+        assert!(registry.tree_action_map().is_empty());
+    }
+
+    #[test]
+    fn test_invoke_tree_action_hook_calls_callback() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TextNote", #{ fields: [] });
+            add_tree_action("Noop", ["TextNote"], |note| { () });
+        "#, "test_script").unwrap();
+        let note = crate::Note {
+            id: "n1".into(), title: "Hello".into(),
+            node_type: "TextNote".into(), parent_id: None,
+            fields: std::collections::HashMap::new(), position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            is_expanded: false,
+        };
+        let ctx = QueryContext {
+            notes_by_id: Default::default(),
+            children_by_id: Default::default(),
+            notes_by_type: Default::default(),
+        };
+        let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
+        assert!(result.is_none(), "callback returning () should yield None");
+    }
+
+    #[test]
+    fn test_invoke_tree_action_returns_id_vec_when_callback_returns_array() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TextNote", #{ fields: [] });
+            add_tree_action("Sort", ["TextNote"], |note| { ["id-b", "id-a"] });
+        "#, "test_script").unwrap();
+        let note = crate::Note {
+            id: "p1".into(), title: "Parent".into(),
+            node_type: "TextNote".into(), parent_id: None,
+            fields: std::collections::HashMap::new(), position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            is_expanded: false,
+        };
+        let ctx = QueryContext {
+            notes_by_id: Default::default(),
+            children_by_id: Default::default(),
+            notes_by_type: Default::default(),
+        };
+        let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
+        assert_eq!(result, Some(vec!["id-b".to_string(), "id-a".to_string()]));
+    }
+
+    #[test]
+    fn test_invoke_tree_action_unknown_label_errors() {
+        let registry = ScriptRegistry::new().unwrap();
+        let note = crate::Note {
+            id: "n1".into(), title: "T".into(),
+            node_type: "TextNote".into(), parent_id: None,
+            fields: std::collections::HashMap::new(), position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            is_expanded: false,
+        };
+        let ctx = QueryContext {
+            notes_by_id: Default::default(),
+            children_by_id: Default::default(),
+            notes_by_type: Default::default(),
+        };
+        let err = registry.invoke_tree_action_hook("No Such Action", &note, ctx).unwrap_err();
+        assert!(err.to_string().contains("unknown tree action"), "got: {err}");
+    }
+
+    #[test]
+    fn test_invoke_tree_action_runtime_error_includes_script_name() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("TextNote", #{ fields: [] });
+            add_tree_action("Boom", ["TextNote"], |note| { throw "intentional"; });
+        "#, "my_script").unwrap();
+        let note = crate::Note {
+            id: "n1".into(), title: "T".into(),
+            node_type: "TextNote".into(), parent_id: None,
+            fields: std::collections::HashMap::new(), position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            is_expanded: false,
+        };
+        let ctx = QueryContext {
+            notes_by_id: Default::default(),
+            children_by_id: Default::default(),
+            notes_by_type: Default::default(),
+        };
+        let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
+        assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
     }
 
 }
