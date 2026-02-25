@@ -26,6 +26,45 @@ impl std::fmt::Debug for TreeActionEntry {
     }
 }
 
+/// Spec for a note to be created by a tree action.
+#[derive(Debug, Clone)]
+pub struct ActionCreate {
+    pub id:        String,
+    pub parent_id: String,
+    pub node_type: String,
+    pub title:     String,
+    pub fields:    std::collections::HashMap<String, crate::core::note::FieldValue>,
+}
+
+/// Spec for a note to be updated by a tree action.
+#[derive(Debug, Clone)]
+pub struct ActionUpdate {
+    pub note_id: String,
+    pub title:   String,
+    pub fields:  std::collections::HashMap<String, crate::core::note::FieldValue>,
+}
+
+/// Shared mutable context active during a tree action closure.
+/// Host functions (`create_note`, `update_note`) queue operations here.
+/// `get_children` / `get_note` also read from `note_cache` to see in-flight notes.
+#[derive(Debug, Default)]
+pub struct ActionTxContext {
+    pub creates:    Vec<ActionCreate>,
+    pub updates:    Vec<ActionUpdate>,
+    /// Note maps (same Dynamic shape as `note_to_rhai_dynamic`) keyed by note ID.
+    /// Populated by `create_note`; kept up-to-date by `update_note`.
+    pub note_cache: std::collections::HashMap<String, rhai::Dynamic>,
+}
+
+/// Return value from `invoke_tree_action_hook`.
+#[derive(Debug, Default)]
+pub struct TreeActionResult {
+    /// If the closure returned an array of IDs, they are placed here (reorder path).
+    pub reorder:  Option<Vec<String>>,
+    pub creates:  Vec<ActionCreate>,
+    pub updates:  Vec<ActionUpdate>,
+}
+
 /// Registry for global event hooks not tied to a specific schema.
 ///
 /// Currently holds tree context-menu actions; on_load, on_export, and other
