@@ -324,6 +324,15 @@ impl ScriptRegistry {
                     .and_then(|v| v.clone().try_cast::<rhai::Map>())
                     .unwrap_or_default();
 
+                // Guard: must be called inside a tree action closure.
+                let mut ctx_guard = action_ctx_update.lock().unwrap();
+                let ctx = ctx_guard.as_mut().ok_or_else(|| {
+                    Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        "update_note() called outside a tree action".into(),
+                        rhai::Position::NONE,
+                    ))
+                })?;
+
                 // Convert Dynamic fields → FieldValue using schema.
                 let schema = schema_reg_update.get(&node_type).map_err(|e| {
                     Box::new(rhai::EvalAltResult::ErrorRuntime(
@@ -344,14 +353,6 @@ impl ScriptRegistry {
                         )))?;
                     fields.insert(field_def.name.clone(), fv);
                 }
-
-                let mut ctx_guard = action_ctx_update.lock().unwrap();
-                let ctx = ctx_guard.as_mut().ok_or_else(|| {
-                    Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        "update_note() called outside a tree action".into(),
-                        rhai::Position::NONE,
-                    ))
-                })?;
 
                 // Update the note_cache so get_children/get_note sees the new values.
                 ctx.note_cache.insert(note_id.clone(), note_map);
