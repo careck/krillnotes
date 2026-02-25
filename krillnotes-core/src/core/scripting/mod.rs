@@ -314,15 +314,6 @@ impl ScriptRegistry {
                         "update_note: note map must have an `id` field".into(),
                         rhai::Position::NONE,
                     )))?;
-                let node_type = map.get("node_type")
-                    .and_then(|v| v.clone().try_cast::<String>())
-                    .unwrap_or_default();
-                let title = map.get("title")
-                    .and_then(|v| v.clone().try_cast::<String>())
-                    .unwrap_or_default();
-                let fields_dyn = map.get("fields")
-                    .and_then(|v| v.clone().try_cast::<rhai::Map>())
-                    .unwrap_or_default();
 
                 // Guard: must be called inside a tree action closure.
                 let mut ctx_guard = action_ctx_update.lock().unwrap();
@@ -332,6 +323,19 @@ impl ScriptRegistry {
                         rhai::Position::NONE,
                     ))
                 })?;
+
+                let node_type = map.get("node_type")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .ok_or_else(|| Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        "update_note: note map must have a `node_type` field".into(),
+                        rhai::Position::NONE,
+                    )))?;
+                let title = map.get("title")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .unwrap_or_default();
+                let fields_dyn = map.get("fields")
+                    .and_then(|v| v.clone().try_cast::<rhai::Map>())
+                    .unwrap_or_default();
 
                 // Convert Dynamic fields → FieldValue using schema.
                 let schema = schema_reg_update.get(&node_type).map_err(|e| {
@@ -355,6 +359,8 @@ impl ScriptRegistry {
                 }
 
                 // Update the note_cache so get_children/get_note sees the new values.
+                // `note_map` is still intact here — the `.clone()` calls above operated on
+                // copies of individual values, not on `note_map` itself.
                 ctx.note_cache.insert(note_id.clone(), note_map);
 
                 // If the note is an in-flight create, update the create spec directly.
