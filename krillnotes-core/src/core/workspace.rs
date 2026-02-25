@@ -3,8 +3,8 @@
 use crate::core::user_script;
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
-    Operation, OperationLog, PurgeStrategy, QueryContext, Result, ScriptRegistry, Storage,
-    UserScript,
+    Operation, OperationLog, PurgeStrategy, QueryContext, Result, ScriptError, ScriptRegistry,
+    Storage, UserScript,
 };
 use rhai::Dynamic;
 use rusqlite::Connection;
@@ -1343,7 +1343,7 @@ impl Workspace {
     ///
     /// Returns an error if `@name` is missing from the front matter, or if Rhai
     /// compilation fails. On failure nothing is written to the database.
-    pub fn create_user_script(&mut self, source_code: &str) -> Result<UserScript> {
+    pub fn create_user_script(&mut self, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -1354,10 +1354,11 @@ impl Workspace {
         let now = chrono::Utc::now().timestamp();
         let id = Uuid::new_v4().to_string();
 
-        // Try to compile and load the script — return error immediately on failure
+        // Pre-validation: try to load the script against the live registry.
+        // Catches syntax errors and schema collisions before writing to the DB.
         if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
-            // Restore the registry to its pre-validation state
-            self.reload_scripts()?;
+            // Restore the registry to its pre-validation state; ignore restoration errors.
+            let _ = self.reload_scripts();
             return Err(e);
         }
 
@@ -1392,14 +1393,17 @@ impl Workspace {
 
         tx.commit()?;
 
-        self.get_user_script(&id)
+        // Full reload to ensure deterministic ordering and collect any load errors.
+        let errors = self.reload_scripts()?;
+        let script = self.get_user_script(&id)?;
+        Ok((script, errors))
     }
 
     /// Updates an existing user script's source code, re-parsing front matter.
     ///
     /// Returns an error if `@name` is missing from the front matter, or if Rhai
     /// compilation fails. On failure nothing is written to the database.
-    pub fn update_user_script(&mut self, script_id: &str, source_code: &str) -> Result<UserScript> {
+    pub fn update_user_script(&mut self, script_id: &str, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -1407,10 +1411,11 @@ impl Workspace {
             ));
         }
 
-        // Try to compile and load the script — return error immediately on failure
+        // Pre-validation: try to compile and evaluate the new source code.
+        // The collision check allows same-script re-registration, so updating a script that
+        // already owns some schemas will not falsely fire a collision error.
         if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
-            // Restore the registry to its pre-validation state
-            self.reload_scripts()?;
+            let _ = self.reload_scripts(); // restore registry; ignore restoration errors
             return Err(e);
         }
 
@@ -1450,12 +1455,13 @@ impl Workspace {
 
         tx.commit()?;
 
-        self.reload_scripts()?;
-        self.get_user_script(script_id)
+        let errors = self.reload_scripts()?;
+        let script = self.get_user_script(script_id)?;
+        Ok((script, errors))
     }
 
     /// Deletes a user script by ID and reloads remaining scripts.
-    pub fn delete_user_script(&mut self, script_id: &str) -> Result<()> {
+    pub fn delete_user_script(&mut self, script_id: &str) -> Result<Vec<ScriptError>> {
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -1477,7 +1483,7 @@ impl Workspace {
     }
 
     /// Toggles the enabled state of a user script and reloads.
-    pub fn toggle_user_script(&mut self, script_id: &str, enabled: bool) -> Result<()> {
+    pub fn toggle_user_script(&mut self, script_id: &str, enabled: bool) -> Result<Vec<ScriptError>> {
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -1514,7 +1520,7 @@ impl Workspace {
     }
 
     /// Changes the load order of a user script and reloads.
-    pub fn reorder_user_script(&mut self, script_id: &str, new_load_order: i32) -> Result<()> {
+    pub fn reorder_user_script(&mut self, script_id: &str, new_load_order: i32) -> Result<Vec<ScriptError>> {
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -1551,7 +1557,7 @@ impl Workspace {
     }
 
     /// Re-assigns sequential load_order (0-based) to all scripts given in `ids` order, then reloads.
-    pub fn reorder_all_user_scripts(&mut self, ids: &[String]) -> Result<()> {
+    pub fn reorder_all_user_scripts(&mut self, ids: &[String]) -> Result<Vec<ScriptError>> {
         // Bulk reorder is not logged to the operation log — it's a UI ordering gesture, not a sync-relevant change.
         {
             let conn = self.storage.connection_mut();
@@ -1584,16 +1590,23 @@ impl Workspace {
         self.operation_log.purge_all(self.connection())
     }
 
-    /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB.
-    fn reload_scripts(&mut self) -> Result<()> {
+    /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB in order.
+    ///
+    /// Returns any errors that occurred during loading (e.g. schema collisions, Rhai errors).
+    /// A failing script is skipped; subsequent scripts continue to load.
+    fn reload_scripts(&mut self) -> Result<Vec<ScriptError>> {
         self.script_registry.clear_all();
         let scripts = self.list_user_scripts()?;
+        let mut errors = Vec::new();
         for script in scripts.iter().filter(|s| s.enabled) {
             if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
-                eprintln!("Failed to load script '{}': {}", script.name, e);
+                errors.push(ScriptError {
+                    script_name: script.name.clone(),
+                    message: e.to_string(),
+                });
             }
         }
-        Ok(())
+        Ok(errors)
     }
 }
 
@@ -2310,7 +2323,8 @@ mod tests {
         let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ fields: [] });";
-        let script = workspace.create_user_script(source).unwrap();
+        let (script, errors) = workspace.create_user_script(source).unwrap();
+        assert!(errors.is_empty());
         assert_eq!(script.name, "Test Script");
         assert_eq!(script.description, "A test");
         assert!(script.enabled);
@@ -2331,10 +2345,11 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let source = "// @name: Original\nschema(\"Orig\", #{ fields: [] });";
-        let script = workspace.create_user_script(source).unwrap();
+        let (script, _) = workspace.create_user_script(source).unwrap();
 
         let new_source = "// @name: Updated\nschema(\"Updated\", #{ fields: [] });";
-        let updated = workspace.update_user_script(&script.id, new_source).unwrap();
+        let (updated, errors) = workspace.update_user_script(&script.id, new_source).unwrap();
+        assert!(errors.is_empty());
         assert_eq!(updated.name, "Updated");
     }
 
@@ -2344,7 +2359,7 @@ mod tests {
         let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let initial_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: ToDelete\nschema(\"Del\", #{ fields: [] });";
-        let script = workspace.create_user_script(source).unwrap();
+        let (script, _) = workspace.create_user_script(source).unwrap();
         assert_eq!(workspace.list_user_scripts().unwrap().len(), initial_count + 1);
 
         workspace.delete_user_script(&script.id).unwrap();
@@ -2356,7 +2371,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "").unwrap();
         let source = "// @name: Toggle\nschema(\"Tog\", #{ fields: [] });";
-        let script = workspace.create_user_script(source).unwrap();
+        let (script, _) = workspace.create_user_script(source).unwrap();
         assert!(script.enabled);
 
         workspace.toggle_user_script(&script.id, false).unwrap();
@@ -2373,7 +2388,7 @@ mod tests {
         let s1 = "// @name: Second\nschema(\"S2\", #{ fields: [] });";
         let s2 = "// @name: First\nschema(\"S1\", #{ fields: [] });";
         workspace.create_user_script(s1).unwrap();
-        let second = workspace.create_user_script(s2).unwrap();
+        let (second, _) = workspace.create_user_script(s2).unwrap();
         // Move "First" before all starters
         workspace.reorder_user_script(&second.id, -1).unwrap();
 
@@ -2391,7 +2406,7 @@ mod tests {
             let mut workspace = Workspace::create(temp.path(), "").unwrap();
             workspace.create_user_script(
                 "// @name: TestOpen\nschema(\"OpenType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
-            ).unwrap();
+            ).unwrap(); // (UserScript, Vec<ScriptError>) — result not inspected here
         }
 
         let workspace = Workspace::open(temp.path(), "").unwrap();
@@ -2404,7 +2419,7 @@ mod tests {
 
         {
             let mut workspace = Workspace::create(temp.path(), "").unwrap();
-            let script = workspace.create_user_script(
+            let (script, _) = workspace.create_user_script(
                 "// @name: Disabled\nschema(\"DisType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap();
             workspace.toggle_user_script(&script.id, false).unwrap();
@@ -2606,7 +2621,7 @@ schema("Memo", #{
 
         // Create a valid script first
         let valid_script = "// @name: Good Script\n\n// valid empty body";
-        let created = ws.create_user_script(valid_script).unwrap();
+        let (created, _) = ws.create_user_script(valid_script).unwrap();
 
         // Attempt update with invalid Rhai
         let bad_script = "// @name: Good Script\n\nlet = 5;";
