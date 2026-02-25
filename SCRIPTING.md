@@ -449,7 +449,7 @@ atomically. If the closure throws an error, nothing is written.
 
 **`update_note(note)`** — persists title and field changes on a note map back to
 the database. Works on any note — both the action target and notes returned by
-`get_children()` or `create_note()`.
+`get_children()`, `get_notes_of_type()`, or `create_note()`.
 
 Because all writes share a pending transaction, **`get_children()` and
 `get_note()` will see notes created earlier in the same closure**, allowing
@@ -667,7 +667,7 @@ table(["Name", "Email"], rows)
 
 ## 10. Query functions
 
-Query functions are available inside `on_view` hooks. They let you fetch related notes
+Query functions are available inside `on_view` hooks and `add_tree_action` closures. They let you fetch related notes
 from the workspace without leaving the scripting layer.
 
 ### `get_children(note_id)`
