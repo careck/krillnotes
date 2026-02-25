@@ -65,6 +65,8 @@ pub struct ScriptRegistry {
     schema_registry: schema::SchemaRegistry,
     hook_registry: hooks::HookRegistry,
     query_context: Arc<Mutex<Option<QueryContext>>>,
+    /// Active transaction context for a running tree action; `None` outside a hook call.
+    action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>>,
 }
 
 impl ScriptRegistry {
@@ -208,6 +210,9 @@ impl ScriptRegistry {
         // ── Query context for on_view hooks ──────────────────────────────────
         let query_context: Arc<Mutex<Option<QueryContext>>> = Arc::new(Mutex::new(None));
 
+        // ── Action transaction context for tree action hooks ─────────────────
+        let action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>> = Arc::new(Mutex::new(None));
+
         // Register get_children() — returns direct children of a note by ID.
         let qc1 = Arc::clone(&query_context);
         engine.register_fn("get_children", move |id: String| -> rhai::Array {
@@ -235,6 +240,59 @@ impl ScriptRegistry {
                 .unwrap_or_default()
         });
 
+        // create_note(parent_id, node_type) — available inside add_tree_action closures only.
+        let action_ctx_create = Arc::clone(&action_ctx);
+        let schema_reg_create = schema_registry.clone();
+        engine.register_fn(
+            "create_note",
+            move |parent_id: String, node_type: String|
+                -> std::result::Result<rhai::Dynamic, Box<rhai::EvalAltResult>>
+            {
+                let mut ctx_guard = action_ctx_create.lock().unwrap();
+                let ctx = ctx_guard.as_mut().ok_or_else(|| {
+                    Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        "create_note() called outside a tree action".into(),
+                        rhai::Position::NONE,
+                    ))
+                })?;
+
+                let schema = schema_reg_create
+                    .get(&node_type)
+                    .map_err(|e| Box::new(rhai::EvalAltResult::ErrorRuntime(
+                        format!("create_note: unknown schema {:?}: {e}", node_type).into(),
+                        rhai::Position::NONE,
+                    )))?;
+
+                let id = uuid::Uuid::new_v4().to_string();
+
+                let fields = schema.default_fields();
+                let mut fields_map = rhai::Map::new();
+                for (k, v) in &fields {
+                    fields_map.insert(
+                        k.as_str().into(),
+                        schema::field_value_to_dynamic(v),
+                    );
+                }
+                let mut note_map = rhai::Map::new();
+                note_map.insert("id".into(),        rhai::Dynamic::from(id.clone()));
+                note_map.insert("node_type".into(), rhai::Dynamic::from(node_type.clone()));
+                note_map.insert("title".into(),     rhai::Dynamic::from(String::new()));
+                note_map.insert("fields".into(),    rhai::Dynamic::from(fields_map));
+                let dyn_note = rhai::Dynamic::from_map(note_map);
+
+                ctx.note_cache.insert(id.clone(), dyn_note.clone());
+                ctx.creates.push(hooks::ActionCreate {
+                    id,
+                    parent_id,
+                    node_type,
+                    title: String::new(),
+                    fields,
+                });
+
+                Ok(dyn_note)
+            },
+        );
+
         // ── Display helpers for on_view hooks ─────────────────────────────────
         engine.register_fn("table",   display_helpers::table);
         engine.register_fn("section", display_helpers::section);
@@ -259,6 +317,7 @@ impl ScriptRegistry {
             schema_registry,
             hook_registry,
             query_context,
+            action_ctx,
         })
     }
 
@@ -452,15 +511,18 @@ impl ScriptRegistry {
 
     /// Runs the tree action registered under `label`, passing `note` to the callback.
     ///
-    /// Returns `Ok(Some(ids))` if the callback returns an array of strings (a reorder request).
-    /// Returns `Ok(None)` if the callback returns any other value.
+    /// Returns a [`hooks::TreeActionResult`] containing:
+    /// - `reorder`: `Some(ids)` if the callback returned an array of strings.
+    /// - `creates`: notes queued via `create_note()` during the action.
+    /// - `updates`: notes queued via `update_note()` during the action.
+    ///
     /// Returns `Err(...)` if the callback throws a Rhai error.
     pub fn invoke_tree_action_hook(
         &self,
         label: &str,
         note: &Note,
         context: QueryContext,
-    ) -> Result<Option<Vec<String>>> {
+    ) -> Result<hooks::TreeActionResult> {
         let entry = self.hook_registry.find_tree_action(label);
 
         let (fn_ptr, ast, script_name) = entry.ok_or_else(|| {
@@ -478,25 +540,34 @@ impl ScriptRegistry {
         note_map.insert("title".into(),     Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(),    Dynamic::from(fields_map));
 
-        // Install query context, run, then clear.
+        // Install query context and action context, run, then clear both.
         *self.query_context.lock().unwrap() = Some(context);
+        *self.action_ctx.lock().unwrap() = Some(hooks::ActionTxContext::default());
         let raw = fn_ptr
             .call::<Dynamic>(&self.engine, &ast, (Dynamic::from_map(note_map),))
             .map_err(|e| KrillnotesError::Scripting(
                 format!("[{script_name}] tree action {label:?}: {e}")
             ));
         *self.query_context.lock().unwrap() = None;
+        let tx_ctx = self.action_ctx.lock().unwrap().take();
         let raw = raw?;
 
+        // Extract creates and updates from the completed action context.
+        let (creates, updates) = tx_ctx
+            .map(|c| (c.creates, c.updates))
+            .unwrap_or_default();
+
         // If callback returns an Array of Strings, treat as reorder request.
-        if let Some(arr) = raw.try_cast::<rhai::Array>() {
+        let reorder = if let Some(arr) = raw.try_cast::<rhai::Array>() {
             let ids: Vec<String> = arr.into_iter()
                 .filter_map(|v| v.try_cast::<String>())
                 .collect();
-            return Ok(Some(ids));
-        }
+            Some(ids)
+        } else {
+            None
+        };
 
-        Ok(None)
+        Ok(hooks::TreeActionResult { reorder, creates, updates })
     }
 
     /// Returns `true` if a schema with `name` is registered.
@@ -1420,7 +1491,7 @@ mod tests {
 
     #[test]
     fn test_markdown_rhai_function_renders_bold() {
-        let mut registry = ScriptRegistry::new().unwrap();
+        let registry = ScriptRegistry::new().unwrap();
         let script = r#"
             let result = markdown("**hello**");
             result
@@ -1773,7 +1844,7 @@ mod tests {
             notes_by_type: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
-        assert!(result.is_none(), "callback returning () should yield None");
+        assert!(result.reorder.is_none(), "callback returning () should yield no reorder");
     }
 
     #[test]
@@ -1796,7 +1867,7 @@ mod tests {
             notes_by_type: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
-        assert_eq!(result, Some(vec!["id-b".to_string(), "id-a".to_string()]));
+        assert_eq!(result.reorder, Some(vec!["id-b".to_string(), "id-a".to_string()]));
     }
 
     #[test]
@@ -1839,6 +1910,51 @@ mod tests {
         };
         let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
+    }
+
+    // ── create_note host function ────────────────────────────────────────────
+
+    fn make_test_note(id: &str, node_type: &str) -> crate::Note {
+        crate::Note {
+            id: id.into(), title: "Test".into(),
+            node_type: node_type.into(), parent_id: None,
+            fields: Default::default(), position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            is_expanded: false,
+        }
+    }
+
+    fn make_empty_ctx() -> QueryContext {
+        QueryContext {
+            notes_by_id:    Default::default(),
+            children_by_id: Default::default(),
+            notes_by_type:  Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_create_note_returns_note_map_with_defaults() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{
+                fields: [
+                    #{ name: "status", type: "text", required: false },
+                ]
+            });
+            add_tree_action("Make Task", ["Task"], |note| {
+                let t = create_note(note.id, "Task");
+                if t.node_type != "Task" { throw "node_type must be Task"; }
+                if t.id == ""           { throw "id must not be empty"; }
+                if t.fields.status != "" { throw "status must default to empty string"; }
+            });
+        "#, "test").unwrap();
+
+        let note = make_test_note("parent1", "Task");
+        let ctx  = make_empty_ctx();
+        let result = registry.invoke_tree_action_hook("Make Task", &note, ctx).unwrap();
+        assert_eq!(result.creates.len(), 1, "one pending create expected");
+        assert_eq!(result.creates[0].node_type, "Task");
+        assert_eq!(result.creates[0].parent_id, "parent1");
     }
 
 }
