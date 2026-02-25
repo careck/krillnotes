@@ -71,7 +71,7 @@
 
 ✅ DONE! implement copy and paste of notes. When pasting a note to a different location then ask whether as a sibling or child. Copying a note should make a deep copy ofthe note's data and also make deep copies of all its children and children's children, etc. We don't need cut and paste because we already have the ability to move notes around in the tree view.
 
-[ ] we need to account for the situation in which two scripts define the same schema, but in different ways. So script A defines "Contact" and script B also defines "Contact". In this case the first script should win and an error should pop up saying that script B tries to re-define an existing schema which is not allowed. I guess this means that we need to execute scripts in order every time a script has changed? That's probably not what's currently happening.
+# End of the TODO file. All further tasks will be issued as Github issues in https://github.com/careck/krillnotes/issues
 
-[ ] I would like to start experimenting with menu hook scripts. For instance a script could register a tree hook which could add an entry in the context menu for a selected note. One example of a context menu entry could be to sort all child notes by their title or by some other property. Another example would be to have things like "sort by date" and "sort by priority". However a context menu hook should also specify whether the script is enabled or hidden for one or many different note types. For instance sorting children for contactfolder wouldn't make sense as these are already automatically sorted and trying to sort them in a different way would only result in a conflicting execution of two sort procedures. Let's start with tree context menu hooks: add_tree_action("menu title", [<list of allowed note types>], note) which would add an entry to the context menu with the given title and list of allowed note types and when called would receive the selected note object as an argument.
+
 
