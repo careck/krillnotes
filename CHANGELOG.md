@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] — 2026-02-25
+
+### Added
+- **`on_add_child` hook** — Scripts can now define an `on_add_child` hook that fires whenever a child note is created under or moved to a parent note. The hook receives the parent and the new child, and can modify either before the operation completes.
+- **Tree context menu actions** — Scripts can register custom actions via `add_tree_action(label, fn)`. Registered actions appear in the right-click context menu of tree nodes and are invoked with the selected note as an argument. The bundled Text Note script includes a "Sort Children A→Z" example action.
+- **Schema name collision detection** — Krillnotes now detects when two scripts register schemas with the same name and reports an error at load time instead of silently overwriting one with the other.
+
+### Fixed
+- Note struct state is now synced with any `on_add_child` hook modifications before being written to the operations log, ensuring the logged snapshot reflects the final saved values.
+
+---
+
 ## [0.2.0] — 2026-02-24
 
 > **Breaking change:** The workspace file format has changed due to database encryption. Workspaces created with v0.1.x cannot be opened directly — export them from the old version and re-import into v0.2.0.
@@ -102,7 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/careck/krillnotes/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/careck/krillnotes/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/careck/krillnotes/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/careck/krillnotes/compare/v0.1.0...v0.1.1
