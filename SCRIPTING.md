@@ -17,11 +17,12 @@ User scripts are managed through **Settings → Scripts**. The bundled system sc
 4. [Schema options](#4-schema-options)
 5. [on_save hook](#5-on_save-hook)
 6. [on_view hook](#6-on_view-hook)
-7. [Display helpers](#7-display-helpers)
-8. [Query functions](#8-query-functions)
-9. [Introspection functions](#9-introspection-functions)
-10. [Tips and patterns](#10-tips-and-patterns)
-11. [Built-in script examples](#11-built-in-script-examples)
+7. [on_add_child hook](#7-on_add_child-hook)
+8. [Display helpers](#8-display-helpers)
+9. [Query functions](#9-query-functions)
+10. [Introspection functions](#10-introspection-functions)
+11. [Tips and patterns](#11-tips-and-patterns)
+12. [Built-in script examples](#12-built-in-script-examples)
 
 ---
 
@@ -33,7 +34,7 @@ A script file is plain Rhai. The top-level call available is:
 |---|---|
 | `schema(name, def)` | Register a note type (and optionally its hooks) |
 
-Hooks (`on_save`, `on_view`) are defined as keys **inside** the `schema()` map — there are no
+Hooks (`on_save`, `on_view`, `on_add_child`) are defined as keys **inside** the `schema()` map — there are no
 standalone hook functions.
 
 A minimal script that defines a type:
@@ -67,7 +68,12 @@ schema("TypeName", #{
     fields: [
         #{ name: "field_name", type: "text", required: true },
         // … more fields …
-    ]
+    ],
+
+    // --- optional hooks ---
+    on_save:      |note| { /* … */ note },
+    on_view:      |note| { /* … */ text("") },
+    on_add_child: |parent_note, child_note| { /* … */ #{ parent: parent_note, child: child_note } },
 });
 ```
 
@@ -158,6 +164,8 @@ Restricts which note types may be placed inside this type.
 ```rhai
 allowed_children_types: ["Contact"],
 ```
+
+> **Validation order:** `allowed_parent_types` and `allowed_children_types` are always checked **before** any hook runs. If validation fails the operation is aborted and no hook fires.
 
 ---
 
@@ -257,7 +265,7 @@ schema("Recipe", #{
 
 The `on_view` hook runs when a note is selected in the view panel. It is defined as a key
 inside the `schema()` map. It receives the note map and must return an HTML string built
-with the [display helper functions](#7-display-helpers). The default field rendering is
+with the [display helper functions](#8-display-helpers). The default field rendering is
 replaced entirely by this output; users still switch to edit mode normally.
 
 ```rhai
@@ -309,7 +317,85 @@ schema("MyType", #{
 
 ---
 
-## 7. Display helpers
+## 7. `on_add_child` hook
+
+The `on_add_child` hook runs whenever a note is created as a child — or moved via
+drag-and-drop — under a note whose schema defines the hook. It receives both the parent
+note and the new child, and can modify either or both.
+
+```rhai
+schema("TypeName", #{
+    fields: [ /* … */ ],
+    on_add_child: |parent_note, child_note| {
+        // modify parent_note and/or child_note
+        #{ parent: parent_note, child: child_note }
+    }
+});
+```
+
+### The note maps
+
+Both arguments have the same shape as the `on_save` note map:
+
+| Key | Type | Writable |
+|---|---|---|
+| `note.id` | String | No (ignored if changed) |
+| `note.node_type` | String | No (ignored if changed) |
+| `note.title` | String | Yes |
+| `note.fields` | Map | Yes (individual keys) |
+
+### Return value
+
+Return a Rhai map with optional `parent` and/or `child` keys. Only present keys are
+persisted. Return `()` or omit a key to leave that note unchanged.
+
+### When it fires
+
+| Operation | Fires? |
+|---|---|
+| Note created as a child | Yes |
+| Note moved under a new parent (drag-and-drop) | Yes |
+| Note created at root level (no parent) | No |
+
+`allowed_parent_types` and `allowed_children_types` checks always run **before** the hook.
+If either check fails the operation is aborted and the hook never runs.
+
+Any runtime error in the hook aborts the entire operation (no note is created or moved)
+and shows an error with the script name and line number.
+
+### Example — child count in parent title
+
+```rhai
+schema("ContactsFolder", #{
+    fields: [
+        #{ name: "child_count", type: "number", can_view: true, can_edit: false },
+    ],
+    on_add_child: |parent_note, child_note| {
+        let count = (parent_note.fields["child_count"] ?? 0.0) + 1.0;
+        parent_note.fields["child_count"] = count;
+        parent_note.title = "Contacts (" + count.to_int().to_string() + ")";
+        #{ parent: parent_note, child: child_note }
+    }
+});
+```
+
+### Example — no modification needed
+
+Return `()` to leave both notes unchanged (e.g. for logging side-effects only):
+
+```rhai
+schema("TypeName", #{
+    fields: [ /* … */ ],
+    on_add_child: |parent_note, child_note| {
+        // observe the event without changing either note
+        ()
+    }
+});
+```
+
+---
+
+## 8. Display helpers
 
 All helpers return an HTML string. All user-supplied text is HTML-escaped automatically.
 
@@ -496,7 +582,7 @@ table(["Name", "Email"], rows)
 
 ---
 
-## 8. Query functions
+## 9. Query functions
 
 Query functions are available inside `on_view` hooks. They let you fetch related notes
 from the workspace without leaving the scripting layer.
@@ -543,7 +629,7 @@ to hooks:
 
 ---
 
-## 9. Introspection functions
+## 10. Introspection functions
 
 These are available both at the top level and inside hooks.
 
@@ -568,7 +654,7 @@ let defs = get_schema_fields("Task");
 
 ---
 
-## 10. Tips and patterns
+## 11. Tips and patterns
 
 ### Null-coalescing with `??`
 
@@ -661,9 +747,31 @@ schema("Project", #{
 });
 ```
 
+### Child count with `on_add_child`
+
+Track how many items a container holds using a derived field updated by the hook:
+
+```rhai
+schema("ProjectFolder", #{
+    fields: [
+        #{ name: "item_count", type: "number", can_view: true, can_edit: false },
+    ],
+    allowed_children_types: ["Project"],
+    on_add_child: |parent_note, child_note| {
+        let count = (parent_note.fields["item_count"] ?? 0.0) + 1.0;
+        parent_note.fields["item_count"] = count;
+        parent_note.title = "Projects (" + count.to_int().to_string() + ")";
+        #{ parent: parent_note, child: child_note }
+    }
+});
+```
+
+Note: this count only increases on add. It does not decrease when notes are deleted or
+moved away. For a live accurate count use `on_view` with `get_children()` instead.
+
 ---
 
-## 11. Built-in script examples
+## 12. Built-in script examples
 
 The following scripts ship with Krillnotes and can be studied as complete examples.
 
