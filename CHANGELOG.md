@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`create_note` and `update_note` in tree actions** — `add_tree_action` closures can now create new notes and modify existing ones, not just reorder children. `create_note(parent_id, node_type)` inserts a note with schema defaults and returns a map you can edit; `update_note(note)` persists title and field changes back to the database. All writes from a single action execute inside one SQLite transaction — any error rolls back everything. Notes created earlier in the same closure are immediately visible to `get_children()` and `get_note()`, so full subtrees can be built in one action.
+
 ---
 
 ## [0.2.1] — 2026-02-25
