@@ -756,8 +756,110 @@ impl Workspace {
         }
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
 
+        // invoke_tree_action_hook returns an error if the script throws — in that case
+        // we propagate the error without touching the DB (implicit rollback).
         let result = self.script_registry.invoke_tree_action_hook(label, &note, context)?;
 
+        // Apply creates and updates atomically if any were queued.
+        if !result.creates.is_empty() || !result.updates.is_empty() {
+            let now = chrono::Utc::now().timestamp();
+            let tx = self.storage.connection_mut().transaction()?;
+
+            // ── creates ────────────────────────────────────────────────────────
+            for create in &result.creates {
+                // Compute the next available position under the parent.
+                let position: i32 = tx.query_row(
+                    "SELECT COALESCE(MAX(position), -1) + 1 FROM notes WHERE parent_id = ?1",
+                    rusqlite::params![create.parent_id],
+                    |row| row.get(0),
+                )?;
+
+                let fields_json = serde_json::to_string(&create.fields)?;
+
+                tx.execute(
+                    "INSERT INTO notes (id, title, node_type, parent_id, position, \
+                                        created_at, modified_at, created_by, modified_by, \
+                                        fields_json, is_expanded) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    rusqlite::params![
+                        create.id,
+                        create.title,
+                        create.node_type,
+                        create.parent_id,
+                        position,
+                        now,
+                        now,
+                        self.current_user_id,
+                        self.current_user_id,
+                        fields_json,
+                        true,
+                    ],
+                )?;
+
+                let op = Operation::CreateNote {
+                    operation_id: Uuid::new_v4().to_string(),
+                    timestamp: now,
+                    device_id: self.device_id.clone(),
+                    note_id: create.id.clone(),
+                    parent_id: Some(create.parent_id.clone()),
+                    position,
+                    node_type: create.node_type.clone(),
+                    title: create.title.clone(),
+                    fields: create.fields.clone(),
+                    created_by: self.current_user_id,
+                };
+                self.operation_log.log(&tx, &op)?;
+            }
+
+            // ── updates ────────────────────────────────────────────────────────
+            for update in &result.updates {
+                let fields_json = serde_json::to_string(&update.fields)?;
+
+                tx.execute(
+                    "UPDATE notes SET title = ?1, fields_json = ?2, \
+                                      modified_at = ?3, modified_by = ?4 \
+                     WHERE id = ?5",
+                    rusqlite::params![
+                        update.title,
+                        fields_json,
+                        now,
+                        self.current_user_id,
+                        update.note_id,
+                    ],
+                )?;
+
+                // Log title update
+                let title_op = Operation::UpdateField {
+                    operation_id: Uuid::new_v4().to_string(),
+                    timestamp: now,
+                    device_id: self.device_id.clone(),
+                    note_id: update.note_id.clone(),
+                    field: "title".to_string(),
+                    value: crate::FieldValue::Text(update.title.clone()),
+                    modified_by: self.current_user_id,
+                };
+                self.operation_log.log(&tx, &title_op)?;
+
+                // Log one UpdateField per field value
+                for (field_key, field_value) in &update.fields {
+                    let field_op = Operation::UpdateField {
+                        operation_id: Uuid::new_v4().to_string(),
+                        timestamp: now,
+                        device_id: self.device_id.clone(),
+                        note_id: update.note_id.clone(),
+                        field: field_key.clone(),
+                        value: field_value.clone(),
+                        modified_by: self.current_user_id,
+                    };
+                    self.operation_log.log(&tx, &field_op)?;
+                }
+            }
+
+            self.operation_log.purge_if_needed(&tx)?;
+            tx.commit()?;
+        }
+
+        // ── reorder path (unchanged) ───────────────────────────────────────────
         if let Some(ids) = result.reorder {
             for (position, id) in ids.iter().enumerate() {
                 self.move_note(id, Some(note_id), position as i32)?;
@@ -2930,5 +3032,129 @@ add_tree_action("Sort A→Z", ["TextNote"], |note| {
         let kids = ws.get_children(&parent_id).unwrap();
         assert_eq!(kids[0].title, "A Note");
         assert_eq!(kids[1].title, "B Note");
+    }
+
+    // ── tree action creates / updates ─────────────────────────────────────────
+
+    #[test]
+    fn test_tree_action_create_note_writes_to_db() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.create_user_script(r#"
+// @name: CreateAction
+schema("TaFolder", #{ fields: [] });
+schema("TaItem", #{ fields: [#{ name: "tag", type: "text", required: false }] });
+add_tree_action("Add Item", ["TaFolder"], |folder| {
+    let item = create_note(folder.id, "TaItem");
+    item.title = "My Item";
+    item.fields.tag = "hello";
+    update_note(item);
+});
+        "#).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let folder_id = ws.create_note(&root.id, AddPosition::AsChild, "TaFolder").unwrap();
+
+        ws.run_tree_action(&folder_id, "Add Item").unwrap();
+
+        let children = ws.get_children(&folder_id).unwrap();
+        assert_eq!(children.len(), 1, "one child should have been created");
+        assert_eq!(children[0].title, "My Item");
+        assert_eq!(
+            children[0].fields.get("tag"),
+            Some(&FieldValue::Text("hello".into()))
+        );
+    }
+
+    #[test]
+    fn test_tree_action_update_note_writes_to_db() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.create_user_script(r#"
+// @name: UpdateAction
+schema("TaTask", #{ fields: [#{ name: "status", type: "text", required: false }] });
+add_tree_action("Mark Done", ["TaTask"], |note| {
+    note.title = "Done Task";
+    note.fields.status = "done";
+    update_note(note);
+});
+        "#).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let task_id = ws.create_note(&root.id, AddPosition::AsChild, "TaTask").unwrap();
+
+        ws.run_tree_action(&task_id, "Mark Done").unwrap();
+
+        let updated = ws.get_note(&task_id).unwrap();
+        assert_eq!(updated.title, "Done Task");
+        assert_eq!(
+            updated.fields.get("status"),
+            Some(&FieldValue::Text("done".into()))
+        );
+    }
+
+    #[test]
+    fn test_tree_action_nested_create_builds_subtree() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.create_user_script(r#"
+// @name: NestedCreate
+schema("TaSprint", #{ fields: [] });
+schema("TaSubTask", #{ fields: [] });
+add_tree_action("Add Sprint With Task", ["TaSprint"], |sprint| {
+    let child_sprint = create_note(sprint.id, "TaSprint");
+    child_sprint.title = "Child Sprint";
+    update_note(child_sprint);
+    let task = create_note(child_sprint.id, "TaSubTask");
+    task.title = "Sprint Task";
+    update_note(task);
+});
+        "#).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let sprint_id = ws.create_note(&root.id, AddPosition::AsChild, "TaSprint").unwrap();
+
+        ws.run_tree_action(&sprint_id, "Add Sprint With Task").unwrap();
+
+        // The child sprint should be under sprint_id
+        let sprint_children = ws.get_children(&sprint_id).unwrap();
+        assert_eq!(sprint_children.len(), 1, "one child sprint expected");
+        assert_eq!(sprint_children[0].title, "Child Sprint");
+
+        // The task should be under the child sprint
+        let task_children = ws.get_children(&sprint_children[0].id).unwrap();
+        assert_eq!(task_children.len(), 1, "one task expected under child sprint");
+        assert_eq!(task_children[0].title, "Sprint Task");
+    }
+
+    #[test]
+    fn test_tree_action_error_rolls_back_all_writes() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        ws.create_user_script(r#"
+// @name: ErrorAction
+schema("TaErrFolder", #{ fields: [] });
+schema("TaErrItem", #{ fields: [] });
+add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
+    let item = create_note(folder.id, "TaErrItem");
+    item.title = "Orphan";
+    update_note(item);
+    throw "deliberate error";
+});
+        "#).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let folder_id = ws.create_note(&root.id, AddPosition::AsChild, "TaErrFolder").unwrap();
+
+        let result = ws.run_tree_action(&folder_id, "Create Then Fail");
+        assert!(result.is_err(), "action should propagate the thrown error");
+
+        // No note should have been created — the creates are not applied when the action errors
+        let children = ws.get_children(&folder_id).unwrap();
+        assert_eq!(children.len(), 0, "rollback: no child note should exist");
     }
 }
