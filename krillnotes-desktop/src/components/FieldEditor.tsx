@@ -1,5 +1,6 @@
 import type { FieldValue, FieldType } from '../types';
 import { humaniseKey } from '../utils/humanise';
+import NoteLinkEditor from './NoteLinkEditor';
 
 interface FieldEditorProps {
   fieldName: string;
@@ -8,11 +9,22 @@ interface FieldEditorProps {
   required: boolean;
   options: string[];
   max: number;
+  targetType?: string;
   onChange: (value: FieldValue) => void;
 }
 
-function FieldEditor({ fieldName, fieldType, value, required, options, max, onChange }: FieldEditorProps) {
+function FieldEditor({ fieldName, fieldType, value, required, options, max, targetType, onChange }: FieldEditorProps) {
   const renderEditor = () => {
+    if (fieldType === 'note_link') {
+      const currentId = value && 'NoteLink' in value ? (value as { NoteLink: string | null }).NoteLink : null;
+      return (
+        <NoteLinkEditor
+          value={currentId}
+          targetType={targetType}
+          onChange={(id) => onChange({ NoteLink: id })}
+        />
+      );
+    }
     if ('Text' in value) {
       if (fieldType === 'textarea') {
         return (
