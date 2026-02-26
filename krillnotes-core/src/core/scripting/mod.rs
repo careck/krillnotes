@@ -2259,4 +2259,82 @@ mod tests {
         assert_eq!(&title[7..8], "-", "missing month-day separator: {title}");
     }
 
+    #[test]
+    fn test_zettel_on_save_sets_date_title() {
+        use crate::FieldValue;
+        let mut registry = ScriptRegistry::new().unwrap();
+        // Inline the exact on_save logic from templates/zettelkasten.rhai
+        registry.load_script(r#"
+            schema("ZettelTest", #{
+                title_can_edit: false,
+                fields: [#{ name: "body", type: "textarea", required: false }],
+                on_save: |note| {
+                    let body = note.fields["body"] ?? "";
+                    let words = body.split(" ").filter(|w| w != "");
+                    let snippet = if words.len() == 0 {
+                        "Untitled"
+                    } else {
+                        let take = if words.len() > 6 { 6 } else { words.len() };
+                        let s = ""; let i = 0;
+                        while i < take { s += words[i] + " "; i += 1; }
+                        s.trim();
+                        if words.len() > 6 { s + " …" } else { s }
+                    };
+                    note.title = today() + " — " + snippet;
+                    note
+                }
+            });
+        "#, "test").unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("body".to_string(),
+            FieldValue::Text("Emergence is when simple rules produce complex behaviour".to_string()));
+
+        let (title, _) = registry
+            .run_on_save_hook("ZettelTest", "id1", "ZettelTest", "", &fields)
+            .unwrap().unwrap();
+
+        // Title must start with YYYY-MM-DD (10 chars, dashes at [4] and [7])
+        assert_eq!(&title[4..5], "-", "missing year-month separator: {title}");
+        assert_eq!(&title[7..8], "-", "missing month-day separator: {title}");
+        // Must contain the first 6 words
+        assert!(title.contains("Emergence is when simple rules produce"),
+            "snippet missing: {title}");
+        // Body has 8 words — title must end with ellipsis
+        assert!(title.ends_with('…'), "expected truncation ellipsis: {title}");
+    }
+
+    #[test]
+    fn test_zettel_on_save_empty_body_uses_untitled() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("ZettelEmpty", #{
+                title_can_edit: false,
+                fields: [#{ name: "body", type: "textarea", required: false }],
+                on_save: |note| {
+                    let body = note.fields["body"] ?? "";
+                    let words = body.split(" ").filter(|w| w != "");
+                    let snippet = if words.len() == 0 {
+                        "Untitled"
+                    } else {
+                        let take = if words.len() > 6 { 6 } else { words.len() };
+                        let s = ""; let i = 0;
+                        while i < take { s += words[i] + " "; i += 1; }
+                        s.trim();
+                        if words.len() > 6 { s + " …" } else { s }
+                    };
+                    note.title = today() + " — " + snippet;
+                    note
+                }
+            });
+        "#, "test").unwrap();
+
+        let (title, _) = registry
+            .run_on_save_hook("ZettelEmpty", "id2", "ZettelEmpty", "", &std::collections::HashMap::new())
+            .unwrap().unwrap();
+        assert!(title.contains("Untitled"), "expected Untitled fallback: {title}");
+        // Must still have the date prefix
+        assert_eq!(&title[4..5], "-", "missing date separator in untitled title: {title}");
+    }
+
 }
