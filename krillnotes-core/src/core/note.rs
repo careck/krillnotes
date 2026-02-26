@@ -54,6 +54,8 @@ pub struct Note {
     /// Whether this node is currently expanded in the tree UI.
     pub is_expanded: bool,
     /// Sorted, lowercase tags attached to this note.
+    /// `#[serde(default)]` allows importing archives from before the tags feature.
+    #[serde(default)]
     pub tags: Vec<String>,
 }
 
