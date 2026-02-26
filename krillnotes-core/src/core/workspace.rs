@@ -1264,6 +1264,14 @@ impl Workspace {
     /// than errors in that case). The transaction is rolled back automatically
     /// on any failure.
     pub fn delete_note_recursive(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Collect all IDs in the subtree that will be deleted, then clear any
+        // incoming NoteLink fields from other notes before the deletion transaction
+        // opens (satisfies the note_links.target_id ON DELETE RESTRICT constraint).
+        let all_ids = self.collect_subtree_ids(note_id)?;
+        for id in &all_ids {
+            self.clear_links_to(id)?;
+        }
+
         let tx = self.storage.connection_mut().transaction()?;
         let result = Self::delete_recursive_in_tx(&tx, note_id)?;
         tx.commit()?;
@@ -1339,6 +1347,10 @@ impl Workspace {
     /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
     /// The transaction is rolled back automatically on any failure.
     pub fn delete_note_promote(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Clear incoming NoteLink fields from other notes before opening the
+        // deletion transaction (satisfies note_links.target_id ON DELETE RESTRICT).
+        self.clear_links_to(note_id)?;
+
         let tx = self.storage.connection_mut().transaction()?;
 
         // Fetch the note's parent — surfaces NoteNotFound for missing IDs.
@@ -1853,6 +1865,78 @@ impl Workspace {
             }
         }
         Ok(errors)
+    }
+
+    /// Collects the IDs of `note_id` and every descendant using a recursive CTE.
+    ///
+    /// Returns a flat `Vec<String>` containing the root ID plus all descendant
+    /// IDs in an unspecified order.
+    fn collect_subtree_ids(&self, note_id: &str) -> Result<Vec<String>> {
+        let conn = self.connection();
+        let mut stmt = conn.prepare(
+            "WITH RECURSIVE subtree AS (
+                SELECT id FROM notes WHERE id = ?1
+                UNION ALL
+                SELECT n.id FROM notes n JOIN subtree s ON n.parent_id = s.id
+            )
+            SELECT id FROM subtree",
+        )?;
+        let ids: Vec<String> = stmt
+            .query_map([note_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(ids)
+    }
+
+    /// Finds all notes that have a `NoteLink` field pointing to `target_id`,
+    /// sets those fields to `NoteLink(None)` in `fields_json`, and removes
+    /// the corresponding rows from the `note_links` junction table.
+    ///
+    /// This must be called BEFORE the target note is deleted so that the
+    /// `note_links.target_id REFERENCES notes(id) ON DELETE RESTRICT`
+    /// constraint is satisfied.
+    ///
+    /// All changes (field patches + junction-table delete) are committed in a
+    /// single transaction. If no notes link to `target_id` the function
+    /// returns immediately without touching the database.
+    pub fn clear_links_to(&mut self, target_id: &str) -> Result<()> {
+        // Find all notes linking to this target (read-only, uses shared ref).
+        let links: Vec<(String, String)> = {
+            let conn = self.connection();
+            let mut stmt = conn.prepare(
+                "SELECT source_id, field_name FROM note_links WHERE target_id = ?1",
+            )?;
+            let rows = stmt.query_map([target_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            rows
+        };
+
+        if links.is_empty() {
+            return Ok(());
+        }
+
+        // For each linking note: load fields_json, patch the field to NoteLink(None), save back.
+        let conn = self.storage.connection_mut();
+        let tx = conn.transaction()?;
+        for (source_id, field_name) in &links {
+            let fields_json: String = tx.query_row(
+                "SELECT fields_json FROM notes WHERE id = ?1",
+                [source_id],
+                |row| row.get(0),
+            )?;
+            let mut json_val: serde_json::Value = serde_json::from_str(&fields_json)?;
+            if let Some(obj) = json_val.as_object_mut() {
+                // NoteLink(None) serializes as {"NoteLink":null} under serde external tagging.
+                obj.insert(field_name.clone(), serde_json::json!({"NoteLink": null}));
+            }
+            let updated_json = serde_json::to_string(&json_val)?;
+            tx.execute(
+                "UPDATE notes SET fields_json = ?1 WHERE id = ?2",
+                [&updated_json, source_id],
+            )?;
+        }
+        tx.execute("DELETE FROM note_links WHERE target_id = ?1", [target_id])?;
+        tx.commit()?;
+        Ok(())
     }
 
 }
@@ -3439,5 +3523,78 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_clear_links_to_nulls_field_in_source_note() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        ws.clear_links_to(&target.id).unwrap();
+
+        let updated_source = ws.get_note(&source.id).unwrap();
+        assert!(matches!(
+            updated_source.fields.get("link").unwrap(),
+            FieldValue::NoteLink(None)
+        ));
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE target_id = ?1",
+            [&target.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_delete_note_nulls_links_in_other_notes() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        ws.delete_note(&target.id, DeleteStrategy::DeleteAll).unwrap();
+
+        let updated_source = ws.get_note(&source.id).unwrap();
+        assert!(matches!(
+            updated_source.fields.get("link").unwrap(),
+            FieldValue::NoteLink(None)
+        ));
+    }
+
+    #[test]
+    fn test_delete_note_recursive_clears_links_for_entire_subtree() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let parent = create_note_with_type(&mut ws, "LinkTestType");
+        let child_id = ws.create_note(&parent.id, AddPosition::AsChild, "LinkTestType").unwrap();
+        let child = ws.get_note(&child_id).unwrap();
+        let observer = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(child.id.clone())));
+        ws.update_note(&observer.id, observer.title.clone(), fields).unwrap();
+
+        ws.delete_note(&parent.id, DeleteStrategy::DeleteAll).unwrap();
+
+        let updated_observer = ws.get_note(&observer.id).unwrap();
+        assert!(matches!(
+            updated_observer.fields.get("link").unwrap(),
+            FieldValue::NoteLink(None)
+        ));
     }
 }
