@@ -10,6 +10,9 @@ This document explains the codebase layout, core concepts, and the key decisions
 Krillnotes/
 ├── Cargo.toml                     # Workspace manifest (two Rust crates)
 ├── user_scripts/                  # Example Rhai scripts (Task, Book, Contact, etc.)
+├── templates/                     # Template gallery — copy into Script Manager to activate
+│   ├── book_collection.rhai       # Library organiser with on_view table and sort actions
+│   └── zettelkasten.rhai          # Zettelkasten atomic-note system with related-note discovery
 ├── krillnotes-core/               # Pure Rust library — no UI, no Tauri
 │   └── src/
 │       ├── lib.rs                 # Crate root, public re-exports
@@ -22,9 +25,10 @@ Krillnotes/
 │           ├── user_script.rs     # UserScript type + CRUD operations
 │           ├── export.rs          # Workspace export/import (zip archives)
 │           ├── scripting/
-│           │   ├── mod.rs         # Scripting module root
+│           │   ├── mod.rs         # Scripting module root — engine setup, hook dispatch, query fns
 │           │   ├── schema.rs      # Schema registry (field types, flags)
-│           │   └── hooks.rs       # Hook registry (placeholder for future global/lifecycle hooks)
+│           │   ├── hooks.rs       # Hook registry (placeholder for future global/lifecycle hooks)
+│           │   └── display_helpers.rs # HTML helpers (text, table, render_tags, link_to, …)
 │           ├── storage.rs         # SQLite connection + migrations
 │           ├── device.rs          # Stable hardware device ID
 │           ├── error.rs           # KrillnotesError enum
@@ -186,7 +190,21 @@ The `rhai::Engine` is a long-lived field, not reconstructed per request. This av
 
 The `rhai/sync` Cargo feature is enabled, which replaces `Rc`/`RefCell` internals with `Arc`/`Mutex`, making `Engine: Send + Sync` without any `unsafe` code.
 
-### 4. Encryption
+### 4. Tags
+
+Tags are free-form strings attached to notes via a `note_tags` junction table (`note_id`, `tag`). There is no tags master table — tags are implicit (they exist as long as at least one row references them).
+
+**Database:** `update_note_tags(note_id, tags: Vec<String>)` in `workspace.rs` replaces all tag rows for a note in a single transaction (DELETE + INSERT). All note-fetching queries use a `LEFT JOIN note_tags + GROUP_CONCAT` to populate `Note.tags: Vec<String>`.
+
+**Tauri commands:** `update_note_tags`, `get_all_tags`, `get_notes_for_tag` are exposed as Tauri commands and called from the frontend tag editor and tag cloud panel.
+
+**Frontend:** `TagPill.tsx` renders individual tags. `tagColor.ts` produces a deterministic colour per tag string (hash-based, stable across runs). The tag cloud panel in `WorkspaceView.tsx` is resizable and lists every tag in the workspace.
+
+**Scripting:** The note map passed to `on_view` hooks includes a `tags: Array` key. `render_tags(note.tags)` renders tags as coloured pills. `get_notes_for_tag(tags)` returns all notes carrying any of the listed tags (OR semantics), deduplicated. The `QueryContext` pre-builds a `notes_by_tag` index so these lookups are O(1) per hook call.
+
+**Export / Import:** `workspace.json` carries a top-level `tags: [string]` list and each note's `tags` array. On import, `note_tags` rows are reconstructed from the note objects.
+
+### 5. Encryption
 
 Every workspace database is encrypted with **SQLCipher** using the `bundled-sqlcipher-vendored-openssl` rusqlite feature. OpenSSL is compiled from source and statically linked — there are no system-level OpenSSL dependencies on any platform.
 
@@ -210,7 +228,7 @@ These two error variants are mapped to sentinel strings (`"UNENCRYPTED_WORKSPACE
 
 When the `cache_workspace_passwords` setting is enabled, the password is stored in `AppState.workspace_passwords` (keyed by file path) after a successful open. On subsequent opens of the same workspace within the same session, the cached password is used without prompting. The cache is never written to disk and is cleared when the app exits.
 
-### 5. User Script Management
+### 6. User Script Management
 
 User scripts are stored in the `user_scripts` table inside each workspace database. This means each workspace has its own set of custom note types and hooks.
 
@@ -218,11 +236,11 @@ Scripts are managed via Tauri commands (`list_user_scripts`, `create_user_script
 
 When a script is created or updated, all registries are reloaded: the schema and hook registries are cleared, system scripts are re-evaluated, then all enabled user scripts are re-evaluated in load order.
 
-### 5. Export / Import
+### 7. Export / Import
 
 Workspaces can be exported as `.zip` archives ([export.rs](krillnotes-core/src/core/export.rs)). The archive contains:
 
-- `workspace.json` — All notes with their fields, plus metadata (app version, export timestamp, note count).
+- `workspace.json` — All notes with their fields and tags, a global tag list, plus metadata (app version, export timestamp, note count).
 - `scripts/*.rhai` — Each user script as a separate file.
 
 Operations are excluded from exports as they are device-specific.
@@ -231,7 +249,7 @@ The zip can optionally be encrypted with AES-256 using the `zip` crate's built-i
 
 Importing reads a zip (prompting for the zip password if encrypted), creates a fresh **SQLCipher-encrypted** workspace database (prompting for a new workspace password), inserts all notes and scripts, and opens the new workspace. A `peek_import` command allows inspecting the archive metadata (version, note count, script count) before committing to the import.
 
-### 6. Multi-Window Architecture
+### 8. Multi-Window Architecture
 
 Each open workspace gets its own Tauri window. The frontend is a single React application that loads in every window, but each instance fetches data from its own workspace via the window label.
 
@@ -254,7 +272,7 @@ Every Tauri command receives a `window: tauri::Window` parameter and uses `windo
 
 When a window is destroyed, its entry is removed from `AppState` to free the database connection.
 
-### 7. Per-Device UI State vs. Document State
+### 9. Per-Device UI State vs. Document State
 
 Not all state belongs in the operation log. The distinction matters for sync:
 
@@ -267,7 +285,7 @@ Not all state belongs in the operation log. The distinction matters for sync:
 
 Expansion and selection are *view state* — local to the device and not meaningful to other devices. They are stored persistently (so they survive app restarts) but are never written to the operation log and will not participate in sync.
 
-### 8. Tree Hierarchy
+### 10. Tree Hierarchy
 
 Notes form an ordered tree via two columns: `parent_id` (nullable foreign key to `notes.id`) and `position` (zero-based integer sort order among siblings).
 

@@ -21,9 +21,10 @@ User scripts are managed through **Settings → Scripts**. The bundled system sc
 8. [add_tree_action](#8-add_tree_action)
 9. [Display helpers](#9-display-helpers)
 10. [Query functions](#10-query-functions)
-11. [Introspection functions](#11-introspection-functions)
-12. [Tips and patterns](#12-tips-and-patterns)
-13. [Built-in script examples](#13-built-in-script-examples)
+11. [Utility functions](#11-utility-functions)
+12. [Introspection functions](#12-introspection-functions)
+13. [Tips and patterns](#13-tips-and-patterns)
+14. [Built-in script examples](#14-built-in-script-examples)
 
 ---
 
@@ -214,6 +215,7 @@ schema("TypeName", #{
 | `note.node_type` | String | No |
 | `note.title` | String | Yes |
 | `note.fields` | Map | Yes (individual keys) |
+| `note.tags` | Array of strings | No (tags are managed separately via the tag editor, not by hooks) |
 
 ### Example — derived title and computed field
 
@@ -355,6 +357,7 @@ Both arguments have the same shape as the `on_save` note map:
 | `note.node_type` | String | No (ignored if changed) |
 | `note.title` | String | Yes |
 | `note.fields` | Map | Yes (individual keys) |
+| `note.tags` | Array of strings | No |
 
 ### Return value
 
@@ -637,6 +640,29 @@ badge("Done",   "green")
 badge("Paused", "yellow")
 ```
 
+### `render_tags(tags)`
+
+Renders an array of tag strings as coloured pill badges. Each tag gets a deterministic
+colour based on its name (stable across reloads).
+
+```rhai
+render_tags(note.tags)
+```
+
+Use inside `stack` or `section` alongside other helpers:
+
+```rhai
+schema("Zettel", #{
+    fields: [ /* … */ ],
+    on_view: |note| {
+        stack([
+            markdown(note.fields["body"] ?? ""),
+            render_tags(note.tags)
+        ])
+    }
+});
+```
+
 ### `divider()`
 
 A horizontal rule.
@@ -723,6 +749,27 @@ let all_tasks = get_notes_of_type("Task");
 let open = all_tasks.filter(|t| t.fields["status"] != "DONE");
 ```
 
+### `get_notes_for_tag(tags)`
+
+Returns all notes that carry **any** of the given tags (OR semantics). Duplicates are
+removed — a note carrying two of the listed tags appears only once.
+
+```rhai
+// All notes tagged "rust" or "notes"
+let related = get_notes_for_tag(["rust", "notes"]);
+```
+
+A common pattern is to surface related notes in an `on_view` hook using `note.tags`:
+
+```rhai
+let related = get_notes_for_tag(note.tags).filter(|n| n.id != note.id);
+let rows = related.map(|n| [link_to(n), render_tags(n.tags)]);
+table(["Note", "Tags"], rows)
+```
+
+`get_notes_for_tag` is available in `on_view` hooks and `add_tree_action` closures.
+It is **not** available in `on_save` or `on_add_child`.
+
 ### Note map shape
 
 Each note returned by the query functions has the same shape as the `note` map passed
@@ -734,10 +781,33 @@ to hooks:
 | `note.node_type` | String |
 | `note.title` | String |
 | `note.fields` | Map of field values |
+| `note.tags` | Array of strings |
 
 ---
 
-## 11. Introspection functions
+## 11. Utility functions
+
+### `today()`
+
+Returns today's date as a `"YYYY-MM-DD"` string. Use in `on_save` hooks to auto-stamp
+date fields or derive a date-prefixed title.
+
+```rhai
+schema("Journal", #{
+    fields: [
+        #{ name: "body", type: "textarea", required: false },
+    ],
+    on_save: |note| {
+        let body = note.fields["body"] ?? "";
+        note.title = today() + " — " + body.split("\n")[0];
+        note
+    }
+});
+```
+
+---
+
+## 12. Introspection functions
 
 These are available both at the top level and inside hooks.
 
@@ -762,7 +832,7 @@ let defs = get_schema_fields("Task");
 
 ---
 
-## 12. Tips and patterns
+## 13. Tips and patterns
 
 ### Null-coalescing with `??`
 
@@ -894,7 +964,7 @@ This is unlikely to be intentional and should be avoided.
 
 ---
 
-## 13. Built-in script examples
+## 14. Built-in script examples
 
 The following scripts ship with Krillnotes and can be studied as complete examples.
 
@@ -997,5 +1067,71 @@ schema("Contact", #{
         }
         note
     }
+});
+```
+
+### Zettelkasten — atomic notes with `today()`, `note.tags`, and related-note discovery
+
+A folder/note pair. `Zettel` notes are auto-titled with today's date and the first six
+words of the body. The `Kasten` folder shows recent notes; the `Zettel` `on_view` uses
+`note.tags` and `get_notes_for_tag` to surface related notes. Available as
+`templates/zettelkasten.rhai`.
+
+```rhai
+fn tag_list(tags) {
+    if tags.len() == 0 { return ""; }
+    let s = tags[0];
+    let i = 1;
+    while i < tags.len() { s += ", " + tags[i]; i += 1; }
+    s
+}
+
+schema("Zettel", #{
+    title_can_edit: false,
+    allowed_parent_types: ["Kasten"],
+    fields: [
+        #{ name: "body", type: "textarea", required: false },
+    ],
+    on_save: |note| {
+        let body  = note.fields["body"] ?? "";
+        let words = body.split(" ").filter(|w| w != "");
+        let take  = if words.len() > 6 { 6 } else { words.len() };
+        let snippet = if take == 0 { "Untitled" } else {
+            let s = ""; let i = 0;
+            while i < take { s += words[i] + " "; i += 1; }
+            s.trim();
+            if words.len() > 6 { s + " …" } else { s }
+        };
+        note.title = today() + " — " + snippet;
+        note
+    },
+    on_view: |note| {
+        let body_block = markdown(note.fields["body"] ?? "");
+        let tags = note.tags;
+        if tags.len() == 0 { return body_block; }
+        let related = get_notes_for_tag(tags).filter(|n| n.id != note.id);
+        if related.len() == 0 { return body_block; }
+        let rows = related.map(|n| [link_to(n), tag_list(n.tags)]);
+        stack([body_block, section("Related Notes", table(["Note", "Tags"], rows))])
+    }
+});
+
+schema("Kasten", #{
+    allowed_children_types: ["Zettel"],
+    fields: [],
+    on_view: |note| {
+        let zettel = get_children(note.id);
+        if zettel.len() == 0 { return text("No notes yet."); }
+        zettel.sort_by(|a, b| a.title >= b.title);
+        let recent = if zettel.len() > 10 { zettel.extract(0, 10) } else { zettel };
+        let rows = recent.map(|z| [link_to(z), tag_list(z.tags)]);
+        section("Recent Notes", table(["Note", "Tags"], rows))
+    }
+});
+
+add_tree_action("Sort by Date (Newest First)", ["Kasten"], |note| {
+    let children = get_children(note.id);
+    children.sort_by(|a, b| a.title >= b.title);
+    children.map(|c| c.id)
 });
 ```

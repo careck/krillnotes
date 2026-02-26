@@ -10,7 +10,9 @@ Built with Rust, Tauri v2, React, and SQLCipher (encrypted SQLite).
 
 - **Hierarchical notes** — Organize notes in an infinite tree. Each note can have children, with configurable sort order (alphabetical ascending/descending, or manual positioning).
 - **Typed note schemas** — Note types are defined as [Rhai](https://rhai.rs/) scripts. The built-in `TextNote` type ships out of the box; custom types support fields of type `text`, `textarea`, `number`, `boolean`, `date`, `email`, `select`, and `rating`.
-- **User scripts** — Each workspace stores its own Rhai scripts in the database. Create, edit, enable/disable, reorder, and delete scripts from a built-in script manager — no file system access required. Six example scripts ship in the `user_scripts/` folder (Task, Book, Contact, Product, Recipe, Project).
+- **User scripts** — Each workspace stores its own Rhai scripts in the database. Create, edit, enable/disable, reorder, and delete scripts from a built-in script manager — no file system access required.
+- **Template gallery** — Ready-to-use templates live in the `templates/` folder: a book collection organiser and a Zettelkasten atomic-note system. Copy the Rhai source into the Script Manager to activate a template in any workspace.
+- **Tags** — Attach free-form tags to any note. Tags are displayed as colour-coded pills in the note view, shown in the tree's tag cloud panel, and matched by the search bar. Scripts can read `note.tags` in `on_view` hooks and query all notes carrying a given tag with `get_notes_for_tag()`.
 - **On-save hooks** — Rhai scripts can register `on_save` hooks that compute derived fields (e.g. auto-generating a note title from first name + last name, calculating a read duration, or setting a status badge).
 - **Search** — A live search bar with debounced fuzzy matching across note titles and all text fields. Keyboard-navigable results; selecting a match expands collapsed ancestors and scrolls the note into view.
 - **Export / Import** — Export an entire workspace as a `.zip` archive (notes + user scripts), with an optional AES-256 password to encrypt the zip. Import a zip into a new workspace; the app detects encrypted archives and prompts for the password before importing.
@@ -76,6 +78,7 @@ Each workspace is a single **SQLCipher-encrypted** database with the `.krillnote
 | Table | Purpose |
 |-------|---------|
 | `notes` | The note tree (id, title, type, parent, position, fields) |
+| `note_tags` | Many-to-many junction between notes and tags |
 | `operations` | Append-only mutation log (CRDT-style) |
 | `workspace_meta` | Per-device metadata (device ID, selection state) |
 | `user_scripts` | Per-workspace Rhai scripts (id, name, source code, load order, enabled flag) |

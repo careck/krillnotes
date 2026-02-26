@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tags** — Any note can carry free-form tags. Add and remove tags from the tag pill editor in the InfoPanel. Tag pills are shown in the default note view. A resizable tag cloud panel in the tree sidebar lets you browse all tags in the workspace at a glance.
+- **Tag search** — The search bar now matches tags in addition to note titles and text fields.
+- **Template gallery** — `templates/` ships two ready-to-use template scripts: `book_collection.rhai` (a library organiser with an `on_view` table and sort actions) and `zettelkasten.rhai` (an atomic-note system with auto-titling and related-note discovery via shared tags). Copy a template into the Script Manager to activate it.
+- **`note.tags` in `on_view` hooks** — The note map passed to `on_view` now includes a `tags` array, enabling scripts to read and display the note's tags.
+- **`render_tags(tags)` display helper** — Renders a `note.tags` array as coloured pill badges.
+- **`get_notes_for_tag(tags)` query function** — Returns all notes that carry any of the given tags (OR semantics, deduplicated). Available in `on_view` hooks and `add_tree_action` closures.
+- **`today()` scripting function** — Returns today's date as a `"YYYY-MM-DD"` string. Useful in `on_save` hooks to auto-stamp date fields or derive a date-prefixed title.
+- **Tags in export / import** — `workspace.json` now includes a global tag list and each note's tags array. Import restores all tag assignments.
+- **Book collection template** — A full library management template (previously a bundled system script) moved to the template gallery as `templates/book_collection.rhai`.
+
 ---
 
 ## [0.2.2] — 2026-02-26
