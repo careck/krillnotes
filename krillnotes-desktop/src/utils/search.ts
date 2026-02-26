@@ -36,6 +36,13 @@ export function searchNotes(notes: Note[], query: string): SearchResult[] {
       continue;
     }
 
+    // Check tags
+    const matchedTag = note.tags.find(t => t.includes(trimmed));
+    if (matchedTag !== undefined) {
+      results.push({ note, matchField: 'tag', matchValue: matchedTag });
+      continue;
+    }
+
     // Check text-like fields
     for (const [fieldName, fieldValue] of Object.entries(note.fields)) {
       const text = textContent(fieldValue);

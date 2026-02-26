@@ -127,6 +127,7 @@ impl Workspace {
             modified_by: 0,
             fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
+            tags: vec![],
         };
 
         let tx = storage.connection_mut().transaction()?;
@@ -231,10 +232,14 @@ impl Workspace {
     /// if `fields_json` cannot be deserialised.
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
         let row = self.connection().query_row(
-            "SELECT id, title, node_type, parent_id, position,
-                    created_at, modified_at, created_by, modified_by,
-                    fields_json, is_expanded
-             FROM notes WHERE id = ?",
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
+             FROM notes n
+             LEFT JOIN note_tags nt ON nt.note_id = n.id
+             WHERE n.id = ?
+             GROUP BY n.id",
             [note_id],
             map_note_row,
         )?;
@@ -318,6 +323,7 @@ impl Workspace {
             modified_by: self.current_user_id,
             fields: schema.default_fields(),
             is_expanded: true,
+            tags: vec![],
         };
 
         let tx = self.storage.connection_mut().transaction()?;
@@ -582,6 +588,7 @@ impl Workspace {
             modified_by: self.current_user_id,
             fields: schema.default_fields(),
             is_expanded: true,
+            tags: vec![],
         };
 
         let tx = self.storage.connection_mut().transaction()?;
@@ -656,6 +663,69 @@ impl Workspace {
         Ok(())
     }
 
+    /// Replaces all tags for `note_id` with the provided list.
+    ///
+    /// Tags are normalised (lowercased, trimmed, deduplicated) before storage.
+    /// Deletes existing tags and re-inserts in a single transaction.
+    pub fn update_note_tags(&mut self, note_id: &str, tags: Vec<String>) -> Result<()> {
+        let mut normalised: Vec<String> = tags
+            .into_iter()
+            .map(|t| t.trim().to_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        normalised.sort();
+        normalised.dedup();
+
+        let tx = self.storage.connection_mut().transaction()?;
+        tx.execute("DELETE FROM note_tags WHERE note_id = ?", [note_id])?;
+        for tag in &normalised {
+            tx.execute(
+                "INSERT INTO note_tags (note_id, tag) VALUES (?, ?)",
+                rusqlite::params![note_id, tag],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Returns all distinct tags used across the workspace, sorted alphabetically.
+    pub fn get_all_tags(&self) -> Result<Vec<String>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT DISTINCT tag FROM note_tags ORDER BY tag"
+        )?;
+        let tags = stmt.query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(tags)
+    }
+
+    /// Returns all notes that have any of the provided tags (OR logic).
+    ///
+    /// Returns an empty vec if `tags` is empty.
+    pub fn get_notes_for_tag(&self, tags: &[String]) -> Result<Vec<Note>> {
+        if tags.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders = tags.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt2.tag, ',') AS tags_csv
+             FROM notes n
+             JOIN note_tags nt ON nt.note_id = n.id AND nt.tag IN ({placeholders})
+             LEFT JOIN note_tags nt2 ON nt2.note_id = n.id
+             GROUP BY n.id
+             ORDER BY n.parent_id, n.position"
+        );
+        let mut stmt = self.connection().prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = tags.iter()
+            .map(|t| t as &dyn rusqlite::ToSql)
+            .collect();
+        let rows = stmt.query_map(params.as_slice(), map_note_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(note_from_row_tuple).collect()
+    }
+
     /// Returns all notes in the workspace, ordered by `parent_id` then `position`.
     ///
     /// # Errors
@@ -664,10 +734,14 @@ impl Workspace {
     /// [`crate::KrillnotesError::Json`] if any row's `fields_json` is corrupt.
     pub fn list_all_notes(&self) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, title, node_type, parent_id, position,
-                    created_at, modified_at, created_by, modified_by,
-                    fields_json, is_expanded
-             FROM notes ORDER BY parent_id, position",
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
+             FROM notes n
+             LEFT JOIN note_tags nt ON nt.note_id = n.id
+             GROUP BY n.id
+             ORDER BY n.parent_id, n.position",
         )?;
 
         let rows = stmt
@@ -702,6 +776,8 @@ impl Workspace {
             std::collections::HashMap::new();
         let mut notes_by_type: std::collections::HashMap<String, Vec<Dynamic>> =
             std::collections::HashMap::new();
+        let mut notes_by_tag: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
 
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
@@ -709,10 +785,13 @@ impl Workspace {
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map);
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            for tag in &n.tags {
+                notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
+            }
         }
 
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
         // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
         Ok(self
             .script_registry
@@ -746,15 +825,19 @@ impl Workspace {
         let mut notes_by_id: HashMap<String, Dynamic> = HashMap::new();
         let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
         let mut notes_by_type: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_tag: HashMap<String, Vec<Dynamic>> = HashMap::new();
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
             notes_by_id.insert(n.id.clone(), dyn_map.clone());
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map);
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            for tag in &n.tags {
+                notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
+            }
         }
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
 
         // invoke_tree_action_hook returns an error if the script throws — in that case
         // we propagate the error without touching the DB (implicit rollback).
@@ -1134,10 +1217,15 @@ impl Workspace {
     /// Returns [`KrillnotesError`] if the database query fails.
     pub fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, title, node_type, parent_id, position,
-                    created_at, modified_at, created_by, modified_by,
-                    fields_json, is_expanded
-             FROM notes WHERE parent_id = ?1 ORDER BY position",
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
+             FROM notes n
+             LEFT JOIN note_tags nt ON nt.note_id = n.id
+             WHERE n.parent_id = ?1
+             GROUP BY n.id
+             ORDER BY n.position",
         )?;
 
         let rows = stmt
@@ -1755,12 +1843,12 @@ impl Workspace {
     }
 }
 
-/// Raw 11-column tuple extracted from a `notes` SQLite row.
-type NoteRow = (String, String, String, Option<String>, i64, i64, i64, i64, i64, String, i64);
+/// Raw 12-column tuple extracted from a `notes` + `note_tags` SQLite row.
+type NoteRow = (String, String, String, Option<String>, i64, i64, i64, i64, i64, String, i64, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
-/// Returns the 11-column tuple that `note_from_row_tuple` converts into a `Note`.
+/// Returns the 12-column tuple that `note_from_row_tuple` converts into a `Note`.
 /// Extracted to avoid duplicating column-index logic across every query.
 fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
     Ok((
@@ -1775,13 +1863,21 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
         row.get::<_, i64>(8)?,
         row.get::<_, String>(9)?,
         row.get::<_, i64>(10)?,
+        row.get::<_, Option<String>>(11)?,
     ))
 }
 
-/// Converts a raw 11-column tuple into a [`Note`], parsing `fields_json`.
+/// Converts a raw 12-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
 fn note_from_row_tuple(
-    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int): NoteRow,
+    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, tags_csv): NoteRow,
 ) -> Result<Note> {
+    let mut tags: Vec<String> = tags_csv
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    tags.sort();
     Ok(Note {
         id,
         title,
@@ -1794,6 +1890,7 @@ fn note_from_row_tuple(
         modified_by,
         fields: serde_json::from_str(&fields_json)?,
         is_expanded: is_expanded_int == 1,
+        tags,
     })
 }
 
@@ -1807,11 +1904,15 @@ fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
     for (k, v) in &note.fields {
         fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
     }
+    let tags_array: rhai::Array = note.tags.iter()
+        .map(|t| Dynamic::from(t.clone()))
+        .collect();
     let mut note_map = rhai::Map::new();
     note_map.insert("id".into(), Dynamic::from(note.id.clone()));
     note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
     note_map.insert("title".into(), Dynamic::from(note.title.clone()));
     note_map.insert("fields".into(), Dynamic::from(fields_map));
+    note_map.insert("tags".into(), Dynamic::from(tags_array));
     Dynamic::from(note_map)
 }
 
@@ -3156,5 +3257,79 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         // No note should have been created — the creates are not applied when the action errors
         let children = ws.get_children(&folder_id).unwrap();
         assert_eq!(children.len(), 0, "rollback: no child note should exist");
+    }
+
+    #[test]
+    fn test_note_tags_round_trip() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        assert!(root.tags.is_empty());
+
+        ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
+        let note = ws.get_note(&root.id).unwrap();
+        assert_eq!(note.tags, vec!["design", "rust"]); // sorted
+    }
+
+    #[test]
+    fn test_get_all_tags_empty() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
+        assert!(ws.get_all_tags().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_all_tags_sorted_distinct() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
+        ws.update_note_tags(&child_id, vec!["rust".into(), "testing".into()]).unwrap();
+        let tags = ws.get_all_tags().unwrap();
+        assert_eq!(tags, vec!["design", "rust", "testing"]);
+    }
+
+    #[test]
+    fn test_get_notes_for_tag() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.update_note_tags(&root.id, vec!["rust".into()]).unwrap();
+        ws.update_note_tags(&child_id, vec!["design".into()]).unwrap();
+
+        let rust_notes = ws.get_notes_for_tag(&["rust".into()]).unwrap();
+        assert_eq!(rust_notes.len(), 1);
+        assert_eq!(rust_notes[0].id, root.id);
+
+        // OR logic: both notes returned when both tags queried
+        let both = ws.get_notes_for_tag(&["rust".into(), "design".into()]).unwrap();
+        assert_eq!(both.len(), 2);
+
+        // Unknown tag returns empty
+        let none = ws.get_notes_for_tag(&["unknown".into()]).unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn test_update_note_tags_replaces_existing() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_tags(&root.id, vec!["old".into()]).unwrap();
+        ws.update_note_tags(&root.id, vec!["new".into()]).unwrap();
+        let tags = ws.get_all_tags().unwrap();
+        assert_eq!(tags, vec!["new"]); // "old" removed
+    }
+
+    #[test]
+    fn test_update_note_tags_normalises() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_tags(&root.id, vec!["  Rust  ".into(), "RUST".into(), "rust".into()]).unwrap();
+        let note = ws.get_note(&root.id).unwrap();
+        assert_eq!(note.tags, vec!["rust"]); // deduped, lowercased, trimmed
     }
 }

@@ -123,6 +123,23 @@ impl Storage {
                 )",
             )?;
         }
+
+        // Migration: add note_tags table if absent.
+        let note_tags_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_tags'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !note_tags_exists {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS note_tags (
+                    note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                    tag     TEXT NOT NULL,
+                    PRIMARY KEY (note_id, tag)
+                );
+                CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);"
+            )?;
+        }
         Ok(())
     }
 
@@ -278,6 +295,52 @@ mod tests {
             .unwrap();
 
         assert!(column_exists, "is_expanded column should exist after migration");
+    }
+
+    #[test]
+    fn test_note_tags_table_created_on_new_workspace() {
+        let temp = NamedTempFile::new().unwrap();
+        let storage = Storage::create(temp.path(), "").unwrap();
+        let count: i64 = storage.connection().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_tags'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_note_tags_table_migration_on_existing_workspace() {
+        // Simulate an old workspace that has no note_tags table.
+        let temp = NamedTempFile::new().unwrap();
+        // Create raw DB without note_tags
+        {
+            let conn = Connection::open(temp.path()).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL,
+                 node_type TEXT NOT NULL, parent_id TEXT, position INTEGER NOT NULL,
+                 created_at INTEGER NOT NULL, modified_at INTEGER NOT NULL,
+                 created_by INTEGER NOT NULL DEFAULT 0, modified_by INTEGER NOT NULL DEFAULT 0,
+                 fields_json TEXT NOT NULL DEFAULT '{}', is_expanded INTEGER DEFAULT 1);
+                 CREATE TABLE operations (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 operation_id TEXT UNIQUE NOT NULL, timestamp INTEGER NOT NULL,
+                 device_id TEXT NOT NULL, operation_type TEXT NOT NULL,
+                 operation_data TEXT NOT NULL, synced INTEGER DEFAULT 0);
+                 CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 CREATE TABLE user_scripts (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '',
+                 description TEXT NOT NULL DEFAULT '', source_code TEXT NOT NULL,
+                 load_order INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+                 created_at INTEGER NOT NULL, modified_at INTEGER NOT NULL);"
+            ).unwrap();
+        }
+        // Open via Storage — should run migration
+        let storage = Storage::open(temp.path(), "").unwrap();
+        let count: i64 = storage.connection().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_tags'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
