@@ -49,7 +49,7 @@ const createMenuHandlers = (
   'File > Import Workspace clicked': async () => {
     try {
       const zipPath = await open({
-        filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
+        filters: [{ name: 'Krillnotes Export', extensions: ['krillnotes'] }],
         multiple: false,
         title: 'Import Workspace',
       });
@@ -210,8 +210,8 @@ function App() {
 
     try {
       const path = await save({
-        filters: [{ name: 'Krillnotes Export', extensions: ['zip'] }],
-        defaultPath: `${(workspace?.filename ?? 'workspace').replace(/\.db$/, '')}.krillnotes.zip`,
+        filters: [{ name: 'Krillnotes Export', extensions: ['krillnotes'] }],
+        defaultPath: `${(workspace?.filename ?? 'workspace').replace(/\.db$/, '')}.krillnotes`,
         title: 'Export Workspace',
       });
 
