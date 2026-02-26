@@ -42,6 +42,15 @@ pub struct ScriptManifest {
     pub scripts: Vec<ScriptManifestEntry>,
 }
 
+/// Top-level JSON structure in `workspace.json`.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceJson {
+    pub version: u32,
+    /// Complete sorted list of distinct tags across the workspace.
+    pub tags: Vec<String>,
+}
+
 /// Result returned after reading an export archive's metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -209,6 +218,17 @@ pub fn export_workspace<W: Write + Seek>(
     };
     zip.start_file("scripts/scripts.json", options)?;
     serde_json::to_writer_pretty(&mut zip, &manifest)?;
+
+    // Write workspace.json (global tag list)
+    let all_tags = workspace
+        .get_all_tags()
+        .map_err(|e| ExportError::Database(e.to_string()))?;
+    let workspace_json = WorkspaceJson {
+        version: 1,
+        tags: all_tags,
+    };
+    zip.start_file("workspace.json", options)?;
+    serde_json::to_writer_pretty(&mut zip, &workspace_json)?;
 
     zip.finish()?;
     Ok(())
@@ -388,6 +408,15 @@ pub fn import_workspace<R: Read + Seek>(
                 ],
             )
             .map_err(|e| ExportError::Database(e.to_string()))?;
+
+            // Restore tags for this note.
+            for tag in &note.tags {
+                tx.execute(
+                    "INSERT OR IGNORE INTO note_tags (note_id, tag) VALUES (?, ?)",
+                    rusqlite::params![note.id, tag],
+                )
+                .map_err(|e| ExportError::Database(e.to_string()))?;
+            }
         }
         tx.commit().map_err(|e| ExportError::Database(e.to_string()))?;
     }
@@ -600,6 +629,46 @@ mod tests {
         let widget = scripts.iter().find(|s| s.name == "Custom Widget").unwrap();
         assert_eq!(widget.description, "Widget cards");
         assert!(widget.source_code.contains("@name: Custom Widget"));
+    }
+
+    #[test]
+    fn test_export_includes_workspace_json() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let ws_file = archive.by_name("workspace.json").unwrap();
+        let ws_json: WorkspaceJson = serde_json::from_reader(ws_file).unwrap();
+        assert_eq!(ws_json.version, 1);
+        assert_eq!(ws_json.tags, vec!["design", "rust"]);
+    }
+
+    #[test]
+    fn test_round_trip_preserves_tags() {
+        let temp_src = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_tags(&root.id, vec!["rust".into()]).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let temp_dst = NamedTempFile::new().unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+
+        let imported = Workspace::open(temp_dst.path(), "").unwrap();
+        let tags = imported.get_all_tags().unwrap();
+        assert_eq!(tags, vec!["rust"]);
+
+        // Tags are also on the note itself
+        let notes = imported.list_all_notes().unwrap();
+        let root_imported = notes.iter().find(|n| n.parent_id.is_none()).unwrap();
+        assert_eq!(root_imported.tags, vec!["rust"]);
     }
 
     #[test]

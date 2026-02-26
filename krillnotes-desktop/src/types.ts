@@ -17,6 +17,7 @@ export interface Note {
   modifiedBy: number;
   fields: Record<string, FieldValue>;
   isExpanded: boolean;
+  tags: string[];
 }
 
 export interface TreeNode {

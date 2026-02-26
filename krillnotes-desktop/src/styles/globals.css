@@ -183,3 +183,115 @@ body {
 .kn-view-markdown td               { padding: 0.25rem 0.75rem 0.25rem 0;
                                      vertical-align: top; }
 .kn-view-section--legacy        { margin-top: 0.75rem; }
+
+/* ── Tag pills ───────────────────────────────────────────────────────────── */
+.kn-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+  user-select: none;
+}
+.kn-tag-pill--clickable {
+  cursor: pointer;
+}
+.kn-tag-pill--clickable:hover {
+  filter: brightness(0.93);
+}
+.kn-tag-pill__remove {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: #555;
+  display: flex;
+  align-items: center;
+}
+.kn-tag-pill__remove:hover {
+  color: #000;
+}
+.kn-view-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+/* ── Tag editor ─────────────────────────────────────────────────────────── */
+.kn-tag-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.kn-tag-editor__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kn-tag-editor__input-wrap {
+  position: relative;
+}
+.kn-tag-editor__input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border, #ccc);
+  border-radius: 6px;
+  background: var(--color-background, #fff);
+  color: var(--color-foreground);
+  box-sizing: border-box;
+}
+.kn-tag-editor__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--color-popover, #fff);
+  border: 1px solid var(--color-border, #ccc);
+  border-radius: 6px;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  z-index: 100;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.kn-tag-editor__suggestions li {
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.kn-tag-editor__suggestions li:hover {
+  background: var(--color-secondary, #f0f0f0);
+}
+
+/* ── Tag cloud ──────────────────────────────────────────────────────────── */
+.kn-tag-divider {
+  height: 4px;
+  cursor: row-resize;
+  background: var(--color-border, #e0e0e0);
+  flex-shrink: 0;
+}
+.kn-tag-divider:hover {
+  background: var(--color-muted-foreground, #bbb);
+}
+.kn-tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  padding: 8px;
+  flex-shrink: 0;
+}
+.kn-tag-cloud__empty {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground, #999);
+}

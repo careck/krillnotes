@@ -47,3 +47,11 @@ CREATE TABLE IF NOT EXISTS user_scripts (
     created_at INTEGER NOT NULL,
     modified_at INTEGER NOT NULL
 );
+
+-- Note tags (first-class, not schema-defined)
+CREATE TABLE IF NOT EXISTS note_tags (
+    note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    tag     TEXT NOT NULL,
+    PRIMARY KEY (note_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);

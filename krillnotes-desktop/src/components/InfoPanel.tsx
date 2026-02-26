@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify';
 import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
+import TagPill from './TagPill';
 import { ChevronRight } from 'lucide-react';
 
 interface InfoPanelProps {
@@ -50,6 +51,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const [editedTitle, setEditedTitle] = useState('');
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
   const [isDirty, setIsDirty] = useState(false);
+  const [editedTags, setEditedTags] = useState<string[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const pendingEditModeRef = useRef(false);
@@ -113,6 +118,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       setIsEditing(false);
       setEditedTitle(selectedNote.title);
       setEditedFields({ ...selectedNote.fields });
+      setEditedTags(selectedNote.tags ?? []);
+      setTagInput('');
+      setTagSuggestions([]);
       setIsDirty(false);
     }
   }, [selectedNote?.id]);
@@ -163,8 +171,35 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     // No need to clear customViewHtml — the HTML panel is hidden in edit mode
     // by the !isEditing condition, so the old HTML stays ready for when the
     // user cancels without saving.
+    invoke<string[]>('get_all_tags').then(setAllTags).catch(console.error);
     setIsEditing(true);
   };
+
+  function addTag(tag: string) {
+    const normalised = tag.trim().toLowerCase();
+    if (!normalised || editedTags.includes(normalised)) return;
+    setEditedTags(prev => [...prev, normalised].sort());
+    setTagInput('');
+    setTagSuggestions([]);
+    setIsDirty(true);
+  }
+
+  function removeTag(tag: string) {
+    setEditedTags(prev => prev.filter(t => t !== tag));
+    setIsDirty(true);
+  }
+
+  function handleTagInputChange(value: string) {
+    setTagInput(value);
+    if (!value.trim()) {
+      setTagSuggestions([]);
+      return;
+    }
+    const lower = value.trim().toLowerCase();
+    setTagSuggestions(
+      allTags.filter(t => t.includes(lower) && !editedTags.includes(t)).slice(0, 8)
+    );
+  }
 
   const handleCancel = () => {
     if (isDirty) {
@@ -175,6 +210,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     setIsEditing(false);
     setEditedTitle(selectedNote!.title);
     setEditedFields({ ...selectedNote!.fields });
+    setEditedTags(selectedNote!.tags ?? []);
+    setTagInput('');
+    setTagSuggestions([]);
     setIsDirty(false);
     onEditDone();
   };
@@ -188,8 +226,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         title: editedTitle,
         fields: editedFields,
       });
+      await invoke('update_note_tags', { noteId: selectedNote.id, tags: editedTags });
       setEditedTitle(updatedNote.title);
       setEditedFields({ ...updatedNote.fields });
+      setEditedTags(editedTags);
       setIsEditing(false);
       setIsDirty(false);
       onNoteUpdated();
@@ -305,6 +345,48 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               }
             }}
           />
+        )}
+
+        {/* Tag pills — shown only in view mode */}
+        {!isEditing && selectedNote.tags.length > 0 && (
+          <div className="kn-view-tags">
+            {selectedNote.tags.map(tag => (
+              <TagPill key={tag} tag={tag} />
+            ))}
+          </div>
+        )}
+
+        {/* Tag editor — shown only in edit mode */}
+        {isEditing && (
+          <div className="kn-tag-editor">
+            <div className="kn-tag-editor__pills">
+              {editedTags.map(tag => (
+                <TagPill key={tag} tag={tag} onRemove={() => removeTag(tag)} />
+              ))}
+            </div>
+            <div className="kn-tag-editor__input-wrap">
+              <input
+                className="kn-tag-editor__input"
+                placeholder="Add tag…"
+                value={tagInput}
+                onChange={e => handleTagInputChange(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    if (tagSuggestions.length > 0) addTag(tagSuggestions[0]);
+                    else if (tagInput.trim()) addTag(tagInput);
+                  }
+                }}
+              />
+              {tagSuggestions.length > 0 && (
+                <ul className="kn-tag-editor__suggestions">
+                  {tagSuggestions.map(t => (
+                    <li key={t} onMouseDown={() => addTag(t)}>{t}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Default field rendering — shown in edit mode, or when no custom view exists */}
