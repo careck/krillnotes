@@ -422,7 +422,8 @@ impl ScriptRegistry {
         engine.register_fn("badge",   display_helpers::badge_colored);
         engine.register_fn("divider", display_helpers::divider);
         engine.register_fn("link_to", display_helpers::link_to);
-        engine.register_fn("markdown", display_helpers::rhai_markdown);
+        engine.register_fn("markdown",     display_helpers::rhai_markdown);
+        engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
 
         Ok(Self {
             engine,

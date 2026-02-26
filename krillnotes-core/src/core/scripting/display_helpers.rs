@@ -240,6 +240,29 @@ pub fn badge_colored(text: String, color: String) -> String {
     format!("<span class=\"{class}\">{}</span>", html_escape(&text))
 }
 
+/// Rhai host function: renders an array of tag strings as coloured pill HTML.
+///
+/// The color formula mirrors the frontend `tagColor` utility — hue is derived
+/// from the sum of the tag's UTF-8 byte values modulo 360, so the same tag
+/// always gets the same color across renders and sessions.
+///
+/// ```rhai
+/// on_view("Note", |note| {
+///     render_tags(note.tags)
+/// });
+/// ```
+pub fn rhai_render_tags(tags: Array) -> String {
+    let pills: String = tags.iter().map(|d| {
+        let tag = d.to_string();
+        let hue: u32 = tag.bytes().map(|b| b as u32).sum::<u32>() % 360;
+        let escaped = html_escape(&tag);
+        format!(
+            "<span class=\"kn-tag-pill\" style=\"background:hsl({hue},40%,88%)\">{escaped}</span>"
+        )
+    }).collect();
+    format!("<div class=\"kn-view-tags\">{pills}</div>")
+}
+
 /// Renders a horizontal rule.
 ///
 /// ```rhai
@@ -653,6 +676,27 @@ mod tests {
         // The inline HTML <em>italic</em> is passed through by pulldown-cmark
         // (not double-escaped) — DOMPurify handles final sanitisation.
         assert!(html.contains("<em>italic</em>"), "inline HTML should pass through, got: {html}");
+    }
+
+    #[test]
+    fn test_render_tags_empty() {
+        let result = rhai_render_tags(vec![]);
+        assert_eq!(result, "<div class=\"kn-view-tags\"></div>");
+    }
+
+    #[test]
+    fn test_render_tags_escapes_html() {
+        let tags = vec![rhai::Dynamic::from("<b>evil</b>".to_string())];
+        let result = rhai_render_tags(tags);
+        assert!(result.contains("&lt;b&gt;evil&lt;/b&gt;"));
+        assert!(!result.contains("<b>"));
+    }
+
+    #[test]
+    fn test_render_tags_color_is_deterministic() {
+        let tags1 = vec![rhai::Dynamic::from("rust".to_string())];
+        let tags2 = vec![rhai::Dynamic::from("rust".to_string())];
+        assert_eq!(rhai_render_tags(tags1), rhai_render_tags(tags2));
     }
 
     #[test]
