@@ -1,0 +1,127 @@
+// @name: Zettelkasten
+// @description: An atomic note-taking system. Zettel notes are auto-titled with
+// today's date and first words of the body. The Kasten folder shows recent notes
+// and related-note links are surfaced via shared tags.
+//
+// Usage: Create a Kasten note, then add Zettel notes as children.
+// Tip: assign native tags to each Zettel to enable related-note discovery.
+
+// Returns tags as a comma-separated string, or "" if none.
+fn tag_list(tags) {
+    if tags.len() == 0 { return ""; }
+    let s = tags[0];
+    let i = 1;
+    while i < tags.len() { s += ", " + tags[i]; i += 1; }
+    s
+}
+
+// Strips markdown syntax characters so they don't leak into auto-generated titles.
+// Note: Rhai string methods (replace, trim) mutate in place and return (), not a new string.
+fn strip_markdown(s) {
+    s.replace("#", ""); s.replace("*", ""); s.replace("_", "");
+    s.replace("`", ""); s.replace(">", ""); s.replace("[", "");
+    s.replace("]", ""); s.replace("~", ""); s.replace("\\", "");
+    s.trim();
+    s
+}
+
+schema("Zettel", #{
+    title_can_edit: false,
+    allowed_parent_types: ["Kasten"],
+    fields: [
+        #{ name: "body", type: "textarea", required: false },
+    ],
+    on_save: |note| {
+        let body = note.fields["body"] ?? "";
+        let words = body.split(" ").map(|w| strip_markdown(w)).filter(|w| w != "");
+        let snippet = if words.len() == 0 {
+            "Untitled"
+        } else {
+            let take = if words.len() > 6 { 6 } else { words.len() };
+            let s = "";
+            let i = 0;
+            while i < take { s += words[i] + " "; i += 1; }
+            s.trim();
+            if words.len() > 6 { s + " …" } else { s }
+        };
+        note.title = today() + " — " + snippet;
+        note
+    },
+    on_view: |note| {
+        let body = note.fields["body"] ?? "";
+
+        let body_block = if body != "" {
+            markdown(body)
+        } else {
+            text("(no content)")
+        };
+
+        // Related notes via shared tags
+        let tags = note.tags;
+        if tags.len() == 0 {
+            return body_block;
+        }
+
+        let related = get_notes_for_tag(tags).filter(|n| n.id != note.id);
+        if related.len() == 0 {
+            return body_block;
+        }
+
+        let rows = related.map(|n| [link_to(n), tag_list(n.tags)]);
+        let related_section = section(
+            "Related Notes (" + related.len() + ")",
+            table(["Note", "Tags"], rows)
+        );
+
+        stack([body_block, related_section])
+    }
+});
+
+schema("Kasten", #{
+    allowed_children_types: ["Zettel"],
+    fields: [],
+    on_view: |note| {
+        let zettel = get_children(note.id);
+        let count = zettel.len();
+
+        if count == 0 {
+            return text("No notes yet. Right-click to add a Zettel.");
+        }
+
+        // Collect all unique tags across all Zettel
+        let all_tags = [];
+        for z in zettel { for t in z.tags { all_tags += [t]; } }
+        all_tags.sort();
+        let unique_tags = [];
+        for t in all_tags {
+            if unique_tags.len() == 0 || unique_tags[unique_tags.len() - 1] != t {
+                unique_tags += [t];
+            }
+        }
+
+        let stats = count.to_string() + " Zettel · " + unique_tags.len().to_string() + " unique tags";
+
+        // Sort children by title descending (YYYY-MM-DD prefix makes newest first)
+        zettel.sort_by(|a, b| a.title >= b.title);
+
+        let recent = if zettel.len() > 10 { zettel.extract(0, 10) } else { zettel };
+        let rows = recent.map(|z| [link_to(z), tag_list(z.tags)]);
+
+        stack([
+            text(stats),
+            section("Recent Notes", table(["Note", "Tags"], rows))
+        ])
+    }
+});
+
+add_tree_action("Sort by Date (Newest First)", ["Kasten"], |note| {
+    let children = get_children(note.id);
+    children.sort_by(|a, b| a.title >= b.title);
+    children.map(|c| c.id)
+});
+
+add_tree_action("Sort by Date (Oldest First)", ["Kasten"], |note| {
+    let children = get_children(note.id);
+    children.sort_by(|a, b| a.title <= b.title);
+    children.map(|c| c.id)
+});

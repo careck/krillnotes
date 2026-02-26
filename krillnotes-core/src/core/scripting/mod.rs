@@ -15,6 +15,7 @@ pub use schema::{AddChildResult, FieldDefinition, Schema};
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
 use schema::HookEntry;
+use chrono::Local;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
 use std::collections::HashMap;
@@ -451,6 +452,9 @@ impl ScriptRegistry {
         engine.register_fn("markdown",     display_helpers::rhai_markdown);
         engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
 
+        // ── Date helpers ──────────────────────────────────────────────────────
+        engine.register_fn("today", || Local::now().format("%Y-%m-%d").to_string());
+
         Ok(Self {
             engine,
             current_loading_ast,
@@ -620,7 +624,7 @@ impl ScriptRegistry {
         note: &Note,
         context: QueryContext,
     ) -> Result<Option<String>> {
-        // Build the note map (same structure as on_save).
+        // Build the note map ({ id, node_type, title, fields, tags } — superset of on_save).
         let mut fields_map = Map::new();
         for (k, v) in &note.fields {
             fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
@@ -630,6 +634,10 @@ impl ScriptRegistry {
         note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
         note_map.insert("title".into(), Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(), Dynamic::from(fields_map));
+        let tags_array: rhai::Array = note.tags.iter()
+            .map(|t| Dynamic::from(t.clone()))
+            .collect();
+        note_map.insert("tags".into(), Dynamic::from(tags_array));
 
         // Install query context, run hook, then clear.
         *self.query_context.lock().unwrap() = Some(context);
@@ -2194,6 +2202,139 @@ mod tests {
 
         let note = make_test_note("parent1", "Task");
         registry.invoke_tree_action_hook("Verify get_note", &note, make_empty_ctx()).unwrap();
+    }
+
+    #[test]
+    fn test_on_view_note_has_tags() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Tagged", #{
+                fields: [],
+                on_view: |note| {
+                    let t = note.tags;
+                    text(t.len().to_string() + ":" + t[0])
+                }
+            });
+        "#, "test").unwrap();
+
+        let note = Note {
+            id: "n1".to_string(), node_type: "Tagged".to_string(),
+            title: "T".to_string(), parent_id: None, position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            fields: std::collections::HashMap::new(), is_expanded: false,
+            tags: vec!["rust".to_string(), "notes".to_string()],
+        };
+        let ctx = QueryContext {
+            notes_by_id: std::collections::HashMap::new(),
+            children_by_id: std::collections::HashMap::new(),
+            notes_by_type: std::collections::HashMap::new(),
+            notes_by_tag: std::collections::HashMap::new(),
+        };
+        let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
+        assert!(html.contains("2:rust"), "expected '2:rust' in output, got: {html}");
+    }
+
+    #[test]
+    fn test_today_returns_yyyy_mm_dd() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        // Wrap today() in an on_save hook so we test it through the normal hook path
+        registry.load_script(r#"
+            schema("DateTest", #{
+                fields: [#{ name: "dummy", type: "text", required: false }],
+                on_save: |note| {
+                    note.title = today();
+                    note
+                }
+            });
+        "#, "test").unwrap();
+
+        let result = registry
+            .run_on_save_hook("DateTest", "id1", "DateTest", "", &HashMap::new())
+            .unwrap()
+            .unwrap();
+        let (title, _) = result;
+        // Must be exactly 10 chars: YYYY-MM-DD
+        assert_eq!(title.len(), 10, "expected YYYY-MM-DD (10 chars), got: {title}");
+        assert_eq!(&title[4..5], "-", "missing year-month separator: {title}");
+        assert_eq!(&title[7..8], "-", "missing month-day separator: {title}");
+    }
+
+    #[test]
+    fn test_zettel_on_save_sets_date_title() {
+        use crate::FieldValue;
+        let mut registry = ScriptRegistry::new().unwrap();
+        // Inline the exact on_save logic from templates/zettelkasten.rhai
+        registry.load_script(r#"
+            schema("ZettelTest", #{
+                title_can_edit: false,
+                fields: [#{ name: "body", type: "textarea", required: false }],
+                on_save: |note| {
+                    let body = note.fields["body"] ?? "";
+                    let words = body.split(" ").filter(|w| w != "");
+                    let snippet = if words.len() == 0 {
+                        "Untitled"
+                    } else {
+                        let take = if words.len() > 6 { 6 } else { words.len() };
+                        let s = ""; let i = 0;
+                        while i < take { s += words[i] + " "; i += 1; }
+                        s.trim();
+                        if words.len() > 6 { s + " …" } else { s }
+                    };
+                    note.title = today() + " — " + snippet;
+                    note
+                }
+            });
+        "#, "test").unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("body".to_string(),
+            FieldValue::Text("Emergence is when simple rules produce complex behaviour".to_string()));
+
+        let (title, _) = registry
+            .run_on_save_hook("ZettelTest", "id1", "ZettelTest", "", &fields)
+            .unwrap().unwrap();
+
+        // Title must start with YYYY-MM-DD (10 chars, dashes at [4] and [7])
+        assert_eq!(&title[4..5], "-", "missing year-month separator: {title}");
+        assert_eq!(&title[7..8], "-", "missing month-day separator: {title}");
+        // Must contain the first 6 words
+        assert!(title.contains("Emergence is when simple rules produce"),
+            "snippet missing: {title}");
+        // Body has 8 words — title must end with ellipsis
+        assert!(title.ends_with('…'), "expected truncation ellipsis: {title}");
+    }
+
+    #[test]
+    fn test_zettel_on_save_empty_body_uses_untitled() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("ZettelEmpty", #{
+                title_can_edit: false,
+                fields: [#{ name: "body", type: "textarea", required: false }],
+                on_save: |note| {
+                    let body = note.fields["body"] ?? "";
+                    let words = body.split(" ").filter(|w| w != "");
+                    let snippet = if words.len() == 0 {
+                        "Untitled"
+                    } else {
+                        let take = if words.len() > 6 { 6 } else { words.len() };
+                        let s = ""; let i = 0;
+                        while i < take { s += words[i] + " "; i += 1; }
+                        s.trim();
+                        if words.len() > 6 { s + " …" } else { s }
+                    };
+                    note.title = today() + " — " + snippet;
+                    note
+                }
+            });
+        "#, "test").unwrap();
+
+        let (title, _) = registry
+            .run_on_save_hook("ZettelEmpty", "id2", "ZettelEmpty", "", &std::collections::HashMap::new())
+            .unwrap().unwrap();
+        assert!(title.contains("Untitled"), "expected Untitled fallback: {title}");
+        // Must still have the date prefix
+        assert_eq!(&title[4..5], "-", "missing date separator in untitled title: {title}");
     }
 
 }
