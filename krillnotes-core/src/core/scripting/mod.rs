@@ -15,6 +15,7 @@ pub use schema::{AddChildResult, FieldDefinition, Schema};
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
 use schema::HookEntry;
+use chrono::Local;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
 use std::collections::HashMap;
@@ -450,6 +451,9 @@ impl ScriptRegistry {
         engine.register_fn("link_to", display_helpers::link_to);
         engine.register_fn("markdown",     display_helpers::rhai_markdown);
         engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
+
+        // ── Date helpers ──────────────────────────────────────────────────────
+        engine.register_fn("today", || Local::now().format("%Y-%m-%d").to_string());
 
         Ok(Self {
             engine,
@@ -2194,6 +2198,32 @@ mod tests {
 
         let note = make_test_note("parent1", "Task");
         registry.invoke_tree_action_hook("Verify get_note", &note, make_empty_ctx()).unwrap();
+    }
+
+    #[test]
+    fn test_today_returns_yyyy_mm_dd() {
+        use std::collections::HashMap;
+        let mut registry = ScriptRegistry::new().unwrap();
+        // Wrap today() in an on_save hook so we test it through the normal hook path
+        registry.load_script(r#"
+            schema("DateTest", #{
+                fields: [#{ name: "dummy", type: "text", required: false }],
+                on_save: |note| {
+                    note.title = today();
+                    note
+                }
+            });
+        "#, "test").unwrap();
+
+        let result = registry
+            .run_on_save_hook("DateTest", "id1", "DateTest", "", &HashMap::new())
+            .unwrap()
+            .unwrap();
+        let (title, _) = result;
+        // Must be exactly 10 chars: YYYY-MM-DD
+        assert_eq!(title.len(), 10, "expected YYYY-MM-DD (10 chars), got: {title}");
+        assert_eq!(&title[4..5], "-", "missing year-month separator: {title}");
+        assert_eq!(&title[7..8], "-", "missing month-day separator: {title}");
     }
 
 }
