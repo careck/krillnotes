@@ -15,6 +15,16 @@ fn tag_list(tags) {
     s
 }
 
+// Strips markdown syntax characters so they don't leak into auto-generated titles.
+// Note: Rhai string methods (replace, trim) mutate in place and return (), not a new string.
+fn strip_markdown(s) {
+    s.replace("#", ""); s.replace("*", ""); s.replace("_", "");
+    s.replace("`", ""); s.replace(">", ""); s.replace("[", "");
+    s.replace("]", ""); s.replace("~", ""); s.replace("\\", "");
+    s.trim();
+    s
+}
+
 schema("Zettel", #{
     title_can_edit: false,
     allowed_parent_types: ["Kasten"],
@@ -23,7 +33,7 @@ schema("Zettel", #{
     ],
     on_save: |note| {
         let body = note.fields["body"] ?? "";
-        let words = body.split(" ").filter(|w| w != "");
+        let words = body.split(" ").map(|w| strip_markdown(w)).filter(|w| w != "");
         let snippet = if words.len() == 0 {
             "Untitled"
         } else {
@@ -41,7 +51,7 @@ schema("Zettel", #{
         let body = note.fields["body"] ?? "";
 
         let body_block = if body != "" {
-            text(body)
+            markdown(body)
         } else {
             text("(no content)")
         };
@@ -57,7 +67,7 @@ schema("Zettel", #{
             return body_block;
         }
 
-        let rows = related.map(|n| [n.title, tag_list(n.tags)]);
+        let rows = related.map(|n| [link_to(n), tag_list(n.tags)]);
         let related_section = section(
             "Related Notes (" + related.len() + ")",
             table(["Note", "Tags"], rows)
@@ -95,7 +105,7 @@ schema("Kasten", #{
         zettel.sort_by(|a, b| a.title >= b.title);
 
         let recent = if zettel.len() > 10 { zettel.extract(0, 10) } else { zettel };
-        let rows = recent.map(|z| [z.title, tag_list(z.tags)]);
+        let rows = recent.map(|z| [link_to(z), tag_list(z.tags)]);
 
         stack([
             text(stats),

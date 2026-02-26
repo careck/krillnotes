@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import DOMPurify from 'dompurify';
 import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
@@ -337,11 +338,20 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           <div
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id'] }) }}
             onClick={(e) => {
-              const link = (e.target as Element).closest('.kn-view-link');
-              if (link) {
+              const target = e.target as Element;
+
+              const noteLink = target.closest('.kn-view-link');
+              if (noteLink) {
                 e.preventDefault();
-                const noteId = link.getAttribute('data-note-id');
+                const noteId = noteLink.getAttribute('data-note-id');
                 if (noteId) onLinkNavigate(noteId);
+                return;
+              }
+
+              const anchor = target.closest('a[href]') as HTMLAnchorElement | null;
+              if (anchor) {
+                e.preventDefault();
+                openUrl(anchor.href);
               }
             }}
           />
