@@ -1896,8 +1896,9 @@ fn note_from_row_tuple(
 
 /// Converts a [`Note`] into a Rhai `Dynamic` map for use in `on_view` query functions.
 ///
-/// Produces the same `{ id, node_type, title, fields }` shape as the map passed to
-/// `on_save` hooks, so scripts can use a consistent note representation.
+/// Produces the `{ id, node_type, title, fields, tags }` shape used by `on_view`
+/// hooks and `QueryContext` indexes. Note: `on_save` hooks receive a narrower
+/// `{ id, node_type, title, fields }` map without `tags`.
 fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
     use crate::core::scripting::field_value_to_dynamic;
     let mut fields_map = rhai::Map::new();

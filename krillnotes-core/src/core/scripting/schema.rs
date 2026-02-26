@@ -448,6 +448,7 @@ impl SchemaRegistry {
             None => return Ok(None),
         };
 
+        // Note: on_add_child maps intentionally omit `tags`; on_view maps include them.
         // Build parent note map
         let mut p_fields_map = Map::new();
         for (k, v) in parent_fields {
