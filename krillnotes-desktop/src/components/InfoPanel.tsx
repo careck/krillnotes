@@ -347,6 +347,15 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           />
         )}
 
+        {/* Tag pills — shown only in view mode */}
+        {!isEditing && selectedNote.tags.length > 0 && (
+          <div className="kn-view-tags">
+            {selectedNote.tags.map(tag => (
+              <TagPill key={tag} tag={tag} />
+            ))}
+          </div>
+        )}
+
         {/* Tag editor — shown only in edit mode */}
         {isEditing && (
           <div className="kn-tag-editor">
