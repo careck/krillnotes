@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.3] — 2026-02-26
+
 ### Added
 - **`note_link` field type** — A new field type that stores a reference to another note by its ID. In edit mode an inline search dropdown lets you find and link a note by title or any text field; an optional `target_type` restricts the picker to notes of a specific schema type. In view mode (default and `on_view` hooks) the linked note's title is rendered as a clickable navigation link. If the linked note is deleted, the field is automatically set to null in all source notes.
 - **`get_notes_with_link(note_id)` query function** — Returns all notes that have any `note_link` field pointing to the given note ID. Available in `on_view` hooks and `add_tree_action` closures. Use this to display backlinks on a target note (e.g. show all Tasks that link to a Project).
@@ -134,7 +138,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/careck/krillnotes/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/careck/krillnotes/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/careck/krillnotes/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/careck/krillnotes/compare/v0.1.2...v0.2.0
