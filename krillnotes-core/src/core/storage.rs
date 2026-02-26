@@ -140,6 +140,24 @@ impl Storage {
                 CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);"
             )?;
         }
+
+        // Migration: add note_links table
+        let note_links_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_links'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !note_links_exists {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS note_links (
+                    source_id  TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                    field_name TEXT NOT NULL,
+                    target_id  TEXT NOT NULL REFERENCES notes(id) ON DELETE RESTRICT,
+                    PRIMARY KEY (source_id, field_name)
+                );
+                CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_id);",
+            )?;
+        }
         Ok(())
     }
 
@@ -337,6 +355,45 @@ mod tests {
         let storage = Storage::open(temp.path(), "").unwrap();
         let count: i64 = storage.connection().query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_tags'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_note_links_table_exists_after_migration() {
+        // Simulate an old workspace that has no note_links table.
+        let temp = NamedTempFile::new().unwrap();
+        // Create raw DB without note_links
+        {
+            let conn = Connection::open(temp.path()).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL,
+                 node_type TEXT NOT NULL, parent_id TEXT, position INTEGER NOT NULL,
+                 created_at INTEGER NOT NULL, modified_at INTEGER NOT NULL,
+                 created_by INTEGER NOT NULL DEFAULT 0, modified_by INTEGER NOT NULL DEFAULT 0,
+                 fields_json TEXT NOT NULL DEFAULT '{}', is_expanded INTEGER DEFAULT 1);
+                 CREATE TABLE operations (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 operation_id TEXT UNIQUE NOT NULL, timestamp INTEGER NOT NULL,
+                 device_id TEXT NOT NULL, operation_type TEXT NOT NULL,
+                 operation_data TEXT NOT NULL, synced INTEGER DEFAULT 0);
+                 CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 CREATE TABLE user_scripts (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '',
+                 description TEXT NOT NULL DEFAULT '', source_code TEXT NOT NULL,
+                 load_order INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+                 created_at INTEGER NOT NULL, modified_at INTEGER NOT NULL);
+                 CREATE TABLE note_tags (
+                     note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                     tag TEXT NOT NULL,
+                     PRIMARY KEY (note_id, tag)
+                 );"
+            ).unwrap();
+        }
+        // Open via Storage::open — should run migrations and create note_links
+        let storage = Storage::open(temp.path(), "").unwrap();
+        let count: i64 = storage.connection().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_links'",
             [],
             |row| row.get(0),
         ).unwrap();
