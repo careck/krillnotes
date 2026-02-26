@@ -232,10 +232,14 @@ impl Workspace {
     /// if `fields_json` cannot be deserialised.
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
         let row = self.connection().query_row(
-            "SELECT id, title, node_type, parent_id, position,
-                    created_at, modified_at, created_by, modified_by,
-                    fields_json, is_expanded
-             FROM notes WHERE id = ?",
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
+             FROM notes n
+             LEFT JOIN note_tags nt ON nt.note_id = n.id
+             WHERE n.id = ?
+             GROUP BY n.id",
             [note_id],
             map_note_row,
         )?;
@@ -667,10 +671,14 @@ impl Workspace {
     /// [`crate::KrillnotesError::Json`] if any row's `fields_json` is corrupt.
     pub fn list_all_notes(&self) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, title, node_type, parent_id, position,
-                    created_at, modified_at, created_by, modified_by,
-                    fields_json, is_expanded
-             FROM notes ORDER BY parent_id, position",
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
+             FROM notes n
+             LEFT JOIN note_tags nt ON nt.note_id = n.id
+             GROUP BY n.id
+             ORDER BY n.parent_id, n.position",
         )?;
 
         let rows = stmt
@@ -1137,10 +1145,15 @@ impl Workspace {
     /// Returns [`KrillnotesError`] if the database query fails.
     pub fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, title, node_type, parent_id, position,
-                    created_at, modified_at, created_by, modified_by,
-                    fields_json, is_expanded
-             FROM notes WHERE parent_id = ?1 ORDER BY position",
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
+             FROM notes n
+             LEFT JOIN note_tags nt ON nt.note_id = n.id
+             WHERE n.parent_id = ?1
+             GROUP BY n.id
+             ORDER BY n.position",
         )?;
 
         let rows = stmt
@@ -1758,12 +1771,12 @@ impl Workspace {
     }
 }
 
-/// Raw 11-column tuple extracted from a `notes` SQLite row.
-type NoteRow = (String, String, String, Option<String>, i64, i64, i64, i64, i64, String, i64);
+/// Raw 12-column tuple extracted from a `notes` + `note_tags` SQLite row.
+type NoteRow = (String, String, String, Option<String>, i64, i64, i64, i64, i64, String, i64, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
-/// Returns the 11-column tuple that `note_from_row_tuple` converts into a `Note`.
+/// Returns the 12-column tuple that `note_from_row_tuple` converts into a `Note`.
 /// Extracted to avoid duplicating column-index logic across every query.
 fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
     Ok((
@@ -1778,13 +1791,21 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
         row.get::<_, i64>(8)?,
         row.get::<_, String>(9)?,
         row.get::<_, i64>(10)?,
+        row.get::<_, Option<String>>(11)?,
     ))
 }
 
-/// Converts a raw 11-column tuple into a [`Note`], parsing `fields_json`.
+/// Converts a raw 12-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
 fn note_from_row_tuple(
-    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int): NoteRow,
+    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, tags_csv): NoteRow,
 ) -> Result<Note> {
+    let mut tags: Vec<String> = tags_csv
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    tags.sort();
     Ok(Note {
         id,
         title,
@@ -1797,7 +1818,7 @@ fn note_from_row_tuple(
         modified_by,
         fields: serde_json::from_str(&fields_json)?,
         is_expanded: is_expanded_int == 1,
-        tags: vec![],
+        tags,
     })
 }
 
@@ -1811,11 +1832,15 @@ fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
     for (k, v) in &note.fields {
         fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
     }
+    let tags_array: rhai::Array = note.tags.iter()
+        .map(|t| Dynamic::from(t.clone()))
+        .collect();
     let mut note_map = rhai::Map::new();
     note_map.insert("id".into(), Dynamic::from(note.id.clone()));
     note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
     note_map.insert("title".into(), Dynamic::from(note.title.clone()));
     note_map.insert("fields".into(), Dynamic::from(fields_map));
+    note_map.insert("tags".into(), Dynamic::from(tags_array));
     Dynamic::from(note_map)
 }
 
@@ -3161,4 +3186,6 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let children = ws.get_children(&folder_id).unwrap();
         assert_eq!(children.len(), 0, "rollback: no child note should exist");
     }
+
+    // test_note_tags_round_trip is added in Task 5 after update_note_tags is implemented
 }
