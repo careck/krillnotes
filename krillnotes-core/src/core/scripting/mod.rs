@@ -30,6 +30,8 @@ pub struct QueryContext {
     pub notes_by_id:    HashMap<String, Dynamic>,
     pub children_by_id: HashMap<String, Vec<Dynamic>>,
     pub notes_by_type:  HashMap<String, Vec<Dynamic>>,
+    /// Maps each tag to all notes carrying that tag (pre-built for O(1) look-up).
+    pub notes_by_tag:   HashMap<String, Vec<Dynamic>>,
 }
 
 static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
@@ -263,6 +265,30 @@ impl ScriptRegistry {
             guard.as_ref()
                 .and_then(|ctx| ctx.notes_by_type.get(&node_type).cloned())
                 .unwrap_or_default()
+        });
+
+        // Register get_notes_for_tag(tags) — returns notes carrying any of the given tags (OR).
+        let qc4 = Arc::clone(&query_context);
+        engine.register_fn("get_notes_for_tag", move |tags: rhai::Array| -> rhai::Array {
+            let guard = qc4.lock().unwrap();
+            let Some(ctx) = guard.as_ref() else { return vec![]; };
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut result: rhai::Array = Vec::new();
+            for tag_dyn in &tags {
+                let tag = tag_dyn.to_string();
+                if let Some(notes) = ctx.notes_by_tag.get(&tag) {
+                    for note in notes {
+                        // Extract the id to dedup; safe to clone Dynamic.
+                        let id = note.clone().try_cast::<rhai::Map>()
+                            .and_then(|m| m.get("id").and_then(|v| v.clone().into_string().ok()))
+                            .unwrap_or_default();
+                        if seen.insert(id) {
+                            result.push(note.clone());
+                        }
+                    }
+                }
+            }
+            result
         });
 
         // create_note(parent_id, node_type) — available inside add_tree_action closures only.
@@ -759,6 +785,7 @@ mod tests {
             notes_by_id: std::collections::HashMap::new(),
             children_by_id: std::collections::HashMap::new(),
             notes_by_type: std::collections::HashMap::new(),
+            notes_by_tag: std::collections::HashMap::new(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap();
         assert!(html.is_some());
@@ -1649,6 +1676,7 @@ mod tests {
             notes_by_id: HashMap::new(),
             children_by_id: HashMap::new(),
             notes_by_type: HashMap::new(),
+            notes_by_tag: HashMap::new(),
         };
 
         let result = registry.run_on_view_hook(&note, context).unwrap();
@@ -1903,6 +1931,7 @@ mod tests {
             notes_by_id: HashMap::new(),
             children_by_id: HashMap::new(),
             notes_by_type: HashMap::new(),
+            notes_by_tag: HashMap::new(),
         };
         let err = registry.run_on_view_hook(&note, ctx).unwrap_err();
         let msg = err.to_string();
@@ -1958,6 +1987,7 @@ mod tests {
             notes_by_id: Default::default(),
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
+            notes_by_tag: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
         assert!(result.reorder.is_none(), "callback returning () should yield no reorder");
@@ -1981,6 +2011,7 @@ mod tests {
             notes_by_id: Default::default(),
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
+            notes_by_tag: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
         assert_eq!(result.reorder, Some(vec!["id-b".to_string(), "id-a".to_string()]));
@@ -2000,6 +2031,7 @@ mod tests {
             notes_by_id: Default::default(),
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
+            notes_by_tag: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("No Such Action", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("unknown tree action"), "got: {err}");
@@ -2023,6 +2055,7 @@ mod tests {
             notes_by_id: Default::default(),
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
+            notes_by_tag: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
@@ -2045,6 +2078,7 @@ mod tests {
             notes_by_id:    Default::default(),
             children_by_id: Default::default(),
             notes_by_type:  Default::default(),
+            notes_by_tag:   Default::default(),
         }
     }
 
