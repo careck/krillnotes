@@ -663,6 +663,69 @@ impl Workspace {
         Ok(())
     }
 
+    /// Replaces all tags for `note_id` with the provided list.
+    ///
+    /// Tags are normalised (lowercased, trimmed, deduplicated) before storage.
+    /// Deletes existing tags and re-inserts in a single transaction.
+    pub fn update_note_tags(&mut self, note_id: &str, tags: Vec<String>) -> Result<()> {
+        let mut normalised: Vec<String> = tags
+            .into_iter()
+            .map(|t| t.trim().to_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        normalised.sort();
+        normalised.dedup();
+
+        let tx = self.storage.connection_mut().transaction()?;
+        tx.execute("DELETE FROM note_tags WHERE note_id = ?", [note_id])?;
+        for tag in &normalised {
+            tx.execute(
+                "INSERT INTO note_tags (note_id, tag) VALUES (?, ?)",
+                rusqlite::params![note_id, tag],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Returns all distinct tags used across the workspace, sorted alphabetically.
+    pub fn get_all_tags(&self) -> Result<Vec<String>> {
+        let mut stmt = self.connection().prepare(
+            "SELECT DISTINCT tag FROM note_tags ORDER BY tag"
+        )?;
+        let tags = stmt.query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(tags)
+    }
+
+    /// Returns all notes that have any of the provided tags (OR logic).
+    ///
+    /// Returns an empty vec if `tags` is empty.
+    pub fn get_notes_for_tag(&self, tags: &[String]) -> Result<Vec<Note>> {
+        if tags.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders = tags.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                    n.created_at, n.modified_at, n.created_by, n.modified_by,
+                    n.fields_json, n.is_expanded,
+                    GROUP_CONCAT(nt2.tag, ',') AS tags_csv
+             FROM notes n
+             JOIN note_tags nt ON nt.note_id = n.id AND nt.tag IN ({placeholders})
+             LEFT JOIN note_tags nt2 ON nt2.note_id = n.id
+             GROUP BY n.id
+             ORDER BY n.parent_id, n.position"
+        );
+        let mut stmt = self.connection().prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = tags.iter()
+            .map(|t| t as &dyn rusqlite::ToSql)
+            .collect();
+        let rows = stmt.query_map(params.as_slice(), map_note_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(note_from_row_tuple).collect()
+    }
+
     /// Returns all notes in the workspace, ordered by `parent_id` then `position`.
     ///
     /// # Errors
@@ -3187,5 +3250,77 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         assert_eq!(children.len(), 0, "rollback: no child note should exist");
     }
 
-    // test_note_tags_round_trip is added in Task 5 after update_note_tags is implemented
+    #[test]
+    fn test_note_tags_round_trip() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        assert!(root.tags.is_empty());
+
+        ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
+        let note = ws.get_note(&root.id).unwrap();
+        assert_eq!(note.tags, vec!["design", "rust"]); // sorted
+    }
+
+    #[test]
+    fn test_get_all_tags_empty() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
+        assert!(ws.get_all_tags().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_all_tags_sorted_distinct() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
+        ws.update_note_tags(&child_id, vec!["rust".into(), "testing".into()]).unwrap();
+        let tags = ws.get_all_tags().unwrap();
+        assert_eq!(tags, vec!["design", "rust", "testing"]);
+    }
+
+    #[test]
+    fn test_get_notes_for_tag() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.update_note_tags(&root.id, vec!["rust".into()]).unwrap();
+        ws.update_note_tags(&child_id, vec!["design".into()]).unwrap();
+
+        let rust_notes = ws.get_notes_for_tag(&["rust".into()]).unwrap();
+        assert_eq!(rust_notes.len(), 1);
+        assert_eq!(rust_notes[0].id, root.id);
+
+        // OR logic: both notes returned when both tags queried
+        let both = ws.get_notes_for_tag(&["rust".into(), "design".into()]).unwrap();
+        assert_eq!(both.len(), 2);
+
+        // Unknown tag returns empty
+        let none = ws.get_notes_for_tag(&["unknown".into()]).unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn test_update_note_tags_replaces_existing() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_tags(&root.id, vec!["old".into()]).unwrap();
+        ws.update_note_tags(&root.id, vec!["new".into()]).unwrap();
+        let tags = ws.get_all_tags().unwrap();
+        assert_eq!(tags, vec!["new"]); // "old" removed
+    }
+
+    #[test]
+    fn test_update_note_tags_normalises() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.update_note_tags(&root.id, vec!["  Rust  ".into(), "RUST".into(), "rust".into()]).unwrap();
+        let note = ws.get_note(&root.id).unwrap();
+        assert_eq!(note.tags, vec!["rust"]); // deduped, lowercased, trimmed
+    }
 }
