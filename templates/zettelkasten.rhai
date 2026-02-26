@@ -6,6 +6,15 @@
 // Usage: Create a Kasten note, then add Zettel notes as children.
 // Tip: assign native tags to each Zettel to enable related-note discovery.
 
+// Returns tags as a comma-separated string, or "" if none.
+fn tag_list(tags) {
+    if tags.len() == 0 { return ""; }
+    let s = tags[0];
+    let i = 1;
+    while i < tags.len() { s += ", " + tags[i]; i += 1; }
+    s
+}
+
 schema("Zettel", #{
     title_can_edit: false,
     allowed_parent_types: ["Kasten"],
@@ -48,10 +57,7 @@ schema("Zettel", #{
             return body_block;
         }
 
-        let rows = related.map(|n| [
-            n.title,
-            if n.tags.len() == 0 { "" } else if n.tags.len() == 1 { n.tags[0] } else { n.tags.reduce(|a, b| a + ", " + b) }
-        ]);
+        let rows = related.map(|n| [n.title, tag_list(n.tags)]);
         let related_section = section(
             "Related Notes (" + related.len() + ")",
             table(["Note", "Tags"], rows)
@@ -89,10 +95,7 @@ schema("Kasten", #{
         zettel.sort_by(|a, b| a.title >= b.title);
 
         let recent = if zettel.len() > 10 { zettel.extract(0, 10) } else { zettel };
-        let rows = recent.map(|z| [
-            z.title,
-            if z.tags.len() == 0 { "—" } else if z.tags.len() == 1 { z.tags[0] } else { z.tags.reduce(|a, b| a + ", " + b) }
-        ]);
+        let rows = recent.map(|z| [z.title, tag_list(z.tags)]);
 
         stack([
             text(stats),
