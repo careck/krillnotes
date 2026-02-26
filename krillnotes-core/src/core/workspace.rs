@@ -127,6 +127,7 @@ impl Workspace {
             modified_by: 0,
             fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
+            tags: vec![],
         };
 
         let tx = storage.connection_mut().transaction()?;
@@ -318,6 +319,7 @@ impl Workspace {
             modified_by: self.current_user_id,
             fields: schema.default_fields(),
             is_expanded: true,
+            tags: vec![],
         };
 
         let tx = self.storage.connection_mut().transaction()?;
@@ -582,6 +584,7 @@ impl Workspace {
             modified_by: self.current_user_id,
             fields: schema.default_fields(),
             is_expanded: true,
+            tags: vec![],
         };
 
         let tx = self.storage.connection_mut().transaction()?;
@@ -1794,6 +1797,7 @@ fn note_from_row_tuple(
         modified_by,
         fields: serde_json::from_str(&fields_json)?,
         is_expanded: is_expanded_int == 1,
+        tags: vec![],
     })
 }
 

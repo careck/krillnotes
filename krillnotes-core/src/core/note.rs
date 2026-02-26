@@ -50,6 +50,8 @@ pub struct Note {
     pub fields: HashMap<String, FieldValue>,
     /// Whether this node is currently expanded in the tree UI.
     pub is_expanded: bool,
+    /// Sorted, lowercase tags attached to this note.
+    pub tags: Vec<String>,
 }
 
 #[cfg(test)]
@@ -70,6 +72,7 @@ mod tests {
             modified_by: 0,
             fields: HashMap::new(),
             is_expanded: true,
+            tags: vec![],
         };
 
         assert_eq!(note.title, "Test Note");

@@ -538,7 +538,7 @@ mod tests {
         let note = Note {
             id: "id1".into(), title: "Test".into(), node_type: "T".into(),
             parent_id: None, position: 0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false,
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
             name: "T".into(),
@@ -568,7 +568,7 @@ mod tests {
         let note = Note {
             id: "id2".into(), title: "T".into(), node_type: "T".into(),
             parent_id: None, position: 0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false,
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
             name: "T".into(),
@@ -598,7 +598,7 @@ mod tests {
         let note = Note {
             id: "id3".into(), title: "T".into(), node_type: "T".into(),
             parent_id: None, position: 0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false,
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
             name: "T".into(),
@@ -631,7 +631,7 @@ mod tests {
         let note = Note {
             id: "sec1".into(), title: "T".into(), node_type: "T".into(),
             parent_id: None, position: 0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false,
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
             name: "T".into(),
@@ -667,7 +667,7 @@ mod tests {
         let note = Note {
             id: "id4".into(), title: "T".into(), node_type: "T".into(),
             parent_id: None, position: 0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false,
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
             name: "T".into(),

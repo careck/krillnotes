@@ -752,7 +752,7 @@ mod tests {
             id: "n1".to_string(), node_type: "Folder".to_string(),
             title: "F".to_string(), parent_id: None, position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: std::collections::HashMap::new(), is_expanded: false,
+            fields: std::collections::HashMap::new(), is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: std::collections::HashMap::new(),
@@ -1595,7 +1595,7 @@ mod tests {
         let note = Note {
             id: "n1".into(), title: "Test".into(), node_type: "Memo".into(),
             parent_id: None, position: 0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false,
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
 
         let html = registry.render_default_view(&note);
@@ -1641,7 +1641,7 @@ mod tests {
             created_by: 0,
             modified_by: 0,
             fields: HashMap::new(),
-            is_expanded: false,
+            is_expanded: false, tags: vec![],
         };
 
         let context = QueryContext {
@@ -1896,7 +1896,7 @@ mod tests {
             id: "n1".to_string(), node_type: "BoomView".to_string(),
             title: "T".to_string(), parent_id: None, position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: HashMap::new(), is_expanded: false,
+            fields: HashMap::new(), is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: HashMap::new(),
@@ -1951,7 +1951,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::HashMap::new(), position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false,
+            is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -1974,7 +1974,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::HashMap::new(), position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false,
+            is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -1993,7 +1993,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::HashMap::new(), position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false,
+            is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -2016,7 +2016,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::HashMap::new(), position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false,
+            is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -2035,7 +2035,7 @@ mod tests {
             node_type: node_type.into(), parent_id: None,
             fields: Default::default(), position: 0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false,
+            is_expanded: false, tags: vec![],
         }
     }
 
