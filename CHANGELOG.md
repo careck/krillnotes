@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`note_link` field type** — A new field type that stores a reference to another note by its ID. In edit mode an inline search dropdown lets you find and link a note by title or any text field; an optional `target_type` restricts the picker to notes of a specific schema type. In view mode (default and `on_view` hooks) the linked note's title is rendered as a clickable navigation link. If the linked note is deleted, the field is automatically set to null in all source notes.
+- **`get_notes_with_link(note_id)` query function** — Returns all notes that have any `note_link` field pointing to the given note ID. Available in `on_view` hooks and `add_tree_action` closures. Use this to display backlinks on a target note (e.g. show all Tasks that link to a Project).
 - **Tags** — Any note can carry free-form tags. Add and remove tags from the tag pill editor in the InfoPanel. Tag pills are shown in the default note view. A resizable tag cloud panel in the tree sidebar lets you browse all tags in the workspace at a glance.
 - **Tag search** — The search bar now matches tags in addition to note titles and text fields.
 - **Template gallery** — `templates/` ships two ready-to-use template scripts: `book_collection.rhai` (a library organiser with an `on_view` table and sort actions) and `zettelkasten.rhai` (an atomic-note system with auto-titling and related-note discovery via shared tags). Copy a template into the Script Manager to activate it.

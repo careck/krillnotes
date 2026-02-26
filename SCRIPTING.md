@@ -314,14 +314,17 @@ linked note's UUID to derive computed fields, but note that `get_note()` is not 
 inside `on_save` — use the UUID directly or store it for later use in `on_view`.
 
 ```rhai
-on_save("Task", |note| {
-    let linked_id = note.fields["linked_project"];
-    if linked_id != () {
-        // linked_id is the UUID string of the linked note
-        // store or derive values based on the UUID here
+schema("Task", #{
+    fields: [ /* … */ ],
+    on_save: |note| {
+        let linked_id = note.fields["linked_project"];
+        if linked_id != () {
+            // linked_id is the UUID string of the linked note
+            // store or derive values based on the UUID here
+        }
+        note
     }
-    note
-})
+});
 ```
 
 ---
@@ -827,13 +830,14 @@ Returns an array of note maps that have any `note_link` field pointing to the gi
 ID. Useful for displaying backlinks in an `on_view` hook.
 
 ```rhai
-on_view("Project", |note| {
-    let tasks = get_notes_with_link(note.id);
-    if tasks.len() > 0 {
-        heading("Linked tasks");
-        table(["Task"], tasks.map(|t| [link_to(t)]))
+schema("Project", #{
+    fields: [ /* … */ ],
+    on_view: |note| {
+        let tasks = get_notes_with_link(note.id);
+        if tasks.len() == 0 { return text(""); }
+        section("Linked Tasks", table(["Task"], tasks.map(|t| [link_to(t)])))
     }
-})
+});
 ```
 
 `get_notes_with_link` is available in `on_view` hooks and `add_tree_action` closures.
