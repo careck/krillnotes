@@ -9,25 +9,6 @@ User scripts are managed through **Settings → Scripts**. The bundled system sc
 
 ---
 
-## Table of Contents
-
-1. [Script structure](#1-script-structure)
-2. [Defining schemas](#2-defining-schemas)
-3. [Field types](#3-field-types)
-4. [Schema options](#4-schema-options)
-5. [on_save hook](#5-on_save-hook)
-6. [on_view hook](#6-on_view-hook)
-7. [on_add_child hook](#7-on_add_child-hook)
-8. [add_tree_action](#8-add_tree_action)
-9. [Display helpers](#9-display-helpers)
-10. [Query functions](#10-query-functions)
-11. [Utility functions](#11-utility-functions)
-12. [Introspection functions](#12-introspection-functions)
-13. [Tips and patterns](#13-tips-and-patterns)
-14. [Built-in script examples](#14-built-in-script-examples)
-
----
-
 ## 1. Script structure
 
 A script file is plain Rhai. The top-level call available is:
