@@ -831,21 +831,21 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] or
     /// [`crate::KrillnotesError::Json`] if any note cannot be fetched.
-    pub fn rebuild_note_links_index(&self) -> Result<()> {
+    pub fn rebuild_note_links_index(&mut self) -> Result<()> {
         let all_notes = self.list_all_notes()?;
-        let conn = self.connection();
-        conn.execute("DELETE FROM note_links", [])?;
+        let conn = self.storage.connection_mut();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM note_links", [])?;
         for note in &all_notes {
             for (field_name, value) in &note.fields {
                 if let FieldValue::NoteLink(Some(target_id)) = value {
-                    // Skip if target no longer exists (defensive, for corrupted data).
-                    let exists: bool = conn.query_row(
+                    let exists: bool = tx.query_row(
                         "SELECT COUNT(*) FROM notes WHERE id = ?1",
                         [target_id],
                         |row| row.get::<_, i64>(0).map(|c| c > 0),
                     )?;
                     if exists {
-                        conn.execute(
+                        tx.execute(
                             "INSERT INTO note_links (source_id, field_name, target_id)
                              VALUES (?1, ?2, ?3)",
                             [&note.id, field_name, target_id],
@@ -854,6 +854,7 @@ impl Workspace {
                 }
             }
         }
+        tx.commit()?;
         Ok(())
     }
 
