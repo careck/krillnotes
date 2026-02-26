@@ -168,6 +168,7 @@ function App() {
         zipPassword: pendingImportPassword ?? undefined,
       });
       setImporting(false);
+      setImportState(null);
       setShowImportWorkspacePasswordDialog(true);
     } catch (error) {
       setImportError(`${error}`);
