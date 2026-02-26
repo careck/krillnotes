@@ -1400,7 +1400,6 @@ mod tests {
         assert!(registry.schema_exists("ContactsFolder"));
         assert!(registry.schema_exists("Task"));
         assert!(registry.schema_exists("Project"));
-        assert!(registry.schema_exists("Book"));
         assert!(registry.schema_exists("Product"));
         assert!(registry.schema_exists("Recipe"));
     }
@@ -1581,8 +1580,8 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/04_book.rhai"
-        )), "Book").expect("book.rhai should load");
+            "/../templates/book_collection.rhai"
+        )), "book_collection").expect("book_collection.rhai should load");
 
         let mut fields = std::collections::HashMap::new();
         fields.insert("book_title".to_string(), crate::FieldValue::Text("Dune".to_string()));
