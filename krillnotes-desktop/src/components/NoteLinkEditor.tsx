@@ -83,6 +83,10 @@ export function NoteLinkEditor({ value, targetType, onChange }: Props) {
           onFocus={() => { setIsOpen(true); setQuery(''); }}
           onBlur={() => setTimeout(() => setIsOpen(false), 150)}
           className="flex-1 p-2 bg-background border border-border rounded-md"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
         />
         {value && (
           <button

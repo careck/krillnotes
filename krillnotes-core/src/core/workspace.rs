@@ -897,7 +897,16 @@ impl Workspace {
 
         // No hook registered: generate the default view without fetching all notes.
         if !self.script_registry.has_view_hook(&note.node_type) {
-            return Ok(self.script_registry.render_default_view(&note));
+            // Pre-resolve NoteLink field targets to titles for the default renderer.
+            let mut resolved_titles: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for value in note.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    if let Ok(linked) = self.get_note(target_id) {
+                        resolved_titles.insert(target_id.clone(), linked.title);
+                    }
+                }
+            }
+            return Ok(self.script_registry.render_default_view(&note, &resolved_titles));
         }
 
         let all_notes = self.list_all_notes()?;

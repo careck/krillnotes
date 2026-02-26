@@ -620,9 +620,13 @@ impl ScriptRegistry {
     ///
     /// Textarea fields are rendered as CommonMark HTML; all other fields are
     /// HTML-escaped plain text. Fields not in the schema appear in a legacy section.
-    pub fn render_default_view(&self, note: &Note) -> String {
+    ///
+    /// `resolved_titles` maps note IDs to their display titles so that NoteLink
+    /// fields render as clickable anchors. Pass `&Default::default()` when no
+    /// resolution is needed.
+    pub fn render_default_view(&self, note: &Note, resolved_titles: &std::collections::HashMap<String, String>) -> String {
         let schema = self.schema_registry.get(&note.node_type).ok();
-        display_helpers::render_default_view(note, schema.as_ref())
+        display_helpers::render_default_view(note, schema.as_ref(), resolved_titles)
     }
 
     /// Runs the view hook registered for the given note's schema, if any.
@@ -1651,7 +1655,7 @@ mod tests {
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
 
-        let html = registry.render_default_view(&note);
+        let html = registry.render_default_view(&note, &Default::default());
         assert!(html.contains("<strong>important</strong>"), "got: {html}");
     }
 
