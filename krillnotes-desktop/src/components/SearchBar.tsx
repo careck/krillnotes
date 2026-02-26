@@ -7,6 +7,8 @@ import type { SearchResult } from '../utils/search';
 interface SearchBarProps {
   notes: Note[];
   onSelect: (noteId: string) => void;
+  /** When set, overrides the internal query (e.g. from tag cloud click). */
+  externalQuery?: string;
 }
 
 /** Truncates text around the match position to show context. */
@@ -22,12 +24,20 @@ function matchSnippet(value: string, query: string, maxLen = 60): string {
   return snippet;
 }
 
-function SearchBar({ notes, onSelect }: SearchBarProps) {
+function SearchBar({ notes, onSelect, externalQuery }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync external query into internal state (e.g. from tag cloud click).
+  useEffect(() => {
+    if (externalQuery !== undefined) {
+      setQuery(externalQuery);
+      inputRef.current?.focus();
+    }
+  }, [externalQuery]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const dropdownRef = useRef<HTMLDivElement>(null);
 

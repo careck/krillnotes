@@ -12,6 +12,7 @@ import OperationsLogDialog from './OperationsLogDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
+import TagPill from './TagPill';
 
 interface WorkspaceViewProps {
   workspaceInfo: WorkspaceInfo;
@@ -64,6 +65,14 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
 
+  // Tag cloud
+  const [workspaceTags, setWorkspaceTags] = useState<string[]>([]);
+  const [tagCloudHeight, setTagCloudHeight] = useState(120);
+  const [tagFilterQuery, setTagFilterQuery] = useState<string | undefined>(undefined);
+  const isTagDragging = useRef(false);
+  const tagDragStartY = useRef(0);
+  const tagDragStartHeight = useRef(0);
+
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true;
     dragStartX.current = e.clientX;
@@ -78,6 +87,28 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setTreeWidth(Math.max(180, Math.min(600, dragStartWidth.current + delta)));
     };
     const onMouseUp = () => { isDragging.current = false; };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  const handleTagDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    isTagDragging.current = true;
+    tagDragStartY.current = e.clientY;
+    tagDragStartHeight.current = tagCloudHeight;
+    e.preventDefault();
+  }, [tagCloudHeight]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isTagDragging.current) return;
+      const delta = tagDragStartY.current - e.clientY;
+      setTagCloudHeight(Math.max(0, Math.min(400, tagDragStartHeight.current + delta)));
+    };
+    const onMouseUp = () => { isTagDragging.current = false; };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
     return () => {
@@ -114,14 +145,16 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   const loadNotes = async (): Promise<Note[]> => {
     try {
-      const [fetchedNotes, allSchemas, actionMap] = await Promise.all([
+      const [fetchedNotes, allSchemas, actionMap, allTags] = await Promise.all([
         invoke<Note[]>('list_notes'),
         invoke<Record<string, SchemaInfo>>('get_all_schemas'),
         invoke<Record<string, string[]>>('get_tree_action_map'),
+        invoke<string[]>('get_all_tags'),
       ]);
       setNotes(fetchedNotes);
       setSchemas(allSchemas);
       setTreeActionMap(actionMap);
+      setWorkspaceTags(allTags);
 
       // Build sort config from schemas
       const sortConfig: Record<string, 'asc' | 'desc' | 'none'> = {};
@@ -514,7 +547,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         className="shrink-0 bg-background overflow-hidden flex flex-col"
         style={{ width: treeWidth }}
       >
-        <SearchBar notes={notes} onSelect={handleSearchSelect} />
+        <SearchBar notes={notes} onSelect={handleSearchSelect} externalQuery={tagFilterQuery} />
         <div className="flex-1 overflow-y-auto">
           <TreeView
             tree={tree}
@@ -532,6 +565,26 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             dragDescendants={dragDescendants}
             onMoveNote={handleMoveNote}
           />
+        </div>
+
+        {/* Tag cloud drag handle */}
+        <div className="kn-tag-divider" onMouseDown={handleTagDividerMouseDown} />
+
+        {/* Tag cloud */}
+        <div
+          className="kn-tag-cloud"
+          style={{ height: tagCloudHeight, overflow: tagCloudHeight === 0 ? 'hidden' : 'auto' }}
+        >
+          {workspaceTags.map(tag => (
+            <TagPill
+              key={tag}
+              tag={tag}
+              onClick={() => setTagFilterQuery(tag)}
+            />
+          ))}
+          {workspaceTags.length === 0 && (
+            <span className="kn-tag-cloud__empty">No tags yet</span>
+          )}
         </div>
       </div>
 
