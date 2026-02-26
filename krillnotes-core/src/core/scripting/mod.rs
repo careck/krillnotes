@@ -634,6 +634,10 @@ impl ScriptRegistry {
         note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
         note_map.insert("title".into(), Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(), Dynamic::from(fields_map));
+        let tags_array: rhai::Array = note.tags.iter()
+            .map(|t| Dynamic::from(t.clone()))
+            .collect();
+        note_map.insert("tags".into(), Dynamic::from(tags_array));
 
         // Install query context, run hook, then clear.
         *self.query_context.lock().unwrap() = Some(context);
@@ -2198,6 +2202,36 @@ mod tests {
 
         let note = make_test_note("parent1", "Task");
         registry.invoke_tree_action_hook("Verify get_note", &note, make_empty_ctx()).unwrap();
+    }
+
+    #[test]
+    fn test_on_view_note_has_tags() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Tagged", #{
+                fields: [],
+                on_view: |note| {
+                    let t = note.tags;
+                    text(t.len().to_string())
+                }
+            });
+        "#, "test").unwrap();
+
+        let note = Note {
+            id: "n1".to_string(), node_type: "Tagged".to_string(),
+            title: "T".to_string(), parent_id: None, position: 0,
+            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            fields: std::collections::HashMap::new(), is_expanded: false,
+            tags: vec!["rust".to_string(), "notes".to_string()],
+        };
+        let ctx = QueryContext {
+            notes_by_id: std::collections::HashMap::new(),
+            children_by_id: std::collections::HashMap::new(),
+            notes_by_type: std::collections::HashMap::new(),
+            notes_by_tag: std::collections::HashMap::new(),
+        };
+        let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
+        assert!(html.contains("2"), "expected tag count 2, got: {html}");
     }
 
     #[test]
