@@ -2341,4 +2341,43 @@ mod tests {
         assert_eq!(&title[4..5], "-", "missing date separator in untitled title: {title}");
     }
 
+    #[test]
+    fn test_default_field_for_note_link_is_none() {
+        let schema = Schema {
+            name: "Test".to_string(),
+            fields: vec![FieldDefinition {
+                name: "linked_note".to_string(),
+                field_type: "note_link".to_string(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_type: None,
+            }],
+            title_can_view: true,
+            title_can_edit: true,
+            children_sort: "none".to_string(),
+            allowed_parent_types: vec![],
+            allowed_children_types: vec![],
+        };
+        let defaults = schema.default_fields();
+        assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));
+    }
+
+    #[test]
+    fn test_parse_note_link_target_type() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{
+                fields: [
+                    #{ name: "project", type: "note_link", target_type: "Project" }
+                ]
+            });
+        "#, "test").unwrap();
+        let fields = get_schema_fields_for_test(&registry, "Task");
+        assert_eq!(fields[0].field_type, "note_link");
+        assert_eq!(fields[0].target_type, Some("Project".to_string()));
+    }
+
 }

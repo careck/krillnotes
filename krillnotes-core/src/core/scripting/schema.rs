@@ -641,6 +641,9 @@ pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<Fie
             let s = d
                 .try_cast::<String>()
                 .ok_or_else(|| KrillnotesError::Scripting("note_link field must be a string or ()".into()))?;
+            if s.is_empty() {
+                return Ok(FieldValue::NoteLink(None));
+            }
             Ok(FieldValue::NoteLink(Some(s)))
         }
         _ => Ok(FieldValue::Text(String::new())),
