@@ -22,7 +22,7 @@ schema("Zettel", #{
             let s = "";
             let i = 0;
             while i < take { s += words[i] + " "; i += 1; }
-            s = s.trim();
+            s.trim();
             if words.len() > 6 { s + " …" } else { s }
         };
         note.title = today() + " — " + snippet;
