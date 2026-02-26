@@ -575,6 +575,51 @@ fn update_note(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn update_note_tags(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    tags: Vec<String>,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.update_note_tags(&note_id, tags)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_all_tags(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<String>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace open")?;
+    workspace.get_all_tags()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_notes_for_tag(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    tags: Vec<String>,
+) -> std::result::Result<Vec<Note>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace open")?;
+    workspace.get_notes_for_tag(&tags)
+        .map_err(|e| e.to_string())
+}
+
 /// Returns the number of direct children of the note identified by `note_id`.
 ///
 /// Queries the calling window's workspace for the count of notes whose
@@ -1177,6 +1222,9 @@ pub fn run() {
             invoke_tree_action,
             get_note_view,
             update_note,
+            update_note_tags,
+            get_all_tags,
+            get_notes_for_tag,
             count_children,
             delete_note,
             move_note,
