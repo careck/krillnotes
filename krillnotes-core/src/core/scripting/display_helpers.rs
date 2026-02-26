@@ -358,6 +358,10 @@ fn format_field_value_html(value: &FieldValue, field_type: &str, max: i64) -> St
             format!("<span>{}</span>", d.format("%Y-%m-%d"))
         }
         (FieldValue::Date(None), _) => String::new(),
+        (FieldValue::NoteLink(Some(id)), _) => {
+            format!("<span>{}</span>", html_escape(id))
+        }
+        (FieldValue::NoteLink(None), _) => String::new(),
     }
 }
 
@@ -367,6 +371,7 @@ fn is_field_empty(value: &FieldValue) -> bool {
         FieldValue::Text(s) | FieldValue::Email(s) => s.is_empty(),
         FieldValue::Date(d) => d.is_none(),
         FieldValue::Number(_) | FieldValue::Boolean(_) => false,
+        FieldValue::NoteLink(id) => id.is_none(),
     }
 }
 
@@ -568,7 +573,7 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "notes".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0,
+                options: vec![], max: 0, target_type: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
@@ -598,7 +603,7 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "name".into(), field_type: "text".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0,
+                options: vec![], max: 0, target_type: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
@@ -628,7 +633,7 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "secret".into(), field_type: "text".into(),
                 required: false, can_view: false, can_edit: true,
-                options: vec![], max: 0,
+                options: vec![], max: 0, target_type: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
@@ -661,7 +666,7 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "body".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0,
+                options: vec![], max: 0, target_type: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
@@ -718,7 +723,7 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "known".into(), field_type: "text".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0,
+                options: vec![], max: 0, target_type: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
