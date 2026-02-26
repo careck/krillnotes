@@ -33,6 +33,9 @@ pub struct QueryContext {
     pub notes_by_type:  HashMap<String, Vec<Dynamic>>,
     /// Maps each tag to all notes carrying that tag (pre-built for O(1) look-up).
     pub notes_by_tag:   HashMap<String, Vec<Dynamic>>,
+    /// Maps each target note ID to all source notes that link to it
+    /// via a `note_link` field (pre-built for O(1) look-up).
+    pub notes_by_link_target: HashMap<String, Vec<Dynamic>>,
 }
 
 static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
@@ -290,6 +293,16 @@ impl ScriptRegistry {
                 }
             }
             result
+        });
+
+        // Register get_notes_with_link(target_id) — returns all notes whose note_link field
+        // points to the given target note ID.
+        let qc5 = Arc::clone(&query_context);
+        engine.register_fn("get_notes_with_link", move |target_id: String| -> rhai::Array {
+            let guard = qc5.lock().unwrap();
+            guard.as_ref()
+                .and_then(|ctx| ctx.notes_by_link_target.get(&target_id).cloned())
+                .unwrap_or_default()
         });
 
         // create_note(parent_id, node_type) — available inside add_tree_action closures only.
@@ -794,6 +807,7 @@ mod tests {
             children_by_id: std::collections::HashMap::new(),
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap();
         assert!(html.is_some());
@@ -1688,6 +1702,7 @@ mod tests {
             children_by_id: HashMap::new(),
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
 
         let result = registry.run_on_view_hook(&note, context).unwrap();
@@ -1943,6 +1958,7 @@ mod tests {
             children_by_id: HashMap::new(),
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
         let err = registry.run_on_view_hook(&note, ctx).unwrap_err();
         let msg = err.to_string();
@@ -1999,6 +2015,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
         assert!(result.reorder.is_none(), "callback returning () should yield no reorder");
@@ -2023,6 +2040,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
         assert_eq!(result.reorder, Some(vec!["id-b".to_string(), "id-a".to_string()]));
@@ -2043,6 +2061,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("No Such Action", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("unknown tree action"), "got: {err}");
@@ -2067,6 +2086,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
@@ -2090,6 +2110,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type:  Default::default(),
             notes_by_tag:   Default::default(),
+            notes_by_link_target: Default::default(),
         }
     }
 
@@ -2233,6 +2254,7 @@ mod tests {
             children_by_id: std::collections::HashMap::new(),
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
         assert!(html.contains("2:rust"), "expected '2:rust' in output, got: {html}");

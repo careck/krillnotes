@@ -8,9 +8,17 @@ use crate::{
 };
 use rhai::Dynamic;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
+
+/// A lightweight search result containing only the ID and title of a note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSearchResult {
+    pub id: String,
+    pub title: String,
+}
 
 /// Controls where a new note is inserted relative to the currently selected note.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -735,6 +743,120 @@ impl Workspace {
         rows.into_iter().map(note_from_row_tuple).collect()
     }
 
+    /// Returns all notes whose `note_link` fields point to `target_id`.
+    ///
+    /// Queries the `note_links` junction table for every source note that
+    /// currently references `target_id`, then fetches each full `Note`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure.
+    pub fn get_notes_with_link(&self, target_id: &str) -> Result<Vec<Note>> {
+        let conn = self.connection();
+        let mut stmt = conn.prepare(
+            "SELECT nl.source_id FROM note_links nl WHERE nl.target_id = ?1",
+        )?;
+        let source_ids: Vec<String> = stmt
+            .query_map([target_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut notes = Vec::new();
+        for id in source_ids {
+            notes.push(self.get_note(&id)?);
+        }
+        Ok(notes)
+    }
+
+    /// Searches for notes whose title or text-like field values contain `query`
+    /// (case-insensitive substring match).
+    ///
+    /// If `target_type` is `Some`, only notes of that schema type are included.
+    /// Returns an empty vec when `query` is blank.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] or
+    /// [`crate::KrillnotesError::Json`] if the underlying note fetch fails.
+    pub fn search_notes(
+        &self,
+        query: &str,
+        target_type: Option<&str>,
+    ) -> Result<Vec<NoteSearchResult>> {
+        let query_lower = query.to_lowercase();
+        if query_lower.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let all_notes = self.list_all_notes()?;
+
+        let results = all_notes
+            .into_iter()
+            .filter(|n| {
+                if let Some(t) = target_type {
+                    n.node_type == t
+                } else {
+                    true
+                }
+            })
+            .filter(|n| {
+                if n.title.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+                for value in n.fields.values() {
+                    match value {
+                        FieldValue::Text(s) | FieldValue::Email(s) => {
+                            if s.to_lowercase().contains(&query_lower) {
+                                return true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                false
+            })
+            .map(|n| NoteSearchResult { id: n.id, title: n.title })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Rebuilds the `note_links` junction table from scratch by scanning all
+    /// `fields_json` values for `NoteLink` entries.
+    ///
+    /// This is idempotent and safe to call at any time.  It is called
+    /// automatically after a workspace import to restore link data that was not
+    /// stored in the junction table at export time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] or
+    /// [`crate::KrillnotesError::Json`] if any note cannot be fetched.
+    pub fn rebuild_note_links_index(&self) -> Result<()> {
+        let all_notes = self.list_all_notes()?;
+        let conn = self.connection();
+        conn.execute("DELETE FROM note_links", [])?;
+        for note in &all_notes {
+            for (field_name, value) in &note.fields {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    // Skip if target no longer exists (defensive, for corrupted data).
+                    let exists: bool = conn.query_row(
+                        "SELECT COUNT(*) FROM notes WHERE id = ?1",
+                        [target_id],
+                        |row| row.get::<_, i64>(0).map(|c| c > 0),
+                    )?;
+                    if exists {
+                        conn.execute(
+                            "INSERT INTO note_links (source_id, field_name, target_id)
+                             VALUES (?1, ?2, ?3)",
+                            [&note.id, field_name, target_id],
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Returns all notes in the workspace, ordered by `parent_id` then `position`.
     ///
     /// # Errors
@@ -787,6 +909,8 @@ impl Workspace {
             std::collections::HashMap::new();
         let mut notes_by_tag: std::collections::HashMap<String, Vec<Dynamic>> =
             std::collections::HashMap::new();
+        let mut notes_by_link_target: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
 
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
@@ -798,9 +922,14 @@ impl Workspace {
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
+            for value in n.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    notes_by_link_target.entry(target_id.clone()).or_default().push(dyn_map.clone());
+                }
+            }
         }
 
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
         // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
         Ok(self
             .script_registry
@@ -835,6 +964,7 @@ impl Workspace {
         let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
         let mut notes_by_type: HashMap<String, Vec<Dynamic>> = HashMap::new();
         let mut notes_by_tag: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_link_target: HashMap<String, Vec<Dynamic>> = HashMap::new();
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
             notes_by_id.insert(n.id.clone(), dyn_map.clone());
@@ -845,8 +975,13 @@ impl Workspace {
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
+            for value in n.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    notes_by_link_target.entry(target_id.clone()).or_default().push(dyn_map.clone());
+                }
+            }
         }
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
 
         // invoke_tree_action_hook returns an error if the script throws — in that case
         // we propagate the error without touching the DB (implicit rollback).
@@ -3596,5 +3731,113 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             updated_observer.fields.get("link").unwrap(),
             FieldValue::NoteLink(None)
         ));
+    }
+
+    // ── get_notes_with_link tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_get_notes_with_link_returns_linking_notes() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source1 = create_note_with_type(&mut ws, "LinkTestType");
+        let source2 = create_note_with_type(&mut ws, "LinkTestType");
+
+        for source in [&source1, &source2] {
+            let mut fields = HashMap::new();
+            fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+            ws.update_note(&source.id, source.title.clone(), fields.clone()).unwrap();
+        }
+
+        let results = ws.get_notes_with_link(&target.id).unwrap();
+        assert_eq!(results.len(), 2);
+        let result_ids: Vec<&str> = results.iter().map(|n| n.id.as_str()).collect();
+        assert!(result_ids.contains(&source1.id.as_str()));
+        assert!(result_ids.contains(&source2.id.as_str()));
+    }
+
+    #[test]
+    fn test_get_notes_with_link_returns_empty_for_unlinked_note() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let note = create_note_with_type(&mut ws, "LinkTestType");
+        let results = ws.get_notes_with_link(&note.id).unwrap();
+        assert!(results.is_empty());
+    }
+
+    // ── search_notes tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_search_notes_matches_title() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [] })"#
+        );
+        let note = create_note_with_type(&mut ws, "LinkTestType");
+        ws.update_note(&note.id, "Fix login bug".into(), HashMap::new()).unwrap();
+
+        let results = ws.search_notes("login", None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, note.id);
+    }
+
+    #[test]
+    fn test_search_notes_filters_by_target_type() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("TaskNote", #{ fields: [] }); schema("OtherNote", #{ fields: [] })"#
+        );
+        let task = create_note_with_type(&mut ws, "TaskNote");
+        ws.update_note(&task.id, "login task".into(), HashMap::new()).unwrap();
+        let other = create_note_with_type(&mut ws, "OtherNote");
+        ws.update_note(&other.id, "login other".into(), HashMap::new()).unwrap();
+
+        let results = ws.search_notes("login", Some("TaskNote")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, task.id);
+    }
+
+    #[test]
+    fn test_search_notes_matches_text_fields() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("ContactNote", #{ fields: [#{ name: "email", type: "email" }] })"#
+        );
+        let c = create_note_with_type(&mut ws, "ContactNote");
+        let mut fields = HashMap::new();
+        fields.insert("email".into(), FieldValue::Email("alice@example.com".into()));
+        ws.update_note(&c.id, "Alice".into(), fields).unwrap();
+
+        let results = ws.search_notes("alice@example", None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, c.id);
+    }
+
+    // ── rebuild_note_links_index tests ────────────────────────────────────────
+
+    #[test]
+    fn test_rebuild_note_links_index_repopulates_from_fields_json() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        // Manually wipe the index
+        ws.connection().execute("DELETE FROM note_links", []).unwrap();
+
+        // Rebuild
+        ws.rebuild_note_links_index().unwrap();
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_id = ?1 AND target_id = ?2",
+            [&source.id, &target.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
     }
 }

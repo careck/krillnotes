@@ -620,6 +620,32 @@ fn get_notes_for_tag(
         .map_err(|e| e.to_string())
 }
 
+/// Searches for notes in the calling window's workspace whose title or
+/// text-like field values contain `query` (case-insensitive substring match).
+///
+/// If `target_type` is `Some`, only notes of that schema type are included.
+/// Returns an empty array when `query` is blank.
+///
+/// # Errors
+///
+/// Returns an error string if no workspace is open for the calling window,
+/// or if the underlying SQLite query fails.
+#[tauri::command]
+fn search_notes(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    query: String,
+    target_type: Option<String>,
+) -> std::result::Result<Vec<NoteSearchResult>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace open")?;
+    workspace.search_notes(&query, target_type.as_deref())
+        .map_err(|e| e.to_string())
+}
+
 /// Returns the number of direct children of the note identified by `note_id`.
 ///
 /// Queries the calling window's workspace for the count of notes whose
@@ -1225,6 +1251,7 @@ pub fn run() {
             update_note_tags,
             get_all_tags,
             get_notes_for_tag,
+            search_notes,
             count_children,
             delete_note,
             move_note,
