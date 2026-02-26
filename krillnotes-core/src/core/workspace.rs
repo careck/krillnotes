@@ -776,6 +776,8 @@ impl Workspace {
             std::collections::HashMap::new();
         let mut notes_by_type: std::collections::HashMap<String, Vec<Dynamic>> =
             std::collections::HashMap::new();
+        let mut notes_by_tag: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
 
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
@@ -783,10 +785,13 @@ impl Workspace {
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map);
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            for tag in &n.tags {
+                notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
+            }
         }
 
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
         // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
         Ok(self
             .script_registry
@@ -820,15 +825,19 @@ impl Workspace {
         let mut notes_by_id: HashMap<String, Dynamic> = HashMap::new();
         let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
         let mut notes_by_type: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_tag: HashMap<String, Vec<Dynamic>> = HashMap::new();
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
             notes_by_id.insert(n.id.clone(), dyn_map.clone());
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map);
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            for tag in &n.tags {
+                notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
+            }
         }
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
 
         // invoke_tree_action_hook returns an error if the script throws — in that case
         // we propagate the error without touching the DB (implicit rollback).
