@@ -32,9 +32,10 @@ function defaultValueForFieldType(fieldType: string): FieldValue {
 }
 
 function isEmptyFieldValue(value: FieldValue): boolean {
-  if ('Text' in value)    return value.Text === '';
-  if ('Email' in value)   return value.Email === '';
-  if ('Date' in value)    return value.Date === null;
+  if ('Text' in value)     return value.Text === '';
+  if ('Email' in value)    return value.Email === '';
+  if ('Date' in value)     return value.Date === null;
+  if ('NoteLink' in value) return value.NoteLink === null;
   return false; // Number and Boolean are never empty
 }
 

@@ -15,6 +15,12 @@ export function NoteLinkEditor({ value, targetType, onChange }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   // Resolve UUID → title on mount and when value changes
   useEffect(() => {
     if (!value) {
