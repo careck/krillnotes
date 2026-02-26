@@ -624,7 +624,7 @@ impl ScriptRegistry {
         note: &Note,
         context: QueryContext,
     ) -> Result<Option<String>> {
-        // Build the note map (same structure as on_save).
+        // Build the note map ({ id, node_type, title, fields, tags } — superset of on_save).
         let mut fields_map = Map::new();
         for (k, v) in &note.fields {
             fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
@@ -2212,7 +2212,7 @@ mod tests {
                 fields: [],
                 on_view: |note| {
                     let t = note.tags;
-                    text(t.len().to_string())
+                    text(t.len().to_string() + ":" + t[0])
                 }
             });
         "#, "test").unwrap();
@@ -2231,7 +2231,7 @@ mod tests {
             notes_by_tag: std::collections::HashMap::new(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
-        assert!(html.contains("2"), "expected tag count 2, got: {html}");
+        assert!(html.contains("2:rust"), "expected '2:rust' in output, got: {html}");
     }
 
     #[test]
