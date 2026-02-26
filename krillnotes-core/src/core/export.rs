@@ -807,4 +807,89 @@ mod tests {
         let notes = imported_ws.list_all_notes().unwrap();
         assert!(notes.iter().any(|n| n.title == "Encrypted Root"));
     }
+
+    /// Older archives (pre-tags feature) serialize notes without a `"tags"` key.
+    /// Import must succeed and produce notes with empty tag lists.
+    #[test]
+    fn test_import_notes_without_tags_field() {
+        let notes_json = serde_json::json!({
+            "version": 1,
+            "appVersion": "0.1.0",
+            "notes": [{
+                "id": "root-id",
+                "title": "Root",
+                "nodeType": "TextNote",
+                "parentId": null,
+                "position": 0,
+                "createdAt": 0,
+                "modifiedAt": 0,
+                "createdBy": 0,
+                "modifiedBy": 0,
+                "fields": {},
+                "isExpanded": true
+                // no "tags" key — simulates a pre-tags-feature archive
+            }]
+        });
+
+        let mut buf = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+            let options = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("notes.json", options).unwrap();
+            serde_json::to_writer(&mut zip, &notes_json).unwrap();
+            zip.start_file("scripts/scripts.json", options).unwrap();
+            zip.write_all(b"{\"scripts\":[]}").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let temp_dst = NamedTempFile::new().unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        assert_eq!(result.note_count, 1);
+
+        let imported_ws = Workspace::open(temp_dst.path(), "").unwrap();
+        let notes = imported_ws.list_all_notes().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].tags.is_empty(), "imported note from old archive should have no tags");
+    }
+
+    /// Older archives (pre-workspace.json) don't include that file.
+    /// Import must succeed — the file is never read during import.
+    #[test]
+    fn test_import_archive_without_workspace_json() {
+        let notes_json = serde_json::json!({
+            "version": 1,
+            "appVersion": "0.1.0",
+            "notes": [{
+                "id": "root-id",
+                "title": "Root",
+                "nodeType": "TextNote",
+                "parentId": null,
+                "position": 0,
+                "createdAt": 0,
+                "modifiedAt": 0,
+                "createdBy": 0,
+                "modifiedBy": 0,
+                "fields": {},
+                "isExpanded": true,
+                "tags": []
+            }]
+        });
+
+        let mut buf = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+            let options = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("notes.json", options).unwrap();
+            serde_json::to_writer(&mut zip, &notes_json).unwrap();
+            // intentionally no workspace.json and no scripts/scripts.json
+            zip.finish().unwrap();
+        }
+
+        let temp_dst = NamedTempFile::new().unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        assert_eq!(result.note_count, 1);
+        assert_eq!(result.script_count, 0);
+    }
 }
