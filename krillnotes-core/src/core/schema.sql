@@ -55,3 +55,11 @@ CREATE TABLE IF NOT EXISTS note_tags (
     PRIMARY KEY (note_id, tag)
 );
 CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);
+
+CREATE TABLE IF NOT EXISTS note_links (
+    source_id  TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    field_name TEXT NOT NULL,
+    target_id  TEXT NOT NULL REFERENCES notes(id) ON DELETE RESTRICT,
+    PRIMARY KEY (source_id, field_name)
+);
+CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_id);

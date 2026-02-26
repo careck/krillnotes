@@ -18,6 +18,9 @@ pub enum FieldValue {
     Date(Option<NaiveDate>),
     /// An email address string. Format is validated client-side.
     Email(String),
+    /// A reference to another note by UUID. `None` = not set, `Some(uuid)` = linked note ID.
+    /// Serializes as JSON `null` or `"uuid-string"`.
+    NoteLink(Option<String>),
 }
 
 /// A single node in the workspace hierarchy.
@@ -130,5 +133,28 @@ mod tests {
         assert_eq!(json, r#"{"Email":"test@example.com"}"#);
         let back: FieldValue = serde_json::from_str(&json).unwrap();
         assert_eq!(back, email);
+    }
+
+    #[test]
+    fn test_note_link_field_value_serializes_to_null() {
+        let v = FieldValue::NoteLink(None);
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"NoteLink":null}"#);
+    }
+
+    #[test]
+    fn test_note_link_field_value_serializes_to_string() {
+        let v = FieldValue::NoteLink(Some("abc-123".into()));
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"NoteLink":"abc-123"}"#);
+    }
+
+    #[test]
+    fn test_note_link_field_value_round_trips() {
+        let v = FieldValue::NoteLink(Some("test-uuid-456".into()));
+        let json = serde_json::to_string(&v).unwrap();
+        let v2: FieldValue = serde_json::from_str(&json).unwrap();
+        // Verify round-trip via re-serialization
+        assert_eq!(serde_json::to_string(&v2).unwrap(), json);
     }
 }

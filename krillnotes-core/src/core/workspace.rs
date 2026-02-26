@@ -8,9 +8,17 @@ use crate::{
 };
 use rhai::Dynamic;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
+
+/// A lightweight search result containing only the ID and title of a note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSearchResult {
+    pub id: String,
+    pub title: String,
+}
 
 /// Controls where a new note is inserted relative to the currently selected note.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -401,6 +409,10 @@ impl Workspace {
         self.operation_log.log(&tx, &op)?;
         self.operation_log.purge_if_needed(&tx)?;
 
+        // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
+        // Must run inside the transaction so the link update is atomic with the note write.
+        sync_note_links(&tx, &note.id, &note.fields)?;
+
         tx.commit()?;
 
         Ok(note.id)
@@ -627,7 +639,12 @@ impl Workspace {
         self.operation_log.log(&tx, &op)?;
         self.operation_log.purge_if_needed(&tx)?;
 
+        // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
+        // Must run inside the transaction so the link update is atomic with the note write.
+        sync_note_links(&tx, &new_note.id, &new_note.fields)?;
+
         tx.commit()?;
+
         Ok(new_note.id)
     }
 
@@ -726,6 +743,121 @@ impl Workspace {
         rows.into_iter().map(note_from_row_tuple).collect()
     }
 
+    /// Returns all notes whose `note_link` fields point to `target_id`.
+    ///
+    /// Queries the `note_links` junction table for every source note that
+    /// currently references `target_id`, then fetches each full `Note`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure.
+    pub fn get_notes_with_link(&self, target_id: &str) -> Result<Vec<Note>> {
+        let conn = self.connection();
+        let mut stmt = conn.prepare(
+            "SELECT nl.source_id FROM note_links nl WHERE nl.target_id = ?1",
+        )?;
+        let source_ids: Vec<String> = stmt
+            .query_map([target_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut notes = Vec::new();
+        for id in source_ids {
+            notes.push(self.get_note(&id)?);
+        }
+        Ok(notes)
+    }
+
+    /// Searches for notes whose title or text-like field values contain `query`
+    /// (case-insensitive substring match).
+    ///
+    /// If `target_type` is `Some`, only notes of that schema type are included.
+    /// Returns an empty vec when `query` is blank.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] or
+    /// [`crate::KrillnotesError::Json`] if the underlying note fetch fails.
+    pub fn search_notes(
+        &self,
+        query: &str,
+        target_type: Option<&str>,
+    ) -> Result<Vec<NoteSearchResult>> {
+        let query_lower = query.to_lowercase();
+        if query_lower.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let all_notes = self.list_all_notes()?;
+
+        let results = all_notes
+            .into_iter()
+            .filter(|n| {
+                if let Some(t) = target_type {
+                    n.node_type == t
+                } else {
+                    true
+                }
+            })
+            .filter(|n| {
+                if n.title.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+                for value in n.fields.values() {
+                    match value {
+                        FieldValue::Text(s) | FieldValue::Email(s) => {
+                            if s.to_lowercase().contains(&query_lower) {
+                                return true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                false
+            })
+            .map(|n| NoteSearchResult { id: n.id, title: n.title })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Rebuilds the `note_links` junction table from scratch by scanning all
+    /// `fields_json` values for `NoteLink` entries.
+    ///
+    /// This is idempotent and safe to call at any time.  It is called
+    /// automatically after a workspace import to restore link data that was not
+    /// stored in the junction table at export time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] or
+    /// [`crate::KrillnotesError::Json`] if any note cannot be fetched.
+    pub fn rebuild_note_links_index(&mut self) -> Result<()> {
+        let all_notes = self.list_all_notes()?;
+        let conn = self.storage.connection_mut();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM note_links", [])?;
+        for note in &all_notes {
+            for (field_name, value) in &note.fields {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    let exists: bool = tx.query_row(
+                        "SELECT COUNT(*) FROM notes WHERE id = ?1",
+                        [target_id],
+                        |row| row.get::<_, i64>(0).map(|c| c > 0),
+                    )?;
+                    if exists {
+                        tx.execute(
+                            "INSERT INTO note_links (source_id, field_name, target_id)
+                             VALUES (?1, ?2, ?3)",
+                            [&note.id, field_name, target_id],
+                        )?;
+                    }
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Returns all notes in the workspace, ordered by `parent_id` then `position`.
     ///
     /// # Errors
@@ -765,7 +897,16 @@ impl Workspace {
 
         // No hook registered: generate the default view without fetching all notes.
         if !self.script_registry.has_view_hook(&note.node_type) {
-            return Ok(self.script_registry.render_default_view(&note));
+            // Pre-resolve NoteLink field targets to titles for the default renderer.
+            let mut resolved_titles: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for value in note.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    if let Ok(linked) = self.get_note(target_id) {
+                        resolved_titles.insert(target_id.clone(), linked.title);
+                    }
+                }
+            }
+            return Ok(self.script_registry.render_default_view(&note, &resolved_titles));
         }
 
         let all_notes = self.list_all_notes()?;
@@ -778,6 +919,8 @@ impl Workspace {
             std::collections::HashMap::new();
         let mut notes_by_tag: std::collections::HashMap<String, Vec<Dynamic>> =
             std::collections::HashMap::new();
+        let mut notes_by_link_target: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
 
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
@@ -789,9 +932,14 @@ impl Workspace {
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
+            for value in n.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    notes_by_link_target.entry(target_id.clone()).or_default().push(dyn_map.clone());
+                }
+            }
         }
 
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
         // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
         Ok(self
             .script_registry
@@ -826,6 +974,7 @@ impl Workspace {
         let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
         let mut notes_by_type: HashMap<String, Vec<Dynamic>> = HashMap::new();
         let mut notes_by_tag: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_link_target: HashMap<String, Vec<Dynamic>> = HashMap::new();
         for n in &all_notes {
             let dyn_map = note_to_rhai_dynamic(n);
             notes_by_id.insert(n.id.clone(), dyn_map.clone());
@@ -836,8 +985,13 @@ impl Workspace {
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
+            for value in n.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    notes_by_link_target.entry(target_id.clone()).or_default().push(dyn_map.clone());
+                }
+            }
         }
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag };
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
 
         // invoke_tree_action_hook returns an error if the script throws — in that case
         // we propagate the error without touching the DB (implicit rollback).
@@ -1255,6 +1409,14 @@ impl Workspace {
     /// than errors in that case). The transaction is rolled back automatically
     /// on any failure.
     pub fn delete_note_recursive(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Collect all IDs in the subtree that will be deleted, then clear any
+        // incoming NoteLink fields from other notes before the deletion transaction
+        // opens (satisfies the note_links.target_id ON DELETE RESTRICT constraint).
+        let all_ids = self.collect_subtree_ids(note_id)?;
+        for id in &all_ids {
+            self.clear_links_to(id)?;
+        }
+
         let tx = self.storage.connection_mut().transaction()?;
         let result = Self::delete_recursive_in_tx(&tx, note_id)?;
         tx.commit()?;
@@ -1330,6 +1492,10 @@ impl Workspace {
     /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
     /// The transaction is rolled back automatically on any failure.
     pub fn delete_note_promote(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Clear incoming NoteLink fields from other notes before opening the
+        // deletion transaction (satisfies note_links.target_id ON DELETE RESTRICT).
+        self.clear_links_to(note_id)?;
+
         let tx = self.storage.connection_mut().transaction()?;
 
         // Fetch the note's parent — surfaces NoteNotFound for missing IDs.
@@ -1516,6 +1682,10 @@ impl Workspace {
         }
 
         self.operation_log.purge_if_needed(&tx)?;
+
+        // Keep the note_links junction table in sync with the written field values.
+        // Must run inside the transaction so the link update is atomic with the note write.
+        sync_note_links(&tx, note_id, &fields)?;
 
         tx.commit()?;
 
@@ -1841,6 +2011,103 @@ impl Workspace {
         }
         Ok(errors)
     }
+
+    /// Collects the IDs of `note_id` and every descendant using a recursive CTE.
+    ///
+    /// Returns a flat `Vec<String>` containing the root ID plus all descendant
+    /// IDs in an unspecified order.
+    fn collect_subtree_ids(&self, note_id: &str) -> Result<Vec<String>> {
+        let conn = self.connection();
+        let mut stmt = conn.prepare(
+            "WITH RECURSIVE subtree AS (
+                SELECT id FROM notes WHERE id = ?1
+                UNION ALL
+                SELECT n.id FROM notes n JOIN subtree s ON n.parent_id = s.id
+            )
+            SELECT id FROM subtree",
+        )?;
+        let ids: Vec<String> = stmt
+            .query_map([note_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(ids)
+    }
+
+    /// Finds all notes that have a `NoteLink` field pointing to `target_id`,
+    /// sets those fields to `NoteLink(None)` in `fields_json`, and removes
+    /// the corresponding rows from the `note_links` junction table.
+    ///
+    /// This must be called BEFORE the target note is deleted so that the
+    /// `note_links.target_id REFERENCES notes(id) ON DELETE RESTRICT`
+    /// constraint is satisfied.
+    ///
+    /// All changes (field patches + junction-table delete) are committed in a
+    /// single transaction. If no notes link to `target_id` the function
+    /// returns immediately without touching the database.
+    pub fn clear_links_to(&mut self, target_id: &str) -> Result<()> {
+        // Find all notes linking to this target (read-only, uses shared ref).
+        let links: Vec<(String, String)> = {
+            let conn = self.connection();
+            let mut stmt = conn.prepare(
+                "SELECT source_id, field_name FROM note_links WHERE target_id = ?1",
+            )?;
+            let rows = stmt.query_map([target_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            rows
+        };
+
+        if links.is_empty() {
+            return Ok(());
+        }
+
+        // For each linking note: load fields_json, patch the field to NoteLink(None), save back.
+        let conn = self.storage.connection_mut();
+        let tx = conn.transaction()?;
+        for (source_id, field_name) in &links {
+            let fields_json: String = tx.query_row(
+                "SELECT fields_json FROM notes WHERE id = ?1",
+                [source_id],
+                |row| row.get(0),
+            )?;
+            let mut json_val: serde_json::Value = serde_json::from_str(&fields_json)?;
+            if let Some(obj) = json_val.as_object_mut() {
+                // NoteLink(None) serializes as {"NoteLink":null} under serde external tagging.
+                obj.insert(field_name.clone(), serde_json::json!({"NoteLink": null}));
+            }
+            let updated_json = serde_json::to_string(&json_val)?;
+            tx.execute(
+                "UPDATE notes SET fields_json = ?1 WHERE id = ?2",
+                [&updated_json, source_id],
+            )?;
+        }
+        tx.execute("DELETE FROM note_links WHERE target_id = ?1", [target_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+}
+
+/// Keeps the `note_links` junction table in sync with the current field values of a note.
+///
+/// Deletes all existing rows for `note_id` as source, then re-inserts one row
+/// for each `FieldValue::NoteLink(Some(...))` present in `fields`. This
+/// replace-all strategy is correct for a single-writer (local) store.
+///
+/// Must be called inside an open transaction so that the link update is
+/// atomic with the note write that precedes it.
+fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &HashMap<String, FieldValue>) -> Result<()> {
+    // Clear all existing note_links rows for this source note (replace strategy).
+    tx.execute("DELETE FROM note_links WHERE source_id = ?1", [note_id])?;
+    // Re-insert for any non-null NoteLink fields. No duplicates possible after
+    // the DELETE above, so plain INSERT is sufficient.
+    for (field_name, value) in fields {
+        if let FieldValue::NoteLink(Some(target_id)) = value {
+            tx.execute(
+                "INSERT INTO note_links (source_id, field_name, target_id) VALUES (?1, ?2, ?3)",
+                [note_id, field_name.as_str(), target_id.as_str()],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Raw 12-column tuple extracted from a `notes` + `note_tags` SQLite row.
@@ -3332,5 +3599,255 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         ws.update_note_tags(&root.id, vec!["  Rust  ".into(), "RUST".into(), "rust".into()]).unwrap();
         let note = ws.get_note(&root.id).unwrap();
         assert_eq!(note.tags, vec!["rust"]); // deduped, lowercased, trimmed
+    }
+
+    // ── note_links helpers ────────────────────────────────────────────────────
+
+    /// Creates a workspace with a single user script loaded (for schema setup).
+    /// Returns the workspace ready to use.
+    fn create_test_workspace_with_schema(schema_script: &str) -> Workspace {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        // Wrap the bare schema call in the required front matter so create_user_script accepts it.
+        let source = format!("// @name: TestSchema\n{schema_script}");
+        ws.create_user_script(&source).unwrap();
+        // Leak the tempfile so the DB file stays alive for the duration of the test.
+        std::mem::forget(temp);
+        ws
+    }
+
+    /// Creates a new root-level note of `note_type` and returns the full `Note`.
+    fn create_note_with_type(ws: &mut Workspace, note_type: &str) -> Note {
+        let id = ws.create_note_root(note_type).unwrap();
+        ws.get_note(&id).unwrap()
+    }
+
+    // ── note_links tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sync_note_links_inserts_row() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_id = ?1 AND target_id = ?2",
+            [&source.id, &target.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_sync_note_links_removes_row_when_cleared() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("link".into(), FieldValue::NoteLink(None));
+        ws.update_note(&source.id, source.title.clone(), fields2).unwrap();
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_id = ?1",
+            [&source.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_clear_links_to_nulls_field_in_source_note() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        ws.clear_links_to(&target.id).unwrap();
+
+        let updated_source = ws.get_note(&source.id).unwrap();
+        assert!(matches!(
+            updated_source.fields.get("link").unwrap(),
+            FieldValue::NoteLink(None)
+        ));
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE target_id = ?1",
+            [&target.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_delete_note_nulls_links_in_other_notes() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        ws.delete_note(&target.id, DeleteStrategy::DeleteAll).unwrap();
+
+        let updated_source = ws.get_note(&source.id).unwrap();
+        assert!(matches!(
+            updated_source.fields.get("link").unwrap(),
+            FieldValue::NoteLink(None)
+        ));
+    }
+
+    #[test]
+    fn test_delete_note_recursive_clears_links_for_entire_subtree() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let parent = create_note_with_type(&mut ws, "LinkTestType");
+        let child_id = ws.create_note(&parent.id, AddPosition::AsChild, "LinkTestType").unwrap();
+        let child = ws.get_note(&child_id).unwrap();
+        let observer = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(child.id.clone())));
+        ws.update_note(&observer.id, observer.title.clone(), fields).unwrap();
+
+        ws.delete_note(&parent.id, DeleteStrategy::DeleteAll).unwrap();
+
+        let updated_observer = ws.get_note(&observer.id).unwrap();
+        assert!(matches!(
+            updated_observer.fields.get("link").unwrap(),
+            FieldValue::NoteLink(None)
+        ));
+    }
+
+    // ── get_notes_with_link tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_get_notes_with_link_returns_linking_notes() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source1 = create_note_with_type(&mut ws, "LinkTestType");
+        let source2 = create_note_with_type(&mut ws, "LinkTestType");
+
+        for source in [&source1, &source2] {
+            let mut fields = HashMap::new();
+            fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+            ws.update_note(&source.id, source.title.clone(), fields.clone()).unwrap();
+        }
+
+        let results = ws.get_notes_with_link(&target.id).unwrap();
+        assert_eq!(results.len(), 2);
+        let result_ids: Vec<&str> = results.iter().map(|n| n.id.as_str()).collect();
+        assert!(result_ids.contains(&source1.id.as_str()));
+        assert!(result_ids.contains(&source2.id.as_str()));
+    }
+
+    #[test]
+    fn test_get_notes_with_link_returns_empty_for_unlinked_note() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let note = create_note_with_type(&mut ws, "LinkTestType");
+        let results = ws.get_notes_with_link(&note.id).unwrap();
+        assert!(results.is_empty());
+    }
+
+    // ── search_notes tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_search_notes_matches_title() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [] })"#
+        );
+        let note = create_note_with_type(&mut ws, "LinkTestType");
+        ws.update_note(&note.id, "Fix login bug".into(), HashMap::new()).unwrap();
+
+        let results = ws.search_notes("login", None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, note.id);
+    }
+
+    #[test]
+    fn test_search_notes_filters_by_target_type() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("TaskNote", #{ fields: [] }); schema("OtherNote", #{ fields: [] })"#
+        );
+        let task = create_note_with_type(&mut ws, "TaskNote");
+        ws.update_note(&task.id, "login task".into(), HashMap::new()).unwrap();
+        let other = create_note_with_type(&mut ws, "OtherNote");
+        ws.update_note(&other.id, "login other".into(), HashMap::new()).unwrap();
+
+        let results = ws.search_notes("login", Some("TaskNote")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, task.id);
+    }
+
+    #[test]
+    fn test_search_notes_matches_text_fields() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("ContactNote", #{ fields: [#{ name: "email", type: "email" }] })"#
+        );
+        let c = create_note_with_type(&mut ws, "ContactNote");
+        let mut fields = HashMap::new();
+        fields.insert("email".into(), FieldValue::Email("alice@example.com".into()));
+        ws.update_note(&c.id, "Alice".into(), fields).unwrap();
+
+        let results = ws.search_notes("alice@example", None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, c.id);
+    }
+
+    // ── rebuild_note_links_index tests ────────────────────────────────────────
+
+    #[test]
+    fn test_rebuild_note_links_index_repopulates_from_fields_json() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        // Manually wipe the index
+        ws.connection().execute("DELETE FROM note_links", []).unwrap();
+
+        // Rebuild
+        ws.rebuild_note_links_index().unwrap();
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_id = ?1 AND target_id = ?2",
+            [&source.id, &target.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
     }
 }

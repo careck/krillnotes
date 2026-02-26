@@ -442,6 +442,16 @@ pub fn import_workspace<R: Read + Seek>(
         tx.commit().map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
+    // Drop storage before opening via Workspace::open (avoids double-locking the file).
+    drop(storage);
+
+    // Rebuild the note_links index from the imported fields_json data.
+    let mut workspace = Workspace::open(db_path, workspace_password)
+        .map_err(|e| ExportError::Database(e.to_string()))?;
+    workspace
+        .rebuild_note_links_index()
+        .map_err(|e| ExportError::Database(e.to_string()))?;
+
     Ok(ImportResult {
         app_version: export_notes.app_version,
         note_count: export_notes.notes.len(),

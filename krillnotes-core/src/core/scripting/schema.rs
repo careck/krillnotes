@@ -40,6 +40,10 @@ pub struct FieldDefinition {
     /// Non-zero only for `rating` fields — the maximum star count.
     #[serde(default)]
     pub max: i64,
+    /// Optional schema type filter for `note_link` fields.
+    /// If set, the picker only shows notes of this type. Ignored for all other field types.
+    #[serde(default)]
+    pub target_type: Option<String>,
 }
 
 /// A parsed note-type schema containing an ordered list of field definitions.
@@ -82,6 +86,7 @@ impl Schema {
                 Some(FieldValue::Email(s)) => s.is_empty(),
                 Some(FieldValue::Date(d)) => d.is_none(),
                 Some(FieldValue::Number(_) | FieldValue::Boolean(_)) => false,
+                Some(FieldValue::NoteLink(id)) => id.is_none(),
                 None => true,
             };
             if empty {
@@ -106,6 +111,7 @@ impl Schema {
                 "email" => FieldValue::Email(String::new()),
                 "select" => FieldValue::Text(String::new()),
                 "rating" => FieldValue::Number(0.0),
+                "note_link" => FieldValue::NoteLink(None),
                 // Unknown types fall back to empty text; script validation catches typos.
                 _ => FieldValue::Text(String::new()),
             };
@@ -180,7 +186,11 @@ impl Schema {
                 ));
             }
 
-            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max });
+            let target_type: Option<String> = field_map
+                .get("target_type")
+                .and_then(|v| v.clone().try_cast::<String>());
+
+            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type });
         }
 
         let title_can_view = def
@@ -546,6 +556,8 @@ pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
         FieldValue::Date(None) => Dynamic::UNIT,
         FieldValue::Date(Some(d)) => Dynamic::from(d.format("%Y-%m-%d").to_string()),
         FieldValue::Email(s) => Dynamic::from(s.clone()),
+        FieldValue::NoteLink(None) => Dynamic::UNIT,
+        FieldValue::NoteLink(Some(id)) => Dynamic::from(id.clone()),
     }
 }
 
@@ -621,6 +633,18 @@ pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<Fie
                 .try_cast::<f64>()
                 .ok_or_else(|| KrillnotesError::Scripting("rating field must be a float".into()))?;
             Ok(FieldValue::Number(n))
+        }
+        "note_link" => {
+            if d.is_unit() {
+                return Ok(FieldValue::NoteLink(None));
+            }
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("note_link field must be a string or ()".into()))?;
+            if s.is_empty() {
+                return Ok(FieldValue::NoteLink(None));
+            }
+            Ok(FieldValue::NoteLink(Some(s)))
         }
         _ => Ok(FieldValue::Text(String::new())),
     }

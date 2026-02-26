@@ -123,6 +123,7 @@ by an `on_save` hook but users cannot change it directly.
 | `"email"` | String | Email input with mailto link in view mode |
 | `"select"` | String | Dropdown; requires `options: [...]` |
 | `"rating"` | Float | Star rating; requires `max: N` (e.g. `max: 5`) |
+| `"note_link"` | String (UUID) or `null` | Link to another note; optional `target_type` restricts the picker to notes of that schema type |
 
 ### Reading field values in hooks
 
@@ -141,6 +142,39 @@ let d = note.fields["due_date"];
 if type_of(d) == "string" && d != "" {
     // safe to use d as a string
 }
+```
+
+`note_link` fields arrive as a UUID string when a link is set, or as the unit value `()` when
+the field is empty. Check before using the value:
+
+```rhai
+let linked_id = note.fields["linked_project"];
+if linked_id != () {
+    // linked_id is the UUID string of the linked note
+    let target = get_note(linked_id);
+    if target != () {
+        field("Project", link_to(target))
+    }
+}
+```
+
+### `note_link` field options
+
+| Option | Type | Description |
+|---|---|---|
+| `target_type` | String (optional) | If set, the note-picker in edit mode only shows notes of this schema type. Any UUID can still be stored programmatically. |
+
+Example field definitions:
+
+```rhai
+schema("Task", #{
+    fields: [
+        // Link to a note of type "Project" (picker is filtered to Project notes only)
+        #{ name: "linked_project", type: "note_link", target_type: "Project" },
+        // Link to any note (no type filter)
+        #{ name: "blocked_by",     type: "note_link" },
+    ]
+})
 ```
 
 ---
@@ -268,6 +302,26 @@ schema("Recipe", #{
                 if m == 0 { h.to_string() + "h" }
                 else      { h.to_string() + "h " + m.to_string() + "min" }
             };
+        note
+    }
+});
+```
+
+### Accessing `note_link` fields in `on_save`
+
+`note_link` fields are accessible as a string UUID (or `()` if not set). You can read the
+linked note's UUID to derive computed fields, but note that `get_note()` is not available
+inside `on_save` — use the UUID directly or store it for later use in `on_view`.
+
+```rhai
+schema("Task", #{
+    fields: [ /* … */ ],
+    on_save: |note| {
+        let linked_id = note.fields["linked_project"];
+        if linked_id != () {
+            // linked_id is the UUID string of the linked note
+            // store or derive values based on the UUID here
+        }
         note
     }
 });
@@ -768,6 +822,25 @@ table(["Note", "Tags"], rows)
 ```
 
 `get_notes_for_tag` is available in `on_view` hooks and `add_tree_action` closures.
+It is **not** available in `on_save` or `on_add_child`.
+
+### `get_notes_with_link(note_id)`
+
+Returns an array of note maps that have any `note_link` field pointing to the given note
+ID. Useful for displaying backlinks in an `on_view` hook.
+
+```rhai
+schema("Project", #{
+    fields: [ /* … */ ],
+    on_view: |note| {
+        let tasks = get_notes_with_link(note.id);
+        if tasks.len() == 0 { return text(""); }
+        section("Linked Tasks", table(["Task"], tasks.map(|t| [link_to(t)])))
+    }
+});
+```
+
+`get_notes_with_link` is available in `on_view` hooks and `add_tree_action` closures.
 It is **not** available in `on_save` or `on_add_child`.
 
 ### Note map shape

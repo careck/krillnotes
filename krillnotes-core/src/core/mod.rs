@@ -39,4 +39,4 @@ pub use storage::Storage;
 #[doc(inline)]
 pub use user_script::UserScript;
 #[doc(inline)]
-pub use workspace::{AddPosition, Workspace};
+pub use workspace::{AddPosition, NoteSearchResult, Workspace};

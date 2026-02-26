@@ -30,9 +30,10 @@ export type FieldValue =
   | { Number: number }
   | { Boolean: boolean }
   | { Date: string | null }   // ISO "YYYY-MM-DD" or null when not set
-  | { Email: string };
+  | { Email: string }
+  | { NoteLink: string | null };  // null = not set, string = linked note UUID
 
-export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'email' | 'select' | 'rating';
+export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'email' | 'select' | 'rating' | 'note_link';
 
 export interface FieldDefinition {
   name: string;
@@ -42,6 +43,12 @@ export interface FieldDefinition {
   canEdit: boolean;
   options: string[];   // non-empty for 'select' fields
   max: number;         // non-zero for 'rating' fields
+  targetType?: string;  // only meaningful for note_link fields
+}
+
+export interface NoteSearchResult {
+  id: string;
+  title: string;
 }
 
 export interface SchemaInfo {

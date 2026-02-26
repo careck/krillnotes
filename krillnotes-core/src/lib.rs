@@ -24,5 +24,5 @@ pub use core::{
     scripting::{FieldDefinition, HookRegistry, QueryContext, Schema, ScriptError, ScriptRegistry, StarterScript},
     storage::Storage,
     user_script::UserScript,
-    workspace::{AddPosition, Workspace},
+    workspace::{AddPosition, NoteSearchResult, Workspace},
 };

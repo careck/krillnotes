@@ -33,6 +33,9 @@ pub struct QueryContext {
     pub notes_by_type:  HashMap<String, Vec<Dynamic>>,
     /// Maps each tag to all notes carrying that tag (pre-built for O(1) look-up).
     pub notes_by_tag:   HashMap<String, Vec<Dynamic>>,
+    /// Maps each target note ID to all source notes that link to it
+    /// via a `note_link` field (pre-built for O(1) look-up).
+    pub notes_by_link_target: HashMap<String, Vec<Dynamic>>,
 }
 
 static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
@@ -290,6 +293,16 @@ impl ScriptRegistry {
                 }
             }
             result
+        });
+
+        // Register get_notes_with_link(target_id) — returns all notes whose note_link field
+        // points to the given target note ID.
+        let qc5 = Arc::clone(&query_context);
+        engine.register_fn("get_notes_with_link", move |target_id: String| -> rhai::Array {
+            let guard = qc5.lock().unwrap();
+            guard.as_ref()
+                .and_then(|ctx| ctx.notes_by_link_target.get(&target_id).cloned())
+                .unwrap_or_default()
         });
 
         // create_note(parent_id, node_type) — available inside add_tree_action closures only.
@@ -607,9 +620,13 @@ impl ScriptRegistry {
     ///
     /// Textarea fields are rendered as CommonMark HTML; all other fields are
     /// HTML-escaped plain text. Fields not in the schema appear in a legacy section.
-    pub fn render_default_view(&self, note: &Note) -> String {
+    ///
+    /// `resolved_titles` maps note IDs to their display titles so that NoteLink
+    /// fields render as clickable anchors. Pass `&Default::default()` when no
+    /// resolution is needed.
+    pub fn render_default_view(&self, note: &Note, resolved_titles: &std::collections::HashMap<String, String>) -> String {
         let schema = self.schema_registry.get(&note.node_type).ok();
-        display_helpers::render_default_view(note, schema.as_ref())
+        display_helpers::render_default_view(note, schema.as_ref(), resolved_titles)
     }
 
     /// Runs the view hook registered for the given note's schema, if any.
@@ -794,6 +811,7 @@ mod tests {
             children_by_id: std::collections::HashMap::new(),
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap();
         assert!(html.is_some());
@@ -916,6 +934,7 @@ mod tests {
                     can_edit: true,
                     options: vec![],
                     max: 0,
+                    target_type: None,
                 },
                 FieldDefinition {
                     name: "count".to_string(),
@@ -925,6 +944,7 @@ mod tests {
                     can_edit: true,
                     options: vec![],
                     max: 0,
+                    target_type: None,
                 },
             ],
             title_can_view: true,
@@ -969,6 +989,7 @@ mod tests {
                 can_edit: true,
                 options: vec![],
                 max: 0,
+                target_type: None,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -992,6 +1013,7 @@ mod tests {
                 can_edit: true,
                 options: vec![],
                 max: 0,
+                target_type: None,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -1633,7 +1655,7 @@ mod tests {
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
 
-        let html = registry.render_default_view(&note);
+        let html = registry.render_default_view(&note, &Default::default());
         assert!(html.contains("<strong>important</strong>"), "got: {html}");
     }
 
@@ -1684,6 +1706,7 @@ mod tests {
             children_by_id: HashMap::new(),
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
 
         let result = registry.run_on_view_hook(&note, context).unwrap();
@@ -1939,6 +1962,7 @@ mod tests {
             children_by_id: HashMap::new(),
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
         let err = registry.run_on_view_hook(&note, ctx).unwrap_err();
         let msg = err.to_string();
@@ -1995,6 +2019,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
         assert!(result.reorder.is_none(), "callback returning () should yield no reorder");
@@ -2019,6 +2044,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
         assert_eq!(result.reorder, Some(vec!["id-b".to_string(), "id-a".to_string()]));
@@ -2039,6 +2065,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("No Such Action", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("unknown tree action"), "got: {err}");
@@ -2063,6 +2090,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
@@ -2086,6 +2114,7 @@ mod tests {
             children_by_id: Default::default(),
             notes_by_type:  Default::default(),
             notes_by_tag:   Default::default(),
+            notes_by_link_target: Default::default(),
         }
     }
 
@@ -2229,6 +2258,7 @@ mod tests {
             children_by_id: std::collections::HashMap::new(),
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
+            notes_by_link_target: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
         assert!(html.contains("2:rust"), "expected '2:rust' in output, got: {html}");
@@ -2335,6 +2365,45 @@ mod tests {
         assert!(title.contains("Untitled"), "expected Untitled fallback: {title}");
         // Must still have the date prefix
         assert_eq!(&title[4..5], "-", "missing date separator in untitled title: {title}");
+    }
+
+    #[test]
+    fn test_default_field_for_note_link_is_none() {
+        let schema = Schema {
+            name: "Test".to_string(),
+            fields: vec![FieldDefinition {
+                name: "linked_note".to_string(),
+                field_type: "note_link".to_string(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_type: None,
+            }],
+            title_can_view: true,
+            title_can_edit: true,
+            children_sort: "none".to_string(),
+            allowed_parent_types: vec![],
+            allowed_children_types: vec![],
+        };
+        let defaults = schema.default_fields();
+        assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));
+    }
+
+    #[test]
+    fn test_parse_note_link_target_type() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("Task", #{
+                fields: [
+                    #{ name: "project", type: "note_link", target_type: "Project" }
+                ]
+            });
+        "#, "test").unwrap();
+        let fields = get_schema_fields_for_test(&registry, "Task");
+        assert_eq!(fields[0].field_type, "note_link");
+        assert_eq!(fields[0].target_type, Some("Project".to_string()));
     }
 
 }

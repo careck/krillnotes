@@ -1,6 +1,29 @@
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Check, X } from 'lucide-react';
 import type { FieldValue, FieldType } from '../types';
 import { humaniseKey } from '../utils/humanise';
+
+function NoteLinkDisplay({ noteId }: { noteId: string }) {
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<{ id: string; title: string }>('get_note', { noteId })
+      .then(n => setTitle(n.title))
+      .catch(() => setTitle('(deleted)'));
+  }, [noteId]);
+
+  if (title === null) return <span>…</span>;
+
+  return (
+    <a
+      className="kn-view-link text-primary underline cursor-pointer"
+      data-note-id={noteId}
+    >
+      {title}
+    </a>
+  );
+}
 
 interface FieldDisplayProps {
   fieldName: string;
@@ -38,6 +61,12 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
         year: 'numeric', month: 'long', day: 'numeric',
       });
       return <p>{formatted}</p>;
+    }
+    if (fieldType === 'note_link') {
+      if (!value || !('NoteLink' in value) || (value as { NoteLink: string | null }).NoteLink === null) {
+        return <span>—</span>;
+      }
+      return <NoteLinkDisplay noteId={(value as { NoteLink: string | null }).NoteLink as string} />;
     }
     return <span className="text-muted-foreground italic">(unknown type)</span>;
   };
