@@ -2202,7 +2202,6 @@ mod tests {
 
     #[test]
     fn test_today_returns_yyyy_mm_dd() {
-        use std::collections::HashMap;
         let mut registry = ScriptRegistry::new().unwrap();
         // Wrap today() in an on_save hook so we test it through the normal hook path
         registry.load_script(r#"
