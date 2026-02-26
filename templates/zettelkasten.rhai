@@ -50,11 +50,11 @@ schema("Zettel", #{
 
         let rows = related.map(|n| [
             n.title,
-            n.tags.reduce(|a, b| a + ", " + b) ?? ""
+            if n.tags.len() == 0 { "" } else if n.tags.len() == 1 { n.tags[0] } else { n.tags.reduce(|a, b| a + ", " + b) }
         ]);
         let related_section = section(
             "Related Notes (" + related.len() + ")",
-            table(["Note", "Shared Tags"], rows)
+            table(["Note", "Tags"], rows)
         );
 
         stack([body_block, related_section])
@@ -86,13 +86,12 @@ schema("Kasten", #{
         let stats = count.to_string() + " Zettel · " + unique_tags.len().to_string() + " unique tags";
 
         // Sort children by title descending (YYYY-MM-DD prefix makes newest first)
-        let sorted = zettel;
-        sorted.sort_by(|a, b| a.title >= b.title);
+        zettel.sort_by(|a, b| a.title >= b.title);
 
-        let recent = if sorted.len() > 10 { sorted.extract(0, 10) } else { sorted };
+        let recent = if zettel.len() > 10 { zettel.extract(0, 10) } else { zettel };
         let rows = recent.map(|z| [
             z.title,
-            z.tags.reduce(|a, b| a + ", " + b) ?? "—"
+            if z.tags.len() == 0 { "—" } else if z.tags.len() == 1 { z.tags[0] } else { z.tags.reduce(|a, b| a + ", " + b) }
         ]);
 
         stack([
