@@ -401,6 +401,10 @@ impl Workspace {
         self.operation_log.log(&tx, &op)?;
         self.operation_log.purge_if_needed(&tx)?;
 
+        // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
+        // Must run inside the transaction so the link update is atomic with the note write.
+        sync_note_links(&tx, &note.id, &note.fields)?;
+
         tx.commit()?;
 
         Ok(note.id)
@@ -627,7 +631,12 @@ impl Workspace {
         self.operation_log.log(&tx, &op)?;
         self.operation_log.purge_if_needed(&tx)?;
 
+        // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
+        // Must run inside the transaction so the link update is atomic with the note write.
+        sync_note_links(&tx, &new_note.id, &new_note.fields)?;
+
         tx.commit()?;
+
         Ok(new_note.id)
     }
 
@@ -1517,6 +1526,10 @@ impl Workspace {
 
         self.operation_log.purge_if_needed(&tx)?;
 
+        // Keep the note_links junction table in sync with the written field values.
+        // Must run inside the transaction so the link update is atomic with the note write.
+        sync_note_links(&tx, note_id, &fields)?;
+
         tx.commit()?;
 
         // Re-use get_note to fetch the persisted row, keeping row-mapping logic
@@ -1841,6 +1854,31 @@ impl Workspace {
         }
         Ok(errors)
     }
+
+}
+
+/// Keeps the `note_links` junction table in sync with the current field values of a note.
+///
+/// Deletes all existing rows for `note_id` as source, then re-inserts one row
+/// for each `FieldValue::NoteLink(Some(...))` present in `fields`. This
+/// replace-all strategy is correct for a single-writer (local) store.
+///
+/// Must be called inside an open transaction so that the link update is
+/// atomic with the note write that precedes it.
+fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &HashMap<String, FieldValue>) -> Result<()> {
+    // Clear all existing note_links rows for this source note (replace strategy).
+    tx.execute("DELETE FROM note_links WHERE source_id = ?1", [note_id])?;
+    // Re-insert for any non-null NoteLink fields. No duplicates possible after
+    // the DELETE above, so plain INSERT is sufficient.
+    for (field_name, value) in fields {
+        if let FieldValue::NoteLink(Some(target_id)) = value {
+            tx.execute(
+                "INSERT INTO note_links (source_id, field_name, target_id) VALUES (?1, ?2, ?3)",
+                [note_id, field_name.as_str(), target_id.as_str()],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Raw 12-column tuple extracted from a `notes` + `note_tags` SQLite row.
@@ -3332,5 +3370,74 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         ws.update_note_tags(&root.id, vec!["  Rust  ".into(), "RUST".into(), "rust".into()]).unwrap();
         let note = ws.get_note(&root.id).unwrap();
         assert_eq!(note.tags, vec!["rust"]); // deduped, lowercased, trimmed
+    }
+
+    // ── note_links helpers ────────────────────────────────────────────────────
+
+    /// Creates a workspace with a single user script loaded (for schema setup).
+    /// Returns the workspace ready to use.
+    fn create_test_workspace_with_schema(schema_script: &str) -> Workspace {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        // Wrap the bare schema call in the required front matter so create_user_script accepts it.
+        let source = format!("// @name: TestSchema\n{schema_script}");
+        ws.create_user_script(&source).unwrap();
+        // Leak the tempfile so the DB file stays alive for the duration of the test.
+        std::mem::forget(temp);
+        ws
+    }
+
+    /// Creates a new root-level note of `note_type` and returns the full `Note`.
+    fn create_note_with_type(ws: &mut Workspace, note_type: &str) -> Note {
+        let id = ws.create_note_root(note_type).unwrap();
+        ws.get_note(&id).unwrap()
+    }
+
+    // ── note_links tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sync_note_links_inserts_row() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_id = ?1 AND target_id = ?2",
+            [&source.id, &target.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_sync_note_links_removes_row_when_cleared() {
+        let mut ws = create_test_workspace_with_schema(
+            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+        );
+        let target = create_note_with_type(&mut ws, "LinkTestType");
+        let source = create_note_with_type(&mut ws, "LinkTestType");
+
+        let mut fields = HashMap::new();
+        fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
+        ws.update_note(&source.id, source.title.clone(), fields).unwrap();
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("link".into(), FieldValue::NoteLink(None));
+        ws.update_note(&source.id, source.title.clone(), fields2).unwrap();
+
+        let conn = ws.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_id = ?1",
+            [&source.id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
     }
 }
