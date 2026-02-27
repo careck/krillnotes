@@ -656,6 +656,35 @@ fn get_all_tags(
 }
 
 #[tauri::command]
+fn get_workspace_metadata(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<WorkspaceMetadata, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get(label)
+        .ok_or("No workspace open")?;
+    workspace.get_workspace_metadata()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_workspace_metadata(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    metadata: WorkspaceMetadata,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+    workspace.set_workspace_metadata(&metadata)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_notes_for_tag(
     window: tauri::Window,
     state: State<'_, AppState>,
@@ -1268,6 +1297,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_copy_note",        "Edit > Copy Note clicked"),
     ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
     ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
+    ("workspace_properties",  "Edit > Workspace Properties clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -1405,6 +1435,8 @@ pub fn run() {
             update_note_tags,
             get_all_tags,
             get_notes_for_tag,
+            get_workspace_metadata,
+            set_workspace_metadata,
             get_note,
             search_notes,
             count_children,

@@ -1,5 +1,6 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
+use crate::core::export::WorkspaceMetadata;
 use crate::core::user_script;
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
@@ -1237,6 +1238,35 @@ impl Workspace {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Returns the workspace-level metadata (author, license, description, etc.).
+    ///
+    /// Returns a default (all-empty) [`WorkspaceMetadata`] when no metadata has been
+    /// stored yet, so callers can always treat the result as present.
+    pub fn get_workspace_metadata(&self) -> Result<WorkspaceMetadata> {
+        let result = self.storage.connection().query_row(
+            "SELECT value FROM workspace_meta WHERE key = 'workspace_metadata'",
+            [],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(WorkspaceMetadata::default()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Persists workspace-level metadata (author, license, description, etc.).
+    pub fn set_workspace_metadata(&mut self, metadata: &WorkspaceMetadata) -> Result<()> {
+        let json = serde_json::to_string(metadata).map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(e))
+        })?;
+        self.storage.connection().execute(
+            "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES ('workspace_metadata', ?)",
+            [&json],
+        )?;
+        Ok(())
     }
 
     /// Moves a note to a new parent and/or position within the tree.
@@ -3894,5 +3924,49 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_get_set_workspace_metadata() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+
+        // Fresh workspace returns default (no error)
+        let initial = ws.get_workspace_metadata().unwrap();
+        assert!(initial.author_name.is_none());
+        assert!(initial.tags.is_empty());
+
+        // Set and read back
+        let meta = WorkspaceMetadata {
+            version: 1,
+            author_name: Some("Bob".to_string()),
+            author_org: None,
+            homepage_url: None,
+            description: Some("My workspace".to_string()),
+            license: Some("CC BY 4.0".to_string()),
+            license_url: None,
+            language: Some("en".to_string()),
+            tags: vec!["productivity".to_string()],
+        };
+        ws.set_workspace_metadata(&meta).unwrap();
+
+        let restored = ws.get_workspace_metadata().unwrap();
+        assert_eq!(restored.author_name.as_deref(), Some("Bob"));
+        assert_eq!(restored.description.as_deref(), Some("My workspace"));
+        assert_eq!(restored.license.as_deref(), Some("CC BY 4.0"));
+        assert_eq!(restored.language.as_deref(), Some("en"));
+        assert_eq!(restored.tags, vec!["productivity"]);
+        assert!(restored.author_org.is_none());
+
+        // Overwrite with new values
+        let meta2 = WorkspaceMetadata {
+            version: 1,
+            author_name: Some("Alice".to_string()),
+            ..Default::default()
+        };
+        ws.set_workspace_metadata(&meta2).unwrap();
+        let updated = ws.get_workspace_metadata().unwrap();
+        assert_eq!(updated.author_name.as_deref(), Some("Alice"));
+        assert!(updated.description.is_none());
     }
 }

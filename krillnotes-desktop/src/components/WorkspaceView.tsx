@@ -10,6 +10,7 @@ import DeleteConfirmDialog from './DeleteConfirmDialog';
 import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
+import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
@@ -54,6 +55,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Operations log dialog state
   const [showOperationsLog, setShowOperationsLog] = useState(false);
+
+  // Workspace properties dialog state
+  const [showWorkspaceProperties, setShowWorkspaceProperties] = useState(false);
 
   // Drag and drop state
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
@@ -145,6 +149,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       }
       if (event.payload === 'View > Operations Log clicked') {
         setShowOperationsLog(true);
+      }
+      if (event.payload === 'Edit > Workspace Properties clicked') {
+        setShowWorkspaceProperties(true);
       }
     });
 
@@ -754,6 +761,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       <OperationsLogDialog
         isOpen={showOperationsLog}
         onClose={() => setShowOperationsLog(false)}
+      />
+
+      {/* Workspace Properties Dialog */}
+      <WorkspacePropertiesDialog
+        isOpen={showWorkspaceProperties}
+        onClose={() => setShowWorkspaceProperties(false)}
       />
 
       {/* Hover Tooltip */}
