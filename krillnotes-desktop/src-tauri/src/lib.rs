@@ -41,6 +41,12 @@ pub struct AppState {
     /// On macOS: one global pair keyed by "macos" (the menu bar is shared).
     /// On Windows: keyed by window label (each window owns its own menu bar).
     pub paste_menu_items: Arc<Mutex<HashMap<String, (tauri::menu::MenuItem<tauri::Wry>, tauri::menu::MenuItem<tauri::Wry>)>>>,
+    /// Workspace-specific menu item handles (Add Note, Delete Note, Copy Note,
+    /// Manage Scripts, Operations Log, Export Workspace).
+    /// On macOS: one global list keyed by "macos" — enabled when a workspace
+    /// opens, disabled when the last workspace window closes.
+    /// On Windows: items are enabled at window-creation time; no stored handles needed.
+    pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<tauri::menu::MenuItem<tauri::Wry>>>>>,
 }
 
 /// Serialisable summary of an open workspace, returned to the frontend.
@@ -121,10 +127,27 @@ fn create_workspace_window(
     let menu_result = menu::build_menu(app)
         .map_err(|e| format!("Failed to build menu: {e}"))?;
 
-    // On Windows, store the paste handles per window label so
-    // set_paste_menu_enabled can find them later.
+    // Enable workspace-specific menu items for this new workspace window.
+    // On macOS the menu bar is global, so we update the shared handles stored
+    // under "macos". On Windows each window owns its own menu bar, so we
+    // enable the items in the freshly-built menu before attaching it.
+    #[cfg(target_os = "macos")]
+    {
+        let state = app.state::<AppState>();
+        let items = state.workspace_menu_items.lock().expect("Mutex poisoned");
+        if let Some(ws_items) = items.get("macos") {
+            for item in ws_items {
+                item.set_enabled(true).map_err(|e| format!("Failed to enable menu item: {e}"))?;
+            }
+        }
+    }
     #[cfg(not(target_os = "macos"))]
     {
+        // Enable workspace items in this window's private menu before attaching it.
+        for item in &menu_result.workspace_items {
+            item.set_enabled(true).map_err(|e| format!("Failed to enable menu item: {e}"))?;
+        }
+        // Store the paste handles per window label so set_paste_menu_enabled can find them.
         let state = app.state::<AppState>();
         state.paste_menu_items.lock().expect("Mutex poisoned")
             .insert(label.to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
@@ -1247,6 +1270,7 @@ pub fn run() {
             focused_window: Arc::new(Mutex::new(None)),
             workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
+            workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();
@@ -1257,6 +1281,24 @@ pub fn run() {
                 tauri::WindowEvent::Destroyed => {
                     state.workspaces.lock().expect("Mutex poisoned").remove(&label);
                     state.workspace_paths.lock().expect("Mutex poisoned").remove(&label);
+
+                    // On macOS the menu bar is global. If this was the last
+                    // workspace window, disable workspace-specific items so
+                    // they appear greyed out if the launch window ever returns.
+                    #[cfg(target_os = "macos")]
+                    {
+                        let no_workspaces_remain = state.workspaces
+                            .lock().expect("Mutex poisoned").is_empty();
+                        if no_workspaces_remain {
+                            let items = state.workspace_menu_items
+                                .lock().expect("Mutex poisoned");
+                            if let Some(ws_items) = items.get("macos") {
+                                for item in ws_items {
+                                    let _ = item.set_enabled(false);
+                                }
+                            }
+                        }
+                    }
                 }
                 // Track which window is currently active so that menu events
                 // can be routed to the correct window (see handle_menu_event).
@@ -1271,13 +1313,15 @@ pub fn run() {
             app.set_menu(menu_result.menu)?;
 
             // On macOS the menu bar is global (shared by all windows).
-            // Store the paste handles under the "macos" key so that
-            // set_paste_menu_enabled can find them from any window.
+            // Store handles under the "macos" key so they can be found from
+            // any window later (set_paste_menu_enabled, workspace enable/disable).
             #[cfg(target_os = "macos")]
             {
                 let state = app.state::<AppState>();
                 state.paste_menu_items.lock().expect("Mutex poisoned")
                     .insert("macos".to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
+                state.workspace_menu_items.lock().expect("Mutex poisoned")
+                    .insert("macos".to_string(), menu_result.workspace_items);
             }
 
             // Ensure default workspace directory exists on startup
