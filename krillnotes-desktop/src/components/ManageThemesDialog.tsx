@@ -132,7 +132,8 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         const stripped = editorContent
           .split('\n')
           .filter(line => !/^\s*\/\//.test(line))
-          .join('\n');
+          .join('\n')
+          .replace(/,(\s*[}\]])/g, '$1');
         parsed = JSON.parse(stripped);
       } catch {
         throw new Error('Invalid JSON — check for syntax errors.');
