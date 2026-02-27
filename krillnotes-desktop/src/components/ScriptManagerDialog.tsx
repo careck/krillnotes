@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { GripVertical } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import ScriptEditor from './ScriptEditor';
 import type { UserScript, ScriptError, ScriptMutationResult } from '../types';
 
@@ -22,6 +23,21 @@ schema("NewType", #{
 
 type View = 'list' | 'editor';
 
+function parseFrontMatterName(source: string): string {
+  for (const line of source.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('//')) {
+      if (trimmed === '') continue;
+      break;
+    }
+    const body = trimmed.replace(/^\/\/\s*/, '');
+    if (body.startsWith('@name:')) {
+      return body.slice('@name:'.length).trim();
+    }
+  }
+  return '';
+}
+
 function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManagerDialogProps) {
   const [view, setView] = useState<View>('list');
   const [scripts, setScripts] = useState<UserScript[]>([]);
@@ -29,6 +45,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   const [editorContent, setEditorContent] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [importConflict, setImportConflict] = useState<UserScript | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -68,6 +85,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   if (!isOpen) return null;
 
   const handleAdd = () => {
+    setImportConflict(null);
     setEditingScript(null);
     setEditorContent(NEW_SCRIPT_TEMPLATE);
     setError('');
@@ -75,6 +93,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   };
 
   const handleEdit = (script: UserScript) => {
+    setImportConflict(null);
     setEditingScript(script);
     setEditorContent(script.sourceCode);
     setError('');
@@ -118,6 +137,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
         loadErrors = result.loadErrors;
       }
       await loadScripts();
+      setImportConflict(null);
       setView('list');
       onScriptsChanged?.();
       if (loadErrors.length > 0) {
@@ -147,6 +167,35 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     } catch (err) {
       setError(`Failed to delete: ${err}`);
     }
+  };
+
+  const handleImportFromFile = async () => {
+    setError('');
+    const path = await open({
+      filters: [{ name: 'Rhai Script', extensions: ['rhai'] }],
+      multiple: false,
+    });
+    if (!path) return;
+    try {
+      const content = await invoke<string>('read_file_content', { path });
+      const name = parseFrontMatterName(content);
+      const conflict = name ? (scripts.find(s => s.name === name) ?? null) : null;
+      setImportConflict(conflict);
+      setEditingScript(conflict ?? null);
+      setEditorContent(content);
+      setError('');
+      setView('editor');
+    } catch (e) {
+      setError(`Failed to read file: ${e}`);
+    }
+  };
+
+  const handleSaveOrReplace = async () => {
+    if (importConflict) {
+      const confirmed = confirm(`Replace script "${importConflict.name}"? This cannot be undone.`);
+      if (!confirmed) return;
+    }
+    await handleSave();
   };
 
   const handleDragStart = (index: number) => {
@@ -200,12 +249,20 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
             {/* List View Header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 className="text-xl font-bold">User Scripts</h2>
-              <button
-                onClick={handleAdd}
-                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm"
-              >
-                + Add
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAdd}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm"
+                >
+                  + Add
+                </button>
+                <button
+                  onClick={handleImportFromFile}
+                  className="px-3 py-1.5 border border-border rounded-md hover:bg-secondary text-sm"
+                >
+                  Import from file…
+                </button>
+              </div>
             </div>
 
             {/* Script List */}
@@ -291,6 +348,12 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
               </h2>
             </div>
 
+            {importConflict && (
+              <div className="px-4 py-2 text-sm text-yellow-700 bg-yellow-50 border-b border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-300">
+                A script named "{importConflict.name}" already exists. Saving will replace it.
+              </div>
+            )}
+
             {/* Editor */}
             <div className="flex-1 min-h-0 overflow-hidden p-4 flex flex-col">
               <ScriptEditor value={editorContent} onChange={setEditorContent} />
@@ -320,18 +383,18 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setView('list'); setError(''); }}
+                  onClick={() => { setImportConflict(null); setView('list'); setError(''); }}
                   className="px-4 py-2 border border-border rounded-md hover:bg-secondary"
                   disabled={saving}
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSave}
+                  onClick={handleSaveOrReplace}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                   disabled={saving}
                 >
-                  {saving ? 'Saving...' : 'Save'}
+                  {saving ? 'Saving...' : (importConflict ? 'Replace' : 'Save')}
                 </button>
               </div>
             </div>
