@@ -5,6 +5,9 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { rust } from '@codemirror/lang-rust';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from '@codemirror/language';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { useTheme } from '../contexts/ThemeContext';
+import { systemVariant } from '../utils/themeManager';
 
 interface ScriptEditorProps {
   value: string;
@@ -16,6 +19,9 @@ function ScriptEditor({ value, onChange }: ScriptEditorProps) {
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  const { activeMode } = useTheme();
+  const isDark = activeMode === 'dark' || (activeMode === 'system' && systemVariant() === 'dark');
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -32,6 +38,7 @@ function ScriptEditor({ value, onChange }: ScriptEditorProps) {
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         rust(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+        ...(isDark ? [oneDark] : []),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current(update.state.doc.toString());
@@ -62,7 +69,7 @@ function ScriptEditor({ value, onChange }: ScriptEditorProps) {
       view.destroy();
       viewRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDark]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update editor content when value changes externally (e.g. switching scripts)
   useEffect(() => {
