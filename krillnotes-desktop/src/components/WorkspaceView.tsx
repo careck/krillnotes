@@ -131,11 +131,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   useEffect(() => {
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
       if (event.payload === 'Edit > Add Note clicked') {
-        if (notes.length === 0) {
-          openAddDialog('root', null);
-        } else {
-          openAddDialog('child', selectedNoteId);
-        }
+        openAddDialogRef.current?.('child', selectedNoteIdRef.current);
       }
       if (event.payload === 'Edit > Manage Scripts clicked') {
         setShowScriptManager(true);
@@ -454,6 +450,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   };
 
   // Opens AddNoteDialog or creates directly if only one type is available
+  const openAddDialogRef = useRef<typeof openAddDialog | null>(null);
   const openAddDialog = (position: NotePosition, referenceNoteId: string | null) => {
     const available = getAvailableTypes(position, referenceNoteId, notes, schemas);
     if (available.length === 0) return;
@@ -469,6 +466,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     setAddDialogPosition(position);
     setShowAddDialog(true);
   };
+  openAddDialogRef.current = openAddDialog;
 
   const handleContextAddChild = (noteId: string) => {
     setContextMenu(null);
