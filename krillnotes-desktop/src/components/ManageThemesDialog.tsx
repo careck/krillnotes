@@ -174,7 +174,17 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         throw new Error('Invalid JSON — check for syntax errors.');
       }
       const name = parsed.name ?? 'unnamed';
-      const filename = editingMeta?.filename ?? `${name.toLowerCase().replace(/\s+/g, '-')}.krilltheme`;
+      let filename: string;
+      if (editingMeta?.filename) {
+        filename = editingMeta.filename;
+      } else {
+        const base = name.toLowerCase().replace(/\s+/g, '-');
+        const taken = new Set(themes.map(t => t.filename));
+        filename = `${base}.krilltheme`;
+        for (let i = 1; taken.has(filename); i++) {
+          filename = `${base}-${i}.krilltheme`;
+        }
+      }
       await invoke('write_theme', { filename, content: cleaned });
       await reloadThemes();
       setImportConflict(null);
@@ -218,8 +228,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         return;
       }
       const name = parsed.name ?? 'unnamed';
-      const derivedFilename = `${name.toLowerCase().replace(/\s+/g, '-')}.krilltheme`;
-      const conflict = themes.find(t => t.name === name || t.filename === derivedFilename) ?? null;
+      const conflict = themes.find(t => t.name === name) ?? null;
       setImportConflict(conflict);
       setEditingMeta(conflict ?? null);
       setEditorContent(content);
