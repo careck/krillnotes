@@ -189,6 +189,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   };
 
   const handleImportFromFile = async () => {
+    setError('');
     const path = await open({
       filters: [{ name: 'Krillnotes Theme', extensions: ['krilltheme'] }],
       multiple: false,
@@ -363,7 +364,10 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
             <div ref={containerRef} className="flex-1 overflow-hidden border-b border-border" />
             {(!editingMeta || !BUILT_IN_NAMES.includes(editingMeta.name)) && (
               <div className="px-4 py-3 flex justify-end gap-2">
-                <button onClick={() => setView('list')} className="text-sm text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => { setView('list'); setImportConflict(null); setError(''); }}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
                   Cancel
                 </button>
                 <button
