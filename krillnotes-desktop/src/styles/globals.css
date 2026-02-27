@@ -24,6 +24,17 @@
   --radius-lg: 0.5rem;
   --radius-md: calc(0.5rem - 2px);
   --radius-sm: calc(0.5rem - 4px);
+
+  /* Typography — driven at runtime by ThemeManager */
+  --typography-font-family: system-ui, sans-serif;
+  --typography-font-size: 14px;
+  --typography-line-height: 1.5;
+
+  /* Spacing scale (unitless multiplier, applied in ThemeManager) */
+  --spacing-scale: 1;
+
+  /* Icon size */
+  --icon-size: 16px;
 }
 
 :root[class~="dark"] {
@@ -55,6 +66,9 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
+  font-family: var(--typography-font-family);
+  font-size: var(--typography-font-size);
+  line-height: var(--typography-line-height);
 }
 
 /* ── View hook display helpers (kn-view-*) ──────────────────────────────────
