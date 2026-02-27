@@ -128,19 +128,20 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
     setError('');
     try {
       let parsed: { name?: string };
+      let cleaned: string;
       try {
-        const stripped = editorContent
+        cleaned = editorContent
           .split('\n')
           .filter(line => !/^\s*\/\//.test(line))
           .join('\n')
           .replace(/,(\s*[}\]])/g, '$1');
-        parsed = JSON.parse(stripped);
+        parsed = JSON.parse(cleaned);
       } catch {
         throw new Error('Invalid JSON — check for syntax errors.');
       }
       const name = parsed.name ?? 'unnamed';
       const filename = editingMeta?.filename ?? `${name.toLowerCase().replace(/\s+/g, '-')}.krilltheme`;
-      await invoke('write_theme', { filename, content: editorContent });
+      await invoke('write_theme', { filename, content: cleaned });
       await reloadThemes();
       setView('list');
     } catch (e) {
