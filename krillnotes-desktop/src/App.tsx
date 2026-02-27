@@ -3,7 +3,6 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
-import WelcomeDialog from './components/WelcomeDialog';
 import EmptyState from './components/EmptyState';
 import StatusMessage from './components/StatusMessage';
 import NewWorkspaceDialog from './components/NewWorkspaceDialog';
@@ -66,7 +65,6 @@ const createMenuHandlers = (
 });
 
 function App() {
-  const [showWelcome, setShowWelcome] = useState(true);
   const [workspace, setWorkspace] = useState<WorkspaceInfoType | null>(null);
   const [status, setStatus] = useState('');
   const [isError, setIsError] = useState(false);
@@ -89,11 +87,6 @@ function App() {
   const [pendingImportArgs, setPendingImportArgs] = useState<{ zipPath: string; dbPath: string; zipPassword?: string } | null>(null);
 
   useEffect(() => {
-    const welcomed = localStorage.getItem('krillnotes_welcomed');
-    if (welcomed === 'true') {
-      setShowWelcome(false);
-    }
-
     // If this is a workspace window (not "main"), fetch workspace info immediately
     import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) => {
       const window = getCurrentWebviewWindow();
@@ -101,7 +94,6 @@ function App() {
         invoke<WorkspaceInfoType>('get_workspace_info')
           .then(info => {
             setWorkspace(info);
-            setShowWelcome(false);
           })
           .catch(err => console.error('Failed to fetch workspace info:', err));
       }
@@ -262,15 +254,6 @@ function App() {
       }
     }
   };
-
-  const handleDismissWelcome = () => {
-    localStorage.setItem('krillnotes_welcomed', 'true');
-    setShowWelcome(false);
-  };
-
-  if (showWelcome) {
-    return <WelcomeDialog onDismiss={handleDismissWelcome} />;
-  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
