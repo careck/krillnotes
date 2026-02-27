@@ -1125,10 +1125,20 @@ fn delete_theme(filename: String) -> std::result::Result<(), String> {
     themes::delete_theme(&filename)
 }
 
+/// Reads and returns the text content of the file at `path`.
+/// Only `.rhai` and `.krilltheme` files are allowed.
+/// Returns an error string if the extension is not permitted, the file does
+/// not exist, or cannot be read.
 fn read_file_content_impl(path: &str) -> std::result::Result<String, String> {
+    let allowed = path.ends_with(".rhai") || path.ends_with(".krilltheme");
+    if !allowed {
+        return Err(format!("Only .rhai and .krilltheme files may be imported: {path}"));
+    }
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
+/// Reads and returns the full text of a user-selected import file.
+/// Accepts only `.rhai` and `.krilltheme` files.
 #[tauri::command]
 fn read_file_content(path: String) -> std::result::Result<String, String> {
     read_file_content_impl(&path)
@@ -1399,17 +1409,37 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn read_file_content_impl_returns_file_text() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sample.txt");
-        std::fs::write(&path, "hello import").unwrap();
-        let result = super::read_file_content_impl(path.to_str().unwrap());
-        assert_eq!(result.unwrap(), "hello import");
+    fn read_file_content_impl_rejects_disallowed_extension() {
+        let result = super::read_file_content_impl("/some/path/credentials.txt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Only .rhai and .krilltheme"));
     }
 
     #[test]
-    fn read_file_content_impl_errors_on_missing_file() {
-        let result = super::read_file_content_impl("/nonexistent/__krillnotes_test__.txt");
+    fn read_file_content_impl_errors_on_missing_rhai_file() {
+        // Use a path with allowed extension but nonexistent file
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("__missing__.rhai");
+        // Do NOT create the file — it should not exist
+        let result = super::read_file_content_impl(path.to_str().unwrap());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_content_impl_allows_rhai_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("script.rhai");
+        std::fs::write(&path, "// @name: Test").unwrap();
+        let result = super::read_file_content_impl(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), "// @name: Test");
+    }
+
+    #[test]
+    fn read_file_content_impl_allows_krilltheme_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.krilltheme");
+        std::fs::write(&path, r#"{"name":"Test"}"#).unwrap();
+        let result = super::read_file_content_impl(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), r#"{"name":"Test"}"#);
     }
 }
