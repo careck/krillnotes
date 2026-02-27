@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
 import EmptyState from './components/EmptyState';
@@ -88,7 +88,7 @@ function App() {
 
   useEffect(() => {
     // If this is a workspace window (not "main"), fetch workspace info immediately
-    import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) => {
+    {
       const window = getCurrentWebviewWindow();
       if (window.label !== 'main') {
         invoke<WorkspaceInfoType>('get_workspace_info')
@@ -97,7 +97,7 @@ function App() {
           })
           .catch(err => console.error('Failed to fetch workspace info:', err));
       }
-    });
+    }
   }, []);
 
   const statusSetter = (msg: string, error = false) => {
@@ -224,7 +224,6 @@ function App() {
 
       const currentVersion = await invoke<string>('get_app_version');
       if (result.appVersion > currentVersion) {
-        const { confirm } = await import('@tauri-apps/plugin-dialog');
         const proceed = await confirm(
           `This export was created with Krillnotes v${result.appVersion}, but you are running v${currentVersion}. Some data may not import correctly.\n\nImport anyway?`,
           { title: 'Version Mismatch', kind: 'warning' }
