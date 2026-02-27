@@ -1125,6 +1125,15 @@ fn delete_theme(filename: String) -> std::result::Result<(), String> {
     themes::delete_theme(&filename)
 }
 
+fn read_file_content_impl(path: &str) -> std::result::Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_file_content(path: String) -> std::result::Result<String, String> {
+    read_file_content_impl(&path)
+}
+
 // ── Settings commands ─────────────────────────────────────────────
 
 /// Returns the current application settings.
@@ -1379,9 +1388,28 @@ pub fn run() {
             read_theme,
             write_theme,
             delete_theme,
+            read_file_content,
             list_workspace_files,
             get_cached_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn read_file_content_impl_returns_file_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.txt");
+        std::fs::write(&path, "hello import").unwrap();
+        let result = super::read_file_content_impl(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), "hello import");
+    }
+
+    #[test]
+    fn read_file_content_impl_errors_on_missing_file() {
+        let result = super::read_file_content_impl("/nonexistent/__krillnotes_test__.txt");
+        assert!(result.is_err());
+    }
 }
