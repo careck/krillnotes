@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
 import { themeManager, watchSystem, systemVariant, type ThemeVariant } from '../utils/themeManager';
 import type { ThemeMeta } from '../utils/theme';
 import type { AppSettings } from '../types';
@@ -45,11 +46,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Load settings and apply theme on mount.
+  // Load settings and apply theme on mount; also listen for theme changes
+  // broadcast by other windows so all windows stay in sync.
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       try {
         const settings = await invoke<AppSettings>('get_settings');
+        if (!mounted) return;
         settingsRef.current = settings;
         const mode = settings.activeThemeMode ?? 'system';
         const light = settings.lightTheme ?? 'light';
@@ -63,6 +68,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         console.error('ThemeContext: failed to load settings', e);
       }
     })();
+
+    const unlistenPromise = listen<{ activeThemeMode: string; lightTheme: string; darkTheme: string }>(
+      'krillnotes://theme-changed',
+      (event) => {
+        if (!mounted) return;
+        const { activeThemeMode, lightTheme, darkTheme } = event.payload;
+        setActiveMode(activeThemeMode);
+        setLightThemeName(lightTheme);
+        setDarkThemeName(darkTheme);
+        applyCurrentTheme(activeThemeMode, lightTheme, darkTheme);
+      },
+    );
+
+    return () => {
+      mounted = false;
+      unlistenPromise.then(unlisten => unlisten());
+    };
   }, [applyCurrentTheme, reloadThemes]);
 
   // Watch system preference when mode === "system".
@@ -80,7 +102,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const base = settingsRef.current ?? await invoke<AppSettings>('get_settings');
       const updated = { ...base, ...patch };
       settingsRef.current = updated;
-      await invoke('update_settings', { settings: updated });
+      await invoke('update_settings', { patch: updated });
+      await emit('krillnotes://theme-changed', {
+        activeThemeMode: updated.activeThemeMode,
+        lightTheme: updated.lightTheme,
+        darkTheme: updated.darkTheme,
+      });
     },
     [],
   );

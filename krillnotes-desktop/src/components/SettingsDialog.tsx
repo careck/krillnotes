@@ -57,7 +57,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     setError('');
     try {
       await invoke('update_settings', {
-        settings: {
+        patch: {
           workspaceDirectory: workspaceDir,
           cacheWorkspacePasswords: cachePasswords,
         },

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -65,11 +66,12 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   const [editorContent, setEditorContent] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [importConflict, setImportConflict] = useState<ThemeMeta | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
   useEffect(() => {
-    if (isOpen) { reloadThemes(); setView('list'); setError(''); }
+    if (isOpen) { reloadThemes(); setView('list'); setError(''); setImportConflict(null); }
   }, [isOpen, reloadThemes]);
 
   // CodeMirror lifecycle
@@ -104,7 +106,15 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { view === 'editor' ? setView('list') : onClose(); }
+      if (e.key === 'Escape') {
+        if (view === 'editor') {
+          setImportConflict(null);
+          setView('list');
+          setError('');
+        } else {
+          onClose();
+        }
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -116,6 +126,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
     setEditingMeta(null);
     setEditorContent(NEW_THEME_TEMPLATE);
     setError('');
+    setImportConflict(null);
     setView('editor');
   };
 
@@ -130,6 +141,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
       );
       setEditorContent(preview);
       setError('');
+      setImportConflict(null);
       setView('editor');
       return;
     }
@@ -138,6 +150,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
       setEditingMeta(meta);
       setEditorContent(content);
       setError('');
+      setImportConflict(null);
       setView('editor');
     } catch (e) {
       setError(`Failed to read theme: ${e}`);
@@ -161,9 +174,20 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         throw new Error('Invalid JSON — check for syntax errors.');
       }
       const name = parsed.name ?? 'unnamed';
-      const filename = editingMeta?.filename ?? `${name.toLowerCase().replace(/\s+/g, '-')}.krilltheme`;
+      let filename: string;
+      if (editingMeta?.filename) {
+        filename = editingMeta.filename;
+      } else {
+        const base = name.toLowerCase().replace(/\s+/g, '-');
+        const taken = new Set(themes.map(t => t.filename));
+        filename = `${base}.krilltheme`;
+        for (let i = 1; taken.has(filename); i++) {
+          filename = `${base}-${i}.krilltheme`;
+        }
+      }
       await invoke('write_theme', { filename, content: cleaned });
       await reloadThemes();
+      setImportConflict(null);
       setView('list');
     } catch (e) {
       setError(String(e));
@@ -173,13 +197,54 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   };
 
   const handleDelete = async (meta: ThemeMeta) => {
-    if (!confirm(`Delete theme "${meta.name}"?`)) return;
+    if (!await confirm(`Delete theme "${meta.name}"?`)) return;
     try {
       await invoke('delete_theme', { filename: meta.filename });
       await reloadThemes();
     } catch (e) {
       setError(`Failed to delete: ${e}`);
     }
+  };
+
+  const handleImportFromFile = async () => {
+    setError('');
+    const path = await open({
+      filters: [{ name: 'Krillnotes Theme', extensions: ['krilltheme'] }],
+      multiple: false,
+    });
+    if (!path) return;
+    try {
+      const content = await invoke<string>('read_file_content', { path });
+      const cleaned = content
+        .split('\n')
+        .filter(line => !/^\s*\/\//.test(line))
+        .join('\n')
+        .replace(/,(\s*[}\]])/g, '$1');
+      let parsed: { name?: string };
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        setError('Invalid theme file — could not parse JSON.');
+        return;
+      }
+      const name = parsed.name ?? 'unnamed';
+      const conflict = themes.find(t => t.name === name) ?? null;
+      setImportConflict(conflict);
+      setEditingMeta(conflict ?? null);
+      setEditorContent(content);
+      setError('');
+      setView('editor');
+    } catch (e) {
+      setError(`Failed to read file: ${e}`);
+    }
+  };
+
+  const handleSaveOrReplace = async () => {
+    if (importConflict) {
+      const confirmed = await confirm(`Replace theme "${importConflict.name}"? This cannot be undone.`);
+      if (!confirmed) return;
+    }
+    await handleSave();
   };
 
   const BUILT_IN_METAS: ThemeMeta[] = [
@@ -198,7 +263,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
             {view === 'list' ? 'Manage Themes' : (editingMeta ? `Editing: ${editingMeta.name}` : 'New Theme')}
           </h2>
           <button
-            onClick={view === 'editor' ? () => setView('list') : onClose}
+            onClick={view === 'editor' ? () => { setView('list'); setImportConflict(null); setError(''); } : onClose}
             className="text-muted-foreground hover:text-foreground text-sm"
           >
             {view === 'editor' ? '← Back' : '✕'}
@@ -280,12 +345,20 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
               })}
             </div>
             <div className="px-4 py-3 border-t border-border flex justify-between">
-              <button
-                onClick={handleNew}
-                className="text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90"
-              >
-                + New Theme
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleNew}
+                  className="text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90"
+                >
+                  + New Theme
+                </button>
+                <button
+                  onClick={handleImportFromFile}
+                  className="text-sm px-3 py-1.5 rounded border border-border text-foreground hover:bg-secondary"
+                >
+                  Import from file…
+                </button>
+              </div>
               <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
                 Close
               </button>
@@ -301,18 +374,26 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                 Built-in themes are read-only. Create a new theme to customise colours and typography.
               </div>
             )}
+            {importConflict && (
+              <div className="px-4 py-2 text-sm text-yellow-700 bg-yellow-50 border-b border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-300">
+                A theme named "{importConflict.name}" already exists. Saving will replace it.
+              </div>
+            )}
             <div ref={containerRef} className="flex-1 overflow-hidden border-b border-border" />
             {(!editingMeta || !BUILT_IN_NAMES.includes(editingMeta.name)) && (
               <div className="px-4 py-3 flex justify-end gap-2">
-                <button onClick={() => setView('list')} className="text-sm text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => { setView('list'); setImportConflict(null); setError(''); }}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSave}
+                  onClick={handleSaveOrReplace}
                   disabled={saving}
                   className="text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? 'Saving…' : (importConflict ? 'Replace' : 'Save')}
                 </button>
               </div>
             )}

@@ -1125,6 +1125,25 @@ fn delete_theme(filename: String) -> std::result::Result<(), String> {
     themes::delete_theme(&filename)
 }
 
+/// Reads and returns the text content of the file at `path`.
+/// Only `.rhai` and `.krilltheme` files are allowed.
+/// Returns an error string if the extension is not permitted, the file does
+/// not exist, or cannot be read.
+fn read_file_content_impl(path: &str) -> std::result::Result<String, String> {
+    let allowed = path.ends_with(".rhai") || path.ends_with(".krilltheme");
+    if !allowed {
+        return Err(format!("Only .rhai and .krilltheme files may be imported: {path}"));
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+/// Reads and returns the full text of a user-selected import file.
+/// Accepts only `.rhai` and `.krilltheme` files.
+#[tauri::command]
+fn read_file_content(path: String) -> std::result::Result<String, String> {
+    read_file_content_impl(&path)
+}
+
 // ── Settings commands ─────────────────────────────────────────────
 
 /// Returns the current application settings.
@@ -1134,9 +1153,25 @@ fn get_settings() -> std::result::Result<settings::AppSettings, String> {
 }
 
 /// Updates and persists the application settings.
+///
+/// Accepts a partial JSON object and merges it onto the current settings on
+/// disk, so callers only need to supply the fields they care about — missing
+/// fields are preserved rather than reset to defaults.
 #[tauri::command]
-fn update_settings(settings: settings::AppSettings) -> std::result::Result<(), String> {
-    settings::save_settings(&settings)
+fn update_settings(patch: serde_json::Value) -> std::result::Result<(), String> {
+    let current = settings::load_settings();
+    let mut current_value = serde_json::to_value(&current)
+        .map_err(|e| format!("Failed to serialize settings: {e}"))?;
+    if let (serde_json::Value::Object(curr), serde_json::Value::Object(p)) =
+        (&mut current_value, patch)
+    {
+        for (k, v) in p {
+            curr.insert(k, v);
+        }
+    }
+    let updated: settings::AppSettings = serde_json::from_value(current_value)
+        .map_err(|e| format!("Failed to deserialize merged settings: {e}"))?;
+    settings::save_settings(&updated)
 }
 
 /// Entry returned by [`list_workspace_files`], representing a `.db` file
@@ -1379,9 +1414,48 @@ pub fn run() {
             read_theme,
             write_theme,
             delete_theme,
+            read_file_content,
             list_workspace_files,
             get_cached_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn read_file_content_impl_rejects_disallowed_extension() {
+        let result = super::read_file_content_impl("/some/path/credentials.txt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Only .rhai and .krilltheme"));
+    }
+
+    #[test]
+    fn read_file_content_impl_errors_on_missing_rhai_file() {
+        // Use a path with allowed extension but nonexistent file
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("__missing__.rhai");
+        // Do NOT create the file — it should not exist
+        let result = super::read_file_content_impl(path.to_str().unwrap());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_file_content_impl_allows_rhai_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("script.rhai");
+        std::fs::write(&path, "// @name: Test").unwrap();
+        let result = super::read_file_content_impl(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), "// @name: Test");
+    }
+
+    #[test]
+    fn read_file_content_impl_allows_krilltheme_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.krilltheme");
+        std::fs::write(&path, r#"{"name":"Test"}"#).unwrap();
+        let result = super::read_file_content_impl(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), r#"{"name":"Test"}"#);
+    }
 }

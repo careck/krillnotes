@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import DOMPurify from 'dompurify';
 import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
@@ -204,9 +205,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     );
   }
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (isDirty) {
-      if (!confirm('Discard changes?')) {
+      if (!await confirm('Discard changes?')) {
         return;
       }
     }
