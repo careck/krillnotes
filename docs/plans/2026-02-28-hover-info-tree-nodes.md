@@ -339,8 +339,8 @@ Append at end of file:
   min-width: 160px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -364,7 +364,7 @@ Append at end of file:
   height: 0;
   border-top: 7px solid transparent;
   border-bottom: 7px solid transparent;
-  border-right: 8px solid hsl(var(--border));
+  border-right: 8px solid var(--color-border);
 }
 
 .kn-hover-tooltip::after {
@@ -377,7 +377,7 @@ Append at end of file:
   height: 0;
   border-top: 6px solid transparent;
   border-bottom: 6px solid transparent;
-  border-right: 7px solid hsl(var(--background));
+  border-right: 7px solid var(--color-background);
 }
 
 .kn-hover-tooltip__row {
@@ -388,13 +388,13 @@ Append at end of file:
 }
 
 .kn-hover-tooltip__label {
-  color: hsl(var(--muted-foreground));
+  color: var(--color-muted-foreground);
   font-size: 0.75rem;
   white-space: nowrap;
 }
 
 .kn-hover-tooltip__value {
-  color: hsl(var(--foreground));
+  color: var(--color-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
