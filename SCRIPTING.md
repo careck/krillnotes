@@ -17,14 +17,15 @@ User scripts are managed through **Settings → Scripts**. The bundled system sc
 4. [Schema options](#4-schema-options)
 5. [on_save hook](#5-on_save-hook)
 6. [on_view hook](#6-on_view-hook)
-7. [on_add_child hook](#7-on_add_child-hook)
-8. [add_tree_action](#8-add_tree_action)
-9. [Display helpers](#9-display-helpers)
-10. [Query functions](#10-query-functions)
-11. [Utility functions](#11-utility-functions)
-12. [Introspection functions](#12-introspection-functions)
-13. [Tips and patterns](#13-tips-and-patterns)
-14. [Built-in script examples](#14-built-in-script-examples)
+7. [on_hover hook](#7-on_hover-hook)
+8. [on_add_child hook](#8-on_add_child-hook)
+9. [add_tree_action](#9-add_tree_action)
+10. [Display helpers](#10-display-helpers)
+11. [Query functions](#11-query-functions)
+12. [Utility functions](#12-utility-functions)
+13. [Introspection functions](#13-introspection-functions)
+14. [Tips and patterns](#14-tips-and-patterns)
+15. [Built-in script examples](#15-built-in-script-examples)
 
 ---
 
@@ -75,6 +76,7 @@ schema("TypeName", #{
     // --- optional hooks ---
     on_save:      |note| { /* … */ note },
     on_view:      |note| { /* … */ text("") },
+    on_hover:     |note| { /* … */ field("…", "…") },
     on_add_child: |parent_note, child_note| { /* … */ #{ parent: parent_note, child: child_note } },
 });
 ```
@@ -96,13 +98,14 @@ Each entry in `fields` is a map:
 
 ```rhai
 #{
-    name:     "my_field",   // required — snake_case string
-    type:     "text",       // required — see Field types below
-    required: false,        // optional — default: false
-    can_view: true,         // optional — show in view mode (default: true)
-    can_edit: true,         // optional — show in edit mode (default: true)
-    options:  ["A", "B"],   // required for "select" fields
-    max:      5,            // required for "rating" fields
+    name:          "my_field",   // required — snake_case string
+    type:          "text",       // required — see Field types below
+    required:      false,        // optional — default: false
+    can_view:      true,         // optional — show in view mode (default: true)
+    can_edit:      true,         // optional — show in edit mode (default: true)
+    show_on_hover: false,        // optional — show in hover tooltip (default: false)
+    options:       ["A", "B"],   // required for "select" fields
+    max:           5,            // required for "rating" fields
 }
 ```
 
@@ -333,7 +336,7 @@ schema("Task", #{
 
 The `on_view` hook runs when a note is selected in the view panel. It is defined as a key
 inside the `schema()` map. It receives the note map and must return an HTML string built
-with the [display helper functions](#8-display-helpers). The default field rendering is
+with the [display helper functions](#10-display-helpers). The default field rendering is
 replaced entirely by this output; users still switch to edit mode normally.
 
 ```rhai
@@ -385,7 +388,68 @@ schema("MyType", #{
 
 ---
 
-## 7. `on_add_child` hook
+## 7. `on_hover` hook
+
+The `on_hover` hook runs when the user hovers a tree node for about 600 ms. It is defined
+as a key inside the `schema()` map. It receives the note map and must return an HTML string
+built with [display helper functions](#10-display-helpers). The result is shown in a compact
+speech-bubble tooltip to the right of the tree panel.
+
+```rhai
+schema("TypeName", #{
+    fields: [ /* … */ ],
+    on_hover: |note| {
+        field("Status", note.fields["status"] ?? "-")
+    }
+});
+```
+
+When no `on_hover` hook is registered, the tooltip falls back to showing any fields that
+have `show_on_hover: true`. If neither is present, no tooltip appears.
+
+### Simple path — `show_on_hover: true`
+
+For a quick single-field preview, mark the field with `show_on_hover: true` and skip the
+hook entirely. No IPC round-trip is made — the value is already in the frontend.
+
+```rhai
+schema("Note", #{
+    fields: [
+        #{ name: "body", type: "textarea", required: false, show_on_hover: true },
+    ]
+});
+```
+
+Multiple `show_on_hover` fields are all shown, in definition order.
+
+### Power path — `on_hover` hook
+
+Use the hook when you need to run queries or compose richer content:
+
+```rhai
+schema("ProjectFolder", #{
+    fields: [],
+    on_hover: |note| {
+        let open   = get_children(note.id).filter(|c| c.fields["status"] != "DONE");
+        let closed = get_children(note.id).filter(|c| c.fields["status"] == "DONE");
+        stack([
+            field("Open",   open.len().to_string()),
+            field("Closed", closed.len().to_string()),
+        ])
+    }
+});
+```
+
+All [query functions](#11-query-functions) and [display helpers](#10-display-helpers)
+available in `on_view` are also available in `on_hover`. Keep the output concise — the
+tooltip has a maximum width and is not scrollable.
+
+> **Priority:** If a schema has an `on_hover` hook, it always takes precedence over
+> `show_on_hover` field flags. The flags are only used when no hook is registered.
+
+---
+
+## 8. `on_add_child` hook
 
 The `on_add_child` hook runs whenever a note is created as a child — or moved via
 drag-and-drop — under a note whose schema defines the hook. It receives both the parent
@@ -464,7 +528,7 @@ schema("TypeName", #{
 
 ---
 
-## 8. `add_tree_action`
+## 9. `add_tree_action`
 
 `add_tree_action` registers a custom entry in the tree's right-click context menu.
 
@@ -560,7 +624,7 @@ add_tree_action("Create Sprint Template", ["TextNote"], |container| {
 
 ---
 
-## 9. Display helpers
+## 10. Display helpers
 
 All helpers return an HTML string. All user-supplied text is HTML-escaped automatically.
 
@@ -770,7 +834,7 @@ table(["Name", "Email"], rows)
 
 ---
 
-## 10. Query functions
+## 11. Query functions
 
 Query functions are available inside `on_view` hooks and `add_tree_action` closures. They let you fetch related notes
 from the workspace without leaving the scripting layer.
@@ -858,7 +922,7 @@ to hooks:
 
 ---
 
-## 11. Utility functions
+## 12. Utility functions
 
 ### `today()`
 
@@ -880,7 +944,7 @@ schema("Journal", #{
 
 ---
 
-## 12. Introspection functions
+## 13. Introspection functions
 
 These are available both at the top level and inside hooks.
 
@@ -905,7 +969,7 @@ let defs = get_schema_fields("Task");
 
 ---
 
-## 13. Tips and patterns
+## 14. Tips and patterns
 
 ### Null-coalescing with `??`
 
@@ -1037,7 +1101,7 @@ This is unlikely to be intentional and should be avoided.
 
 ---
 
-## 14. Built-in script examples
+## 15. Built-in script examples
 
 The following scripts ship with Krillnotes and can be studied as complete examples.
 
@@ -1143,12 +1207,13 @@ schema("Contact", #{
 });
 ```
 
-### Zettelkasten — atomic notes with `today()`, `note.tags`, and related-note discovery
+### Zettelkasten — atomic notes with `today()`, `note.tags`, hover preview, and related-note discovery
 
 A folder/note pair. `Zettel` notes are auto-titled with today's date and the first six
-words of the body. The `Kasten` folder shows recent notes; the `Zettel` `on_view` uses
-`note.tags` and `get_notes_for_tag` to surface related notes. Available as
-`templates/zettelkasten.rhai`.
+words of the body. The body field uses `show_on_hover: true` so a preview appears on
+hover without a hook. The `Kasten` folder shows recent notes and uses `on_hover` to
+display a live child count. The `Zettel` `on_view` uses `note.tags` and
+`get_notes_for_tag` to surface related notes. Available as `templates/zettelkasten.rhai`.
 
 ```rhai
 fn tag_list(tags) {
@@ -1163,7 +1228,7 @@ schema("Zettel", #{
     title_can_edit: false,
     allowed_parent_types: ["Kasten"],
     fields: [
-        #{ name: "body", type: "textarea", required: false },
+        #{ name: "body", type: "textarea", required: false, show_on_hover: true },
     ],
     on_save: |note| {
         let body  = note.fields["body"] ?? "";
@@ -1192,6 +1257,10 @@ schema("Zettel", #{
 schema("Kasten", #{
     allowed_children_types: ["Zettel"],
     fields: [],
+    on_hover: |note| {
+        let kids = get_children(note.id);
+        field("Notes", kids.len().to_string())
+    },
     on_view: |note| {
         let zettel = get_children(note.id);
         if zettel.len() == 0 { return text("No notes yet."); }
