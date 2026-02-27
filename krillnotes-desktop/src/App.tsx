@@ -11,6 +11,7 @@ import SettingsDialog from './components/SettingsDialog';
 import SetPasswordDialog from './components/SetPasswordDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
 import './styles/globals.css';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 function slugify(name: string): string {
   return name
@@ -255,6 +256,7 @@ function App() {
   };
 
   return (
+    <ThemeProvider>
     <div className="min-h-screen bg-background text-foreground">
       {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <div className="p-8"><EmptyState /></div>}
       {status && <StatusMessage message={status} isError={isError} />}
@@ -477,6 +479,7 @@ function App() {
         </div>
       )}
     </div>
+    </ThemeProvider>
   );
 }
 
