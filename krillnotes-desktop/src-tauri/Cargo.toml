@@ -27,3 +27,5 @@ krillnotes-core = { path = "../../krillnotes-core" }
 mimalloc = { version = "0.1", default-features = false }
 dirs = "6"
 
+[dev-dependencies]
+tempfile = "3"

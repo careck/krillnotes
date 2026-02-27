@@ -6,6 +6,7 @@
 
 pub mod menu;
 pub mod settings;
+pub mod themes;
 
 use tauri::Emitter;
 
