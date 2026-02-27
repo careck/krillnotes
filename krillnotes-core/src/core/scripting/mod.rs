@@ -125,6 +125,7 @@ impl ScriptRegistry {
         let on_save_arc       = schema_registry.on_save_hooks_arc();
         let on_view_arc       = schema_registry.on_view_hooks_arc();
         let on_add_child_arc  = schema_registry.on_add_child_hooks_arc();
+        let on_hover_arc      = schema_registry.on_hover_hooks_arc();
         let schema_ast_arc    = Arc::clone(&current_loading_ast);
         let schema_name_arc   = Arc::clone(&current_loading_script_name);
         let schema_owners_arc = Arc::clone(&schema_owners);
@@ -178,6 +179,15 @@ impl ScriptRegistry {
                         "schema() called outside of load_script".to_string().into()
                     })?;
                 on_add_child_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name: script_name.clone() });
+            }
+
+            // Extract optional on_hover closure.
+            if let Some(fn_ptr) = def.get("on_hover").and_then(|v| v.clone().try_cast::<FnPtr>()) {
+                let ast = schema_ast_arc.lock().unwrap().clone()
+                    .ok_or_else(|| -> Box<EvalAltResult> {
+                        "schema() called outside of load_script".to_string().into()
+                    })?;
+                on_hover_arc.lock().unwrap().insert(name.clone(), HookEntry { fn_ptr, ast, script_name: script_name.clone() });
             }
 
             Ok(Dynamic::UNIT)
@@ -613,6 +623,11 @@ impl ScriptRegistry {
         self.schema_registry.has_view_hook(schema_name)
     }
 
+    /// Returns `true` if an on_hover hook is registered for `schema_name`.
+    pub fn has_hover_hook(&self, schema_name: &str) -> bool {
+        self.schema_registry.has_hover_hook(schema_name)
+    }
+
     /// Renders a default HTML view for `note` using schema field type information.
     ///
     /// Used when no `on_view` hook is registered for the note's type — the result
@@ -659,6 +674,37 @@ impl ScriptRegistry {
         // Install query context, run hook, then clear.
         *self.query_context.lock().unwrap() = Some(context);
         let result = self.schema_registry.run_on_view_hook(&self.engine, note_map);
+        *self.query_context.lock().unwrap() = None;
+        result
+    }
+
+    /// Runs the hover hook registered for the given note's schema, if any.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for the note's schema.
+    /// Returns `Ok(Some(html))` with the generated HTML on success.
+    pub fn run_on_hover_hook(
+        &self,
+        note: &Note,
+        context: QueryContext,
+    ) -> Result<Option<String>> {
+        // Build note map — same shape as on_view (id, node_type, title, fields, tags).
+        let mut fields_map = Map::new();
+        for (k, v) in &note.fields {
+            fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
+        }
+        let mut note_map = Map::new();
+        note_map.insert("id".into(), Dynamic::from(note.id.clone()));
+        note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+        note_map.insert("title".into(), Dynamic::from(note.title.clone()));
+        note_map.insert("fields".into(), Dynamic::from(fields_map));
+        let tags_array: rhai::Array = note.tags.iter()
+            .map(|t| Dynamic::from(t.clone()))
+            .collect();
+        note_map.insert("tags".into(), Dynamic::from(tags_array));
+
+        // Install query context, run hook, then clear.
+        *self.query_context.lock().unwrap() = Some(context);
+        let result = self.schema_registry.run_on_hover_hook(&self.engine, note_map);
         *self.query_context.lock().unwrap() = None;
         result
     }
@@ -2409,6 +2455,47 @@ mod tests {
         let fields = get_schema_fields_for_test(&registry, "Task");
         assert_eq!(fields[0].field_type, "note_link");
         assert_eq!(fields[0].target_type, Some("Project".to_string()));
+    }
+
+    // ── on_hover hook ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_has_hover_hook_registered() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            // @name: HoverHook
+            schema("WithHover", #{
+                fields: [#{ name: "body", type: "text" }],
+                on_hover: |note| { "hover: " + note.title },
+            });
+        "#, "HoverHook").unwrap();
+        assert!(registry.has_hover_hook("WithHover"));
+        assert!(!registry.has_hover_hook("Nonexistent"));
+    }
+
+    #[test]
+    fn test_run_on_hover_hook_returns_html() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            // @name: HoverRun
+            schema("HoverRun", #{
+                fields: [#{ name: "body", type: "text" }],
+                on_hover: |note| { "HOVER:" + note.title },
+            });
+        "#, "HoverRun").unwrap();
+        let note = crate::Note {
+            id: "id1".into(), title: "Test Note".into(), node_type: "HoverRun".into(),
+            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            created_by: 0, modified_by: 0,
+            fields: std::collections::HashMap::new(), is_expanded: false, tags: vec![],
+        };
+        let ctx = QueryContext {
+            notes_by_id: Default::default(), children_by_id: Default::default(),
+            notes_by_type: Default::default(), notes_by_tag: Default::default(),
+            notes_by_link_target: Default::default(),
+        };
+        let html = registry.run_on_hover_hook(&note, ctx).unwrap();
+        assert_eq!(html, Some("HOVER:Test Note".to_string()));
     }
 
     // ── show_on_hover ────────────────────────────────────────────────────────
