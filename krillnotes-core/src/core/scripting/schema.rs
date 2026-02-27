@@ -44,6 +44,10 @@ pub struct FieldDefinition {
     /// If set, the picker only shows notes of this type. Ignored for all other field types.
     #[serde(default)]
     pub target_type: Option<String>,
+    /// When `true`, this field is included in the hover-tooltip simple-path renderer.
+    /// Defaults to `false` (opt-in).
+    #[serde(default)]
+    pub show_on_hover: bool,
 }
 
 /// A parsed note-type schema containing an ordered list of field definitions.
@@ -190,7 +194,12 @@ impl Schema {
                 .get("target_type")
                 .and_then(|v| v.clone().try_cast::<String>());
 
-            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type });
+            let show_on_hover = field_map
+                .get("show_on_hover")
+                .and_then(|v| v.clone().try_cast::<bool>())
+                .unwrap_or(false);
+
+            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type, show_on_hover });
         }
 
         let title_can_view = def
@@ -245,6 +254,7 @@ pub(super) struct SchemaRegistry {
     on_save_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,
     on_view_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,
     on_add_child_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_hover_hooks:     Arc<Mutex<HashMap<String, HookEntry>>>,
 }
 
 impl SchemaRegistry {
@@ -254,6 +264,7 @@ impl SchemaRegistry {
             on_save_hooks:      Arc::new(Mutex::new(HashMap::new())),
             on_view_hooks:      Arc::new(Mutex::new(HashMap::new())),
             on_add_child_hooks: Arc::new(Mutex::new(HashMap::new())),
+            on_hover_hooks:     Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -272,6 +283,10 @@ impl SchemaRegistry {
 
     pub(super) fn on_add_child_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
         Arc::clone(&self.on_add_child_hooks)
+    }
+
+    pub(super) fn on_hover_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
+        Arc::clone(&self.on_hover_hooks)
     }
 
     pub(super) fn get(&self, name: &str) -> Result<Schema> {
@@ -308,6 +323,7 @@ impl SchemaRegistry {
         self.on_save_hooks.lock().unwrap().clear();
         self.on_view_hooks.lock().unwrap().clear();
         self.on_add_child_hooks.lock().unwrap().clear();
+        self.on_hover_hooks.lock().unwrap().clear();
     }
 
     /// Returns `true` if an on_save hook is registered for `schema_name`.
@@ -322,6 +338,13 @@ impl SchemaRegistry {
         // SAFETY: mutex poisoning would require a panic while the lock is held,
         // which cannot happen in this codebase's single-threaded usage.
         self.on_view_hooks.lock().unwrap().contains_key(schema_name)
+    }
+
+    /// Returns `true` if an on_hover hook is registered for `schema_name`.
+    pub(super) fn has_hover_hook(&self, schema_name: &str) -> bool {
+        // SAFETY: mutex poisoning would require a panic while the lock is held,
+        // which cannot happen in this codebase's single-threaded usage.
+        self.on_hover_hooks.lock().unwrap().contains_key(schema_name)
     }
 
     /// Runs the on_save hook for `schema_name`, if registered.
@@ -422,6 +445,43 @@ impl SchemaRegistry {
 
         let html = result.try_cast::<String>().ok_or_else(|| {
             KrillnotesError::Scripting("on_view hook must return a string".to_string())
+        })?;
+
+        Ok(Some(html))
+    }
+
+    /// Runs the on_hover hook for `schema_name`, if registered.
+    ///
+    /// Called from [`ScriptRegistry::run_on_hover_hook`](super::ScriptRegistry::run_on_hover_hook).
+    /// Returns `Ok(None)` when no hook is registered.
+    pub(super) fn run_on_hover_hook(
+        &self,
+        engine: &Engine,
+        note_map: Map,
+    ) -> Result<Option<String>> {
+        let schema_name = note_map
+            .get("node_type")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_default();
+
+        let entry = {
+            let hooks = self.on_hover_hooks
+                .lock()
+                .map_err(|_| KrillnotesError::Scripting("on_hover hook lock poisoned".to_string()))?;
+            hooks.get(&schema_name).cloned()
+        };
+        let entry = match entry {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        let result = entry
+            .fn_ptr
+            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("on_hover hook error in '{}': {e}", entry.script_name)))?;
+
+        let html = result.try_cast::<String>().ok_or_else(|| {
+            KrillnotesError::Scripting("on_hover hook must return a string".to_string())
         })?;
 
         Ok(Some(html))

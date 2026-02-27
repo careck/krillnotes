@@ -16,11 +16,14 @@ interface TreeNodeProps {
   setDropIndicator: (indicator: DropIndicator | null) => void;
   dragDescendants: Set<string>;
   onMoveNote: (noteId: string, newParentId: string | null, newPosition: number) => void;
+  onHoverStart: (noteId: string, anchorY: number) => void;
+  onHoverEnd: () => void;
 }
 
 function TreeNode({
   node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
+  onHoverStart, onHoverEnd,
 }: TreeNodeProps) {
   const hasChildren = node.children.length > 0;
   const isSelected = node.note.id === selectedNoteId;
@@ -191,6 +194,12 @@ function TreeNode({
         style={{ paddingLeft: `${indentPx}px` }}
         onClick={() => onSelect(node.note.id)}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, node.note.id); }}
+        onMouseEnter={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          onHoverStart(node.note.id, rect.top + rect.height / 2);
+        }}
+        onMouseLeave={() => onHoverEnd()}
+        onMouseDown={() => onHoverEnd()}
       >
         {hasChildren && (
           <button
@@ -233,6 +242,8 @@ function TreeNode({
               setDropIndicator={setDropIndicator}
               dragDescendants={dragDescendants}
               onMoveNote={onMoveNote}
+              onHoverStart={onHoverStart}
+              onHoverEnd={onHoverEnd}
             />
           ))}
         </div>

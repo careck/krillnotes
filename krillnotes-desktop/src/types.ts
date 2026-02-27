@@ -44,6 +44,7 @@ export interface FieldDefinition {
   options: string[];   // non-empty for 'select' fields
   max: number;         // non-zero for 'rating' fields
   targetType?: string;  // only meaningful for note_link fields
+  showOnHover: boolean;
 }
 
 export interface NoteSearchResult {
@@ -59,6 +60,7 @@ export interface SchemaInfo {
   allowedParentTypes: string[];
   allowedChildrenTypes: string[];
   hasViewHook: boolean;
+  hasHoverHook: boolean;
 }
 
 export enum DeleteStrategy {

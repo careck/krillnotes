@@ -29,7 +29,7 @@ schema("Zettel", #{
     title_can_edit: false,
     allowed_parent_types: ["Kasten"],
     fields: [
-        #{ name: "body", type: "textarea", required: false },
+        #{ name: "body", type: "textarea", required: false, show_on_hover: true },
     ],
     on_save: |note| {
         let body = note.fields["body"] ?? "";
@@ -80,6 +80,10 @@ schema("Zettel", #{
 schema("Kasten", #{
     allowed_children_types: ["Zettel"],
     fields: [],
+    on_hover: |note| {
+        let kids = get_children(note.id);
+        field("Notes", kids.len().to_string())
+    },
     on_view: |note| {
         let zettel = get_children(note.id);
         let count = zettel.len();

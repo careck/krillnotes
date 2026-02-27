@@ -49,6 +49,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     allowedParentTypes: [],
     allowedChildrenTypes: [],
     hasViewHook: false,
+    hasHoverHook: false,
   });
   const [customViewHtml, setCustomViewHtml] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -69,7 +70,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
   const emptySchemaInfo: SchemaInfo = {
     fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none',
-    allowedParentTypes: [], allowedChildrenTypes: [], hasViewHook: false,
+    allowedParentTypes: [], allowedChildrenTypes: [], hasViewHook: false, hasHoverHook: false,
   };
 
   useEffect(() => {

@@ -7,6 +7,7 @@ import InfoPanel from './InfoPanel';
 import AddNoteDialog from './AddNoteDialog';
 import ContextMenu from './ContextMenu';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
+import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
@@ -61,6 +62,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     () => draggedNoteId ? getDescendantIds(notes, draggedNoteId) : new Set<string>(),
     [notes, draggedNoteId]
   );
+
+  // Hover tooltip state
+  const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
+  const [tooltipAnchorY, setTooltipAnchorY] = useState(0);
+  const [hoverHtml, setHoverHtml] = useState<string | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Resizable tree panel
   const [treeWidth, setTreeWidth] = useState(300);
@@ -280,6 +287,39 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     });
     return () => { unlisten.then(f => f()); };
   }, [selectedNoteId, copiedNoteId, copyNote, pasteNote]);
+
+  const handleHoverEnd = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+    setHoveredNoteId(null);
+    setHoverHtml(null);
+  }, []);
+
+  const handleHoverStart = useCallback((noteId: string, anchorY: number) => {
+    if (draggedNoteId !== null) return;
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(async () => {
+      const nodeType = notes.find(n => n.id === noteId)?.nodeType ?? '';
+      const schema = schemas[nodeType] ?? null;
+      if (schema?.hasHoverHook) {
+        try {
+          const html = await invoke<string | null>('get_note_hover', { noteId });
+          setHoverHtml(html);
+        } catch {
+          setHoverHtml(null);
+        }
+      } else {
+        setHoverHtml(null);
+      }
+      setHoveredNoteId(noteId);
+      setTooltipAnchorY(anchorY);
+    }, 600);
+  }, [draggedNoteId, notes, schemas]);
+
+  // Dismiss tooltip immediately when a drag starts
+  useEffect(() => {
+    if (draggedNoteId !== null) handleHoverEnd();
+  }, [draggedNoteId, handleHoverEnd]);
 
   const handleSelectNote = async (noteId: string) => {
     setViewHistory([]);
@@ -614,6 +654,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             setDropIndicator={setDropIndicator}
             dragDescendants={dragDescendants}
             onMoveNote={handleMoveNote}
+            onHoverStart={handleHoverStart}
+            onHoverEnd={handleHoverEnd}
           />
         </div>
 
@@ -713,6 +755,23 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         isOpen={showOperationsLog}
         onClose={() => setShowOperationsLog(false)}
       />
+
+      {/* Hover Tooltip */}
+      {hoveredNoteId && (() => {
+        const note = notes.find(n => n.id === hoveredNoteId);
+        const schema = note ? (schemas[note.nodeType] ?? null) : null;
+        if (!note) return null;
+        return (
+          <HoverTooltip
+            note={note}
+            schema={schema}
+            hoverHtml={hoverHtml}
+            anchorY={tooltipAnchorY}
+            treeWidth={treeWidth}
+            visible={true}
+          />
+        );
+      })()}
     </div>
   );
 }
