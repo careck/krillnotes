@@ -17,12 +17,14 @@ interface TreeViewProps {
   dragDescendants: Set<string>;
   onMoveNote: (noteId: string, newParentId: string | null, newPosition: number) => void;
   onBackgroundContextMenu: (e: React.MouseEvent) => void;
+  onHoverStart: (noteId: string, anchorY: number) => void;
+  onHoverEnd: () => void;
 }
 
 function TreeView({
   tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu, onKeyDown,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
-  onBackgroundContextMenu,
+  onBackgroundContextMenu, onHoverStart, onHoverEnd,
 }: TreeViewProps) {
 
   const handleRootDragOver = (e: React.DragEvent) => {
@@ -103,6 +105,8 @@ function TreeView({
           setDropIndicator={setDropIndicator}
           dragDescendants={dragDescendants}
           onMoveNote={onMoveNote}
+          onHoverStart={onHoverStart}
+          onHoverEnd={onHoverEnd}
         />
       ))}
       {draggedNoteId && dropIndicator?.noteId === '__root__' && (
