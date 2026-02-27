@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { AppSettings } from '../types';
+import { useTheme } from '../contexts/ThemeContext';
+import ManageThemesDialog from './ManageThemesDialog';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -13,6 +15,8 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [cachePasswords, setCachePasswords] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const { activeMode, lightThemeName, darkThemeName, themes, setMode, setLightTheme, setDarkTheme } = useTheme();
+  const [manageThemesOpen, setManageThemesOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -114,13 +118,75 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           </label>
         </div>
 
+        {/* Appearance */}
+        <div className="border-t border-border pt-4 mt-4">
+          <h3 className="text-sm font-semibold text-foreground mb-3">Appearance</h3>
+
+          {/* Mode toggle */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm text-muted-foreground w-24">Mode</span>
+            <div className="flex rounded border border-border overflow-hidden">
+              {(['light', 'dark', 'system'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-3 py-1 text-sm capitalize ${
+                    activeMode === m
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Light theme picker */}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm text-muted-foreground w-24">Light theme</span>
+            <select
+              value={lightThemeName}
+              onChange={e => setLightTheme(e.target.value)}
+              className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
+            >
+              <option value="light">light (built-in)</option>
+              {themes.filter(t => t.hasLight).map(t => (
+                <option key={t.filename} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dark theme picker */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm text-muted-foreground w-24">Dark theme</span>
+            <select
+              value={darkThemeName}
+              onChange={e => setDarkTheme(e.target.value)}
+              className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
+            >
+              <option value="dark">dark (built-in)</option>
+              {themes.filter(t => t.hasDark).map(t => (
+                <option key={t.filename} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setManageThemesOpen(true)}
+            className="text-sm text-muted-foreground hover:text-foreground underline"
+          >
+            Manage Themes…
+          </button>
+        </div>
+
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
             {error}
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 mt-4">
           <button
             onClick={onClose}
             className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
@@ -137,6 +203,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           </button>
         </div>
       </div>
+      <ManageThemesDialog isOpen={manageThemesOpen} onClose={() => setManageThemesOpen(false)} />
     </div>
   );
 }

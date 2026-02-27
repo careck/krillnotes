@@ -17,6 +17,15 @@ pub struct AppSettings {
     /// duration of the session so the user is not re-prompted on reopen.
     #[serde(default)]
     pub cache_workspace_passwords: bool,
+    /// Current theme mode: "light", "dark", or "system".
+    #[serde(default = "default_theme_mode")]
+    pub active_theme_mode: String,
+    /// Name of the theme to use in light mode.
+    #[serde(default = "default_light_theme")]
+    pub light_theme: String,
+    /// Name of the theme to use in dark mode.
+    #[serde(default = "default_dark_theme")]
+    pub dark_theme: String,
 }
 
 impl Default for AppSettings {
@@ -26,6 +35,9 @@ impl Default for AppSettings {
                 .to_string_lossy()
                 .to_string(),
             cache_workspace_passwords: false,
+            active_theme_mode: default_theme_mode(),
+            light_theme: default_light_theme(),
+            dark_theme: default_dark_theme(),
         }
     }
 }
@@ -46,6 +58,10 @@ pub fn settings_file_path() -> PathBuf {
         home.join(".config").join("krillnotes").join("settings.json")
     }
 }
+
+fn default_theme_mode() -> String { "system".to_string() }
+fn default_light_theme() -> String { "light".to_string() }
+fn default_dark_theme() -> String { "dark".to_string() }
 
 /// Returns the default workspace directory: `~/Documents/Krillnotes`.
 pub fn default_workspace_directory() -> PathBuf {
@@ -79,4 +95,18 @@ pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
     fs::write(&path, json)
         .map_err(|e| format!("Failed to write settings: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_legacy_settings_without_theme_fields() {
+        let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.active_theme_mode, "system");
+        assert_eq!(s.light_theme, "light");
+        assert_eq!(s.dark_theme, "dark");
+    }
 }
