@@ -218,7 +218,8 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         return;
       }
       const name = parsed.name ?? 'unnamed';
-      const conflict = themes.find(t => t.name === name) ?? null;
+      const derivedFilename = `${name.toLowerCase().replace(/\s+/g, '-')}.krilltheme`;
+      const conflict = themes.find(t => t.name === name || t.filename === derivedFilename) ?? null;
       setImportConflict(conflict);
       setEditingMeta(conflict ?? null);
       setEditorContent(content);
