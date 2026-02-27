@@ -12,6 +12,7 @@ import OperationsLogDialog from './OperationsLogDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
+import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
 import TagPill from './TagPill';
 
 interface WorkspaceViewProps {
@@ -29,12 +30,14 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const selectedNoteIdRef = useRef(selectedNoteId);
   const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addDialogNoteId, setAddDialogNoteId] = useState<string | null>(null);
+  const [addDialogPosition, setAddDialogPosition] = useState<NotePosition>('child');
   const [error, setError] = useState<string>('');
   const selectionInitialized = useRef(false);
   const isRefreshing = useRef(false);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string; noteType: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -128,7 +131,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   useEffect(() => {
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
       if (event.payload === 'Edit > Add Note clicked') {
-        setShowAddDialog(true);
+        if (notes.length === 0) {
+          openAddDialog('root', null);
+        } else {
+          openAddDialog('child', selectedNoteId);
+        }
       }
       if (event.payload === 'Edit > Manage Scripts clicked') {
         setShowScriptManager(true);
@@ -446,13 +453,40 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType });
   };
 
-  const handleContextAddNote = (noteId: string) => {
-    setContextMenu(null);
-    setSelectedNoteId(noteId);
+  // Opens AddNoteDialog or creates directly if only one type is available
+  const openAddDialog = (position: NotePosition, referenceNoteId: string | null) => {
+    const available = getAvailableTypes(position, referenceNoteId, notes, schemas);
+    if (available.length === 0) return;
+    if (available.length === 1) {
+      const parentId = position === 'root' ? null : referenceNoteId;
+      const tauriPosition = position === 'root' ? 'child' : position;
+      invoke<Note>('create_note_with_type', { parentId, position: tauriPosition, nodeType: available[0] })
+        .then(note => handleNoteCreated(note.id))
+        .catch(err => console.error('Failed to create note:', err));
+      return;
+    }
+    setAddDialogNoteId(referenceNoteId);
+    setAddDialogPosition(position);
     setShowAddDialog(true);
-    invoke('set_selected_note', { noteId }).catch(err =>
-      console.error('Failed to save selection:', err)
-    );
+  };
+
+  const handleContextAddChild = (noteId: string) => {
+    setContextMenu(null);
+    openAddDialog('child', noteId);
+  };
+
+  const handleContextAddSibling = (noteId: string) => {
+    setContextMenu(null);
+    openAddDialog('sibling', noteId);
+  };
+
+  const handleContextAddRoot = () => {
+    setContextMenu(null);
+    openAddDialog('root', null);
+  };
+
+  const handleBackgroundContextMenu = (e: React.MouseEvent) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '' });
   };
 
   const handleContextEdit = (noteId: string) => {
@@ -555,6 +589,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             onSelect={handleSelectNote}
             onToggleExpand={handleToggleExpand}
             onContextMenu={handleContextMenu}
+            onBackgroundContextMenu={handleBackgroundContextMenu}
             onKeyDown={handleTreeKeyDown}
             notes={notes}
             schemas={schemas}
@@ -613,8 +648,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         isOpen={showAddDialog}
         onClose={() => setShowAddDialog(false)}
         onNoteCreated={handleNoteCreated}
-        selectedNoteId={selectedNoteId}
-        hasNotes={notes.length > 0}
+        referenceNoteId={addDialogNoteId}
+        position={addDialogPosition}
         notes={notes}
         schemas={schemas}
       />
@@ -624,15 +659,18 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          noteId={contextMenu.noteId}
           copiedNoteId={copiedNoteId}
-          treeActions={treeActionMap[contextMenu.noteType] ?? []}
-          onAddNote={() => handleContextAddNote(contextMenu.noteId)}
-          onEdit={() => handleContextEdit(contextMenu.noteId)}
-          onCopy={() => copyNote(contextMenu.noteId)}
+          treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
+          onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
+          onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
+          onAddRoot={handleContextAddRoot}
+          onEdit={() => contextMenu.noteId && handleContextEdit(contextMenu.noteId)}
+          onCopy={() => contextMenu.noteId && copyNote(contextMenu.noteId)}
           onPasteAsChild={() => pasteNote('child')}
           onPasteAsSibling={() => pasteNote('sibling')}
-          onTreeAction={(label) => handleTreeAction(contextMenu.noteId, label)}
-          onDelete={() => handleContextDelete(contextMenu.noteId)}
+          onTreeAction={(label) => contextMenu.noteId && handleTreeAction(contextMenu.noteId, label)}
+          onDelete={() => contextMenu.noteId && handleContextDelete(contextMenu.noteId)}
           onClose={() => setContextMenu(null)}
         />
       )}
