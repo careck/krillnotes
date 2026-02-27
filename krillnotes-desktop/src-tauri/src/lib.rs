@@ -467,6 +467,7 @@ struct SchemaInfo {
     allowed_parent_types: Vec<String>,
     allowed_children_types: Vec<String>,
     has_view_hook: bool,
+    has_hover_hook: bool,
 }
 
 /// Returns the field definitions for the schema identified by `node_type`.
@@ -494,6 +495,7 @@ fn get_schema_fields(
 
     Ok(SchemaInfo {
         has_view_hook: workspace.script_registry().has_view_hook(&node_type),
+        has_hover_hook: workspace.script_registry().has_hover_hook(&node_type),
         fields: schema.fields,
         title_can_view: schema.title_can_view,
         title_can_edit: schema.title_can_edit,
@@ -517,8 +519,10 @@ fn get_all_schemas(
     let mut result = HashMap::new();
     for (name, schema) in schemas {
         let has_view_hook = workspace.script_registry().has_view_hook(&name);
+        let has_hover_hook = workspace.script_registry().has_hover_hook(&name);
         result.insert(name, SchemaInfo {
             has_view_hook,
+            has_hover_hook,
             fields: schema.fields,
             title_can_view: schema.title_can_view,
             title_can_edit: schema.title_can_edit,
@@ -577,6 +581,19 @@ fn get_note_view(
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
     workspace.run_view_hook(&note_id).map_err(|e| e.to_string())
+}
+
+/// Returns the on_hover hook HTML for a note, or `null` if no hook is registered.
+#[tauri::command]
+fn get_note_hover(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+) -> std::result::Result<Option<String>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.run_hover_hook(&note_id).map_err(|e| e.to_string())
 }
 
 /// Updates the title and fields of an existing note, returning the updated note.
@@ -1383,6 +1400,7 @@ pub fn run() {
             get_tree_action_map,
             invoke_tree_action,
             get_note_view,
+            get_note_hover,
             update_note,
             update_note_tags,
             get_all_tags,
