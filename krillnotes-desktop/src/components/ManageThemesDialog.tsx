@@ -10,6 +10,26 @@ import type { ThemeMeta } from '../utils/theme';
 
 const NEW_THEME_TEMPLATE = `{
   "name": "My Theme",
+
+  // Delete whichever variant you don't need (or keep both for a complete theme).
+
+  "light-theme": {
+    "colors": {
+      // "background": "oklch(97% 0.02 210)",
+      // "foreground": "oklch(10% 0.04 222)",
+      // "primary":    "oklch(35% 0.10 240)"
+    },
+    "typography": {
+      // "fontFamily": "\\"Georgia\\", serif",
+      // "fontSize":   "14px",
+      // "lineHeight": "1.6"
+    },
+    "spacing": {
+      // "scale": 1.0
+    }
+    // "iconSize": "16px"
+  },
+
   "dark-theme": {
     "colors": {
       // "background": "oklch(10% 0.04 240)",
@@ -24,6 +44,7 @@ const NEW_THEME_TEMPLATE = `{
     "spacing": {
       // "scale": 1.0
     }
+    // "iconSize": "16px"
   }
 }
 `;
