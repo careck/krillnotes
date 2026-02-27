@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`.krillnotes` file format** — Export archives now use the `.krillnotes` extension, establishing it as the official Krillnotes document format. The underlying format is unchanged (standard zip); only the file extension and dialog filters have changed.
+
+### Fixed
+- **Importing older archives** — Archives exported before the tags feature (v0.2.3) no longer fail to import. The missing `tags` field on notes now defaults to an empty list instead of causing a deserialisation error.
+
+### Changed
+- **App renamed to Krillnotes** — The application bundle, window title, and bundle identifier are now `Krillnotes` / `com.careck.krillnotes` (previously `krillnotes-desktop` / `com.careck.krillnotes-desktop`).
+
 ---
 
 ## [0.2.3] — 2026-02-26
