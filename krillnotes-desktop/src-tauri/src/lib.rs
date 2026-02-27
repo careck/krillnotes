@@ -1153,9 +1153,25 @@ fn get_settings() -> std::result::Result<settings::AppSettings, String> {
 }
 
 /// Updates and persists the application settings.
+///
+/// Accepts a partial JSON object and merges it onto the current settings on
+/// disk, so callers only need to supply the fields they care about — missing
+/// fields are preserved rather than reset to defaults.
 #[tauri::command]
-fn update_settings(settings: settings::AppSettings) -> std::result::Result<(), String> {
-    settings::save_settings(&settings)
+fn update_settings(patch: serde_json::Value) -> std::result::Result<(), String> {
+    let current = settings::load_settings();
+    let mut current_value = serde_json::to_value(&current)
+        .map_err(|e| format!("Failed to serialize settings: {e}"))?;
+    if let (serde_json::Value::Object(curr), serde_json::Value::Object(p)) =
+        (&mut current_value, patch)
+    {
+        for (k, v) in p {
+            curr.insert(k, v);
+        }
+    }
+    let updated: settings::AppSettings = serde_json::from_value(current_value)
+        .map_err(|e| format!("Failed to deserialize merged settings: {e}"))?;
+    settings::save_settings(&updated)
 }
 
 /// Entry returned by [`list_workspace_files`], representing a `.db` file
