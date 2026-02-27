@@ -309,3 +309,74 @@ body {
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #999);
 }
+
+/* ── Hover Tooltip ──────────────────────────────────────────────────────── */
+
+.kn-hover-tooltip {
+  position: fixed;
+  z-index: 200;
+  max-width: 280px;
+  min-width: 160px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  pointer-events: none;
+  animation: kn-tooltip-in 120ms ease-out;
+}
+
+@keyframes kn-tooltip-in {
+  from { opacity: 0; transform: translateX(4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Left-pointing spike — two layered triangles to simulate a border */
+.kn-hover-tooltip::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: var(--spike-offset, 50%);
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 8px solid var(--color-border);
+}
+
+.kn-hover-tooltip::after {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: var(--spike-offset, 50%);
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 7px solid var(--color-background);
+}
+
+.kn-hover-tooltip__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+
+.kn-hover-tooltip__label {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.kn-hover-tooltip__value {
+  color: var(--color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
