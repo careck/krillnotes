@@ -1076,6 +1076,32 @@ fn get_cached_password(
         .cloned()
 }
 
+// ── Theme commands ────────────────────────────────────────────────
+
+/// Lists all user theme files in the themes directory.
+#[tauri::command]
+fn list_themes() -> std::result::Result<Vec<themes::ThemeMeta>, String> {
+    themes::list_themes()
+}
+
+/// Returns the raw JSON content of a theme file.
+#[tauri::command]
+fn read_theme(filename: String) -> std::result::Result<String, String> {
+    themes::read_theme(&filename)
+}
+
+/// Writes (creates or overwrites) a theme file.
+#[tauri::command]
+fn write_theme(filename: String, content: String) -> std::result::Result<(), String> {
+    themes::write_theme(&filename, &content)
+}
+
+/// Deletes a theme file.
+#[tauri::command]
+fn delete_theme(filename: String) -> std::result::Result<(), String> {
+    themes::delete_theme(&filename)
+}
+
 // ── Settings commands ─────────────────────────────────────────────
 
 /// Returns the current application settings.
@@ -1305,6 +1331,10 @@ pub fn run() {
             get_app_version,
             get_settings,
             update_settings,
+            list_themes,
+            read_theme,
+            write_theme,
+            delete_theme,
             list_workspace_files,
             get_cached_password,
         ])
