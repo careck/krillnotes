@@ -71,7 +71,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   const viewRef = useRef<EditorView | null>(null);
 
   useEffect(() => {
-    if (isOpen) { reloadThemes(); setView('list'); setError(''); }
+    if (isOpen) { reloadThemes(); setView('list'); setError(''); setImportConflict(null); }
   }, [isOpen, reloadThemes]);
 
   // CodeMirror lifecycle
@@ -106,7 +106,15 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { view === 'editor' ? setView('list') : onClose(); }
+      if (e.key === 'Escape') {
+        if (view === 'editor') {
+          setImportConflict(null);
+          setView('list');
+          setError('');
+        } else {
+          onClose();
+        }
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);

@@ -63,6 +63,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       loadScripts();
       setView('list');
       setError('');
+      setImportConflict(null);
     }
   }, [isOpen, loadScripts]);
 
@@ -71,6 +72,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (view === 'editor') {
+          setImportConflict(null);
           setView('list');
           setError('');
         } else {
@@ -161,6 +163,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     try {
       const loadErrors = await invoke<ScriptError[]>('delete_user_script', { scriptId: editingScript.id });
       await loadScripts();
+      setImportConflict(null);
       setView('list');
       setError(loadErrors.length > 0 ? `Script reload errors:\n${formatLoadErrors(loadErrors)}` : '');
       onScriptsChanged?.();
@@ -178,12 +181,13 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     if (!path) return;
     try {
       const content = await invoke<string>('read_file_content', { path });
+      const freshScripts = await invoke<UserScript[]>('list_user_scripts');
+      setScripts(freshScripts);
       const name = parseFrontMatterName(content);
-      const conflict = name ? (scripts.find(s => s.name === name) ?? null) : null;
+      const conflict = name ? (freshScripts.find(s => s.name === name) ?? null) : null;
       setImportConflict(conflict);
       setEditingScript(conflict ?? null);
       setEditorContent(content);
-      setError('');
       setView('editor');
     } catch (e) {
       setError(`Failed to read file: ${e}`);
@@ -192,7 +196,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
 
   const handleSaveOrReplace = async () => {
     if (importConflict) {
-      const confirmed = confirm(`Replace script "${importConflict.name}"? This cannot be undone.`);
+      const confirmed = window.confirm(`Replace script "${importConflict.name}"? This cannot be undone.`);
       if (!confirmed) return;
     }
     await handleSave();
