@@ -96,6 +96,9 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
             placeholder="My Workspace"
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             autoFocus
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             disabled={creating}
           />
           {workspaceDir && (

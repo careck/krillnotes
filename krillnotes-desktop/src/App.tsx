@@ -307,6 +307,9 @@ function App() {
                 placeholder="Optional password"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoFocus
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </div>
             <div className="mb-4">
@@ -324,6 +327,9 @@ function App() {
                 }}
                 placeholder="Confirm password"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </div>
             {exportPassword && exportPasswordConfirm && exportPassword !== exportPasswordConfirm && (
@@ -385,6 +391,9 @@ function App() {
                 placeholder="Enter password"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoFocus
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </div>
             {importPasswordError && (
@@ -452,6 +461,9 @@ function App() {
                 onKeyDown={(e) => { if (e.key === 'Enter' && !importing) handleImportConfirm(); }}
                 placeholder="imported-workspace"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 autoFocus
                 disabled={importing}
               />
