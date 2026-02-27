@@ -291,14 +291,31 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     }
   };
 
-  const handleLinkNavigate = (noteId: string) => {
+  const handleLinkNavigate = async (noteId: string) => {
     if (selectedNoteId) {
       setViewHistory(h => [...h, selectedNoteId]);
     }
+
+    // Expand any collapsed ancestors so the note becomes visible in the tree
+    const ancestors = getAncestorIds(notes, noteId);
+    const collapsedAncestors = ancestors.filter(
+      id => notes.find(n => n.id === id)?.isExpanded === false
+    );
+    for (const ancestorId of collapsedAncestors) {
+      await invoke('toggle_note_expansion', { noteId: ancestorId });
+    }
+    if (collapsedAncestors.length > 0) {
+      await loadNotes();
+    }
+
     setSelectedNoteId(noteId);
     invoke('set_selected_note', { noteId }).catch(err =>
       console.error('Failed to save selection:', err)
     );
+
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-note-id="${noteId}"]`)?.scrollIntoView({ block: 'nearest' });
+    });
   };
 
   const handleBack = () => {
