@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Hover tooltip on tree nodes** — Hovering a tree node for 600ms shows a compact speech-bubble tooltip to the right of the tree panel, without needing to navigate to the note. Two render paths are supported: mark any field with `show_on_hover: true` for an instant inline preview (no IPC), or define an `on_hover` hook in `schema()` to return fully custom HTML via the Rhai scripting engine. The tooltip is a React portal, position-clamped to the viewport, with a left-pointing spike that tracks the hovered row. It dismisses immediately on mouse-leave, click, or drag start.
+- **`on_hover` hook** — A new optional hook inside `schema()` blocks. Like `on_view`, it receives a note map and has access to all query functions (`get_children`, `get_notes_for_tag`, etc.) and display helpers (`field`, `stack`, `markdown`, …). The return value is rendered as HTML in the tooltip.
+- **`show_on_hover` field flag** — Fields defined with `show_on_hover: true` are surfaced in the hover tooltip without any scripting. Useful for quick previews of a single key field (e.g. a body or description).
+- **Zettelkasten template updated** — The bundled `zettelkasten.rhai` now demos both hover paths: Zettel notes show the body field on hover; Kasten folders show a live child-count badge via `on_hover`.
+
 ---
 
 ## [0.2.4] — 2026-02-27
