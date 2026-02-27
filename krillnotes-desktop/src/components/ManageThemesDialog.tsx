@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -187,7 +187,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   };
 
   const handleDelete = async (meta: ThemeMeta) => {
-    if (!confirm(`Delete theme "${meta.name}"?`)) return;
+    if (!await confirm(`Delete theme "${meta.name}"?`)) return;
     try {
       await invoke('delete_theme', { filename: meta.filename });
       await reloadThemes();
@@ -231,7 +231,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
 
   const handleSaveOrReplace = async () => {
     if (importConflict) {
-      const confirmed = confirm(`Replace theme "${importConflict.name}"? This cannot be undone.`);
+      const confirmed = await confirm(`Replace theme "${importConflict.name}"? This cannot be undone.`);
       if (!confirmed) return;
     }
     await handleSave();

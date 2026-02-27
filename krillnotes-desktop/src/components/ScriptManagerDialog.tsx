@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { GripVertical } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, confirm } from '@tauri-apps/plugin-dialog';
 import ScriptEditor from './ScriptEditor';
 import type { UserScript, ScriptError, ScriptMutationResult } from '../types';
 
@@ -154,7 +154,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
 
   const handleDelete = async () => {
     if (!editingScript) return;
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       "Deleting this script may remove schema definitions used by existing notes. " +
       "Their data will be preserved in the database but may not display correctly " +
       "until a compatible schema is re-registered. Delete anyway?"
@@ -196,7 +196,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
 
   const handleSaveOrReplace = async () => {
     if (importConflict) {
-      const confirmed = window.confirm(`Replace script "${importConflict.name}"? This cannot be undone.`);
+      const confirmed = await confirm(`Replace script "${importConflict.name}"? This cannot be undone.`);
       if (!confirmed) return;
     }
     await handleSave();
