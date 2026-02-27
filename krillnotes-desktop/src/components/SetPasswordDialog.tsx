@@ -61,6 +61,9 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
             onKeyDown={handleKeyPress}
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             autoFocus
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder="Enter password"
           />
         </div>
@@ -73,6 +76,9 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
             onChange={e => setConfirm(e.target.value)}
             onKeyDown={handleKeyPress}
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder="Repeat password"
           />
         </div>

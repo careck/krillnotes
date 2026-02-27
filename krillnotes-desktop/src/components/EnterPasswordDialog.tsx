@@ -44,6 +44,9 @@ function EnterPasswordDialog({ isOpen, workspaceName, error: externalError, onCo
             onKeyDown={e => e.key === 'Enter' && handleConfirm()}
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             autoFocus
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder="Workspace password"
           />
         </div>
