@@ -947,6 +947,51 @@ impl Workspace {
             .unwrap_or_default())
     }
 
+    /// Runs the `on_hover` hook for the given note, if one is registered.
+    ///
+    /// Returns `Ok(None)` when no hook is registered for the note's schema type.
+    /// Returns `Ok(Some(html))` with the generated HTML on success.
+    pub fn run_hover_hook(&self, note_id: &str) -> Result<Option<String>> {
+        let note = self.get_note(note_id)?;
+
+        if !self.script_registry.has_hover_hook(&note.node_type) {
+            return Ok(None);
+        }
+
+        let all_notes = self.list_all_notes()?;
+
+        let mut notes_by_id: std::collections::HashMap<String, Dynamic> =
+            std::collections::HashMap::new();
+        let mut children_by_id: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
+        let mut notes_by_type: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
+        let mut notes_by_tag: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
+        let mut notes_by_link_target: std::collections::HashMap<String, Vec<Dynamic>> =
+            std::collections::HashMap::new();
+
+        for n in &all_notes {
+            let dyn_map = note_to_rhai_dynamic(n);
+            notes_by_id.insert(n.id.clone(), dyn_map.clone());
+            if let Some(pid) = &n.parent_id {
+                children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
+            }
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            for tag in &n.tags {
+                notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
+            }
+            for value in n.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    notes_by_link_target.entry(target_id.clone()).or_default().push(dyn_map.clone());
+                }
+            }
+        }
+
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
+        self.script_registry.run_on_hover_hook(&note, context)
+    }
+
     /// Returns the names of all registered note types (schema names).
     ///
     /// # Errors
