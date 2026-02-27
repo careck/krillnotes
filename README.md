@@ -1,4 +1,4 @@
-![Krillnotes](marketing/KrillNotesBanner.png)
+![Krillnotes](marketing/KrillNotesBanner.jpg)
 
 # Krillnotes
 
