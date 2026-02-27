@@ -120,3 +120,16 @@ export interface WorkspaceEntry {
   path: string;
   isOpen: boolean;
 }
+
+export interface WorkspaceMetadata {
+  version: number;
+  authorName?: string;
+  authorOrg?: string;
+  homepageUrl?: string;
+  description?: string;
+  license?: string;
+  licenseUrl?: string;
+  language?: string;
+  /** Workspace-level taxonomy tags for gallery discovery (not per-note tags). */
+  tags: string[];
+}

@@ -43,11 +43,31 @@ pub struct ScriptManifest {
 }
 
 /// Top-level JSON structure in `workspace.json`.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// This is written on export and read back on import to carry authorship,
+/// licensing, and gallery-discovery metadata for template distribution.
+/// All fields except `version` are optional so old archives without them
+/// deserialise successfully (all missing fields default to `None` / empty).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceJson {
+pub struct WorkspaceMetadata {
     pub version: u32,
-    /// Complete sorted list of distinct tags across the workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_org: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// Workspace-level taxonomy tags for gallery discovery (distinct from per-note tags).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 }
 
@@ -219,16 +239,13 @@ pub fn export_workspace<W: Write + Seek>(
     zip.start_file("scripts/scripts.json", options)?;
     serde_json::to_writer_pretty(&mut zip, &manifest)?;
 
-    // Write workspace.json (global tag list)
-    let all_tags = workspace
-        .get_all_tags()
+    // Write workspace.json (workspace metadata)
+    let mut ws_meta = workspace
+        .get_workspace_metadata()
         .map_err(|e| ExportError::Database(e.to_string()))?;
-    let workspace_json = WorkspaceJson {
-        version: 1,
-        tags: all_tags,
-    };
+    ws_meta.version = 1;
     zip.start_file("workspace.json", options)?;
-    serde_json::to_writer_pretty(&mut zip, &workspace_json)?;
+    serde_json::to_writer_pretty(&mut zip, &ws_meta)?;
 
     zip.finish()?;
     Ok(())
@@ -442,6 +459,11 @@ pub fn import_workspace<R: Read + Seek>(
         tx.commit().map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
+    // Read workspace metadata before dropping storage (archive must still be alive).
+    let workspace_metadata: Option<WorkspaceMetadata> =
+        try_read_entry(&mut archive, "workspace.json", zip_password)
+            .and_then(|cursor| serde_json::from_reader(cursor).ok());
+
     // Drop storage before opening via Workspace::open (avoids double-locking the file).
     drop(storage);
 
@@ -451,6 +473,13 @@ pub fn import_workspace<R: Read + Seek>(
     workspace
         .rebuild_note_links_index()
         .map_err(|e| ExportError::Database(e.to_string()))?;
+
+    // Restore workspace metadata if the archive contained it.
+    if let Some(meta) = workspace_metadata {
+        workspace
+            .set_workspace_metadata(&meta)
+            .map_err(|e| ExportError::Database(e.to_string()))?;
+    }
 
     Ok(ImportResult {
         app_version: export_notes.app_version,
@@ -644,18 +673,15 @@ mod tests {
     #[test]
     fn test_export_includes_workspace_json() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "").unwrap();
-        let root = ws.list_all_notes().unwrap()[0].clone();
-        ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
+        let ws = Workspace::create(temp.path(), "").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         let mut archive = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
         let ws_file = archive.by_name("workspace.json").unwrap();
-        let ws_json: WorkspaceJson = serde_json::from_reader(ws_file).unwrap();
-        assert_eq!(ws_json.version, 1);
-        assert_eq!(ws_json.tags, vec!["design", "rust"]);
+        let ws_meta: WorkspaceMetadata = serde_json::from_reader(ws_file).unwrap();
+        assert_eq!(ws_meta.version, 1);
     }
 
     #[test]
@@ -891,5 +917,77 @@ mod tests {
         let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
         assert_eq!(result.note_count, 1);
         assert_eq!(result.script_count, 0);
+    }
+
+    #[test]
+    fn test_workspace_metadata_roundtrip() {
+        let temp_src = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
+
+        let meta = WorkspaceMetadata {
+            version: 1,
+            author_name: Some("Alice".to_string()),
+            author_org: Some("ACME".to_string()),
+            homepage_url: Some("https://example.com".to_string()),
+            description: Some("A test workspace".to_string()),
+            license: Some("MIT".to_string()),
+            license_url: Some("https://mit-license.org".to_string()),
+            language: Some("en".to_string()),
+            tags: vec!["notes".to_string(), "template".to_string()],
+        };
+        ws.set_workspace_metadata(&meta).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let temp_dst = NamedTempFile::new().unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+
+        let imported = Workspace::open(temp_dst.path(), "").unwrap();
+        let restored = imported.get_workspace_metadata().unwrap();
+
+        assert_eq!(restored.author_name.as_deref(), Some("Alice"));
+        assert_eq!(restored.author_org.as_deref(), Some("ACME"));
+        assert_eq!(restored.homepage_url.as_deref(), Some("https://example.com"));
+        assert_eq!(restored.description.as_deref(), Some("A test workspace"));
+        assert_eq!(restored.license.as_deref(), Some("MIT"));
+        assert_eq!(restored.license_url.as_deref(), Some("https://mit-license.org"));
+        assert_eq!(restored.language.as_deref(), Some("en"));
+        assert_eq!(restored.tags, vec!["notes", "template"]);
+    }
+
+    #[test]
+    fn test_workspace_metadata_absent_in_old_archive() {
+        // Old archive: workspace.json only has version + tags (old format), no metadata fields.
+        let notes_json = serde_json::json!({
+            "version": 1, "appVersion": "0.1.0",
+            "notes": [{ "id": "root", "title": "Root", "nodeType": "TextNote",
+                        "parentId": null, "position": 0, "createdAt": 0,
+                        "modifiedAt": 0, "createdBy": 0, "modifiedBy": 0,
+                        "fields": {}, "isExpanded": true, "tags": [] }]
+        });
+        let old_ws_json = serde_json::json!({ "version": 1, "tags": [] });
+
+        let mut buf = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+            let opts = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("notes.json", opts).unwrap();
+            serde_json::to_writer(&mut zip, &notes_json).unwrap();
+            zip.start_file("workspace.json", opts).unwrap();
+            serde_json::to_writer(&mut zip, &old_ws_json).unwrap();
+            zip.start_file("scripts/scripts.json", opts).unwrap();
+            zip.write_all(b"{\"scripts\":[]}").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let temp_dst = NamedTempFile::new().unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+
+        let imported = Workspace::open(temp_dst.path(), "").unwrap();
+        let meta = imported.get_workspace_metadata().unwrap();
+        assert!(meta.author_name.is_none());
+        assert!(meta.tags.is_empty());
     }
 }

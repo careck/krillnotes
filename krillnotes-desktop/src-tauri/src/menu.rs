@@ -202,21 +202,26 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<EditMenuResult<R>, 
         .enabled(false)
         .build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
+    let workspace_properties = MenuItemBuilder::with_id("workspace_properties", "Workspace Properties\u{2026}")
+        .enabled(false)
+        .build(app)?;
+    let sep3 = PredefinedMenuItem::separator(app)?;
     let undo = PredefinedMenuItem::undo(app, None)?;
     let redo = PredefinedMenuItem::redo(app, None)?;
     let copy = PredefinedMenuItem::copy(app, None)?;
     let paste = PredefinedMenuItem::paste(app, None)?;
 
     let builder = SubmenuBuilder::new(app, "Edit")
-        .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling, &sep2]);
+        .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling,
+                 &sep2, &workspace_properties, &sep3]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
         let settings = MenuItemBuilder::with_id("edit_settings", "Settings...")
             .accelerator("CmdOrCtrl+,")
             .build(app)?;
-        let sep3 = PredefinedMenuItem::separator(app)?;
-        builder.item(&settings).item(&sep3)
+        let sep4 = PredefinedMenuItem::separator(app)?;
+        builder.item(&settings).item(&sep4)
     };
 
     let submenu = builder.items(&[&undo, &redo, &copy, &paste]).build()?;
@@ -224,7 +229,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>) -> Result<EditMenuResult<R>, 
         submenu,
         paste_as_child: paste_child,
         paste_as_sibling: paste_sibling,
-        workspace_items: vec![add_note, delete_note, copy_note],
+        workspace_items: vec![add_note, delete_note, copy_note, workspace_properties],
     })
 }
 
