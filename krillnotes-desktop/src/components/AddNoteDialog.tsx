@@ -1,78 +1,51 @@
 import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Note, SchemaInfo } from '../types';
+import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
 
 interface AddNoteDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onNoteCreated: (noteId: string) => void;
-  selectedNoteId: string | null;
-  hasNotes: boolean;
+  referenceNoteId: string | null;  // null = creating root note
+  position: NotePosition;
   notes: Note[];
   schemas: Record<string, SchemaInfo>;
 }
 
-function AddNoteDialog({ isOpen, onClose, onNoteCreated, selectedNoteId, hasNotes, notes, schemas }: AddNoteDialogProps) {
-  const [position, setPosition] = useState<'child' | 'sibling'>('child');
+function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, position, notes, schemas }: AddNoteDialogProps) {
   const [nodeType, setNodeType] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  // Derive the list of allowed note types based on position and selected note
-  const availableTypes = useMemo(() => {
-    const allTypes = Object.keys(schemas);
-    if (!hasNotes || !selectedNoteId) {
-      // Creating the first note (root): only types with no parent restriction
-      return allTypes.filter(t => (schemas[t]?.allowedParentTypes ?? []).length === 0);
-    }
+  const availableTypes = useMemo(
+    () => getAvailableTypes(position, referenceNoteId, notes, schemas),
+    [position, referenceNoteId, notes, schemas]
+  );
 
-    const selectedNote = notes.find(n => n.id === selectedNoteId);
-    if (!selectedNote) return allTypes;
-
-    let effectiveParentType: string | null;
-    if (position === 'child') {
-      effectiveParentType = selectedNote.nodeType;
-    } else {
-      const parentNote = notes.find(n => n.id === selectedNote.parentId);
-      effectiveParentType = parentNote ? parentNote.nodeType : null;
-    }
-
-    return allTypes.filter(type => {
-      // Child constraint: check this type's allowedParentTypes
-      const apt = schemas[type]?.allowedParentTypes ?? [];
-      if (apt.length > 0) {
-        if (effectiveParentType === null) return false;
-        if (!apt.includes(effectiveParentType)) return false;
-      }
-
-      // Parent constraint: check parent's allowedChildrenTypes
-      if (effectiveParentType !== null) {
-        const act = schemas[effectiveParentType]?.allowedChildrenTypes ?? [];
-        if (act.length > 0 && !act.includes(type)) return false;
-      }
-
-      return true;
-    });
-  }, [schemas, notes, selectedNoteId, hasNotes, position]);
-
-  // Keep nodeType in sync when available types change
   useEffect(() => {
     if (availableTypes.length > 0 && !availableTypes.includes(nodeType)) {
       setNodeType(availableTypes[0]);
     }
-  }, [availableTypes]);
+  }, [availableTypes, nodeType]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setError('');
+      setLoading(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleCreate = async () => {
     setLoading(true);
     setError('');
-
     try {
       const note = await invoke<Note>('create_note_with_type', {
-        parentId: hasNotes ? selectedNoteId : null,
-        position: hasNotes ? position : 'child',
-        nodeType
+        parentId: position === 'root' ? null : referenceNoteId,
+        position: position === 'root' ? 'child' : position,
+        nodeType,
       });
       onNoteCreated(note.id);
       onClose();
@@ -83,40 +56,14 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, selectedNoteId, hasNote
     }
   };
 
+  const title = position === 'root' ? 'Add Root Note'
+    : position === 'child' ? 'Add Child Note'
+    : 'Add Sibling Note';
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-        <h2 className="text-xl font-bold mb-4">
-          {hasNotes ? 'Add Note' : 'Creating First Note'}
-        </h2>
-
-        {hasNotes && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Position</label>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  value="child"
-                  checked={position === 'child'}
-                  onChange={(e) => setPosition(e.target.value as 'child')}
-                  className="mr-2"
-                />
-                As child of selected note
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  value="sibling"
-                  checked={position === 'sibling'}
-                  onChange={(e) => setPosition(e.target.value as 'sibling')}
-                  className="mr-2"
-                />
-                As sibling of selected note
-              </label>
-            </div>
-          </div>
-        )}
+        <h2 className="text-xl font-bold mb-4">{title}</h2>
 
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">Note Type</label>

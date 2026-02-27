@@ -81,6 +81,9 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
               value={workspaceDir}
               readOnly
               className="flex-1 bg-secondary border border-secondary rounded px-3 py-2 text-sm"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
             />
             <button
               onClick={handleBrowse}

@@ -114,7 +114,8 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
 /// Returns an error string if Tauri fails to build the menu or the window.
 fn create_workspace_window(
     app: &AppHandle,
-    label: &str
+    label: &str,
+    caller: &tauri::Window,
 ) -> std::result::Result<tauri::WebviewWindow, String> {
     let menu_result = menu::build_menu(app)
         .map_err(|e| format!("Failed to build menu: {e}"))?;
@@ -128,7 +129,7 @@ fn create_workspace_window(
             .insert(label.to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
     }
 
-    tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app,
         label,
         tauri::WebviewUrl::App("index.html".into())
@@ -136,9 +137,17 @@ fn create_workspace_window(
     .title(format!("Krillnotes - {label}"))
     .inner_size(1024.0, 768.0)
     .disable_drag_drop_handler()
-    .menu(menu_result.menu)
-    .build()
-    .map_err(|e| format!("Failed to create window: {e}"))
+    .menu(menu_result.menu);
+
+    // Cascade new windows when opening from an existing workspace window.
+    if caller.label() != "main" {
+        if let Ok(pos) = caller.outer_position() {
+            builder = builder.position((pos.x + 30) as f64, (pos.y + 30) as f64);
+        }
+    }
+
+    builder.build()
+        .map_err(|e| format!("Failed to create window: {e}"))
 }
 
 /// Inserts `workspace` and its `path` into `state` under `label`.
@@ -229,7 +238,7 @@ async fn create_workspace(
                     .insert(path_buf.clone(), password);
             }
 
-            let new_window = create_workspace_window(&app, &label)?;
+            let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, path_buf.clone());
 
             new_window.set_title(&format!("Krillnotes - {label}"))
@@ -280,7 +289,7 @@ async fn open_workspace(
                     .insert(path_buf.clone(), password);
             }
 
-            let new_window = create_workspace_window(&app, &label)?;
+            let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, path_buf.clone());
 
             new_window.set_title(&format!("Krillnotes - {label}"))
@@ -1026,7 +1035,7 @@ async fn execute_import(
         .map_err(|e| e.to_string())?;
     let label = generate_unique_label(&state, &db_path_buf);
 
-    let new_window = create_workspace_window(&app, &label)?;
+    let new_window = create_workspace_window(&app, &label, &window)?;
     store_workspace(&state, label.clone(), workspace, db_path_buf);
 
     new_window.set_title(&format!("Krillnotes - {label}"))

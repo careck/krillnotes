@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
-import WelcomeDialog from './components/WelcomeDialog';
 import EmptyState from './components/EmptyState';
 import StatusMessage from './components/StatusMessage';
 import NewWorkspaceDialog from './components/NewWorkspaceDialog';
@@ -66,7 +65,6 @@ const createMenuHandlers = (
 });
 
 function App() {
-  const [showWelcome, setShowWelcome] = useState(true);
   const [workspace, setWorkspace] = useState<WorkspaceInfoType | null>(null);
   const [status, setStatus] = useState('');
   const [isError, setIsError] = useState(false);
@@ -89,23 +87,17 @@ function App() {
   const [pendingImportArgs, setPendingImportArgs] = useState<{ zipPath: string; dbPath: string; zipPassword?: string } | null>(null);
 
   useEffect(() => {
-    const welcomed = localStorage.getItem('krillnotes_welcomed');
-    if (welcomed === 'true') {
-      setShowWelcome(false);
-    }
-
     // If this is a workspace window (not "main"), fetch workspace info immediately
-    import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) => {
+    {
       const window = getCurrentWebviewWindow();
       if (window.label !== 'main') {
         invoke<WorkspaceInfoType>('get_workspace_info')
           .then(info => {
             setWorkspace(info);
-            setShowWelcome(false);
           })
           .catch(err => console.error('Failed to fetch workspace info:', err));
       }
-    });
+    }
   }, []);
 
   const statusSetter = (msg: string, error = false) => {
@@ -232,7 +224,6 @@ function App() {
 
       const currentVersion = await invoke<string>('get_app_version');
       if (result.appVersion > currentVersion) {
-        const { confirm } = await import('@tauri-apps/plugin-dialog');
         const proceed = await confirm(
           `This export was created with Krillnotes v${result.appVersion}, but you are running v${currentVersion}. Some data may not import correctly.\n\nImport anyway?`,
           { title: 'Version Mismatch', kind: 'warning' }
@@ -262,15 +253,6 @@ function App() {
       }
     }
   };
-
-  const handleDismissWelcome = () => {
-    localStorage.setItem('krillnotes_welcomed', 'true');
-    setShowWelcome(false);
-  };
-
-  if (showWelcome) {
-    return <WelcomeDialog onDismiss={handleDismissWelcome} />;
-  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -307,6 +289,9 @@ function App() {
                 placeholder="Optional password"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoFocus
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </div>
             <div className="mb-4">
@@ -324,6 +309,9 @@ function App() {
                 }}
                 placeholder="Confirm password"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </div>
             {exportPassword && exportPasswordConfirm && exportPassword !== exportPasswordConfirm && (
@@ -385,6 +373,9 @@ function App() {
                 placeholder="Enter password"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoFocus
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </div>
             {importPasswordError && (
@@ -452,6 +443,9 @@ function App() {
                 onKeyDown={(e) => { if (e.key === 'Enter' && !importing) handleImportConfirm(); }}
                 placeholder="imported-workspace"
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 autoFocus
                 disabled={importing}
               />

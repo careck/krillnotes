@@ -282,6 +282,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 setIsDirty(true);
               }}
               className="text-4xl font-bold bg-background border border-border rounded-md px-2 py-1 flex-1"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
             />
           ) : (
             <div className="flex-1" />
@@ -382,6 +385,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 placeholder="Add tag…"
                 value={tagInput}
                 onChange={e => handleTagInputChange(e.target.value)}
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 onKeyDown={e => {
                   if (e.key === 'Enter' || e.key === 'Tab') {
                     e.preventDefault();

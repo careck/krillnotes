@@ -190,7 +190,7 @@ function TreeNode({
         }`}
         style={{ paddingLeft: `${indentPx}px` }}
         onClick={() => onSelect(node.note.id)}
-        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.note.id); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, node.note.id); }}
       >
         {hasChildren && (
           <button

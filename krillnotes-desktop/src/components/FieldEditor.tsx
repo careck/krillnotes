@@ -61,6 +61,9 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
           onChange={(e) => onChange({ Text: e.target.value })}
           className="w-full p-2 bg-background border border-border rounded-md"
           required={required}
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
         />
       );
     } else if ('Number' in value) {
@@ -110,6 +113,9 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
           onChange={(e) => onChange({ Email: e.target.value })}
           className="w-full p-2 bg-background border border-border rounded-md"
           required={required}
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
         />
       );
     } else if ('Date' in value) {
