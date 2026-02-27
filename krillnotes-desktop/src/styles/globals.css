@@ -319,9 +319,9 @@ body {
   min-width: 160px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--color-background);
+  background: var(--color-secondary);
   border: 1px solid var(--color-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   font-size: 0.8125rem;
   line-height: 1.5;
   pointer-events: none;
@@ -357,7 +357,7 @@ body {
   height: 0;
   border-top: 6px solid transparent;
   border-bottom: 6px solid transparent;
-  border-right: 7px solid var(--color-background);
+  border-right: 7px solid var(--color-secondary);
 }
 
 .kn-hover-tooltip__row {
