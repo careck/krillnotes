@@ -1,3 +1,5 @@
+![Krillnotes](marketing/KrillNotesBanner.png)
+
 # Krillnotes
 
 A local-first, hierarchical note-taking application. Notes live in a tree, each note has a schema-defined type, and every change is recorded in an operation log — laying the groundwork for offline-first sync.
