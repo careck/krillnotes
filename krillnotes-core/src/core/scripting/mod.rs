@@ -935,6 +935,7 @@ mod tests {
                     options: vec![],
                     max: 0,
                     target_type: None,
+                    show_on_hover: false,
                 },
                 FieldDefinition {
                     name: "count".to_string(),
@@ -945,6 +946,7 @@ mod tests {
                     options: vec![],
                     max: 0,
                     target_type: None,
+                    show_on_hover: false,
                 },
             ],
             title_can_view: true,
@@ -990,6 +992,7 @@ mod tests {
                 options: vec![],
                 max: 0,
                 target_type: None,
+                show_on_hover: false,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -1014,6 +1017,7 @@ mod tests {
                 options: vec![],
                 max: 0,
                 target_type: None,
+                show_on_hover: false,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -2380,6 +2384,7 @@ mod tests {
                 options: vec![],
                 max: 0,
                 target_type: None,
+                show_on_hover: false,
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -2404,6 +2409,25 @@ mod tests {
         let fields = get_schema_fields_for_test(&registry, "Task");
         assert_eq!(fields[0].field_type, "note_link");
         assert_eq!(fields[0].target_type, Some("Project".to_string()));
+    }
+
+    // ── show_on_hover ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_field_show_on_hover_parsed() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            // @name: HoverTest
+            schema("HoverTest", #{
+                fields: [
+                    #{ name: "summary", type: "text", show_on_hover: true },
+                    #{ name: "internal", type: "text" },
+                ],
+            });
+        "#, "HoverTest").unwrap();
+        let schema = registry.get_schema("HoverTest").unwrap();
+        assert!(schema.fields[0].show_on_hover);
+        assert!(!schema.fields[1].show_on_hover);
     }
 
 }

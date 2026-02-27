@@ -44,6 +44,10 @@ pub struct FieldDefinition {
     /// If set, the picker only shows notes of this type. Ignored for all other field types.
     #[serde(default)]
     pub target_type: Option<String>,
+    /// When `true`, this field is included in the hover-tooltip simple-path renderer.
+    /// Defaults to `false` (opt-in).
+    #[serde(default)]
+    pub show_on_hover: bool,
 }
 
 /// A parsed note-type schema containing an ordered list of field definitions.
@@ -190,7 +194,12 @@ impl Schema {
                 .get("target_type")
                 .and_then(|v| v.clone().try_cast::<String>());
 
-            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type });
+            let show_on_hover = field_map
+                .get("show_on_hover")
+                .and_then(|v| v.clone().try_cast::<bool>())
+                .unwrap_or(false);
+
+            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type, show_on_hover });
         }
 
         let title_can_view = def
