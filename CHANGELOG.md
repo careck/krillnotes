@@ -7,10 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.4] — 2026-02-27
+
 ### Added
-- **`.krillnotes` file format** — Export archives now use the `.krillnotes` extension, establishing it as the official Krillnotes document format. The underlying format is unchanged (standard zip); only the file extension and dialog filters have changed.
+- **Theme support** — Choose between Light, Dark, and System (follows OS preference) modes from Settings. The active theme applies to all open workspace windows simultaneously; changing the theme in one window instantly updates every other open window.
+- **Manage Themes dialog** — Browse, preview, create, edit, and delete custom `.krilltheme` files from a dedicated dialog in Settings. Built-in Light and Dark themes are always available as a baseline.
+- **Import theme from file** — A new "Import from file…" button in the Manage Themes dialog lets you load a `.krilltheme` file from disk directly into the editor. If a theme with the same name already exists, a warning banner appears and the Save button becomes "Replace", with a confirmation dialog before overwriting.
+- **Import script from file** — A matching "Import from file…" button in the Script Manager loads a `.rhai` file from disk into the script editor. Conflict detection is by `@name` front-matter; same replace-with-confirm flow applies.
+- **Split Add Note** — The "Add Note" button is now split into three distinct actions — **Add Child**, **Add Sibling**, and **Add Root Note** — eliminating the type-selection dialog when only one target position makes sense.
 
 ### Fixed
+- **Theme settings are now application-wide** — Theme mode (light/dark/system) is stored in the shared `settings.json` and applies to all workspaces. Previously, opening a new workspace window could show the wrong theme because the Settings dialog was clobbering the theme fields on every save.
+- **Settings save no longer resets theme** — `update_settings` now accepts a partial patch and merges it onto the current settings on disk, so callers that only update workspace directory or password-caching cannot inadvertently reset unrelated fields to their defaults.
+- **Workspace menu items disabled until a workspace is open** — File › Export Workspace and other workspace-specific menu items are now greyed out on the initial launch screen and only enabled once a workspace window is open.
+- **`window.confirm()` replaced with async dialog** — Native `window.confirm()` is non-blocking in Tauri's WKWebView on macOS (always returns `true` immediately). All confirmation dialogs now use `await confirm()` from `@tauri-apps/plugin-dialog`, fixing silent data-loss on destructive actions.
+- **`.krillnotes` file format** — Export archives now use the `.krillnotes` extension. The underlying format is unchanged (standard zip); only the file extension and dialog filters have changed.
 - **Importing older archives** — Archives exported before the tags feature (v0.2.3) no longer fail to import. The missing `tags` field on notes now defaults to an empty list instead of causing a deserialisation error.
 
 ### Changed
@@ -147,7 +160,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/careck/krillnotes/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/careck/krillnotes/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/careck/krillnotes/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/careck/krillnotes/compare/v0.2.0...v0.2.1
