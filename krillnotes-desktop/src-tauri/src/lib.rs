@@ -125,7 +125,9 @@ fn create_workspace_window(
     label: &str,
     caller: &tauri::Window,
 ) -> std::result::Result<tauri::WebviewWindow, String> {
-    let menu_result = menu::build_menu(app)
+    let lang = settings::load_settings().language;
+    let strings = locales::menu_strings(&lang);
+    let menu_result = menu::build_menu(app, &strings)
         .map_err(|e| format!("Failed to build menu: {e}"))?;
 
     // Enable workspace-specific menu items for this new workspace window.
@@ -1392,7 +1394,9 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu_result = menu::build_menu(app.handle())?;
+            let lang = settings::load_settings().language;
+            let strings = locales::menu_strings(&lang);
+            let menu_result = menu::build_menu(app.handle(), &strings)?;
             app.set_menu(menu_result.menu)?;
 
             // On macOS the menu bar is global (shared by all windows).
