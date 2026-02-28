@@ -381,7 +381,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                 {t('themes.conflictWarning', { name: importConflict.name })}
               </div>
             )}
-            <div ref={containerRef} className="flex-1 overflow-hidden border-b border-border" />
+            <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden border-b border-border" />
             {(!editingMeta || !BUILT_IN_NAMES.includes(editingMeta.name)) && (
               <div className="px-4 py-3 flex justify-end gap-2">
                 <button
