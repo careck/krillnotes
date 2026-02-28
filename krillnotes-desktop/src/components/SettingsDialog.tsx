@@ -22,7 +22,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [originalLanguage, setOriginalLanguage] = useState(() => i18n.language ?? 'en');
   const { activeMode, lightThemeName, darkThemeName, themes, setMode, setLightTheme, setDarkTheme } = useTheme();
   const [manageThemesOpen, setManageThemesOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'sync'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'sync'>('general');
 
   useEffect(() => {
     if (isOpen) {
@@ -111,6 +111,16 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             {t('settings.tabGeneral')}
           </button>
           <button
+            onClick={() => setActiveTab('appearance')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              activeTab === 'appearance'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t('settings.tabAppearance')}
+          </button>
+          <button
             onClick={() => setActiveTab('sync')}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
               activeTab === 'sync'
@@ -167,86 +177,86 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
               </label>
             </div>
 
-            {/* Appearance */}
-            <div className="border-t border-border pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-foreground mb-3">{t('settings.appearance')}</h3>
-
-              {/* Language picker */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-sm text-muted-foreground w-24">{t('settings.language')}</span>
-                <select
-                  value={language}
-                  onChange={e => handleLanguageChange(e.target.value)}
-                  className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
-                >
-                  <option value="en">English</option>
-                  <option value="de">Deutsch (de)</option>
-                  <option value="fr">Français (fr)</option>
-                  <option value="es">Español (es)</option>
-                  <option value="ja">日本語 (ja)</option>
-                  <option value="ko">한국어 (ko)</option>
-                  <option value="zh">中文 (zh)</option>
-                </select>
-              </div>
-
-              {/* Mode toggle */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-sm text-muted-foreground w-24">{t('settings.mode')}</span>
-                <div className="flex rounded border border-border overflow-hidden">
-                  {(['light', 'dark', 'system'] as const).map(m => (
-                    <button
-                      key={m}
-                      onClick={() => setMode(m)}
-                      className={`px-3 py-1 text-sm ${
-                        activeMode === m
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                      }`}
-                    >
-                      {t(`settings.mode${m.charAt(0).toUpperCase() + m.slice(1)}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Light theme picker */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm text-muted-foreground w-24">{t('settings.lightTheme')}</span>
-                <select
-                  value={lightThemeName}
-                  onChange={e => setLightTheme(e.target.value)}
-                  className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
-                >
-                  <option value="light">{t('settings.lightBuiltIn')}</option>
-                  {themes.filter(theme => theme.hasLight).map(theme => (
-                    <option key={theme.filename} value={theme.name}>{theme.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Dark theme picker */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-sm text-muted-foreground w-24">{t('settings.darkTheme')}</span>
-                <select
-                  value={darkThemeName}
-                  onChange={e => setDarkTheme(e.target.value)}
-                  className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
-                >
-                  <option value="dark">{t('settings.darkBuiltIn')}</option>
-                  {themes.filter(theme => theme.hasDark).map(theme => (
-                    <option key={theme.filename} value={theme.name}>{theme.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={() => setManageThemesOpen(true)}
-                className="text-sm text-muted-foreground hover:text-foreground underline"
-              >
-                {t('settings.manageThemes')}
-              </button>
-            </div>
           </>
+        )}
+
+        {activeTab === 'appearance' && (
+          <div className="py-2">
+            {/* Language picker */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm text-muted-foreground w-24">{t('settings.language')}</span>
+              <select
+                value={language}
+                onChange={e => handleLanguageChange(e.target.value)}
+                className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
+              >
+                <option value="en">English</option>
+                <option value="de">Deutsch (de)</option>
+                <option value="fr">Français (fr)</option>
+                <option value="es">Español (es)</option>
+                <option value="ja">日本語 (ja)</option>
+                <option value="ko">한국어 (ko)</option>
+                <option value="zh">中文 (zh)</option>
+              </select>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm text-muted-foreground w-24">{t('settings.mode')}</span>
+              <div className="flex rounded border border-border overflow-hidden">
+                {(['light', 'dark', 'system'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={`px-3 py-1 text-sm ${
+                      activeMode === m
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {t(`settings.mode${m.charAt(0).toUpperCase() + m.slice(1)}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Light theme picker */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm text-muted-foreground w-24">{t('settings.lightTheme')}</span>
+              <select
+                value={lightThemeName}
+                onChange={e => setLightTheme(e.target.value)}
+                className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
+              >
+                <option value="light">{t('settings.lightBuiltIn')}</option>
+                {themes.filter(theme => theme.hasLight).map(theme => (
+                  <option key={theme.filename} value={theme.name}>{theme.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dark theme picker */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm text-muted-foreground w-24">{t('settings.darkTheme')}</span>
+              <select
+                value={darkThemeName}
+                onChange={e => setDarkTheme(e.target.value)}
+                className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
+              >
+                <option value="dark">{t('settings.darkBuiltIn')}</option>
+                {themes.filter(theme => theme.hasDark).map(theme => (
+                  <option key={theme.filename} value={theme.name}>{theme.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={() => setManageThemesOpen(true)}
+              className="text-sm text-muted-foreground hover:text-foreground underline"
+            >
+              {t('settings.manageThemes')}
+            </button>
+          </div>
         )}
 
         {activeTab === 'sync' && (
