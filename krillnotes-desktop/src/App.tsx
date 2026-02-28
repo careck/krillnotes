@@ -88,7 +88,7 @@ function App() {
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
   const [showImportWorkspacePasswordDialog, setShowImportWorkspacePasswordDialog] = useState(false);
-  const [pendingImportArgs, setPendingImportArgs] = useState<{ zipPath: string; dbPath: string; zipPassword?: string } | null>(null);
+  const [pendingImportArgs, setPendingImportArgs] = useState<{ zipPath: string; folderPath: string; zipPassword?: string } | null>(null);
 
   useEffect(() => {
     // If this is a workspace window (not "main"), fetch workspace info immediately
@@ -168,10 +168,10 @@ function App() {
 
     try {
       const settings = await invoke<AppSettings>('get_settings');
-      const dbPath = `${settings.workspaceDirectory}/${slug}.db`;
+      const folderPath = `${settings.workspaceDirectory}/${slug}`;
       setPendingImportArgs({
         zipPath: importState.zipPath,
-        dbPath,
+        folderPath,
         zipPassword: pendingImportPassword ?? undefined,
       });
       setImporting(false);
@@ -191,7 +191,7 @@ function App() {
     try {
       await invoke<WorkspaceInfoType>('execute_import', {
         zipPath: pendingImportArgs.zipPath,
-        dbPath: pendingImportArgs.dbPath,
+        folderPath: pendingImportArgs.folderPath,
         password: pendingImportArgs.zipPassword ?? null,
         workspacePassword: wsPassword,
       });
