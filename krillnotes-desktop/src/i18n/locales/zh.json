@@ -40,7 +40,11 @@
     "manageThemes": "管理主题…",
     "language": "语言",
     "failedLoad": "加载设置失败：{{error}}",
-    "failedSave": "保存设置失败：{{error}}"
+    "failedSave": "保存设置失败：{{error}}",
+    "tabGeneral": "General",
+    "tabSync": "Sync",
+    "sync": "Sync",
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
   "themes": {
     "manage": "管理主题",

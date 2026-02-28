@@ -40,7 +40,11 @@
     "manageThemes": "Designs verwalten…",
     "language": "Sprache",
     "failedLoad": "Einstellungen konnten nicht geladen werden: {{error}}",
-    "failedSave": "Einstellungen konnten nicht gespeichert werden: {{error}}"
+    "failedSave": "Einstellungen konnten nicht gespeichert werden: {{error}}",
+    "tabGeneral": "General",
+    "tabSync": "Sync",
+    "sync": "Sync",
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
   "themes": {
     "manage": "Designs verwalten",

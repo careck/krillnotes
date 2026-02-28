@@ -40,7 +40,11 @@
     "manageThemes": "Manage Themes…",
     "language": "Language",
     "failedLoad": "Failed to load settings: {{error}}",
-    "failedSave": "Failed to save settings: {{error}}"
+    "failedSave": "Failed to save settings: {{error}}",
+    "tabGeneral": "General",
+    "tabSync": "Sync",
+    "sync": "Sync",
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
   "themes": {
     "manage": "Manage Themes",

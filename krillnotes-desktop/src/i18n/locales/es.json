@@ -40,7 +40,11 @@
     "manageThemes": "Gestionar temas…",
     "language": "Idioma",
     "failedLoad": "Error al cargar los ajustes: {{error}}",
-    "failedSave": "Error al guardar los ajustes: {{error}}"
+    "failedSave": "Error al guardar los ajustes: {{error}}",
+    "tabGeneral": "General",
+    "tabSync": "Sync",
+    "sync": "Sync",
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
   "themes": {
     "manage": "Gestionar temas",
