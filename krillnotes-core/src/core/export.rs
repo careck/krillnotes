@@ -9,6 +9,7 @@ use zip::write::SimpleFileOptions;
 use zip::AesMode;
 use zip::{ZipArchive, ZipWriter};
 
+use crate::core::attachment::AttachmentMeta;
 use crate::core::note::Note;
 use crate::core::user_script;
 use crate::core::workspace::Workspace;
@@ -247,6 +248,30 @@ pub fn export_workspace<W: Write + Seek>(
     zip.start_file("workspace.json", options)?;
     serde_json::to_writer_pretty(&mut zip, &ws_meta)?;
 
+    // Write attachments
+    let all_attachments = workspace
+        .list_all_attachments()
+        .map_err(|e| ExportError::Database(e.to_string()))?;
+
+    if !all_attachments.is_empty() {
+        // Write attachments.json manifest
+        zip.start_file("attachments.json", options)?;
+        serde_json::to_writer(&mut zip, &all_attachments)
+            .map_err(|e| ExportError::Database(e.to_string()))?;
+
+        // Write each attachment file (plaintext — zip password protects them at rest)
+        for meta in &all_attachments {
+            let plaintext = workspace
+                .get_attachment_bytes(&meta.id)
+                .map_err(|e| ExportError::Database(e.to_string()))?;
+            zip.start_file(
+                format!("attachments/{}/{}", meta.id, meta.filename),
+                options,
+            )?;
+            zip.write_all(&plaintext)?;
+        }
+    }
+
     zip.finish()?;
     Ok(())
 }
@@ -473,6 +498,29 @@ pub fn import_workspace<R: Read + Seek>(
     workspace
         .rebuild_note_links_index()
         .map_err(|e| ExportError::Database(e.to_string()))?;
+
+    // Restore attachments if the archive contains them.
+    // Use try_read_entry so the borrow on archive is fully released before
+    // we call by_name again for each individual attachment file.
+    if let Some(att_cursor) = try_read_entry(&mut archive, "attachments.json", zip_password) {
+        let att_json = String::from_utf8(att_cursor.into_inner()).unwrap_or_default();
+        let attachment_metas: Vec<AttachmentMeta> =
+            serde_json::from_str(&att_json).unwrap_or_default();
+
+        for meta in attachment_metas {
+            let zip_path = format!("attachments/{}/{}", meta.id, meta.filename);
+            if let Some(file_cursor) = try_read_entry(&mut archive, &zip_path, zip_password) {
+                let plaintext = file_cursor.into_inner();
+                let _ = workspace.attach_file_with_id(
+                    &meta.id,
+                    &meta.note_id,
+                    &meta.filename,
+                    meta.mime_type.as_deref(),
+                    &plaintext,
+                );
+            }
+        }
+    }
 
     // Restore workspace metadata if the archive contained it.
     if let Some(meta) = workspace_metadata {
@@ -954,6 +1002,55 @@ mod tests {
         assert_eq!(restored.license_url.as_deref(), Some("https://mit-license.org"));
         assert_eq!(restored.language.as_deref(), Some("en"));
         assert_eq!(restored.tags, vec!["notes", "template"]);
+    }
+
+    #[test]
+    fn test_export_includes_attachments() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        ws.attach_file(&root_id, "hello.txt", Some("text/plain"), b"hello world").unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        assert!(archive.by_name("attachments.json").is_ok(), "Must have attachments.json");
+        let found = (0..archive.len()).any(|i| {
+            archive.by_index(i).ok()
+                .map(|f| f.name().ends_with("hello.txt"))
+                .unwrap_or(false)
+        });
+        assert!(found, "Attachment file must be in the zip");
+    }
+
+    #[test]
+    fn test_import_restores_attachments() {
+        let dir_src = tempfile::tempdir().unwrap();
+        let db_src = dir_src.path().join("notes.db");
+        let mut ws = Workspace::create(&db_src, "pass").unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        ws.attach_file(&root_id, "data.txt", None, b"attachment content").unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let dir_dst = tempfile::tempdir().unwrap();
+        let db_dst = dir_dst.path().join("notes.db");
+        import_workspace(Cursor::new(&buf), &db_dst, None, "newpass").unwrap();
+
+        let ws2 = Workspace::open(&db_dst, "newpass").unwrap();
+        let notes = ws2.list_all_notes().unwrap();
+        let root = notes.iter().find(|n| n.parent_id.is_none()).unwrap();
+        let attachments = ws2.get_attachments(&root.id).unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].filename, "data.txt");
+
+        let recovered = ws2.get_attachment_bytes(&attachments[0].id).unwrap();
+        assert_eq!(recovered, b"attachment content" as &[u8]);
     }
 
     #[test]

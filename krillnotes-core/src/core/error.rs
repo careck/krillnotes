@@ -48,6 +48,14 @@ pub enum KrillnotesError {
     /// Stored note data could not be deserialized from JSON.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// Attachment encryption or decryption failed.
+    #[error("Attachment encryption error: {0}")]
+    AttachmentEncryption(String),
+
+    /// Attachment exceeds the workspace size limit.
+    #[error("Attachment too large: {size} bytes (limit: {limit} bytes)")]
+    AttachmentTooLarge { size: u64, limit: u64 },
 }
 
 #[cfg(test)]
@@ -64,6 +72,15 @@ mod tests {
     fn test_unencrypted_workspace_variant_exists() {
         let e = KrillnotesError::UnencryptedWorkspace;
         assert!(e.to_string().contains("encrypted") || e.to_string().contains("older version"));
+    }
+
+    #[test]
+    fn test_attachment_error_variants_exist() {
+        let e = KrillnotesError::AttachmentEncryption("bad key".to_string());
+        assert!(e.to_string().contains("encryption") || e.to_string().contains("Encryption"));
+
+        let e2 = KrillnotesError::AttachmentTooLarge { size: 200, limit: 100 };
+        assert!(e2.to_string().contains("200"));
     }
 }
 
@@ -86,6 +103,10 @@ impl KrillnotesError {
             Self::InvalidMove(msg) => msg.clone(),
             Self::WrongPassword => "Wrong password — please try again".to_string(),
             Self::UnencryptedWorkspace => "This workspace was created with an older version of Krillnotes. Please open it in the previous version, export it via File → Export Workspace, then import it here.".to_string(),
+            Self::AttachmentEncryption(_) => "Could not encrypt or decrypt the attachment".to_string(),
+            Self::AttachmentTooLarge { size, limit } => {
+                format!("File too large ({} bytes). This workspace limits attachments to {} bytes.", size, limit)
+            }
         }
     }
 }

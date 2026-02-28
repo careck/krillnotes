@@ -8,6 +8,7 @@ import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
 import TagPill from './TagPill';
+import AttachmentsSection from './AttachmentsSection';
 import { ChevronRight } from 'lucide-react';
 
 interface InfoPanelProps {
@@ -507,6 +508,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           <p className="text-muted-foreground italic">{t('notes.noFields')}</p>
         )}
       </div>
+
+      {/* Attachments */}
+      <AttachmentsSection noteId={selectedNote?.id ?? null} />
 
       {/* Metadata Section */}
       <details className="bg-secondary rounded-lg">

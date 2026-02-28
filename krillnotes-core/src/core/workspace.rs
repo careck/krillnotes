@@ -1,5 +1,8 @@
 //! High-level workspace operations over a Krillnotes SQLite database.
 
+use crate::core::attachment::{
+    decrypt_attachment, encrypt_attachment, AttachmentMeta,
+};
 use crate::core::export::WorkspaceMetadata;
 use crate::core::user_script;
 #[allow(unused_imports)]
@@ -11,8 +14,9 @@ use crate::{
 use rhai::Dynamic;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// A lightweight search result containing only the ID and title of a note.
@@ -45,6 +49,11 @@ pub struct Workspace {
     operation_log: Option<OperationLog>,
     device_id: String,
     current_user_id: i64,
+    /// Root directory for this workspace (parent of `notes.db`).
+    workspace_root: PathBuf,
+    /// ChaCha20-Poly1305 attachment key derived from password + workspace_id.
+    /// `None` for unencrypted workspaces (empty password).
+    attachment_key: Option<[u8; 32]>,
 }
 
 impl Workspace {
@@ -72,6 +81,28 @@ impl Workspace {
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
             ["current_user_id", "0"],
         )?;
+
+        // Derive workspace root from db path
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        // Create attachments directory (idempotent, best-effort)
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        // Generate and store a stable workspace ID (used for attachment key derivation)
+        let workspace_id = uuid::Uuid::new_v4().to_string();
+        storage.connection().execute(
+            "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["workspace_id", &workspace_id],
+        )?;
+
+        // Derive attachment key
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
 
         // Seed the workspace with bundled starter scripts.
         let now = chrono::Utc::now().timestamp();
@@ -117,12 +148,21 @@ impl Workspace {
             }
         }
 
-        // Create root note from filename
-        let filename = path
-            .as_ref()
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Untitled");
+        // Derive root note title from workspace folder name (parent of notes.db), not the db filename
+        let filename = {
+            let parent_name = path.as_ref()
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str());
+            let db_stem = path.as_ref()
+                .file_stem()
+                .and_then(|s| s.to_str());
+            // If parent is a real named folder (not "" or "."), use it; otherwise fall back to db stem
+            match parent_name {
+                Some(name) if !name.is_empty() && name != "." => name,
+                _ => db_stem.unwrap_or("Untitled"),
+            }
+        };
         let title = humanize(filename);
 
         let root = Note {
@@ -166,6 +206,8 @@ impl Workspace {
             operation_log,
             device_id,
             current_user_id: 0,
+            workspace_root,
+            attachment_key,
         })
     }
 
@@ -199,12 +241,47 @@ impl Workspace {
             .parse::<i64>()
             .unwrap_or(0);
 
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        // Read workspace_id for key derivation; generate one if absent (older workspaces)
+        let workspace_id: String = {
+            let existing: std::result::Result<String, rusqlite::Error> = storage.connection().query_row(
+                "SELECT value FROM workspace_meta WHERE key = 'workspace_id'",
+                [],
+                |row| row.get(0),
+            );
+            match existing {
+                Ok(id) => id,
+                Err(_) => {
+                    // Older workspace — generate and persist a new workspace_id
+                    let id = uuid::Uuid::new_v4().to_string();
+                    storage.connection().execute(
+                        "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+                        rusqlite::params!["workspace_id", &id],
+                    )?;
+                    id
+                }
+            }
+        };
+
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
+
         let mut ws = Self {
             storage,
             script_registry,
             operation_log,
             device_id,
             current_user_id,
+            workspace_root,
+            attachment_key,
         };
 
         // Load enabled scripts from the workspace DB.
@@ -216,6 +293,16 @@ impl Workspace {
         }
 
         Ok(ws)
+    }
+
+    /// Returns the derived attachment encryption key, or `None` for an unencrypted workspace.
+    pub fn attachment_key(&self) -> Option<&[u8; 32]> {
+        self.attachment_key.as_ref()
+    }
+
+    /// Returns the workspace root directory (parent of `notes.db`).
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
     }
 
     /// Returns a reference to the script registry for this workspace.
@@ -2189,6 +2276,206 @@ impl Workspace {
         Ok(())
     }
 
+    // -------------------------------------------------------------------------
+    // Attachment methods
+    // -------------------------------------------------------------------------
+
+    /// Attaches a file to a note. Encrypts the bytes and writes them to
+    /// `<workspace_root>/attachments/<uuid>.enc`, then inserts a DB metadata row.
+    pub fn attach_file(
+        &mut self,
+        note_id: &str,
+        filename: &str,
+        mime_type: Option<&str>,
+        data: &[u8],
+    ) -> Result<AttachmentMeta> {
+        // Enforce workspace size limit
+        if let Some(limit) = self.attachment_max_size_bytes()? {
+            if data.len() as u64 > limit {
+                return Err(KrillnotesError::AttachmentTooLarge {
+                    size: data.len() as u64,
+                    limit,
+                });
+            }
+        }
+
+        // SHA-256 hash for integrity
+        let hash = {
+            let mut h = Sha256::new();
+            h.update(data);
+            format!("{:x}", h.finalize())
+        };
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp();
+
+        let (encrypted_bytes, file_salt) =
+            encrypt_attachment(data, self.attachment_key.as_ref())?;
+
+        // Write to disk
+        let enc_path = self.workspace_root.join("attachments").join(format!("{id}.enc"));
+        std::fs::write(&enc_path, &encrypted_bytes)?;
+
+        // Insert DB row
+        self.storage.connection().execute(
+            "INSERT INTO attachments (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                id, note_id, filename, mime_type,
+                data.len() as i64, hash, file_salt.as_slice(), now
+            ],
+        )?;
+
+        Ok(AttachmentMeta {
+            id,
+            note_id: note_id.to_string(),
+            filename: filename.to_string(),
+            mime_type: mime_type.map(|s| s.to_string()),
+            size_bytes: data.len() as i64,
+            hash_sha256: hash,
+            salt: hex::encode(file_salt),
+            created_at: now,
+        })
+    }
+
+    /// Import-only: attach a file with a pre-specified ID (preserves IDs from export).
+    /// Does NOT enforce size limits (the size was already validated at export time).
+    pub fn attach_file_with_id(
+        &mut self,
+        id: &str,
+        note_id: &str,
+        filename: &str,
+        mime_type: Option<&str>,
+        data: &[u8],
+    ) -> Result<()> {
+        let hash = {
+            let mut h = Sha256::new();
+            h.update(data);
+            format!("{:x}", h.finalize())
+        };
+        let now = chrono::Utc::now().timestamp();
+        let (encrypted_bytes, file_salt) = encrypt_attachment(data, self.attachment_key.as_ref())?;
+        let enc_path = self.workspace_root.join("attachments").join(format!("{id}.enc"));
+        std::fs::write(&enc_path, &encrypted_bytes)?;
+        let _ = self.storage.connection().execute(
+            "INSERT OR IGNORE INTO attachments (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![id, note_id, filename, mime_type, data.len() as i64, hash, file_salt.as_slice(), now],
+        );
+        Ok(())
+    }
+
+    /// Returns all attachment metadata for a note (no file I/O).
+    pub fn get_attachments(&self, note_id: &str) -> Result<Vec<AttachmentMeta>> {
+        let mut stmt = self.storage.connection().prepare(
+            "SELECT id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at
+             FROM attachments WHERE note_id = ? ORDER BY created_at ASC",
+        )?;
+        let results = stmt.query_map([note_id], |row| {
+            let salt_bytes: Vec<u8> = row.get(6)?;
+            Ok(AttachmentMeta {
+                id: row.get(0)?,
+                note_id: row.get(1)?,
+                filename: row.get(2)?,
+                mime_type: row.get(3)?,
+                size_bytes: row.get(4)?,
+                hash_sha256: row.get(5)?,
+                salt: hex::encode(&salt_bytes),
+                created_at: row.get(7)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(results)
+    }
+
+    /// Returns all attachments in the workspace (used for export).
+    pub fn list_all_attachments(&self) -> Result<Vec<AttachmentMeta>> {
+        let mut stmt = self.storage.connection().prepare(
+            "SELECT id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at
+             FROM attachments ORDER BY created_at ASC",
+        )?;
+        let results = stmt.query_map([], |row| {
+            let salt_bytes: Vec<u8> = row.get(6)?;
+            Ok(AttachmentMeta {
+                id: row.get(0)?,
+                note_id: row.get(1)?,
+                filename: row.get(2)?,
+                mime_type: row.get(3)?,
+                size_bytes: row.get(4)?,
+                hash_sha256: row.get(5)?,
+                salt: hex::encode(&salt_bytes),
+                created_at: row.get(7)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(results)
+    }
+
+    /// Decrypts and returns the plaintext bytes for an attachment.
+    pub fn get_attachment_bytes(&self, attachment_id: &str) -> Result<Vec<u8>> {
+        let (salt_bytes, _): (Vec<u8>, i64) = self.storage.connection().query_row(
+            "SELECT salt, size_bytes FROM attachments WHERE id = ?",
+            [attachment_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| KrillnotesError::NoteNotFound(attachment_id.to_string()))?;
+
+        let enc_path = self
+            .workspace_root
+            .join("attachments")
+            .join(format!("{attachment_id}.enc"));
+        let encrypted_bytes = std::fs::read(&enc_path)?;
+        decrypt_attachment(&encrypted_bytes, self.attachment_key.as_ref(), &salt_bytes)
+    }
+
+    /// Deletes an attachment: removes the `.enc` file and the DB row.
+    pub fn delete_attachment(&mut self, attachment_id: &str) -> Result<()> {
+        let enc_path = self
+            .workspace_root
+            .join("attachments")
+            .join(format!("{attachment_id}.enc"));
+        if enc_path.exists() {
+            std::fs::remove_file(&enc_path)?;
+        }
+        self.storage.connection().execute(
+            "DELETE FROM attachments WHERE id = ?",
+            [attachment_id],
+        )?;
+        Ok(())
+    }
+
+    /// Returns the workspace-level max attachment size in bytes, or `None` if unlimited.
+    pub fn attachment_max_size_bytes(&self) -> Result<Option<u64>> {
+        let val: std::result::Result<String, rusqlite::Error> = self.storage.connection().query_row(
+            "SELECT value FROM workspace_meta WHERE key = 'attachment_max_size_bytes'",
+            [],
+            |row| row.get(0),
+        );
+        match val {
+            Ok(s) => Ok(s.parse::<u64>().ok()),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Sets or clears the workspace-level max attachment size.
+    pub fn set_attachment_max_size_bytes(&mut self, limit: Option<u64>) -> Result<()> {
+        match limit {
+            Some(n) => {
+                self.storage.connection().execute(
+                    "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES ('attachment_max_size_bytes', ?)",
+                    [n.to_string()],
+                )?;
+            }
+            None => {
+                self.storage.connection().execute(
+                    "DELETE FROM workspace_meta WHERE key = 'attachment_max_size_bytes'",
+                    [],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
 }
 
 /// Keeps the `note_links` junction table in sync with the current field values of a note.
@@ -3968,6 +4255,42 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
     }
 
     #[test]
+    fn test_workspace_has_attachment_key_when_encrypted() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let ws = Workspace::create(&db_path, "hunter2").unwrap();
+        assert!(ws.attachment_key().is_some(), "Encrypted workspace must have attachment_key");
+    }
+
+    #[test]
+    fn test_workspace_has_no_attachment_key_when_unencrypted() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let ws = Workspace::create(&db_path, "").unwrap();
+        assert!(ws.attachment_key().is_none(), "Unencrypted workspace must have no attachment_key");
+    }
+
+    #[test]
+    fn test_workspace_creates_attachments_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        Workspace::create(&db_path, "").unwrap();
+        assert!(dir.path().join("attachments").is_dir());
+    }
+
+    #[test]
+    fn test_workspace_attachment_key_stable_across_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let ws1 = Workspace::create(&db_path, "mypass").unwrap();
+        let key1 = ws1.attachment_key().unwrap().clone();
+        drop(ws1);
+        let ws2 = Workspace::open(&db_path, "mypass").unwrap();
+        let key2 = ws2.attachment_key().unwrap();
+        assert_eq!(key1, *key2, "Key must be derived deterministically from password + workspace_id");
+    }
+
+    #[test]
     fn test_get_set_workspace_metadata() {
         let temp = tempfile::NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "").unwrap();
@@ -4009,5 +4332,81 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let updated = ws.get_workspace_metadata().unwrap();
         assert_eq!(updated.author_name.as_deref(), Some("Alice"));
         assert!(updated.description.is_none());
+    }
+
+    #[test]
+    fn test_attach_file_stores_metadata_and_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "testpass").unwrap();
+        let notes = ws.list_all_notes().unwrap();
+        let root_id = &notes[0].id;
+
+        let data = b"hello attachment";
+        let meta = ws.attach_file(root_id, "test.txt", Some("text/plain"), data).unwrap();
+        assert_eq!(meta.filename, "test.txt");
+        assert_eq!(meta.size_bytes, data.len() as i64);
+
+        let enc_path = dir.path().join("attachments").join(format!("{}.enc", meta.id));
+        assert!(enc_path.exists(), "Encrypted file must exist on disk");
+    }
+
+    #[test]
+    fn test_get_attachment_bytes_decrypts_correctly() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "testpass").unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        let data = b"secret file content";
+        let meta = ws.attach_file(&root_id, "doc.txt", None, data).unwrap();
+        let recovered = ws.get_attachment_bytes(&meta.id).unwrap();
+        assert_eq!(recovered, data as &[u8]);
+    }
+
+    #[test]
+    fn test_get_attachments_returns_metadata_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        ws.attach_file(&root_id, "a.pdf", None, b"data a").unwrap();
+        ws.attach_file(&root_id, "b.pdf", None, b"data b").unwrap();
+
+        let attachments = ws.get_attachments(&root_id).unwrap();
+        assert_eq!(attachments.len(), 2);
+        let names: Vec<&str> = attachments.iter().map(|a| a.filename.as_str()).collect();
+        assert!(names.contains(&"a.pdf"));
+        assert!(names.contains(&"b.pdf"));
+    }
+
+    #[test]
+    fn test_delete_attachment_removes_file_and_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "testpass").unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        let meta = ws.attach_file(&root_id, "bye.txt", None, b"temp").unwrap();
+        let enc_path = dir.path().join("attachments").join(format!("{}.enc", meta.id));
+        assert!(enc_path.exists());
+
+        ws.delete_attachment(&meta.id).unwrap();
+        assert!(!enc_path.exists(), "File must be deleted from disk");
+        assert!(ws.get_attachments(&root_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_attach_file_enforces_size_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        ws.set_attachment_max_size_bytes(Some(10)).unwrap();
+        let big_data = vec![0u8; 100];
+        let result = ws.attach_file(&root_id, "big.bin", None, &big_data);
+        assert!(matches!(result, Err(KrillnotesError::AttachmentTooLarge { .. })));
     }
 }

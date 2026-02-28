@@ -3,6 +3,7 @@
 //! All public types from these modules are re-exported at the crate root
 //! with `#[doc(inline)]`; import from there in preference to this module.
 
+pub mod attachment;
 pub mod delete;
 pub mod export;
 pub mod device;
@@ -15,6 +16,8 @@ pub mod storage;
 pub mod user_script;
 pub mod workspace;
 
+#[doc(inline)]
+pub use attachment::AttachmentMeta;
 #[doc(inline)]
 pub use delete::{DeleteResult, DeleteStrategy};
 #[doc(inline)]

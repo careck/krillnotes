@@ -134,3 +134,14 @@ export interface WorkspaceMetadata {
   /** Workspace-level taxonomy tags for gallery discovery (not per-note tags). */
   tags: string[];
 }
+
+export interface AttachmentMeta {
+  id: string;
+  noteId: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  hashSha256: string;
+  salt: string;
+  createdAt: number;
+}

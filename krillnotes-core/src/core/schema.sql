@@ -63,3 +63,17 @@ CREATE TABLE IF NOT EXISTS note_links (
     PRIMARY KEY (source_id, field_name)
 );
 CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_id);
+
+-- Attachment metadata (encrypted files live on disk in attachments/ directory)
+CREATE TABLE IF NOT EXISTS attachments (
+    id          TEXT PRIMARY KEY,
+    note_id     TEXT NOT NULL,
+    filename    TEXT NOT NULL,
+    mime_type   TEXT,
+    size_bytes  INTEGER NOT NULL,
+    hash_sha256 TEXT NOT NULL,
+    salt        BLOB NOT NULL,
+    created_at  INTEGER NOT NULL,
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_note_id ON attachments(note_id);
