@@ -37,12 +37,17 @@ Krillnotes/
 │               └── text_note.rhai # Built-in TextNote schema
 └── krillnotes-desktop/
     ├── src-tauri/                 # Tauri v2 Rust backend
+    │   ├── build.rs               # Compile-time locale embedding (generates locales_generated.rs)
     │   └── src/
     │       ├── lib.rs             # Tauri commands + AppState
-    │       └── menu.rs            # Native menu builder
+    │       ├── locales.rs         # menu_strings(lang) — locale lookup with English fallback
+    │       └── menu.rs            # Native menu builder (accepts &serde_json::Value strings)
     └── src/                       # React 19 / TypeScript frontend
         ├── App.tsx                # React root, menu event wiring, export/import
         ├── types.ts               # Shared TypeScript interfaces
+        ├── i18n/
+        │   ├── index.ts           # i18next initialisation + language apply-on-startup
+        │   └── locales/           # One JSON file per language (en, de, fr, es, ja, ko, zh)
         └── components/
             ├── WorkspaceView.tsx          # Main layout, resizable panels, keyboard nav
             ├── TreeView.tsx               # Tree rendering
@@ -257,10 +262,11 @@ Each open workspace gets its own Tauri window. The frontend is a single React ap
 
 ```rust
 pub struct AppState {
-    pub workspaces:          Arc<Mutex<HashMap<String, Workspace>>>,  // label → Workspace
-    pub workspace_paths:     Arc<Mutex<HashMap<String, PathBuf>>>,    // label → path on disk
-    pub focused_window:      Arc<Mutex<Option<String>>>,              // for menu routing
-    pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,    // path → password (session cache)
+    pub workspaces:           Arc<Mutex<HashMap<String, Workspace>>>,  // label → Workspace
+    pub workspace_paths:      Arc<Mutex<HashMap<String, PathBuf>>>,    // label → path on disk
+    pub workspace_passwords:  Arc<Mutex<HashMap<PathBuf, String>>>,    // path → password (session cache)
+    pub paste_menu_items:     Arc<Mutex<HashMap<String, (MenuItem, MenuItem)>>>, // label → (paste_as_child, paste_as_sibling)
+    pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<MenuItem>>>>,        // label → workspace-gated items
 }
 ```
 
@@ -328,6 +334,87 @@ let workspace = workspaces.get(window.label()).ok_or("workspace not found")?;
 
 ---
 
+## Adding a New Language
+
+Krillnotes supports two translation surfaces — the React UI (via i18next) and the native application menu (via compile-time embedding). Both are driven by the same JSON files, so adding a language is a single-step process with no Rust changes required.
+
+### 1. Create the locale JSON file
+
+Add a new file at:
+
+```
+krillnotes-desktop/src/i18n/locales/<lang-code>.json
+```
+
+Use the [BCP 47 language tag](https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry) as the filename (e.g. `pt.json` for Portuguese, `zh-TW.json` for Traditional Chinese).
+
+The file must follow the same structure as `en.json`. Copy it as a starting point:
+
+```bash
+cp krillnotes-desktop/src/i18n/locales/en.json \
+   krillnotes-desktop/src/i18n/locales/pt.json
+```
+
+Translate every value. The `"menu"` section (20 keys) is used by both the React UI and the native menu — translate those carefully using platform-idiomatic terms for your target OS. Leave keys untranslated in English rather than omitting them; the runtime merges translated keys over the English base, so missing keys always fall back gracefully.
+
+Validate JSON syntax before committing:
+
+```bash
+python3 -m json.tool krillnotes-desktop/src/i18n/locales/pt.json > /dev/null && echo OK
+```
+
+### 2. Register the language in the frontend
+
+Open [krillnotes-desktop/src/i18n/index.ts](krillnotes-desktop/src/i18n/index.ts) and add the new locale to the i18next `resources` map:
+
+```ts
+import pt from './locales/pt.json';
+
+// inside the i18next.init({ resources: { ... } }) call:
+pt: { translation: pt },
+```
+
+Also add it to the language dropdown options in [SettingsDialog.tsx](krillnotes-desktop/src/components/SettingsDialog.tsx):
+
+```tsx
+{ value: 'pt', label: 'Português' },
+```
+
+### 3. Build and test
+
+```bash
+# Verify Rust compiles (build.rs auto-picks up the new JSON file)
+cargo build -p krillnotes-desktop
+
+# Run all tests
+cargo test --workspace
+
+# Verify TypeScript
+cd krillnotes-desktop && npx tsc --noEmit
+```
+
+The `build.rs` build script automatically scans `src/i18n/locales/*.json` at compile time and embeds the new file into the binary — no Rust code changes are needed. The native menu will switch to the new language as soon as the user selects it in Settings.
+
+### How the i18n pipeline works
+
+```
+krillnotes-desktop/src/i18n/locales/<lang>.json
+            │
+            ├── React frontend (i18next)
+            │     useTranslation() hook → t('key')
+            │     FieldDisplay.tsx, SettingsDialog.tsx, …
+            │
+            └── Native menu (Rust, compile-time)
+                  build.rs  →  $OUT_DIR/locales_generated.rs  (embedded &str pairs)
+                  locales.rs::menu_strings(lang)  →  serde_json::Value
+                  menu.rs::build_menu(app, &strings)  →  Tauri Menu
+                  lib.rs::rebuild_menus()  →  called on language change in update_settings
+```
+
+The `locales::menu_strings` function merges the target locale's `menu` object over the English base, so any untranslated keys silently fall back to English without breaking the menu.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -335,6 +422,7 @@ let workspace = workspaces.get(window.label()).ok_or("workspace not found")?;
 | Core library | Rust, rusqlite (bundled SQLCipher + vendored OpenSSL), rhai, serde, zip |
 | Desktop backend | Tauri v2, mimalloc (global allocator) |
 | Frontend | React 19, TypeScript 5, Vite, Tailwind CSS v4 |
+| Internationalisation | i18next + react-i18next (frontend); compile-time JSON embedding via `build.rs` (native menu) |
 | Encryption | SQLCipher (AES-256-CBC, PBKDF2-HMAC-SHA512) for workspace DBs; AES-256 zip for exports |
 | Error handling | thiserror |
 | IDs | uuid v4 |
@@ -393,7 +481,11 @@ Tests live alongside the code they test in `#[cfg(test)]` modules at the bottom 
 | [krillnotes-core/src/core/delete.rs](krillnotes-core/src/core/delete.rs) | Delete strategies (DeleteAll, PromoteChildren) |
 | [krillnotes-core/src/core/storage.rs](krillnotes-core/src/core/storage.rs) | SQLCipher connection management, PRAGMA key, migrations, unencrypted-workspace detection |
 | [krillnotes-core/src/core/schema.sql](krillnotes-core/src/core/schema.sql) | Database DDL (4 tables) |
-| [krillnotes-desktop/src-tauri/src/lib.rs](krillnotes-desktop/src-tauri/src/lib.rs) | Tauri commands (25 commands) + AppState (incl. password cache) |
-| [krillnotes-desktop/src-tauri/src/menu.rs](krillnotes-desktop/src-tauri/src/menu.rs) | Native menu (File, Edit, View, Window, Help) |
+| [krillnotes-desktop/src-tauri/build.rs](krillnotes-desktop/src-tauri/build.rs) | Compile-time locale embedding — generates `locales_generated.rs` from `src/i18n/locales/*.json` |
+| [krillnotes-desktop/src-tauri/src/lib.rs](krillnotes-desktop/src-tauri/src/lib.rs) | Tauri commands + AppState (incl. password cache, menu item handles) |
+| [krillnotes-desktop/src-tauri/src/locales.rs](krillnotes-desktop/src-tauri/src/locales.rs) | `menu_strings(lang)` — locale lookup with English merge-over fallback |
+| [krillnotes-desktop/src-tauri/src/menu.rs](krillnotes-desktop/src-tauri/src/menu.rs) | Native menu builder — accepts `&serde_json::Value` locale strings |
 | [krillnotes-desktop/src/App.tsx](krillnotes-desktop/src/App.tsx) | React root, menu event wiring, export/import |
 | [krillnotes-desktop/src/types.ts](krillnotes-desktop/src/types.ts) | Shared TypeScript interfaces |
+| [krillnotes-desktop/src/i18n/index.ts](krillnotes-desktop/src/i18n/index.ts) | i18next initialisation + language apply-on-startup |
+| [krillnotes-desktop/src/i18n/locales/](krillnotes-desktop/src/i18n/locales/) | Locale JSON files (one per language; drop a new file here to add a language) |
