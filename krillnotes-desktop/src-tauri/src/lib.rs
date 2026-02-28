@@ -4,6 +4,7 @@
 //! Each command is scoped to the calling window's workspace via
 //! [`AppState`] and the window label.
 
+pub mod locales;
 pub mod menu;
 pub mod settings;
 pub mod themes;
