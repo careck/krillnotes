@@ -18,8 +18,8 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [cachePasswords, setCachePasswords] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [language, setLanguage] = useState('en');
-  const [originalLanguage, setOriginalLanguage] = useState('en');
+  const [language, setLanguage] = useState(() => i18n.language ?? 'en');
+  const [originalLanguage, setOriginalLanguage] = useState(() => i18n.language ?? 'en');
   const { activeMode, lightThemeName, darkThemeName, themes, setMode, setLightTheme, setDarkTheme } = useTheme();
   const [manageThemesOpen, setManageThemesOpen] = useState(false);
 
@@ -40,13 +40,14 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose();
+      if (e.key === 'Escape') {
+        i18n.changeLanguage(originalLanguage);
+        onClose();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose, originalLanguage]);
-
-  if (!isOpen) return null;
 
   const handleClose = () => {
     i18n.changeLanguage(originalLanguage); // revert preview
@@ -57,6 +58,8 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     setLanguage(lang);
     i18n.changeLanguage(lang); // live preview — UI updates immediately
   };
+
+  if (!isOpen) return null;
 
   const handleBrowse = async () => {
     const selected = await open({
