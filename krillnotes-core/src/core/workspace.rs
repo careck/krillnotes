@@ -2,6 +2,7 @@
 
 use crate::core::export::WorkspaceMetadata;
 use crate::core::user_script;
+#[allow(unused_imports)]
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
     Operation, OperationLog, PurgeStrategy, QueryContext, Result, ScriptError, ScriptRegistry,
@@ -41,7 +42,7 @@ pub enum AddPosition {
 pub struct Workspace {
     storage: Storage,
     script_registry: ScriptRegistry,
-    operation_log: OperationLog,
+    operation_log: Option<OperationLog>,
     device_id: String,
     current_user_id: i64,
 }
@@ -57,7 +58,7 @@ impl Workspace {
     pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
+        let operation_log: Option<OperationLog> = None;
 
         // Get hardware-based device ID
         let device_id = get_device_id()?;
@@ -179,7 +180,7 @@ impl Workspace {
     pub fn open<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 1000 });
+        let operation_log: Option<OperationLog> = None;
 
         // Read metadata from database
         let device_id = storage.connection()
@@ -231,6 +232,27 @@ impl Workspace {
     /// Returns the underlying SQLite connection.
     pub fn connection(&self) -> &Connection {
         self.storage.connection()
+    }
+
+    /// Logs an operation if sync is enabled (i.e. `operation_log` is `Some`).
+    /// Takes the log as an explicit parameter to avoid a whole-`self` borrow
+    /// conflict with the transaction (which is borrowed from `self.storage`).
+    /// Does nothing when `log` is `None`.
+    fn log_op(log: Option<&OperationLog>, tx: &rusqlite::Transaction, op: &Operation) -> Result<()> {
+        if let Some(log) = log {
+            log.log(tx, op)?;
+        }
+        Ok(())
+    }
+
+    /// Purges stale operations if sync is enabled and the log is `Some`.
+    /// Takes the log as an explicit parameter for the same borrow-checker reason.
+    /// Does nothing when `log` is `None`.
+    fn purge_ops_if_needed(log: Option<&OperationLog>, tx: &rusqlite::Transaction) -> Result<()> {
+        if let Some(log) = log {
+            log.purge_if_needed(tx)?;
+        }
+        Ok(())
     }
 
     /// Fetches a single note by ID.
@@ -407,8 +429,8 @@ impl Workspace {
             fields: note.fields.clone(),
             created_by: note.created_by,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
         // Must run inside the transaction so the link update is atomic with the note write.
@@ -561,10 +583,10 @@ impl Workspace {
                 fields: note.fields.clone(),
                 created_by: self.current_user_id,
             };
-            self.operation_log.log(&tx, &op)?;
+            Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
         }
 
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
         tx.commit()?;
 
         Ok(root_new_id)
@@ -637,8 +659,8 @@ impl Workspace {
             fields: new_note.fields.clone(),
             created_by: new_note.created_by,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
         // Must run inside the transaction so the link update is atomic with the note write.
@@ -674,8 +696,8 @@ impl Workspace {
             value: crate::FieldValue::Text(new_title),
             modified_by: self.current_user_id,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         tx.commit()?;
         Ok(())
@@ -1091,7 +1113,7 @@ impl Workspace {
                     fields: create.fields.clone(),
                     created_by: self.current_user_id,
                 };
-                self.operation_log.log(&tx, &op)?;
+                Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
             }
 
             // ── updates ────────────────────────────────────────────────────────
@@ -1121,7 +1143,7 @@ impl Workspace {
                     value: crate::FieldValue::Text(update.title.clone()),
                     modified_by: self.current_user_id,
                 };
-                self.operation_log.log(&tx, &title_op)?;
+                Self::log_op(self.operation_log.as_ref(), &tx, &title_op)?;
 
                 // Log one UpdateField per field value
                 for (field_key, field_value) in &update.fields {
@@ -1134,11 +1156,11 @@ impl Workspace {
                         value: field_value.clone(),
                         modified_by: self.current_user_id,
                     };
-                    self.operation_log.log(&tx, &field_op)?;
+                    Self::log_op(self.operation_log.as_ref(), &tx, &field_op)?;
                 }
             }
 
-            self.operation_log.purge_if_needed(&tx)?;
+            Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
             tx.commit()?;
         }
 
@@ -1426,8 +1448,8 @@ impl Workspace {
             new_parent_id: new_parent_id.map(|s| s.to_string()),
             new_position,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         // 9. Commit
         tx.commit()?;
@@ -1740,7 +1762,7 @@ impl Workspace {
             value: crate::FieldValue::Text(title.clone()),
             modified_by: self.current_user_id,
         };
-        self.operation_log.log(&tx, &title_op)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &title_op)?;
 
         // Log one UpdateField operation per field value that was written.
         for (field_key, field_value) in &fields {
@@ -1753,10 +1775,10 @@ impl Workspace {
                 value: field_value.clone(),
                 modified_by: self.current_user_id,
             };
-            self.operation_log.log(&tx, &field_op)?;
+            Self::log_op(self.operation_log.as_ref(), &tx, &field_op)?;
         }
 
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         // Keep the note_links junction table in sync with the written field values.
         // Must run inside the transaction so the link update is atomic with the note write.
@@ -1866,8 +1888,8 @@ impl Workspace {
             load_order,
             enabled: true,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         tx.commit()?;
 
@@ -1928,8 +1950,8 @@ impl Workspace {
             load_order,
             enabled,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         tx.commit()?;
 
@@ -1952,8 +1974,8 @@ impl Workspace {
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         tx.commit()?;
 
@@ -1989,8 +2011,8 @@ impl Workspace {
             load_order,
             enabled,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         tx.commit()?;
 
@@ -2026,8 +2048,8 @@ impl Workspace {
             load_order: new_load_order,
             enabled,
         };
-        self.operation_log.log(&tx, &op)?;
-        self.operation_log.purge_if_needed(&tx)?;
+        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
 
         tx.commit()?;
 
@@ -2054,18 +2076,26 @@ impl Workspace {
     // ── Operations log queries ───────────────────────────────────────
 
     /// Returns operation summaries matching the given filters, newest first.
+    /// Returns an empty vec when sync is off (`operation_log` is `None`).
     pub fn list_operations(
         &self,
         type_filter: Option<&str>,
         since: Option<i64>,
         until: Option<i64>,
     ) -> Result<Vec<crate::OperationSummary>> {
-        self.operation_log.list(self.connection(), type_filter, since, until)
+        match &self.operation_log {
+            Some(log) => log.list(self.connection(), type_filter, since, until),
+            None => Ok(vec![]),
+        }
     }
 
     /// Deletes all operations from the log. Returns the number deleted.
+    /// Returns 0 when sync is off (`operation_log` is `None`).
     pub fn purge_all_operations(&self) -> Result<usize> {
-        self.operation_log.purge_all(self.connection())
+        match &self.operation_log {
+            Some(log) => log.purge_all(self.connection()),
+            None => Ok(0),
+        }
     }
 
     /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB in order.
@@ -3130,11 +3160,12 @@ mod tests {
 
     #[test]
     fn test_move_note_logs_operation() {
+        // When sync is off (operation_log is None), no operations are logged.
         let (mut ws, root_id, children, _temp) = setup_with_children(2);
         ws.move_note(&children[1], Some(&root_id), 0).unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
         let move_ops: Vec<_> = ops.iter().filter(|o| o.operation_type == "MoveNote").collect();
-        assert_eq!(move_ops.len(), 1, "Expected exactly one MoveNote operation");
+        assert_eq!(move_ops.len(), 0, "Expected no operations when sync is off");
     }
 
     #[test]
@@ -3924,6 +3955,16 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn operations_log_empty_when_sync_off() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        let ops = ws.list_operations(None, None, None).unwrap();
+        assert!(ops.is_empty(), "expected no operations when sync is off");
     }
 
     #[test]
