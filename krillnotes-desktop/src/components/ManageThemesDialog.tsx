@@ -8,6 +8,7 @@ import { json } from '@codemirror/lang-json';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from '@codemirror/language';
 import { useTheme } from '../contexts/ThemeContext';
 import type { ThemeMeta } from '../utils/theme';
+import { useTranslation } from 'react-i18next';
 
 const NEW_THEME_TEMPLATE = `{
   "name": "My Theme",
@@ -60,6 +61,7 @@ interface Props {
 type View = 'list' | 'editor';
 
 export default function ManageThemesDialog({ isOpen, onClose }: Props) {
+  const { t } = useTranslation();
   const { themes, reloadThemes, lightThemeName, darkThemeName, setLightTheme, setDarkTheme } = useTheme();
   const [view, setView] = useState<View>('list');
   const [editingMeta, setEditingMeta] = useState<ThemeMeta | null>(null);
@@ -135,8 +137,8 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
       setEditingMeta(meta);
       const preview = JSON.stringify(
         meta.name === 'light'
-          ? { name: 'light (built-in)', note: 'This is the default light theme. Create a new theme that extends it by setting "light-theme": {}.' }
-          : { name: 'dark (built-in)', note: 'This is the default dark theme. Create a new theme that extends it by setting "dark-theme": {}.' },
+          ? { name: 'light (built-in)', note: t('themes.builtInLightInfo') }
+          : { name: 'dark (built-in)', note: t('themes.builtInDarkInfo') },
         null, 2
       );
       setEditorContent(preview);
@@ -153,7 +155,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
       setImportConflict(null);
       setView('editor');
     } catch (e) {
-      setError(`Failed to read theme: ${e}`);
+      setError(t('themes.failedRead', { error: String(e) }));
     }
   };
 
@@ -171,7 +173,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
           .replace(/,(\s*[}\]])/g, '$1');
         parsed = JSON.parse(cleaned);
       } catch {
-        throw new Error('Invalid JSON — check for syntax errors.');
+        throw new Error(t('themes.invalidJson'));
       }
       const name = parsed.name ?? 'unnamed';
       let filename: string;
@@ -197,12 +199,12 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
   };
 
   const handleDelete = async (meta: ThemeMeta) => {
-    if (!await confirm(`Delete theme "${meta.name}"?`)) return;
+    if (!await confirm(t('themes.deleteConfirm', { name: meta.name }))) return;
     try {
       await invoke('delete_theme', { filename: meta.filename });
       await reloadThemes();
     } catch (e) {
-      setError(`Failed to delete: ${e}`);
+      setError(t('themes.failedDelete', { error: String(e) }));
     }
   };
 
@@ -224,7 +226,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
       try {
         parsed = JSON.parse(cleaned);
       } catch {
-        setError('Invalid theme file — could not parse JSON.');
+        setError(t('themes.invalidImport'));
         return;
       }
       const name = parsed.name ?? 'unnamed';
@@ -235,13 +237,13 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
       setError('');
       setView('editor');
     } catch (e) {
-      setError(`Failed to read file: ${e}`);
+      setError(t('themes.failedImport', { error: String(e) }));
     }
   };
 
   const handleSaveOrReplace = async () => {
     if (importConflict) {
-      const confirmed = await confirm(`Replace theme "${importConflict.name}"? This cannot be undone.`);
+      const confirmed = await confirm(t('themes.conflictWarning', { name: importConflict.name }));
       if (!confirmed) return;
     }
     await handleSave();
@@ -260,13 +262,13 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="font-semibold text-foreground">
-            {view === 'list' ? 'Manage Themes' : (editingMeta ? `Editing: ${editingMeta.name}` : 'New Theme')}
+            {view === 'list' ? t('themes.manage') : (editingMeta ? t('themes.editing', { name: editingMeta.name }) : t('themes.newTheme'))}
           </h2>
           <button
             onClick={view === 'editor' ? () => { setView('list'); setImportConflict(null); setError(''); } : onClose}
             className="text-muted-foreground hover:text-foreground text-sm"
           >
-            {view === 'editor' ? '← Back' : '✕'}
+            {view === 'editor' ? t('common.back') : '✕'}
           </button>
         </div>
 
@@ -291,13 +293,13 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="font-medium text-foreground truncate">{meta.name}</span>
                       {isBuiltIn && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">built-in</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{t('themes.builtIn')}</span>
                       )}
                       {meta.hasLight && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">light</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">{t('themes.light')}</span>
                       )}
                       {meta.hasDark && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">dark</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">{t('themes.dark')}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -310,7 +312,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                               : 'border-border text-muted-foreground hover:text-foreground'
                           }`}
                         >
-                          {isActiveLight ? '✓ Light' : 'Set Light'}
+                          {isActiveLight ? t('themes.activeLight') : t('themes.setLight')}
                         </button>
                       )}
                       {meta.hasDark && (
@@ -322,21 +324,21 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                               : 'border-border text-muted-foreground hover:text-foreground'
                           }`}
                         >
-                          {isActiveDark ? '✓ Dark' : 'Set Dark'}
+                          {isActiveDark ? t('themes.activeDark') : t('themes.setDark')}
                         </button>
                       )}
                       <button
                         onClick={() => handleEdit(meta)}
                         className="text-xs text-muted-foreground hover:text-foreground"
                       >
-                        {isBuiltIn ? 'View' : 'Edit'}
+                        {isBuiltIn ? t('common.view') : t('common.edit')}
                       </button>
                       {!isBuiltIn && (
                         <button
                           onClick={() => handleDelete(meta)}
                           className="text-xs text-red-500 hover:text-red-700"
                         >
-                          Delete
+                          {t('common.delete')}
                         </button>
                       )}
                     </div>
@@ -350,17 +352,17 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                   onClick={handleNew}
                   className="text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90"
                 >
-                  + New Theme
+                  {t('themes.newThemeButton')}
                 </button>
                 <button
                   onClick={handleImportFromFile}
                   className="text-sm px-3 py-1.5 rounded border border-border text-foreground hover:bg-secondary"
                 >
-                  Import from file…
+                  {t('themes.importFromFile')}
                 </button>
               </div>
               <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
-                Close
+                {t('common.close')}
               </button>
             </div>
           </>
@@ -371,12 +373,12 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
           <>
             {editingMeta && BUILT_IN_NAMES.includes(editingMeta.name) && (
               <div className="px-4 py-2 text-sm text-muted-foreground bg-muted border-b border-border">
-                Built-in themes are read-only. Create a new theme to customise colours and typography.
+                {t('themes.builtInReadOnly')}
               </div>
             )}
             {importConflict && (
               <div className="px-4 py-2 text-sm text-yellow-700 bg-yellow-50 border-b border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-300">
-                A theme named "{importConflict.name}" already exists. Saving will replace it.
+                {t('themes.conflictWarning', { name: importConflict.name })}
               </div>
             )}
             <div ref={containerRef} className="flex-1 overflow-hidden border-b border-border" />
@@ -386,14 +388,14 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
                   onClick={() => { setView('list'); setImportConflict(null); setError(''); }}
                   className="text-sm text-muted-foreground hover:text-foreground"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleSaveOrReplace}
                   disabled={saving}
                   className="text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : (importConflict ? 'Replace' : 'Save')}
+                  {saving ? t('common.saving') : (importConflict ? t('common.replace') : t('common.save'))}
                 </button>
               </div>
             )}
