@@ -1419,6 +1419,27 @@ fn attach_file(
         .map_err(|e| e.to_string())
 }
 
+/// Attaches a file to a note from raw bytes (used for drag-and-drop, where only
+/// file data — not a filesystem path — is available in the frontend).
+#[tauri::command]
+fn attach_file_bytes(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    filename: String,
+    data: Vec<u8>,
+) -> std::result::Result<AttachmentMeta, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    let mime_type = mime_guess::from_path(&filename)
+        .first()
+        .map(|m| m.to_string());
+    workspace
+        .attach_file(&note_id, &filename, mime_type.as_deref(), &data)
+        .map_err(|e| e.to_string())
+}
+
 /// Returns attachment metadata for all attachments on a note.
 #[tauri::command]
 fn get_attachments(
@@ -1706,6 +1727,7 @@ pub fn run() {
             list_workspace_files,
             get_cached_password,
             attach_file,
+            attach_file_bytes,
             get_attachments,
             get_attachment_data,
             delete_attachment,
