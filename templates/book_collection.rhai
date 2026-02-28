@@ -100,19 +100,12 @@ schema("Library", #{
         }
 
         if read.len() > 0 {
-            let rows = read.map(|b| {
-                let r = b.fields["rating"] ?? 0;
-                let stars = "";
-                let i = 0;
-                while i < r    { stars += "★"; i += 1; }
-                while i < 5    { stars += "☆"; i += 1; }
-                [
-                    b.title,
-                    b.fields["author"]   ?? "-",
-                    b.fields["finished"] ?? "-",
-                    if r > 0 { stars } else { "—" }
-                ]
-            });
+            let rows = read.map(|b| [
+                b.title,
+                b.fields["author"]   ?? "-",
+                b.fields["finished"] ?? "-",
+                stars(b.fields["rating"] ?? 0)
+            ]);
             sections += [section(
                 "Read (" + read.len() + ")",
                 table(["Title", "Author", "Finished", "Rating"], rows)

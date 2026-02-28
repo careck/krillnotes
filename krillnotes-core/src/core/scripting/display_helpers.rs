@@ -264,6 +264,33 @@ pub fn rhai_render_tags(tags: Array) -> String {
     format!("<div class=\"kn-view-tags\">{pills}</div>")
 }
 
+/// Renders a star rating as filled (★) and empty (☆) stars.
+///
+/// `value` is the current rating (e.g. `3`); `max` is the total number of stars
+/// (defaults to `5` via the one-argument overload).
+///
+/// Returns `"—"` when `value` is `0` or negative, matching the default view
+/// behavior for unrated notes.
+///
+/// ```rhai
+/// stars(note.fields["rating"])           // out of 5
+/// stars(note.fields["rating"], 10)       // out of 10
+/// ```
+pub fn rhai_stars(value: rhai::INT, max: rhai::INT) -> String {
+    if value <= 0 {
+        return "—".to_string();
+    }
+    let effective_max = if max > 0 { max } else { 5 };
+    (0..effective_max)
+        .map(|i| if i < value { '★' } else { '☆' })
+        .collect()
+}
+
+/// One-argument overload: defaults `max` to `5`.
+pub fn rhai_stars_default(value: rhai::INT) -> String {
+    rhai_stars(value, 5)
+}
+
 /// Renders a horizontal rule.
 ///
 /// ```rhai
@@ -742,5 +769,39 @@ mod tests {
         let html = render_default_view(&note, Some(&schema), &HashMap::new());
         assert!(html.contains("legacy value"), "legacy fields must be shown");
         assert!(html.contains("Legacy Fields"), "legacy section header must appear");
+    }
+
+    #[test]
+    fn test_stars_zero_returns_dash() {
+        assert_eq!(rhai_stars(0, 5), "—");
+        assert_eq!(rhai_stars_default(0), "—");
+    }
+
+    #[test]
+    fn test_stars_negative_returns_dash() {
+        assert_eq!(rhai_stars(-1, 5), "—");
+    }
+
+    #[test]
+    fn test_stars_full_rating() {
+        assert_eq!(rhai_stars(5, 5), "★★★★★");
+        assert_eq!(rhai_stars_default(5), "★★★★★");
+    }
+
+    #[test]
+    fn test_stars_partial_rating() {
+        assert_eq!(rhai_stars(3, 5), "★★★☆☆");
+        assert_eq!(rhai_stars_default(3), "★★★☆☆");
+    }
+
+    #[test]
+    fn test_stars_custom_max() {
+        assert_eq!(rhai_stars(2, 10), "★★☆☆☆☆☆☆☆☆");
+    }
+
+    #[test]
+    fn test_stars_value_exceeds_max_clamps_to_max() {
+        // value > max: all filled stars up to max
+        assert_eq!(rhai_stars(7, 5), "★★★★★");
     }
 }

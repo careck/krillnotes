@@ -474,6 +474,8 @@ impl ScriptRegistry {
         engine.register_fn("link_to", display_helpers::link_to);
         engine.register_fn("markdown",     display_helpers::rhai_markdown);
         engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
+        engine.register_fn("stars",        display_helpers::rhai_stars_default);
+        engine.register_fn("stars",        display_helpers::rhai_stars);
 
         // ── Date helpers ──────────────────────────────────────────────────────
         engine.register_fn("today", || Local::now().format("%Y-%m-%d").to_string());
