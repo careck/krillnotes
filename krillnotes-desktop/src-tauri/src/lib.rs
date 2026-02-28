@@ -46,7 +46,9 @@ pub struct AppState {
     /// Manage Scripts, Operations Log, Export Workspace).
     /// On macOS: one global list keyed by "macos" — enabled when a workspace
     /// opens, disabled when the last workspace window closes.
-    /// On Windows: items are enabled at window-creation time; no stored handles needed.
+    /// On Windows: keyed by window label — `rebuild_menus` stores into this map during
+    /// language changes, but items are enabled at build time so the stored handles are
+    /// never read back to toggle enabled state.
     pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<tauri::menu::MenuItem<tauri::Wry>>>>>,
 }
 
