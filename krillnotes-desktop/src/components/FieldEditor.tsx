@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { FieldValue, FieldType } from '../types';
 import { humaniseKey } from '../utils/humanise';
 import NoteLinkEditor from './NoteLinkEditor';
@@ -14,6 +15,7 @@ interface FieldEditorProps {
 }
 
 function FieldEditor({ fieldName, fieldType, value, required, options, max, targetType, onChange }: FieldEditorProps) {
+  const { t } = useTranslation();
   const renderEditor = () => {
     if (fieldType === 'note_link') {
       const currentId = value && 'NoteLink' in value ? (value as { NoteLink: string | null }).NoteLink : null;
@@ -38,7 +40,7 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
       }
       if (fieldType === 'select') {
         if (options.length === 0) {
-          return <p className="text-sm text-muted-foreground italic p-2">No options configured</p>;
+          return <p className="text-sm text-muted-foreground italic p-2">{t('fields.noOptions')}</p>;
         }
         return (
           <select
@@ -47,7 +49,7 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
             className="w-full p-2 bg-background border border-border rounded-md"
             required={required}
           >
-            <option value="">— select —</option>
+            <option value="">{t('fields.selectPlaceholder')}</option>
             {options.map(opt => (
               <option key={opt} value={opt}>{opt}</option>
             ))}

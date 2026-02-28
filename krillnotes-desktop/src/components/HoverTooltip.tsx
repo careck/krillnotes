@@ -1,5 +1,6 @@
 import { Fragment, useRef, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import type { Note, SchemaInfo, FieldValue } from '../types';
 
@@ -12,20 +13,21 @@ interface HoverTooltipProps {
   visible: boolean;
 }
 
-function renderFieldValue(value: FieldValue | undefined): string {
+function renderFieldValue(value: FieldValue | undefined, linkedNoteLabel: string): string {
   if (!value) return '\u2014';
   if ('Text' in value) return value.Text || '\u2014';
   if ('Number' in value) return String(value.Number);
   if ('Boolean' in value) return value.Boolean ? 'Yes' : 'No';
   if ('Date' in value) return value.Date ?? '\u2014';
   if ('Email' in value) return value.Email || '\u2014';
-  if ('NoteLink' in value) return value.NoteLink ? '(linked note)' : '\u2014';
+  if ('NoteLink' in value) return value.NoteLink ? linkedNoteLabel : '\u2014';
   return '\u2014';
 }
 
 export default function HoverTooltip({
   note, schema, hoverHtml, anchorY, treeWidth, visible,
 }: HoverTooltipProps) {
+  const { t } = useTranslation();
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [computedTop, setComputedTop] = useState(anchorY);
   const [spikeOffset, setSpikeOffset] = useState('50%');
@@ -66,7 +68,7 @@ export default function HoverTooltip({
               <Fragment key={f.name}>
                 <span className="kn-hover-tooltip__label">{f.name}</span>
                 <span className="kn-hover-tooltip__value">
-                  {renderFieldValue(note.fields[f.name])}
+                  {renderFieldValue(note.fields[f.name], t('fields.linkedNote'))}
                 </span>
               </Fragment>
             ))}

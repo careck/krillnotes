@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import type { NoteSearchResult } from '../types';
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function NoteLinkEditor({ value, targetType, onChange }: Props) {
+  const { t } = useTranslation();
   const [displayTitle, setDisplayTitle] = useState<string>('');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NoteSearchResult[]>([]);
@@ -78,7 +80,7 @@ export function NoteLinkEditor({ value, targetType, onChange }: Props) {
         <input
           type="text"
           value={inputValue}
-          placeholder="Search for a note…"
+          placeholder={t('fields.searchPlaceholder')}
           onChange={handleInput}
           onFocus={() => { setIsOpen(true); setQuery(''); }}
           onBlur={() => setTimeout(() => setIsOpen(false), 150)}
@@ -92,7 +94,7 @@ export function NoteLinkEditor({ value, targetType, onChange }: Props) {
           <button
             type="button"
             onClick={handleClear}
-            title="Clear link"
+            title={t('fields.clearLink')}
             className="px-2 py-1 bg-secondary text-foreground rounded-md hover:bg-secondary/80"
           >
             ✕

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 
 interface ContextMenuProps {
   x: number;
@@ -25,6 +26,7 @@ function ContextMenu({
   onEdit, onCopy, onPasteAsChild, onPasteAsSibling,
   onTreeAction, onDelete, onClose,
 }: ContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,7 +58,7 @@ function ContextMenu({
           className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
           onClick={() => { onAddRoot(); onClose(); }}
         >
-          Add Root Note
+          {t('notes.addRoot')}
         </button>
       ) : (
         // Note context menu
@@ -65,37 +67,37 @@ function ContextMenu({
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
             onClick={() => { onAddChild(); onClose(); }}
           >
-            Add Child
+            {t('notes.addChildShort')}
           </button>
           <button
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
             onClick={() => { onAddSibling(); onClose(); }}
           >
-            Add Sibling
+            {t('notes.addSiblingShort')}
           </button>
           <button
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
             onClick={() => { onEdit(); onClose(); }}
           >
-            Edit
+            {t('common.edit')}
           </button>
           <button
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
             onClick={() => { onCopy(); onClose(); }}
           >
-            Copy Note
+            {t('notes.copyNote')}
           </button>
           <button
             className={`w-full text-left px-3 py-1.5 text-sm ${copiedNoteId ? 'hover:bg-secondary' : 'opacity-40 cursor-not-allowed'}`}
             onClick={() => { if (copiedNoteId) { onPasteAsChild(); onClose(); } }}
           >
-            Paste as Child
+            {t('notes.pasteAsChild')}
           </button>
           <button
             className={`w-full text-left px-3 py-1.5 text-sm ${copiedNoteId ? 'hover:bg-secondary' : 'opacity-40 cursor-not-allowed'}`}
             onClick={() => { if (copiedNoteId) { onPasteAsSibling(); onClose(); } }}
           >
-            Paste as Sibling
+            {t('notes.pasteAsSibling')}
           </button>
           {treeActions.length > 0 && (
             <>
@@ -116,7 +118,7 @@ function ContextMenu({
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary text-red-500"
             onClick={() => { onDelete(); onClose(); }}
           >
-            Delete
+            {t('common.delete')}
           </button>
         </>
       )}

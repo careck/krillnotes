@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { tagColor } from '../utils/tagColor';
 
 interface TagPillProps {
@@ -7,6 +8,7 @@ interface TagPillProps {
 }
 
 export default function TagPill({ tag, onRemove, onClick }: TagPillProps) {
+  const { t } = useTranslation();
   return (
     <span
       className={`kn-tag-pill${onClick ? ' kn-tag-pill--clickable' : ''}`}
@@ -19,7 +21,7 @@ export default function TagPill({ tag, onRemove, onClick }: TagPillProps) {
         <button
           className="kn-tag-pill__remove"
           onClick={e => { e.stopPropagation(); onRemove(); }}
-          aria-label={`Remove tag ${tag}`}
+          aria-label={t('tags.remove', { tag })}
         >
           ×
         </button>

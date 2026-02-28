@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import type { Note, FieldValue, SchemaInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
@@ -41,6 +42,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
 }
 
 function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle }: InfoPanelProps) {
+  const { t } = useTranslation();
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
     titleCanView: true,
@@ -208,7 +210,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
   const handleCancel = async () => {
     if (isDirty) {
-      if (!await confirm('Discard changes?')) {
+      if (!await confirm(t('notes.discardChanges'))) {
         return;
       }
     }
@@ -256,7 +258,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   if (!selectedNote) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        Select a note to view details
+        {t('notes.selectNote')}
       </div>
     );
   }
@@ -303,13 +305,13 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 onClick={handleSave}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
               >
-                Save
+                {t('common.save')}
               </button>
               <button
                 onClick={handleCancel}
                 className="px-4 py-2 bg-secondary text-foreground rounded-md hover:bg-secondary/80"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </>
           ) : (
@@ -318,13 +320,13 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 onClick={handleEdit}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
               >
-                Edit
+                {t('common.edit')}
               </button>
               <button
                 onClick={() => onDeleteRequest(selectedNote.id)}
                 className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
               >
-                Delete
+                {t('common.delete')}
               </button>
             </>
           )}
@@ -334,7 +336,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       {/* Back navigation — shown whenever history is non-empty, regardless of view type */}
       {!isEditing && backNoteTitle !== undefined && (
         <div className="kn-view-back">
-          <button onClick={onBack}>← Back to "{backNoteTitle}"</button>
+          <button onClick={onBack}>{t('notes.backTo', { title: backNoteTitle })}</button>
         </div>
       )}
 
@@ -384,7 +386,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
             <div className="kn-tag-editor__input-wrap">
               <input
                 className="kn-tag-editor__input"
-                placeholder="Add tag…"
+                placeholder={t('tags.addPlaceholder')}
                 value={tagInput}
                 onChange={e => handleTagInputChange(e.target.value)}
                 autoCorrect="off"
@@ -410,7 +412,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         )}
 
         {/* Default field rendering — shown in edit mode, or when no custom view exists */}
-        {(isEditing || !customViewHtml) && <h2 className="text-xl font-semibold mb-4">Fields</h2>}
+        {(isEditing || !customViewHtml) && <h2 className="text-xl font-semibold mb-4">{t('notes.fields')}</h2>}
 
         {isEditing ? (
           schemaInfo.fields
@@ -453,7 +455,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
             return (
               <>
                 <h3 className="text-lg font-medium text-muted-foreground mt-6 mb-3">
-                  Legacy Fields
+                  {t('notes.legacyFields')}
                 </h3>
                 {legacyFieldNames.map(name => (
                   <FieldEditor
@@ -477,7 +479,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           return (
             <>
               <h3 className="text-lg font-medium text-muted-foreground mt-6 mb-3">
-                Legacy Fields
+                {t('notes.legacyFields')}
               </h3>
               <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
                 {visibleLegacy.map(name => (
@@ -498,11 +500,11 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
             f.canView && !isEmptyFieldValue(selectedNote.fields[f.name] ?? defaultValueForFieldType(f.fieldType))
           ).length === 0 &&
           legacyFieldNames.filter(n => !isEmptyFieldValue(selectedNote.fields[n])).length === 0 && (
-            <p className="text-muted-foreground italic">No fields</p>
+            <p className="text-muted-foreground italic">{t('notes.noFields')}</p>
           )
         }
         {isEditing && schemaInfo.fields.length === 0 && legacyFieldNames.length === 0 && (
-          <p className="text-muted-foreground italic">No fields</p>
+          <p className="text-muted-foreground italic">{t('notes.noFields')}</p>
         )}
       </div>
 
@@ -510,23 +512,23 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       <details className="bg-secondary rounded-lg">
         <summary className="px-6 py-4 cursor-pointer list-none flex items-center gap-2 text-sm font-medium text-muted-foreground select-none">
           <ChevronRight size={16} className="[details[open]_&]:rotate-90 transition-transform" />
-          Info
+          {t('notes.info')}
         </summary>
         <div className="px-6 pb-6 space-y-4">
           <div>
-            <p className="text-sm text-muted-foreground">Type</p>
+            <p className="text-sm text-muted-foreground">{t('notes.type')}</p>
             <p className="text-lg">{selectedNote.nodeType}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Created</p>
+            <p className="text-sm text-muted-foreground">{t('notes.created')}</p>
             <p className="text-sm">{formatTimestamp(selectedNote.createdAt)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Modified</p>
+            <p className="text-sm text-muted-foreground">{t('notes.modified')}</p>
             <p className="text-sm">{formatTimestamp(selectedNote.modifiedAt)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">ID</p>
+            <p className="text-sm text-muted-foreground">{t('notes.id')}</p>
             <p className="text-xs font-mono">{selectedNote.id}</p>
           </div>
         </div>

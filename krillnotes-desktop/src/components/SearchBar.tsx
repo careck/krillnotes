@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { searchNotes } from '../utils/search';
 import type { Note } from '../types';
 import type { SearchResult } from '../utils/search';
@@ -25,6 +26,7 @@ function matchSnippet(value: string, query: string, maxLen = 60): string {
 }
 
 function SearchBar({ notes, onSelect, externalQuery }: SearchBarProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -104,7 +106,7 @@ function SearchBar({ notes, onSelect, externalQuery }: SearchBarProps) {
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search notes..."
+          placeholder={t('search.placeholder')}
           value={query}
           onChange={e => setQuery(e.target.value)}
           autoComplete="off"
@@ -160,7 +162,7 @@ function SearchBar({ notes, onSelect, externalQuery }: SearchBarProps) {
       {/* No results message */}
       {isFocused && query.trim() !== '' && results.length === 0 && (
         <div className="absolute left-2 right-2 top-full mt-1 bg-background border border-border rounded shadow-lg z-10 px-3 py-2 text-sm text-muted-foreground">
-          No notes found.
+          {t('search.noResults')}
         </div>
       )}
     </div>

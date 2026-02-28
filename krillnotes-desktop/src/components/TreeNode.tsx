@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { TreeNode as TreeNodeType, Note, DropIndicator, SchemaInfo } from '../types';
 
 interface TreeNodeProps {
@@ -25,6 +26,7 @@ function TreeNode({
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
   onHoverStart, onHoverEnd,
 }: TreeNodeProps) {
+  const { t } = useTranslation();
   const hasChildren = node.children.length > 0;
   const isSelected = node.note.id === selectedNoteId;
   const isExpanded = node.note.isExpanded;
@@ -209,7 +211,7 @@ function TreeNode({
               onToggleExpand(node.note.id);
             }}
             className="mr-1 text-muted-foreground hover:text-foreground"
-            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            aria-label={isExpanded ? t('tree.collapse') : t('tree.expand')}
             aria-expanded={isExpanded}
           >
             {isExpanded ? '\u25BC' : '\u25B6'}

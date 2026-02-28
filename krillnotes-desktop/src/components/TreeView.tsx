@@ -1,4 +1,5 @@
 import TreeNode from './TreeNode';
+import { useTranslation } from 'react-i18next';
 import type { TreeNode as TreeNodeType, Note, DropIndicator, SchemaInfo } from '../types';
 
 interface TreeViewProps {
@@ -26,6 +27,7 @@ function TreeView({
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
   onBackgroundContextMenu, onHoverStart, onHoverEnd,
 }: TreeViewProps) {
+  const { t } = useTranslation();
 
   const handleRootDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -73,7 +75,7 @@ function TreeView({
         onDragLeave={handleRootDragLeave}
         onContextMenu={(e) => { e.preventDefault(); onBackgroundContextMenu(e); }}
       >
-        No notes yet
+        {t('notes.noNotes')}
       </div>
     );
   }
