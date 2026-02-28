@@ -247,5 +247,27 @@
   },
   "empty": {
     "getStarted": "Utilisez Fichier > Nouvel espace de travail ou Fichier > Ouvrir un espace de travail pour commencer"
+  },
+  "menu": {
+    "file": "Fichier",
+    "edit": "Édition",
+    "tools": "Outils",
+    "view": "Affichage",
+    "help": "Aide",
+    "newWorkspace": "Nouvel espace de travail",
+    "openWorkspace": "Ouvrir un espace de travail…",
+    "exportWorkspace": "Exporter l'espace de travail…",
+    "importWorkspace": "Importer un espace de travail…",
+    "addNote": "Ajouter une note",
+    "deleteNote": "Supprimer la note",
+    "copyNote": "Copier la note",
+    "pasteAsChild": "Coller comme enfant",
+    "pasteAsSibling": "Coller comme frère",
+    "workspaceProperties": "Propriétés de l'espace de travail…",
+    "settings": "Préférences…",
+    "manageScripts": "Gérer les scripts…",
+    "operationsLog": "Journal des opérations…",
+    "refresh": "Actualiser",
+    "aboutKrillnotes": "À propos de Krillnotes"
   }
 }

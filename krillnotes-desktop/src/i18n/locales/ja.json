@@ -245,5 +245,27 @@
   },
   "empty": {
     "getStarted": "ファイル > 新しいワークスペース または ファイル > ワークスペースを開く から始めてください"
+  },
+  "menu": {
+    "file": "ファイル",
+    "edit": "編集",
+    "tools": "ツール",
+    "view": "表示",
+    "help": "ヘルプ",
+    "newWorkspace": "新しいワークスペース",
+    "openWorkspace": "ワークスペースを開く…",
+    "exportWorkspace": "ワークスペースを書き出す…",
+    "importWorkspace": "ワークスペースを読み込む…",
+    "addNote": "ノートを追加",
+    "deleteNote": "ノートを削除",
+    "copyNote": "ノートをコピー",
+    "pasteAsChild": "子として貼り付け",
+    "pasteAsSibling": "兄弟として貼り付け",
+    "workspaceProperties": "ワークスペースのプロパティ…",
+    "settings": "設定…",
+    "manageScripts": "スクリプトを管理…",
+    "operationsLog": "操作ログ…",
+    "refresh": "更新",
+    "aboutKrillnotes": "Krillnotesについて"
   }
 }

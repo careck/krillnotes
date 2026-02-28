@@ -247,5 +247,27 @@
   },
   "empty": {
     "getStarted": "Use File > New Workspace or File > Open Workspace to get started"
+  },
+  "menu": {
+    "file": "File",
+    "edit": "Edit",
+    "tools": "Tools",
+    "view": "View",
+    "help": "Help",
+    "newWorkspace": "New Workspace",
+    "openWorkspace": "Open Workspace…",
+    "exportWorkspace": "Export Workspace…",
+    "importWorkspace": "Import Workspace…",
+    "addNote": "Add Note",
+    "deleteNote": "Delete Note",
+    "copyNote": "Copy Note",
+    "pasteAsChild": "Paste as Child",
+    "pasteAsSibling": "Paste as Sibling",
+    "workspaceProperties": "Workspace Properties…",
+    "settings": "Settings…",
+    "manageScripts": "Manage Scripts…",
+    "operationsLog": "Operations Log…",
+    "refresh": "Refresh",
+    "aboutKrillnotes": "About Krillnotes"
   }
 }

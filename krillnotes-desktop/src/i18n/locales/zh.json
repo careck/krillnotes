@@ -245,5 +245,27 @@
   },
   "empty": {
     "getStarted": "使用文件 > 新建工作区 或 文件 > 打开工作区 开始使用"
+  },
+  "menu": {
+    "file": "文件",
+    "edit": "编辑",
+    "tools": "工具",
+    "view": "视图",
+    "help": "帮助",
+    "newWorkspace": "新建工作区",
+    "openWorkspace": "打开工作区…",
+    "exportWorkspace": "导出工作区…",
+    "importWorkspace": "导入工作区…",
+    "addNote": "添加笔记",
+    "deleteNote": "删除笔记",
+    "copyNote": "复制笔记",
+    "pasteAsChild": "粘贴为子节点",
+    "pasteAsSibling": "粘贴为兄弟节点",
+    "workspaceProperties": "工作区属性…",
+    "settings": "设置…",
+    "manageScripts": "管理脚本…",
+    "operationsLog": "操作日志…",
+    "refresh": "刷新",
+    "aboutKrillnotes": "关于 Krillnotes"
   }
 }

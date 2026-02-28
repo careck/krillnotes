@@ -245,5 +245,27 @@
   },
   "empty": {
     "getStarted": "파일 > 새 작업 공간 또는 파일 > 작업 공간 열기를 사용하여 시작하세요"
+  },
+  "menu": {
+    "file": "파일",
+    "edit": "편집",
+    "tools": "도구",
+    "view": "보기",
+    "help": "도움말",
+    "newWorkspace": "새 작업 공간",
+    "openWorkspace": "작업 공간 열기…",
+    "exportWorkspace": "작업 공간 내보내기…",
+    "importWorkspace": "작업 공간 가져오기…",
+    "addNote": "노트 추가",
+    "deleteNote": "노트 삭제",
+    "copyNote": "노트 복사",
+    "pasteAsChild": "자식으로 붙여넣기",
+    "pasteAsSibling": "형제로 붙여넣기",
+    "workspaceProperties": "작업 공간 속성…",
+    "settings": "설정…",
+    "manageScripts": "스크립트 관리…",
+    "operationsLog": "작업 로그…",
+    "refresh": "새로 고침",
+    "aboutKrillnotes": "Krillnotes 정보"
   }
 }

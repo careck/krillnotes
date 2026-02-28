@@ -247,5 +247,27 @@
   },
   "empty": {
     "getStarted": "Verwende Datei > Neuer Arbeitsbereich oder Datei > Arbeitsbereich öffnen, um zu beginnen"
+  },
+  "menu": {
+    "file": "Datei",
+    "edit": "Bearbeiten",
+    "tools": "Werkzeuge",
+    "view": "Ansicht",
+    "help": "Hilfe",
+    "newWorkspace": "Neuer Arbeitsbereich",
+    "openWorkspace": "Arbeitsbereich öffnen…",
+    "exportWorkspace": "Arbeitsbereich exportieren…",
+    "importWorkspace": "Arbeitsbereich importieren…",
+    "addNote": "Notiz hinzufügen",
+    "deleteNote": "Notiz löschen",
+    "copyNote": "Notiz kopieren",
+    "pasteAsChild": "Als Kind einfügen",
+    "pasteAsSibling": "Als Geschwister einfügen",
+    "workspaceProperties": "Arbeitsbereich-Eigenschaften…",
+    "settings": "Einstellungen…",
+    "manageScripts": "Skripte verwalten…",
+    "operationsLog": "Betriebsprotokoll…",
+    "refresh": "Aktualisieren",
+    "aboutKrillnotes": "Über Krillnotes"
   }
 }
