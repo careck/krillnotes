@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import type { FieldValue, FieldType } from '../types';
 import { humaniseKey } from '../utils/humanise';
 
@@ -46,7 +47,7 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
     if ('Text' in value) {
       return <p className="whitespace-pre-wrap break-words">{value.Text}</p>;
     } else if ('Number' in value) {
-      return <p>{value.Number}</p>;
+      return <p>{value.Number.toLocaleString(i18n.language)}</p>;
     } else if ('Boolean' in value) {
       return (
         <span className="inline-flex items-center" aria-label={value.Boolean ? t('fields.yesLabel') : t('fields.noLabel')}>
@@ -59,7 +60,7 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
       return <a href={`mailto:${value.Email}`} className="text-primary underline">{value.Email}</a>;
     } else if ('Date' in value) {
       if (value.Date === null) return <p className="text-muted-foreground italic">{t('fields.notSet')}</p>;
-      const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(undefined, {
+      const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(i18n.language, {
         year: 'numeric', month: 'long', day: 'numeric',
       });
       return <p>{formatted}</p>;
