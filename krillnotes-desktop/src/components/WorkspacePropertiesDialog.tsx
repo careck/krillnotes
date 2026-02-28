@@ -70,7 +70,7 @@ function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialo
           setLicenseCustom('');
         }
       })
-      .catch(err => setError(`Failed to load workspace properties: ${err}`));
+      .catch(err => setError(t('workspace.propertiesLoadFailed', { error: String(err) })));
   }, [isOpen]);
 
   // Auto-fill license URL when a predefined license is selected.

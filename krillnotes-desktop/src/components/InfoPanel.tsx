@@ -246,7 +246,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         .then(html => setCustomViewHtml(html))
         .catch(err => { alert(String(err)); setCustomViewHtml(null); });
     } catch (err) {
-      alert(`Failed to save: ${err}`);
+      alert(t('notes.saveFailed', { error: String(err) }));
     }
   };
 
@@ -460,7 +460,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 {legacyFieldNames.map(name => (
                   <FieldEditor
                     key={name}
-                    fieldName={`${name} (legacy)`}
+                    fieldName={`${name}${t('notes.legacySuffix')}`}
                     fieldType="text"
                     value={editedFields[name] ?? { Text: '' }}
                     required={false}
@@ -485,7 +485,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 {visibleLegacy.map(name => (
                   <FieldDisplay
                     key={name}
-                    fieldName={`${name} (legacy)`}
+                    fieldName={`${name}${t('notes.legacySuffix')}`}
                     fieldType="text"
                     value={selectedNote.fields[name]}
                   />

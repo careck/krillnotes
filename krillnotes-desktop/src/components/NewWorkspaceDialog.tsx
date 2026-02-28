@@ -32,7 +32,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
       setCreating(false);
       invoke<AppSettings>('get_settings')
         .then(s => setWorkspaceDir(s.workspaceDirectory))
-        .catch(err => setError(`Failed to load settings: ${err}`));
+        .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
     }
   }, [isOpen]);
 
@@ -76,7 +76,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
     return (
       <SetPasswordDialog
         isOpen={true}
-        title="Set Workspace Password"
+        title={t('dialogs.password.setWorkspaceTitle')}
         onConfirm={handlePasswordConfirm}
         onCancel={() => setStep('name')}
       />

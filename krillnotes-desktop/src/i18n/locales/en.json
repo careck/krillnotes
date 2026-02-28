@@ -122,7 +122,8 @@
     "exportFailed": "Export failed: {{error}}",
     "importSuccess": "Imported {{noteCount}} notes and {{scriptCount}} scripts",
     "importFailed": "Import failed: {{error}}",
-    "importingProgress": "Importing {{noteCount}} notes and {{scriptCount}} scripts."
+    "importingProgress": "Importing {{noteCount}} notes and {{scriptCount}} scripts.",
+    "propertiesLoadFailed": "Failed to load workspace properties: {{error}}"
   },
   "dialogs": {
     "password": {
@@ -144,7 +145,8 @@
       "optionalPlaceholder": "Optional password",
       "skipNoEncryption": "Skip — no encryption",
       "archiveProtected": "This archive is password-protected",
-      "archiveHint": "Enter the password used when the workspace was exported."
+      "archiveHint": "Enter the password used when the workspace was exported.",
+      "setWorkspaceTitle": "Set Workspace Password"
     },
     "import": {
       "title": "Import Workspace",
@@ -189,7 +191,9 @@
     "id": "ID",
     "discardChanges": "Discard changes?",
     "backTo": "← Back to \"{{title}}\"",
-    "selectNote": "Select a note to view details"
+    "selectNote": "Select a note to view details",
+    "legacySuffix": " (legacy)",
+    "saveFailed": "Failed to save: {{error}}"
   },
   "fields": {
     "notRated": "Not rated",
@@ -201,7 +205,10 @@
     "noOptions": "No options configured",
     "selectPlaceholder": "— select —",
     "searchPlaceholder": "Search for a note…",
-    "linkedNote": "(linked note)"
+    "linkedNote": "(linked note)",
+    "starRating_one": "{{count}} star",
+    "starRating_other": "{{count}} stars",
+    "unknownFieldType": "Unknown field type"
   },
   "tags": {
     "addPlaceholder": "Add tag…",

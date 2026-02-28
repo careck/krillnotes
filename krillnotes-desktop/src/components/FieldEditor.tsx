@@ -80,7 +80,7 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
                 type="button"
                 onClick={() => onChange({ Number: star === current ? 0 : star })}
                 className="text-2xl leading-none text-yellow-400 hover:scale-110 transition-transform"
-                aria-label={`${star} star${star !== 1 ? 's' : ''}${star === current ? ' (selected, click to clear)' : ''}`}
+                aria-label={t('fields.starRating', { count: star })}
                 aria-pressed={star <= current}
               >
                 {star <= current ? '★' : '☆'}
@@ -131,7 +131,7 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
         />
       );
     }
-    return <span className="text-red-500">Unknown field type</span>;
+    return <span className="text-red-500">{t('fields.unknownFieldType')}</span>;
   };
 
   return (
