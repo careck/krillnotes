@@ -12,7 +12,7 @@ use rhai::Dynamic;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// A lightweight search result containing only the ID and title of a note.
@@ -45,6 +45,11 @@ pub struct Workspace {
     operation_log: Option<OperationLog>,
     device_id: String,
     current_user_id: i64,
+    /// Root directory for this workspace (parent of `notes.db`).
+    workspace_root: PathBuf,
+    /// ChaCha20-Poly1305 attachment key derived from password + workspace_id.
+    /// `None` for unencrypted workspaces (empty password).
+    attachment_key: Option<[u8; 32]>,
 }
 
 impl Workspace {
@@ -72,6 +77,28 @@ impl Workspace {
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
             ["current_user_id", "0"],
         )?;
+
+        // Derive workspace root from db path
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        // Create attachments directory (idempotent, best-effort)
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        // Generate and store a stable workspace ID (used for attachment key derivation)
+        let workspace_id = uuid::Uuid::new_v4().to_string();
+        storage.connection().execute(
+            "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["workspace_id", &workspace_id],
+        )?;
+
+        // Derive attachment key
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
 
         // Seed the workspace with bundled starter scripts.
         let now = chrono::Utc::now().timestamp();
@@ -117,12 +144,21 @@ impl Workspace {
             }
         }
 
-        // Create root note from filename
-        let filename = path
-            .as_ref()
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Untitled");
+        // Derive root note title from workspace folder name (parent of notes.db), not the db filename
+        let filename = {
+            let parent_name = path.as_ref()
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str());
+            let db_stem = path.as_ref()
+                .file_stem()
+                .and_then(|s| s.to_str());
+            // If parent is a real named folder (not "" or "."), use it; otherwise fall back to db stem
+            match parent_name {
+                Some(name) if !name.is_empty() && name != "." => name,
+                _ => db_stem.unwrap_or("Untitled"),
+            }
+        };
         let title = humanize(filename);
 
         let root = Note {
@@ -166,6 +202,8 @@ impl Workspace {
             operation_log,
             device_id,
             current_user_id: 0,
+            workspace_root,
+            attachment_key,
         })
     }
 
@@ -199,12 +237,47 @@ impl Workspace {
             .parse::<i64>()
             .unwrap_or(0);
 
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        // Read workspace_id for key derivation; generate one if absent (older workspaces)
+        let workspace_id: String = {
+            let existing: std::result::Result<String, rusqlite::Error> = storage.connection().query_row(
+                "SELECT value FROM workspace_meta WHERE key = 'workspace_id'",
+                [],
+                |row| row.get(0),
+            );
+            match existing {
+                Ok(id) => id,
+                Err(_) => {
+                    // Older workspace — generate and persist a new workspace_id
+                    let id = uuid::Uuid::new_v4().to_string();
+                    storage.connection().execute(
+                        "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+                        rusqlite::params!["workspace_id", &id],
+                    )?;
+                    id
+                }
+            }
+        };
+
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
+
         let mut ws = Self {
             storage,
             script_registry,
             operation_log,
             device_id,
             current_user_id,
+            workspace_root,
+            attachment_key,
         };
 
         // Load enabled scripts from the workspace DB.
@@ -216,6 +289,16 @@ impl Workspace {
         }
 
         Ok(ws)
+    }
+
+    /// Returns the derived attachment encryption key, or `None` for an unencrypted workspace.
+    pub fn attachment_key(&self) -> Option<&[u8; 32]> {
+        self.attachment_key.as_ref()
+    }
+
+    /// Returns the workspace root directory (parent of `notes.db`).
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
     }
 
     /// Returns a reference to the script registry for this workspace.
@@ -3965,6 +4048,42 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
         assert!(ops.is_empty(), "expected no operations when sync is off");
+    }
+
+    #[test]
+    fn test_workspace_has_attachment_key_when_encrypted() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let ws = Workspace::create(&db_path, "hunter2").unwrap();
+        assert!(ws.attachment_key().is_some(), "Encrypted workspace must have attachment_key");
+    }
+
+    #[test]
+    fn test_workspace_has_no_attachment_key_when_unencrypted() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let ws = Workspace::create(&db_path, "").unwrap();
+        assert!(ws.attachment_key().is_none(), "Unencrypted workspace must have no attachment_key");
+    }
+
+    #[test]
+    fn test_workspace_creates_attachments_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        Workspace::create(&db_path, "").unwrap();
+        assert!(dir.path().join("attachments").is_dir());
+    }
+
+    #[test]
+    fn test_workspace_attachment_key_stable_across_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let ws1 = Workspace::create(&db_path, "mypass").unwrap();
+        let key1 = ws1.attachment_key().unwrap().clone();
+        drop(ws1);
+        let ws2 = Workspace::open(&db_path, "mypass").unwrap();
+        let key2 = ws2.attachment_key().unwrap();
+        assert_eq!(key1, *key2, "Key must be derived deterministically from password + workspace_id");
     }
 
     #[test]
