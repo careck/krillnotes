@@ -43,6 +43,7 @@
     "failedSave": "설정을 저장하지 못했습니다: {{error}}",
     "tabGeneral": "일반",
     "tabSync": "동기화",
+    "tabAppearance": "외관",
     "sync": "동기화",
     "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다."
   },

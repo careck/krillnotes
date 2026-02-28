@@ -43,6 +43,7 @@
     "failedSave": "設定の保存に失敗しました: {{error}}",
     "tabGeneral": "一般",
     "tabSync": "同期",
+    "tabAppearance": "外観",
     "sync": "同期",
     "syncHint": "同期により、デバイス間でノートを常に最新の状態に保ちます。近日公開。"
   },

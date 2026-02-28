@@ -43,6 +43,7 @@
     "failedSave": "保存设置失败：{{error}}",
     "tabGeneral": "通用",
     "tabSync": "同步",
+    "tabAppearance": "外观",
     "sync": "同步",
     "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。"
   },

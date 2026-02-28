@@ -43,6 +43,7 @@
     "failedSave": "Einstellungen konnten nicht gespeichert werden: {{error}}",
     "tabGeneral": "Allgemein",
     "tabSync": "Sync",
+    "tabAppearance": "Erscheinungsbild",
     "sync": "Sync",
     "syncHint": "Sync hält deine Notizen auf allen Geräten auf dem neuesten Stand. Kommt bald."
   },

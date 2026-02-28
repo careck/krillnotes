@@ -43,6 +43,7 @@
     "failedSave": "Échec de l'enregistrement des paramètres : {{error}}",
     "tabGeneral": "Général",
     "tabSync": "Sync",
+    "tabAppearance": "Apparence",
     "sync": "Sync",
     "syncHint": "La synchronisation maintient vos notes à jour sur tous vos appareils. Bientôt disponible."
   },

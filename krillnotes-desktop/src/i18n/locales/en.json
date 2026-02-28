@@ -43,6 +43,7 @@
     "failedSave": "Failed to save settings: {{error}}",
     "tabGeneral": "General",
     "tabSync": "Sync",
+    "tabAppearance": "Appearance",
     "sync": "Sync",
     "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
