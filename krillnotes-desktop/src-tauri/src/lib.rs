@@ -196,6 +196,19 @@ fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::result::
             .insert("macos".to_string(), (result.paste_as_child, result.paste_as_sibling));
         state.workspace_menu_items.lock().expect("Mutex poisoned")
             .insert("macos".to_string(), result.workspace_items);
+
+        // Re-enable workspace items if any workspace is currently open.
+        let any_open = !state.workspace_paths.lock().expect("Mutex poisoned").is_empty();
+        if any_open {
+            if let Some(items) = state.workspace_menu_items.lock()
+                .expect("Mutex poisoned")
+                .get("macos")
+            {
+                for item in items {
+                    let _ = item.set_enabled(true);
+                }
+            }
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1266,7 +1279,7 @@ fn get_settings() -> std::result::Result<settings::AppSettings, String> {
 #[tauri::command]
 fn update_settings(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     patch: serde_json::Value,
 ) -> std::result::Result<(), String> {
     let current = settings::load_settings();
