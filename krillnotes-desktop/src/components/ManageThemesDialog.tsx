@@ -258,7 +258,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background border border-border rounded-lg w-[700px] max-h-[80vh] flex flex-col shadow-xl">
+      <div className="bg-background border border-border rounded-lg w-[700px] max-h-[80vh] overflow-hidden flex flex-col shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="font-semibold text-foreground">
