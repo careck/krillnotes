@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import type { AppSettings, WorkspaceInfo } from '../types';
 import SetPasswordDialog from './SetPasswordDialog';
 
@@ -16,6 +17,7 @@ interface NewWorkspaceDialogProps {
 }
 
 function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<'name' | 'password'>('name');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -30,7 +32,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
       setCreating(false);
       invoke<AppSettings>('get_settings')
         .then(s => setWorkspaceDir(s.workspaceDirectory))
-        .catch(err => setError(`Failed to load settings: ${err}`));
+        .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
     }
   }, [isOpen]);
 
@@ -47,9 +49,9 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
 
   const handleNameNext = () => {
     const trimmed = name.trim();
-    if (!trimmed) { setError('Please enter a workspace name.'); return; }
+    if (!trimmed) { setError(t('workspace.nameRequired')); return; }
     const slug = slugify(trimmed);
-    if (!slug) { setError('Name must contain at least one letter or number.'); return; }
+    if (!slug) { setError(t('workspace.nameInvalid')); return; }
     setError('');
     setStep('password');
   };
@@ -74,7 +76,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
     return (
       <SetPasswordDialog
         isOpen={true}
-        title="Set Workspace Password"
+        title={t('dialogs.password.setWorkspaceTitle')}
         onConfirm={handlePasswordConfirm}
         onCancel={() => setStep('name')}
       />
@@ -84,16 +86,16 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-        <h2 className="text-xl font-bold mb-4">New Workspace</h2>
+        <h2 className="text-xl font-bold mb-4">{t('workspace.newTitle')}</h2>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">Workspace Name</label>
+          <label className="block text-sm font-medium mb-2">{t('workspace.nameLabel')}</label>
           <input
             type="text"
             value={name}
             onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !creating && handleNameNext()}
-            placeholder="My Workspace"
+            placeholder={t('workspace.namePlaceholder')}
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             autoFocus
             autoCorrect="off"
@@ -103,7 +105,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
           />
           {workspaceDir && (
             <p className="text-xs text-muted-foreground mt-1">
-              Will be saved to: {workspaceDir}/{slugify(name.trim()) || '...'}.db
+              {t('workspace.savedTo', { path: `${workspaceDir}/${slugify(name.trim()) || '...'}.db` })}
             </p>
           )}
         </div>
@@ -116,14 +118,14 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 border border-secondary rounded hover:bg-secondary" disabled={creating}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleNameNext}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
             disabled={creating || !name.trim()}
           >
-            Next
+            {t('common.next')}
           </button>
         </div>
       </div>

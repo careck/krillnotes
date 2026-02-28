@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import type { WorkspaceMetadata } from '../types';
 
 const PREDEFINED_LICENSES = [
@@ -31,6 +32,7 @@ interface WorkspacePropertiesDialogProps {
 }
 
 function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialogProps) {
+  const { t } = useTranslation();
   const [authorName, setAuthorName] = useState('');
   const [authorOrg, setAuthorOrg] = useState('');
   const [homepageUrl, setHomepageUrl] = useState('');
@@ -68,7 +70,7 @@ function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialo
           setLicenseCustom('');
         }
       })
-      .catch(err => setError(`Failed to load workspace properties: ${err}`));
+      .catch(err => setError(t('workspace.propertiesLoadFailed', { error: String(err) })));
   }, [isOpen]);
 
   // Auto-fill license URL when a predefined license is selected.
@@ -112,7 +114,7 @@ function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialo
       await invoke('set_workspace_metadata', { metadata });
       onClose();
     } catch (err) {
-      setError(`Failed to save workspace properties: ${err}`);
+      setError(t('workspace.propertiesSaveFailed', { error: String(err) }));
     } finally {
       setSaving(false);
     }
@@ -130,79 +132,78 @@ function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialo
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-secondary p-6 rounded-lg w-[520px] max-h-[85vh] overflow-y-auto">
-        <h2 className="text-xl font-bold mb-4">Workspace Properties</h2>
+        <h2 className="text-xl font-bold mb-4">{t('workspace.propertiesTitle')}</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          This information is embedded in the exported <code>.krillnotes</code> archive and can be
-          used by template galleries to display information about this workspace.
+          {t('workspace.propertiesHint')}
         </p>
 
-        {field('Author Name', (
+        {field(t('workspace.authorName'), (
           <input type="text" value={authorName} onChange={e => setAuthorName(e.target.value)}
-            className={inputClass} placeholder="e.g. Jane Smith"
+            className={inputClass} placeholder={t('workspace.authorNamePlaceholder')}
             autoCorrect="off" autoCapitalize="off" spellCheck={false} />
         ))}
 
-        {field('Author Organisation', (
+        {field(t('workspace.authorOrg'), (
           <input type="text" value={authorOrg} onChange={e => setAuthorOrg(e.target.value)}
-            className={inputClass} placeholder="e.g. ACME Corp"
+            className={inputClass} placeholder={t('workspace.authorOrgPlaceholder')}
             autoCorrect="off" autoCapitalize="off" spellCheck={false} />
         ))}
 
-        {field('Homepage URL', (
+        {field(t('workspace.homepageUrl'), (
           <input type="text" value={homepageUrl} onChange={e => setHomepageUrl(e.target.value)}
-            className={inputClass} placeholder="https://example.com"
+            className={inputClass} placeholder={t('workspace.homepageUrlPlaceholder')}
             autoCorrect="off" autoCapitalize="off" spellCheck={false} />
         ))}
 
-        {field('Description', (
+        {field(t('workspace.description'), (
           <textarea value={description} onChange={e => setDescription(e.target.value)}
             className={`${inputClass} resize-y min-h-[80px]`}
-            placeholder="A short description of this workspace template…"
+            placeholder={t('workspace.descriptionPlaceholder')}
             spellCheck={false} />
         ))}
 
-        {field('Language', (
+        {field(t('workspace.language'), (
           <input type="text" value={language} onChange={e => setLanguage(e.target.value)}
-            className={inputClass} placeholder="e.g. en"
+            className={inputClass} placeholder={t('workspace.languagePlaceholder')}
             autoCorrect="off" autoCapitalize="off" spellCheck={false} />
         ))}
 
-        {field('License', (
+        {field(t('workspace.license'), (
           <div className="flex flex-col gap-1.5">
             <select value={licenseSelect} onChange={e => setLicenseSelect(e.target.value)}
               className={`${inputClass} bg-background`}>
-              <option value="">— select a license —</option>
+              <option value="">{t('workspace.licenseSelect')}</option>
               {PREDEFINED_LICENSES.map(l => (
-                <option key={l} value={l}>{l}</option>
+                <option key={l} value={l}>{l === OTHER_LICENSE ? t('workspace.licenseCustom') : l}</option>
               ))}
             </select>
             {licenseSelect === OTHER_LICENSE && (
               <input type="text" value={licenseCustom} onChange={e => setLicenseCustom(e.target.value)}
-                className={inputClass} placeholder="Enter license name…"
+                className={inputClass} placeholder={t('workspace.licenseCustomPlaceholder')}
                 autoCorrect="off" autoCapitalize="off" spellCheck={false} />
             )}
           </div>
         ))}
 
-        {field('License URL', (() => {
+        {field(t('workspace.licenseUrl'), (() => {
           const isPredefined = licenseSelect !== '' && licenseSelect !== OTHER_LICENSE;
           return (
             <input type="text" value={licenseUrl}
               onChange={e => setLicenseUrl(e.target.value)}
               readOnly={isPredefined}
               className={`${inputClass} ${isPredefined ? 'opacity-50 cursor-default' : ''}`}
-              placeholder="https://creativecommons.org/licenses/by/4.0/"
+              placeholder={t('workspace.licenseUrlPlaceholder')}
               autoCorrect="off" autoCapitalize="off" spellCheck={false} />
           );
         })())}
 
-        {field('Workspace Tags', (
+        {field(t('workspace.workspaceTags'), (
           <>
             <input type="text" value={tagsRaw} onChange={e => setTagsRaw(e.target.value)}
-              className={inputClass} placeholder="e.g. productivity, zettelkasten, notes"
+              className={inputClass} placeholder={t('workspace.workspaceTagsPlaceholder')}
               autoCorrect="off" autoCapitalize="off" spellCheck={false} />
             <p className="text-xs text-muted-foreground mt-1">
-              Comma-separated tags for gallery discovery. These are separate from per-note tags.
+              {t('workspace.workspaceTagsHint')}
             </p>
           </>
         ))}
@@ -217,12 +218,12 @@ function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialo
           <button onClick={onClose}
             className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
             disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button onClick={handleSave}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
             disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>

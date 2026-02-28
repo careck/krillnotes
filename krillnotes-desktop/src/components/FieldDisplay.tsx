@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import type { FieldValue, FieldType } from '../types';
 import { humaniseKey } from '../utils/humanise';
 
@@ -33,21 +35,22 @@ interface FieldDisplayProps {
 }
 
 function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProps) {
+  const { t } = useTranslation();
   const renderValue = () => {
     if ('Number' in value && fieldType === 'rating') {
       const starCount = max > 0 ? max : 5;
       const filled = Math.min(Math.round(value.Number), starCount);
-      if (filled === 0) return <p className="text-muted-foreground italic">Not rated</p>;
+      if (filled === 0) return <p className="text-muted-foreground italic">{t('fields.notRated')}</p>;
       const stars = '★'.repeat(filled) + '☆'.repeat(Math.max(0, starCount - filled));
       return <p className="text-yellow-400 text-lg leading-none">{stars}</p>;
     }
     if ('Text' in value) {
       return <p className="whitespace-pre-wrap break-words">{value.Text}</p>;
     } else if ('Number' in value) {
-      return <p>{value.Number}</p>;
+      return <p>{value.Number.toLocaleString(i18n.language)}</p>;
     } else if ('Boolean' in value) {
       return (
-        <span className="inline-flex items-center" aria-label={value.Boolean ? 'Yes' : 'No'}>
+        <span className="inline-flex items-center" aria-label={value.Boolean ? t('fields.yesLabel') : t('fields.noLabel')}>
           {value.Boolean
             ? <Check size={18} className="text-green-500" aria-hidden="true" />
             : <X size={18} className="text-red-500" aria-hidden="true" />}
@@ -56,8 +59,8 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
     } else if ('Email' in value) {
       return <a href={`mailto:${value.Email}`} className="text-primary underline">{value.Email}</a>;
     } else if ('Date' in value) {
-      if (value.Date === null) return <p className="text-muted-foreground italic">—</p>;
-      const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(undefined, {
+      if (value.Date === null) return <p className="text-muted-foreground italic">{t('fields.notSet')}</p>;
+      const formatted = new Date(`${value.Date}T00:00:00`).toLocaleDateString(i18n.language, {
         year: 'numeric', month: 'long', day: 'numeric',
       });
       return <p>{formatted}</p>;
@@ -68,7 +71,7 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
       }
       return <NoteLinkDisplay noteId={(value as { NoteLink: string | null }).NoteLink as string} />;
     }
-    return <span className="text-muted-foreground italic">(unknown type)</span>;
+    return <span className="text-muted-foreground italic">{t('fields.unknown')}</span>;
   };
 
   return (

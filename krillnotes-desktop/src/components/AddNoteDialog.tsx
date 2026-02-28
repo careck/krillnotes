@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import type { Note, SchemaInfo } from '../types';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
 
@@ -14,6 +15,7 @@ interface AddNoteDialogProps {
 }
 
 function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, position, notes, schemas }: AddNoteDialogProps) {
+  const { t } = useTranslation();
   const [nodeType, setNodeType] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -50,15 +52,15 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
       onNoteCreated(note.id);
       onClose();
     } catch (err) {
-      setError(`Failed to create note: ${err}`);
+      setError(t('notes.failedCreate', { error: String(err) }));
     } finally {
       setLoading(false);
     }
   };
 
-  const title = position === 'root' ? 'Add Root Note'
-    : position === 'child' ? 'Add Child Note'
-    : 'Add Sibling Note';
+  const title = position === 'root' ? t('notes.addRoot')
+    : position === 'child' ? t('notes.addChild')
+    : t('notes.addSibling');
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -66,9 +68,9 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
         <h2 className="text-xl font-bold mb-4">{title}</h2>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">Note Type</label>
+          <label className="block text-sm font-medium mb-2">{t('notes.noteType')}</label>
           {availableTypes.length === 0 ? (
-            <p className="text-sm text-amber-600 py-2">No note types are allowed at this position.</p>
+            <p className="text-sm text-amber-600 py-2">{t('notes.noAllowedTypes')}</p>
           ) : (
             <select
               value={nodeType}
@@ -94,14 +96,14 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
             className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
             disabled={loading}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleCreate}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
             disabled={loading || !nodeType || availableTypes.length === 0}
           >
-            {loading ? 'Creating...' : 'Create'}
+            {loading ? t('common.creating') : t('common.create')}
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface EnterPasswordDialogProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface EnterPasswordDialogProps {
 }
 
 function EnterPasswordDialog({ isOpen, workspaceName, error: externalError, onConfirm, onCancel }: EnterPasswordDialogProps) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState('');
 
   useEffect(() => {
@@ -33,7 +35,7 @@ function EnterPasswordDialog({ isOpen, workspaceName, error: externalError, onCo
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-        <h2 className="text-xl font-bold mb-1">Enter Password</h2>
+        <h2 className="text-xl font-bold mb-1">{t('dialogs.password.enterTitle')}</h2>
         <p className="text-sm text-muted-foreground mb-4">"{workspaceName}"</p>
 
         <div className="mb-4">
@@ -47,21 +49,19 @@ function EnterPasswordDialog({ isOpen, workspaceName, error: externalError, onCo
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            placeholder="Workspace password"
+            placeholder={t('dialogs.password.workspacePasswordPlaceholder')}
           />
         </div>
 
         {externalError === 'WRONG_PASSWORD' && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
-            Wrong password — please try again.
+            {t('dialogs.password.wrongPassword')}
           </div>
         )}
 
         {externalError === 'UNENCRYPTED_WORKSPACE' && (
           <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 rounded text-sm">
-            This workspace was created with an older version of Krillnotes.
-            Please open it in the previous version, export it via <strong>File → Export Workspace</strong>,
-            then import it here.
+            {t('dialogs.password.legacyWorkspace')}
           </div>
         )}
 
@@ -73,14 +73,14 @@ function EnterPasswordDialog({ isOpen, workspaceName, error: externalError, onCo
 
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className="px-4 py-2 border border-secondary rounded hover:bg-secondary">
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleConfirm}
             disabled={!password}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
           >
-            Open
+            {t('common.open')}
           </button>
         </div>
       </div>

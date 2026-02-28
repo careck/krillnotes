@@ -113,6 +113,7 @@ export interface AppSettings {
   activeThemeMode?: string;
   lightTheme?: string;
   darkTheme?: string;
+  language?: string;
 }
 
 export interface WorkspaceEntry {

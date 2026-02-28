@@ -1,4 +1,7 @@
+import { useTranslation } from 'react-i18next';
+
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="text-center">
@@ -8,7 +11,7 @@ function EmptyState() {
           className="w-64 h-64 mx-auto mb-6 object-contain"
         />
         <p className="text-muted-foreground">
-          Use File &gt; New Workspace or File &gt; Open Workspace to get started
+          {t('empty.getStarted')}
         </p>
       </div>
     </div>

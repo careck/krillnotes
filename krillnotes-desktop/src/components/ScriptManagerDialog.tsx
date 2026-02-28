@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, confirm } from '@tauri-apps/plugin-dialog';
 import ScriptEditor from './ScriptEditor';
 import type { UserScript, ScriptError, ScriptMutationResult } from '../types';
+import { useTranslation } from 'react-i18next';
 
 interface ScriptManagerDialogProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ function parseFrontMatterName(source: string): string {
 }
 
 function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManagerDialogProps) {
+  const { t } = useTranslation();
   const [view, setView] = useState<View>('list');
   const [scripts, setScripts] = useState<UserScript[]>([]);
   const [editingScript, setEditingScript] = useState<UserScript | null>(null);
@@ -54,9 +56,9 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       const result = await invoke<UserScript[]>('list_user_scripts');
       setScripts(result);
     } catch (err) {
-      setError(`Failed to load scripts: ${err}`);
+      setError(t('scripts.failedLoad', { error: String(err) }));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (isOpen) {
@@ -114,10 +116,10 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       await loadScripts();
       onScriptsChanged?.();
       if (loadErrors.length > 0) {
-        setError(`Script reload errors:\n${formatLoadErrors(loadErrors)}`);
+        setError(t('scripts.reloadErrors', { errors: formatLoadErrors(loadErrors) }));
       }
     } catch (err) {
-      setError(`Failed to toggle script: ${err}`);
+      setError(t('scripts.failedToggle', { error: String(err) }));
     }
   };
 
@@ -143,7 +145,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       setView('list');
       onScriptsChanged?.();
       if (loadErrors.length > 0) {
-        setError(`Script reload errors:\n${formatLoadErrors(loadErrors)}`);
+        setError(t('scripts.reloadErrors', { errors: formatLoadErrors(loadErrors) }));
       }
     } catch (err) {
       setError(`${err}`);
@@ -154,21 +156,17 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
 
   const handleDelete = async () => {
     if (!editingScript) return;
-    const confirmed = await confirm(
-      "Deleting this script may remove schema definitions used by existing notes. " +
-      "Their data will be preserved in the database but may not display correctly " +
-      "until a compatible schema is re-registered. Delete anyway?"
-    );
+    const confirmed = await confirm(t('scripts.deleteWarning'));
     if (!confirmed) return;
     try {
       const loadErrors = await invoke<ScriptError[]>('delete_user_script', { scriptId: editingScript.id });
       await loadScripts();
       setImportConflict(null);
       setView('list');
-      setError(loadErrors.length > 0 ? `Script reload errors:\n${formatLoadErrors(loadErrors)}` : '');
+      setError(loadErrors.length > 0 ? t('scripts.reloadErrors', { errors: formatLoadErrors(loadErrors) }) : '');
       onScriptsChanged?.();
     } catch (err) {
-      setError(`Failed to delete: ${err}`);
+      setError(t('scripts.failedDelete', { error: String(err) }));
     }
   };
 
@@ -190,13 +188,13 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       setEditorContent(content);
       setView('editor');
     } catch (e) {
-      setError(`Failed to read file: ${e}`);
+      setError(t('scripts.failedImport', { error: String(e) }));
     }
   };
 
   const handleSaveOrReplace = async () => {
     if (importConflict) {
-      const confirmed = await confirm(`Replace script "${importConflict.name}"? This cannot be undone.`);
+      const confirmed = await confirm(t('scripts.replaceConfirm', { name: importConflict.name }));
       if (!confirmed) return;
     }
     await handleSave();
@@ -232,10 +230,10 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       });
       onScriptsChanged?.();
       if (loadErrors.length > 0) {
-        setError(`Script reload errors:\n${formatLoadErrors(loadErrors)}`);
+        setError(t('scripts.reloadErrors', { errors: formatLoadErrors(loadErrors) }));
       }
     } catch (err) {
-      setError(`Failed to reorder scripts: ${err}`);
+      setError(t('scripts.failedReorder', { error: String(err) }));
       await loadScripts();
     }
   };
@@ -252,19 +250,19 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
           <>
             {/* List View Header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-xl font-bold">User Scripts</h2>
+              <h2 className="text-xl font-bold">{t('scripts.title')}</h2>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleAdd}
                   className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm"
                 >
-                  + Add
+                  {t('common.add')}
                 </button>
                 <button
                   onClick={handleImportFromFile}
                   className="px-3 py-1.5 border border-border rounded-md hover:bg-secondary text-sm"
                 >
-                  Import from file…
+                  {t('scripts.importFromFile')}
                 </button>
               </div>
             </div>
@@ -273,7 +271,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
             <div className="flex-1 overflow-y-auto p-4">
               {scripts.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">
-                  No user scripts yet. Click "+ Add" to create one.
+                  {t('scripts.noScripts')}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -300,11 +298,11 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                         checked={script.enabled}
                         onChange={() => handleToggle(script)}
                         className="shrink-0"
-                        title={script.enabled ? 'Disable script' : 'Enable script'}
+                        title={script.enabled ? t('scripts.disableScript') : t('scripts.enableScript')}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">
-                          {script.name || '(unnamed)'}
+                          {script.name || t('scripts.unnamed')}
                         </div>
                         {script.description && (
                           <div className="text-sm text-muted-foreground truncate">
@@ -316,7 +314,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                         onClick={() => handleEdit(script)}
                         className="px-2 py-1 text-sm border border-border rounded hover:bg-secondary"
                       >
-                        Edit
+                        {t('common.edit')}
                       </button>
                     </div>
                   ))}
@@ -339,7 +337,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                 onClick={onClose}
                 className="px-4 py-2 border border-border rounded-md hover:bg-secondary"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           </>
@@ -348,13 +346,13 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
             {/* Editor View Header */}
             <div className="p-4 border-b border-border">
               <h2 className="text-xl font-bold">
-                {editingScript ? `Edit: ${editingScript.name}` : 'New Script'}
+                {editingScript ? t('scripts.editing', { name: editingScript.name }) : t('scripts.newScript')}
               </h2>
             </div>
 
             {importConflict && (
               <div className="px-4 py-2 text-sm text-yellow-700 bg-yellow-50 border-b border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-300">
-                A script named "{importConflict.name}" already exists. Saving will replace it.
+                {t('scripts.conflictWarning', { name: importConflict.name })}
               </div>
             )}
 
@@ -381,7 +379,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                     className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
                     disabled={saving}
                   >
-                    Delete
+                    {t('common.delete')}
                   </button>
                 )}
               </div>
@@ -391,14 +389,14 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                   className="px-4 py-2 border border-border rounded-md hover:bg-secondary"
                   disabled={saving}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleSaveOrReplace}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                   disabled={saving}
                 >
-                  {saving ? 'Saving...' : (importConflict ? 'Replace' : 'Save')}
+                  {saving ? t('common.saving') : (importConflict ? t('common.replace') : t('common.save'))}
                 </button>
               </div>
             </div>

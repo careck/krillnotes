@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ListFilter, Trash2 } from 'lucide-react';
 import type { OperationSummary } from '../types';
+import { useTranslation } from 'react-i18next';
 
 interface OperationsLogDialogProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ function formatTimestamp(unix: number): string {
 }
 
 function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
+  const { t } = useTranslation();
   const [operations, setOperations] = useState<OperationSummary[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [sinceDate, setSinceDate] = useState('');
@@ -48,7 +50,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
       setOperations(result);
       setError('');
     } catch (err) {
-      setError(`Failed to load operations: ${err}`);
+      setError(t('log.failedLoad', { error: String(err) }));
     }
   }, [typeFilter, sinceDate, untilDate]);
 
@@ -74,7 +76,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
       setConfirmPurge(false);
       loadOperations();
     } catch (err) {
-      setError(`Failed to purge operations: ${err}`);
+      setError(t('log.failedPurge', { error: String(err) }));
     }
   };
 
@@ -87,7 +89,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <ListFilter className="w-5 h-5" />
-            Operations Log
+            {t('log.title')}
           </h2>
           <button
             onClick={onClose}
@@ -104,13 +106,13 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
             onChange={(e) => setTypeFilter(e.target.value)}
             className="bg-background border border-input rounded px-2 py-1 text-sm"
           >
-            <option value="">All types</option>
-            {OPERATION_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
+            <option value="">{t('log.allTypes')}</option>
+            {OPERATION_TYPES.map((opType) => (
+              <option key={opType} value={opType}>{opType}</option>
             ))}
           </select>
 
-          <label className="text-sm text-muted-foreground">From:</label>
+          <label className="text-sm text-muted-foreground">{t('log.from')}</label>
           <input
             type="date"
             value={sinceDate}
@@ -118,7 +120,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
             className="bg-background border border-input rounded px-2 py-1 text-sm"
           />
 
-          <label className="text-sm text-muted-foreground">To:</label>
+          <label className="text-sm text-muted-foreground">{t('log.to')}</label>
           <input
             type="date"
             value={untilDate}
@@ -138,15 +140,15 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
         <div className="flex-1 overflow-y-auto">
           {operations.length === 0 ? (
             <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              No operations found.
+              {t('log.noOperations')}
             </div>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-muted/30 sticky top-0">
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Date &amp; Time</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Target</th>
-                  <th className="text-right px-4 py-2 font-medium text-muted-foreground">Type</th>
+                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
+                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
+                  <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,23 +175,23 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-border">
           <span className="text-sm text-muted-foreground">
-            {operations.length} operation{operations.length !== 1 ? 's' : ''}
+            {t('log.count', { count: operations.length })}
           </span>
           <div className="flex items-center gap-2">
             {confirmPurge ? (
               <>
-                <span className="text-sm text-red-600">Delete all operations?</span>
+                <span className="text-sm text-red-600">{t('log.deleteAll')}</span>
                 <button
                   onClick={handlePurge}
                   className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
                 >
-                  Confirm
+                  {t('common.confirm')}
                 </button>
                 <button
                   onClick={() => setConfirmPurge(false)}
                   className="bg-muted text-foreground px-3 py-1 rounded text-sm hover:bg-muted/80"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </>
             ) : (
@@ -198,7 +200,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
                 className="flex items-center gap-1 text-sm text-muted-foreground hover:text-red-600 px-3 py-1 rounded border border-border hover:border-red-300"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Purge All
+                {t('log.purgeAll')}
               </button>
             )}
           </div>

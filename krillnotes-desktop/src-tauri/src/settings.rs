@@ -26,6 +26,9 @@ pub struct AppSettings {
     /// Name of the theme to use in dark mode.
     #[serde(default = "default_dark_theme")]
     pub dark_theme: String,
+    /// Language code for the UI ("en", "de", "fr", "es", "ja", "ko", "zh").
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 impl Default for AppSettings {
@@ -38,6 +41,7 @@ impl Default for AppSettings {
             active_theme_mode: default_theme_mode(),
             light_theme: default_light_theme(),
             dark_theme: default_dark_theme(),
+            language: default_language(),
         }
     }
 }
@@ -62,6 +66,7 @@ pub fn settings_file_path() -> PathBuf {
 fn default_theme_mode() -> String { "system".to_string() }
 fn default_light_theme() -> String { "light".to_string() }
 fn default_dark_theme() -> String { "dark".to_string() }
+fn default_language() -> String { "en".to_string() }
 
 /// Returns the default workspace directory: `~/Documents/Krillnotes`.
 pub fn default_workspace_directory() -> PathBuf {
@@ -108,5 +113,12 @@ mod tests {
         assert_eq!(s.active_theme_mode, "system");
         assert_eq!(s.light_theme, "light");
         assert_eq!(s.dark_theme, "dark");
+    }
+
+    #[test]
+    fn deserializes_legacy_settings_without_language_field() {
+        let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.language, "en");
     }
 }

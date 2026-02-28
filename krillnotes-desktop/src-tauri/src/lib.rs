@@ -4,6 +4,7 @@
 //! Each command is scoped to the calling window's workspace via
 //! [`AppState`] and the window label.
 
+pub mod locales;
 pub mod menu;
 pub mod settings;
 pub mod themes;
@@ -45,7 +46,9 @@ pub struct AppState {
     /// Manage Scripts, Operations Log, Export Workspace).
     /// On macOS: one global list keyed by "macos" — enabled when a workspace
     /// opens, disabled when the last workspace window closes.
-    /// On Windows: items are enabled at window-creation time; no stored handles needed.
+    /// On Windows: keyed by window label — `rebuild_menus` stores into this map during
+    /// language changes, but items are enabled at build time so the stored handles are
+    /// never read back to toggle enabled state.
     pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<tauri::menu::MenuItem<tauri::Wry>>>>>,
 }
 
@@ -124,7 +127,9 @@ fn create_workspace_window(
     label: &str,
     caller: &tauri::Window,
 ) -> std::result::Result<tauri::WebviewWindow, String> {
-    let menu_result = menu::build_menu(app)
+    let lang = settings::load_settings().language;
+    let strings = locales::menu_strings(&lang);
+    let menu_result = menu::build_menu(app, &strings)
         .map_err(|e| format!("Failed to build menu: {e}"))?;
 
     // Enable workspace-specific menu items for this new workspace window.
@@ -172,6 +177,76 @@ fn create_workspace_window(
 
     builder.build()
         .map_err(|e| format!("Failed to create window: {e}"))
+}
+
+/// Rebuilds and reapplies the native menu for all open windows using `lang`.
+///
+/// On macOS the menu bar is global: one menu is set on the app and the stored
+/// paste/workspace handles in AppState are updated.
+/// On Windows each window owns its own menu: every open window gets a freshly
+/// built menu, with workspace items pre-enabled for workspace windows.
+fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::result::Result<(), String> {
+    let strings = locales::menu_strings(lang);
+
+    #[cfg(target_os = "macos")]
+    {
+        let result = menu::build_menu(app, &strings)
+            .map_err(|e| format!("Failed to build menu: {e}"))?;
+        app.set_menu(result.menu)
+            .map_err(|e| format!("Failed to set menu: {e}"))?;
+        state.paste_menu_items.lock().expect("Mutex poisoned")
+            .insert("macos".to_string(), (result.paste_as_child, result.paste_as_sibling));
+        state.workspace_menu_items.lock().expect("Mutex poisoned")
+            .insert("macos".to_string(), result.workspace_items);
+
+        // Re-enable workspace items if any workspace is currently open.
+        let any_open = !state.workspace_paths.lock().expect("Mutex poisoned").is_empty();
+        if any_open {
+            if let Some(items) = state.workspace_menu_items.lock()
+                .expect("Mutex poisoned")
+                .get("macos")
+            {
+                for item in items {
+                    let _ = item.set_enabled(true);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Collect workspace labels first to avoid holding the lock while calling Tauri APIs.
+        let ws_labels: std::collections::HashSet<String> = state
+            .workspace_paths
+            .lock()
+            .expect("Mutex poisoned")
+            .keys()
+            .cloned()
+            .collect();
+
+        for (label, window) in app.webview_windows() {
+            let result = menu::build_menu(app, &strings)
+                .map_err(|e| format!("Failed to build menu: {e}"))?;
+
+            if ws_labels.contains(&label) {
+                for item in &result.workspace_items {
+                    item.set_enabled(true)
+                        .map_err(|e| format!("Failed to enable menu item: {e}"))?;
+                }
+            }
+
+            window
+                .set_menu(result.menu)
+                .map_err(|e| format!("Failed to set window menu: {e}"))?;
+
+            state.paste_menu_items.lock().expect("Mutex poisoned")
+                .insert(label.clone(), (result.paste_as_child, result.paste_as_sibling));
+            state.workspace_menu_items.lock().expect("Mutex poisoned")
+                .insert(label, result.workspace_items);
+        }
+    }
+
+    Ok(())
 }
 
 /// Inserts `workspace` and its `path` into `state` under `label`.
@@ -1204,8 +1279,14 @@ fn get_settings() -> std::result::Result<settings::AppSettings, String> {
 /// disk, so callers only need to supply the fields they care about — missing
 /// fields are preserved rather than reset to defaults.
 #[tauri::command]
-fn update_settings(patch: serde_json::Value) -> std::result::Result<(), String> {
+fn update_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    patch: serde_json::Value,
+) -> std::result::Result<(), String> {
     let current = settings::load_settings();
+    let old_lang = current.language.clone();
+
     let mut current_value = serde_json::to_value(&current)
         .map_err(|e| format!("Failed to serialize settings: {e}"))?;
     if let (serde_json::Value::Object(curr), serde_json::Value::Object(p)) =
@@ -1217,7 +1298,13 @@ fn update_settings(patch: serde_json::Value) -> std::result::Result<(), String> 
     }
     let updated: settings::AppSettings = serde_json::from_value(current_value)
         .map_err(|e| format!("Failed to deserialize merged settings: {e}"))?;
-    settings::save_settings(&updated)
+    settings::save_settings(&updated)?;
+
+    if updated.language != old_lang {
+        rebuild_menus(&app, &state, &updated.language)?;
+    }
+
+    Ok(())
 }
 
 /// Entry returned by [`list_workspace_files`], representing a `.db` file
@@ -1391,7 +1478,9 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu_result = menu::build_menu(app.handle())?;
+            let lang = settings::load_settings().language;
+            let strings = locales::menu_strings(&lang);
+            let menu_result = menu::build_menu(app.handle(), &strings)?;
             app.set_menu(menu_result.menu)?;
 
             // On macOS the menu bar is global (shared by all windows).

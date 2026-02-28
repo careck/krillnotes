@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import type { WorkspaceEntry, WorkspaceInfo } from '../types';
 import EnterPasswordDialog from './EnterPasswordDialog';
 
@@ -9,6 +10,7 @@ interface OpenWorkspaceDialogProps {
 }
 
 function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,7 +27,7 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
       setLoading(true);
       invoke<WorkspaceEntry[]>('list_workspace_files')
         .then(setEntries)
-        .catch(err => setError(`Failed to list workspaces: ${err}`))
+        .catch(err => setError(t('workspace.failedList', { error: String(err) })))
         .finally(() => setLoading(false));
     }
   }, [isOpen]);
@@ -101,16 +103,15 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-secondary rounded-lg w-[450px] max-h-[60vh] flex flex-col">
         <div className="p-6 pb-0">
-          <h2 className="text-xl font-bold mb-4">Open Workspace</h2>
+          <h2 className="text-xl font-bold mb-4">{t('workspace.openTitle')}</h2>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6">
           {loading ? (
-            <p className="text-muted-foreground text-center py-8">Loading...</p>
+            <p className="text-muted-foreground text-center py-8">{t('workspace.loading')}</p>
           ) : entries.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
-              No workspaces found in the default directory.<br />
-              Use "New Workspace" to create one.
+              {t('workspace.noWorkspaces')}
             </p>
           ) : (
             <div className="space-y-1">
@@ -127,7 +128,7 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
                 >
                   <span className="font-medium truncate">{entry.name}</span>
                   {entry.isOpen && (
-                    <span className="text-xs text-muted-foreground ml-2">Already open</span>
+                    <span className="text-xs text-muted-foreground ml-2">{t('workspace.alreadyOpen')}</span>
                   )}
                 </button>
               ))}
@@ -149,7 +150,7 @@ function OpenWorkspaceDialog({ isOpen, onClose }: OpenWorkspaceDialogProps) {
             className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
             disabled={opening}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       </div>

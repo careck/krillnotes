@@ -12,6 +12,8 @@ import SetPasswordDialog from './components/SetPasswordDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
+import i18n from './i18n';
+import { useTranslation } from 'react-i18next';
 
 function slugify(name: string): string {
   return name
@@ -66,6 +68,7 @@ const createMenuHandlers = (
 });
 
 function App() {
+  const { t } = useTranslation();
   const [workspace, setWorkspace] = useState<WorkspaceInfoType | null>(null);
   const [status, setStatus] = useState('');
   const [isError, setIsError] = useState(false);
@@ -99,6 +102,17 @@ function App() {
           .catch(err => console.error('Failed to fetch workspace info:', err));
       }
     }
+  }, []);
+
+  // Apply saved language on startup
+  useEffect(() => {
+    invoke<AppSettings>('get_settings')
+      .then(s => {
+        if (s.language) {
+          i18n.changeLanguage(s.language);
+        }
+      })
+      .catch(err => console.error('Failed to load settings for language:', err));
   }, []);
 
   const statusSetter = (msg: string, error = false) => {
@@ -139,13 +153,13 @@ function App() {
 
     const trimmed = importName.trim();
     if (!trimmed) {
-      setImportError('Please enter a workspace name.');
+      setImportError(t('workspace.nameRequired'));
       return;
     }
 
     const slug = slugify(trimmed);
     if (!slug) {
-      setImportError('Name must contain at least one letter or number.');
+      setImportError(t('workspace.nameInvalid'));
       return;
     }
 
@@ -187,7 +201,7 @@ function App() {
       setPendingImportArgs(null);
       setImporting(false);
       if (prev) {
-        statusSetter(`Imported ${prev.noteCount} notes and ${prev.scriptCount} scripts`);
+        statusSetter(t('workspace.importSuccess', { noteCount: prev.noteCount, scriptCount: prev.scriptCount }));
       }
     } catch (error) {
       setImportError(`${error}`);
@@ -211,9 +225,9 @@ function App() {
       if (!path) return;
 
       await invoke('export_workspace_cmd', { path, password });
-      statusSetter('Workspace exported successfully');
+      statusSetter(t('workspace.exportSuccess'));
     } catch (error) {
-      statusSetter(`Export failed: ${error}`, true);
+      statusSetter(t('workspace.exportFailed', { error: String(error) }), true);
     }
   };
 
@@ -226,8 +240,8 @@ function App() {
       const currentVersion = await invoke<string>('get_app_version');
       if (result.appVersion > currentVersion) {
         const proceed = await confirm(
-          `This export was created with Krillnotes v${result.appVersion}, but you are running v${currentVersion}. Some data may not import correctly.\n\nImport anyway?`,
-          { title: 'Version Mismatch', kind: 'warning' }
+          t('dialogs.import.versionMismatch', { version: result.appVersion, currentVersion }),
+          { title: t('dialogs.import.versionMismatchTitle'), kind: 'warning' }
         );
         if (!proceed) return;
       }
@@ -248,9 +262,9 @@ function App() {
         setImportPasswordError('');
         setShowImportPasswordDialog(true);
       } else if (errStr === 'INVALID_PASSWORD') {
-        setImportPasswordError('Incorrect password — try again.');
+        setImportPasswordError(t('dialogs.password.incorrectTryAgain'));
       } else {
-        statusSetter(`Import failed: ${errStr}`, true);
+        statusSetter(t('workspace.importFailed', { error: errStr }), true);
       }
     }
   };
@@ -278,17 +292,17 @@ function App() {
       {showExportPasswordDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-            <h2 className="text-xl font-bold mb-4">Protect with a password?</h2>
+            <h2 className="text-xl font-bold mb-4">{t('dialogs.password.protectPrompt')}</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Leave blank to export without encryption.
+              {t('dialogs.password.protectHint')}
             </p>
             <div className="mb-3">
-              <label className="block text-sm font-medium mb-2">Password</label>
+              <label className="block text-sm font-medium mb-2">{t('dialogs.password.passwordLabel')}</label>
               <input
                 type="password"
                 value={exportPassword}
                 onChange={(e) => setExportPassword(e.target.value)}
-                placeholder="Optional password"
+                placeholder={t('dialogs.password.optionalPlaceholder')}
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoFocus
                 autoCorrect="off"
@@ -297,7 +311,7 @@ function App() {
               />
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Confirm password</label>
+              <label className="block text-sm font-medium mb-2">{t('dialogs.password.confirmLabel')}</label>
               <input
                 type="password"
                 value={exportPasswordConfirm}
@@ -309,7 +323,7 @@ function App() {
                     }
                   }
                 }}
-                placeholder="Confirm password"
+                placeholder={t('dialogs.password.confirmPlaceholder')}
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoCorrect="off"
                 autoCapitalize="off"
@@ -318,7 +332,7 @@ function App() {
             </div>
             {exportPassword && exportPasswordConfirm && exportPassword !== exportPasswordConfirm && (
               <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
-                Passwords do not match.
+                {t('dialogs.password.mismatch')}
               </div>
             )}
             <div className="flex justify-between items-center">
@@ -330,21 +344,21 @@ function App() {
                 }}
                 className="text-sm text-muted-foreground hover:text-foreground underline"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <div className="flex gap-2">
                 <button
                   onClick={() => handleExportConfirm(null)}
                   className="px-4 py-2 border border-secondary rounded hover:bg-secondary text-sm"
                 >
-                  Skip — no encryption
+                  {t('dialogs.password.skipNoEncryption')}
                 </button>
                 <button
                   onClick={() => handleExportConfirm(exportPassword)}
                   disabled={!exportPassword || exportPassword !== exportPasswordConfirm}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Encrypt
+                  {t('common.encrypt')}
                 </button>
               </div>
             </div>
@@ -356,12 +370,12 @@ function App() {
       {showImportPasswordDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-            <h2 className="text-xl font-bold mb-4">This archive is password-protected</h2>
+            <h2 className="text-xl font-bold mb-4">{t('dialogs.password.archiveProtected')}</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Enter the password used when the workspace was exported.
+              {t('dialogs.password.archiveHint')}
             </p>
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Password</label>
+              <label className="block text-sm font-medium mb-2">{t('dialogs.password.passwordLabel')}</label>
               <input
                 type="password"
                 value={importPassword}
@@ -372,7 +386,7 @@ function App() {
                     proceedWithImport(pendingImportZipPath, importPassword);
                   }
                 }}
-                placeholder="Enter password"
+                placeholder={t('dialogs.password.passwordPlaceholder')}
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoFocus
                 autoCorrect="off"
@@ -395,7 +409,7 @@ function App() {
                 }}
                 className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -406,7 +420,7 @@ function App() {
                 disabled={!importPassword}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Decrypt
+                {t('common.open')}
               </button>
             </div>
           </div>
@@ -416,7 +430,7 @@ function App() {
       {/* Import workspace password dialog */}
       <SetPasswordDialog
         isOpen={showImportWorkspacePasswordDialog}
-        title="Set Password for Imported Workspace"
+        title={t('dialogs.password.importedWorkspaceTitle')}
         onConfirm={handleImportWorkspacePassword}
         onCancel={() => {
           setShowImportWorkspacePasswordDialog(false);
@@ -430,20 +444,20 @@ function App() {
       {importState && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-            <h2 className="text-xl font-bold mb-4">Import Workspace</h2>
+            <h2 className="text-xl font-bold mb-4">{t('dialogs.import.title')}</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Importing {importState.noteCount} notes and {importState.scriptCount} scripts.
+              {t('workspace.importingProgress', { noteCount: importState.noteCount, scriptCount: importState.scriptCount })}
             </p>
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">
-                Workspace Name
+                {t('workspace.nameLabel')}
               </label>
               <input
                 type="text"
                 value={importName}
                 onChange={(e) => setImportName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !importing) handleImportConfirm(); }}
-                placeholder="imported-workspace"
+                placeholder={t('dialogs.import.importedPlaceholder')}
                 className="w-full bg-secondary border border-secondary rounded px-3 py-2"
                 autoCorrect="off"
                 autoCapitalize="off"
@@ -465,14 +479,14 @@ function App() {
                 className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
                 disabled={importing}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleImportConfirm}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
                 disabled={importing || !importName.trim()}
               >
-                {importing ? 'Importing...' : 'Import'}
+                {importing ? t('common.importing') : t('common.import')}
               </button>
             </div>
           </div>

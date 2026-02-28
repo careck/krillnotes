@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useTranslation } from 'react-i18next';
 import TreeView from './TreeView';
 import SearchBar from './SearchBar';
 import InfoPanel from './InfoPanel';
@@ -22,6 +23,7 @@ interface WorkspaceViewProps {
 }
 
 function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
+  const { t } = useTranslation();
   const [notes, setNotes] = useState<Note[]>([]);
   const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
   const [treeActionMap, setTreeActionMap] = useState<Record<string, string[]>>({});
@@ -195,7 +197,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
       return fetchedNotes;
     } catch (err) {
-      setError(`Failed to load notes: ${err}`);
+      setError(t('workspace.failedLoad', { error: String(err) }));
       return [];
     }
   };
@@ -230,7 +232,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       await invoke('invoke_tree_action', { noteId, label });
       await loadNotes();
     } catch (err) {
-      setError(`Tree action failed: ${err}`);
+      setError(t('workspace.treeActionFailed', { error: String(err) }));
     }
   }, []);
 
@@ -578,7 +580,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setPendingDeleteId(noteId);
       setShowDeleteDialog(true);
     } catch (err) {
-      alert(`Failed to check children: ${err}`);
+      alert(t('workspace.failedCheckChildren', { error: String(err) }));
     }
   };
 
@@ -595,7 +597,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setIsDeleting(false);
       handleNoteUpdated();
     } catch (err) {
-      alert(`Failed to delete: ${err}`);
+      alert(t('workspace.failedDelete', { error: String(err) }));
       setShowDeleteDialog(false);
       setPendingDeleteId(null);
       setIsDeleting(false);
@@ -682,7 +684,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             />
           ))}
           {workspaceTags.length === 0 && (
-            <span className="kn-tag-cloud__empty">No tags yet</span>
+            <span className="kn-tag-cloud__empty">{t('workspace.noTagsYet')}</span>
           )}
         </div>
       </div>
