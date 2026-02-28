@@ -305,7 +305,10 @@ fn get_workspace_info_internal(
     })
 }
 
-/// Creates a new workspace database at `path` and opens it in a new window.
+/// Creates a new workspace folder at `path` and opens it in a new window.
+///
+/// `path` is the workspace folder path. A `notes.db` file and an
+/// `attachments/` subdirectory are created inside it.
 #[tauri::command]
 async fn create_workspace(
     window: tauri::Window,
@@ -314,31 +317,34 @@ async fn create_workspace(
     path: String,
     password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    let path_buf = PathBuf::from(&path);
+    let folder = PathBuf::from(&path);
 
-    if path_buf.exists() {
-        return Err("File already exists. Use Open Workspace instead.".to_string());
+    if folder.exists() {
+        return Err("Workspace already exists. Use Open Workspace instead.".to_string());
     }
 
-    match find_window_for_path(&state, &path_buf) {
+    match find_window_for_path(&state, &folder) {
         Some(existing_label) => {
             focus_window(&app, &existing_label)?;
             Err("focused_existing".to_string())
         }
         None => {
-            let label = generate_unique_label(&state, &path_buf);
-            let workspace = Workspace::create(&path_buf, &password)
+            let label = generate_unique_label(&state, &folder);
+            std::fs::create_dir_all(&folder)
+                .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
+            let db_path = folder.join("notes.db");
+            let workspace = Workspace::create(&db_path, &password)
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
             // Cache password if setting is enabled
             let settings = settings::load_settings();
             if settings.cache_workspace_passwords {
                 state.workspace_passwords.lock().expect("Mutex poisoned")
-                    .insert(path_buf.clone(), password);
+                    .insert(folder.clone(), password);
             }
 
             let new_window = create_workspace_window(&app, &label, &window)?;
-            store_workspace(&state, label.clone(), workspace, path_buf.clone());
+            store_workspace(&state, label.clone(), workspace, folder.clone());
 
             new_window.set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
@@ -352,7 +358,10 @@ async fn create_workspace(
     }
 }
 
-/// Opens an existing workspace database at `path` in a new window.
+/// Opens an existing workspace folder at `path` in a new window.
+///
+/// `path` is the workspace folder path. The `notes.db` file inside it is
+/// opened by the core library.
 #[tauri::command]
 async fn open_workspace(
     window: tauri::Window,
@@ -361,20 +370,21 @@ async fn open_workspace(
     path: String,
     password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    let path_buf = PathBuf::from(&path);
+    let folder = PathBuf::from(&path);
 
-    if !path_buf.exists() {
-        return Err("File does not exist".to_string());
+    if !folder.is_dir() {
+        return Err("Workspace folder does not exist".to_string());
     }
 
-    match find_window_for_path(&state, &path_buf) {
+    match find_window_for_path(&state, &folder) {
         Some(existing_label) => {
             focus_window(&app, &existing_label)?;
             Err("focused_existing".to_string())
         }
         None => {
-            let label = generate_unique_label(&state, &path_buf);
-            let workspace = Workspace::open(&path_buf, &password)
+            let label = generate_unique_label(&state, &folder);
+            let db_path = folder.join("notes.db");
+            let workspace = Workspace::open(&db_path, &password)
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
@@ -385,11 +395,11 @@ async fn open_workspace(
             let settings = settings::load_settings();
             if settings.cache_workspace_passwords {
                 state.workspace_passwords.lock().expect("Mutex poisoned")
-                    .insert(path_buf.clone(), password);
+                    .insert(folder.clone(), password);
             }
 
             let new_window = create_workspace_window(&app, &label, &window)?;
-            store_workspace(&state, label.clone(), workspace, path_buf.clone());
+            store_workspace(&state, label.clone(), workspace, folder.clone());
 
             new_window.set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
@@ -1158,30 +1168,40 @@ fn peek_import_cmd(
     })
 }
 
-/// Imports an export archive into a new workspace and opens it in a new window.
+/// Imports an export archive into a new workspace folder and opens it in a new window.
+///
+/// `folder_path` is the destination workspace folder. A `notes.db` file is
+/// written inside it by the import, and an `attachments/` subdirectory is
+/// created alongside it.
 #[tauri::command]
 async fn execute_import(
     window: tauri::Window,
     app: AppHandle,
     state: State<'_, AppState>,
     zip_path: String,
-    db_path: String,
+    folder_path: String,
     password: Option<String>,
     workspace_password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    let db_path_buf = PathBuf::from(&db_path);
+    let folder = PathBuf::from(&folder_path);
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
+    let db_path_buf = folder.join("notes.db");
 
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
     import_workspace(reader, &db_path_buf, password.as_deref(), &workspace_password)
         .map_err(|e| e.to_string())?;
 
+    // Ensure the attachments directory exists after import
+    let _ = std::fs::create_dir_all(folder.join("attachments"));
+
     let workspace = Workspace::open(&db_path_buf, &workspace_password)
         .map_err(|e| e.to_string())?;
-    let label = generate_unique_label(&state, &db_path_buf);
+    let label = generate_unique_label(&state, &folder);
 
     let new_window = create_workspace_window(&app, &label, &window)?;
-    store_workspace(&state, label.clone(), workspace, db_path_buf);
+    store_workspace(&state, label.clone(), workspace, folder);
 
     new_window.set_title(&format!("Krillnotes - {label}"))
         .map_err(|e| e.to_string())?;
@@ -1307,20 +1327,21 @@ fn update_settings(
     Ok(())
 }
 
-/// Entry returned by [`list_workspace_files`], representing a `.db` file
-/// in the configured workspace directory.
+/// Entry returned by [`list_workspace_files`], representing a workspace folder
+/// (containing `notes.db`) in the configured workspace directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceEntry {
-    /// Filename without extension.
+    /// Folder name (used as the workspace display name).
     name: String,
-    /// Absolute path to the `.db` file.
+    /// Absolute path to the workspace folder.
     path: String,
     /// Whether this workspace is currently open in a window.
     is_open: bool,
 }
 
-/// Lists all `.db` files in the configured workspace directory.
+/// Lists all workspace folders (subdirectories containing `notes.db`) in the
+/// configured workspace directory.
 ///
 /// Each entry includes an `is_open` flag indicating whether the workspace
 /// is currently open in a window, so the frontend can grey those out.
@@ -1351,16 +1372,17 @@ fn list_workspace_files(
         .map_err(|e| format!("Failed to read directory: {e}"))?;
 
     for entry in read_dir.flatten() {
-        let path = entry.path();
-        if path.extension().map(|e| e == "db").unwrap_or(false) {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                let is_open = open_paths.iter().any(|p| *p == path);
-                entries.push(WorkspaceEntry {
-                    name: stem.to_string(),
-                    path: path.display().to_string(),
-                    is_open,
-                });
-            }
+        let folder = entry.path();
+        if !folder.is_dir() { continue; }
+        let db_file = folder.join("notes.db");
+        if !db_file.exists() { continue; }
+        if let Some(name) = folder.file_name().and_then(|s| s.to_str()) {
+            let is_open = open_paths.iter().any(|p| *p == folder);
+            entries.push(WorkspaceEntry {
+                name: name.to_string(),
+                path: folder.display().to_string(),
+                is_open,
+            });
         }
     }
 
@@ -1501,6 +1523,28 @@ pub fn run() {
             let dir = std::path::Path::new(&app_settings.workspace_directory);
             if !dir.exists() {
                 std::fs::create_dir_all(dir).ok();
+            }
+
+            // Auto-migrate flat *.db files to per-workspace folders
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e == "db").unwrap_or(false) {
+                    let stem = path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or_default();
+                    if stem.is_empty() { continue; }
+                    let new_folder = dir.join(stem);
+                    if new_folder.exists() { continue; } // already migrated
+                    if std::fs::create_dir_all(&new_folder).is_ok() {
+                        if let Err(e) = std::fs::rename(&path, new_folder.join("notes.db")) {
+                            eprintln!("[migration] Failed to move {:?}: {e}", path);
+                            let _ = std::fs::remove_dir(&new_folder); // rollback folder
+                        } else {
+                            let _ = std::fs::create_dir_all(new_folder.join("attachments"));
+                            eprintln!("[migration] Migrated {:?} → {:?}", path, new_folder);
+                        }
+                    }
+                }
             }
 
             Ok(())
