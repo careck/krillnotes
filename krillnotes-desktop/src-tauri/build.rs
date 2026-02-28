@@ -22,17 +22,17 @@ fn main() {
 
     let mut entries: Vec<(String, String)> = Vec::new();
 
-    if let Ok(read_dir) = fs::read_dir(&locales_dir) {
-        for entry in read_dir.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Some(lang) = path.file_stem().and_then(|s| s.to_str()) {
-                    // Re-run if this specific file changes.
-                    println!("cargo:rerun-if-changed={}", path.display());
-                    let content = fs::read_to_string(&path)
-                        .unwrap_or_else(|_| "{}".to_string());
-                    entries.push((lang.to_string(), content));
-                }
+    let read_dir = fs::read_dir(&locales_dir)
+        .unwrap_or_else(|e| panic!("Cannot read locales directory {}: {e}", locales_dir.display()));
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            if let Some(lang) = path.file_stem().and_then(|s| s.to_str()) {
+                // Re-run if this specific file changes.
+                println!("cargo:rerun-if-changed={}", path.display());
+                let content = fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
+                entries.push((lang.to_string(), content));
             }
         }
     }
