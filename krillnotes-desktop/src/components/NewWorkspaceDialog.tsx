@@ -58,7 +58,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
 
   const handlePasswordConfirm = async (password: string) => {
     const slug = slugify(name.trim());
-    const path = `${workspaceDir}/${slug}.db`;
+    const path = `${workspaceDir}/${slug}`;
     setCreating(true);
     try {
       await invoke<WorkspaceInfo>('create_workspace', { path, password });
@@ -105,7 +105,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
           />
           {workspaceDir && (
             <p className="text-xs text-muted-foreground mt-1">
-              {t('workspace.savedTo', { path: `${workspaceDir}/${slugify(name.trim()) || '...'}.db` })}
+              {t('workspace.savedTo', { path: `${workspaceDir}/${slugify(name.trim()) || '...'}` })}
             </p>
           )}
         </div>

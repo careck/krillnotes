@@ -158,6 +158,29 @@ impl Storage {
                 CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_id);",
             )?;
         }
+
+        // Migration: add attachments table if absent.
+        let attachments_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='attachments'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !attachments_exists {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS attachments (
+                    id          TEXT PRIMARY KEY,
+                    note_id     TEXT NOT NULL,
+                    filename    TEXT NOT NULL,
+                    mime_type   TEXT,
+                    size_bytes  INTEGER NOT NULL,
+                    hash_sha256 TEXT NOT NULL,
+                    salt        BLOB NOT NULL,
+                    created_at  INTEGER NOT NULL,
+                    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_attachments_note_id ON attachments(note_id);",
+            )?;
+        }
         Ok(())
     }
 
@@ -441,5 +464,45 @@ mod tests {
             .unwrap();
 
         assert!(table_exists, "user_scripts table should exist after migration");
+    }
+
+    #[test]
+    fn test_attachments_table_exists_on_new_workspace() {
+        let temp = NamedTempFile::new().unwrap();
+        let storage = Storage::create(temp.path(), "").unwrap();
+        let count: i64 = storage.connection().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='attachments'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_attachments_table_migration_on_existing_workspace() {
+        let temp = NamedTempFile::new().unwrap();
+        // Create raw DB without attachments table
+        {
+            let conn = Connection::open(temp.path()).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, node_type TEXT NOT NULL,
+                 parent_id TEXT, position INTEGER NOT NULL, created_at INTEGER NOT NULL,
+                 modified_at INTEGER NOT NULL, created_by INTEGER NOT NULL DEFAULT 0,
+                 modified_by INTEGER NOT NULL DEFAULT 0, fields_json TEXT NOT NULL DEFAULT '{}',
+                 is_expanded INTEGER DEFAULT 1);
+                 CREATE TABLE operations (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 operation_id TEXT UNIQUE NOT NULL, timestamp INTEGER NOT NULL,
+                 device_id TEXT NOT NULL, operation_type TEXT NOT NULL,
+                 operation_data TEXT NOT NULL, synced INTEGER DEFAULT 0);
+                 CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+            ).unwrap();
+        }
+        let storage = Storage::open(temp.path(), "").unwrap();
+        let count: i64 = storage.connection().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='attachments'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
     }
 }

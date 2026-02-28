@@ -11,6 +11,7 @@ pub mod core;
 // Re-export commonly used types.
 #[doc(inline)]
 pub use core::{
+    attachment::AttachmentMeta,
     delete::{DeleteResult, DeleteStrategy},
     export::{
         export_workspace, import_workspace, peek_import, ExportError, ExportNotes, ImportResult,
