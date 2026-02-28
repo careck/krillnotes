@@ -12,6 +12,7 @@ import SetPasswordDialog from './components/SetPasswordDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
+import i18n from './i18n';
 
 function slugify(name: string): string {
   return name
@@ -99,6 +100,17 @@ function App() {
           .catch(err => console.error('Failed to fetch workspace info:', err));
       }
     }
+  }, []);
+
+  // Apply saved language on startup
+  useEffect(() => {
+    invoke<AppSettings>('get_settings')
+      .then(s => {
+        if (s.language) {
+          i18n.changeLanguage(s.language);
+        }
+      })
+      .catch(err => console.error('Failed to load settings for language:', err));
   }, []);
 
   const statusSetter = (msg: string, error = false) => {
