@@ -147,7 +147,8 @@
       "skipNoEncryption": "Skip — no encryption",
       "archiveProtected": "This archive is password-protected",
       "archiveHint": "Enter the password used when the workspace was exported.",
-      "setWorkspaceTitle": "Set Workspace Password"
+      "setWorkspaceTitle": "Set Workspace Password",
+      "importedWorkspaceTitle": "Set Password for Imported Workspace"
     },
     "import": {
       "title": "Import Workspace",
