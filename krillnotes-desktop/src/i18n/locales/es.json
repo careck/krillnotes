@@ -43,8 +43,9 @@
     "failedSave": "Error al guardar los ajustes: {{error}}",
     "tabGeneral": "General",
     "tabSync": "Sync",
+    "tabAppearance": "Apariencia",
     "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
+    "syncHint": "La sincronización mantiene tus notas actualizadas en todos tus dispositivos. Próximamente."
   },
   "themes": {
     "manage": "Gestionar temas",

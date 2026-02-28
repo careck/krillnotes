@@ -41,10 +41,11 @@
     "language": "언어",
     "failedLoad": "설정을 불러오지 못했습니다: {{error}}",
     "failedSave": "설정을 저장하지 못했습니다: {{error}}",
-    "tabGeneral": "General",
-    "tabSync": "Sync",
-    "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
+    "tabGeneral": "일반",
+    "tabSync": "동기화",
+    "tabAppearance": "외관",
+    "sync": "동기화",
+    "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다."
   },
   "themes": {
     "manage": "테마 관리",
