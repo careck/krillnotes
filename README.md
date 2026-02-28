@@ -18,8 +18,8 @@ Built with Rust, Tauri v2, React, and SQLCipher (encrypted SQLite).
 - **On-save hooks** — Rhai scripts can register `on_save` hooks that compute derived fields (e.g. auto-generating a note title from first name + last name, calculating a read duration, or setting a status badge).
 - **Search** — A live search bar with debounced fuzzy matching across note titles and all text fields. Keyboard-navigable results; selecting a match expands collapsed ancestors and scrolls the note into view.
 - **Export / Import** — Export an entire workspace as a `.zip` archive (notes + user scripts), with an optional AES-256 password to encrypt the zip. Import a zip into a new workspace; the app detects encrypted archives and prompts for the password before importing.
-- **Operations log viewer** — Browse the full mutation history, filter by operation type or date range, and purge old entries to reclaim space.
-- **Operation log** — Every mutation (create, update, move, delete, script changes) is appended to an immutable log before being applied, enabling future undo/redo and device sync.
+- **Operations log viewer** — Browse the full mutation history, filter by operation type or date range, and purge old entries to reclaim space. The log is populated only when sync is enabled; it is always empty in the current release while sync is under development.
+- **Operation log** — When sync is active, every mutation (create, update, move, delete, script changes) is appended to an immutable log before being applied, enabling future undo/redo and device sync.
 - **Tree keyboard navigation** — Arrow keys to move between nodes, Right/Left to expand/collapse, Enter to edit the selected note.
 - **Resizable panels** — Drag the divider between the tree and the detail panel to resize.
 - **Context menu** — Right-click on any tree node for quick actions (Add Note, Edit, Delete).

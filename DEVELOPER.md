@@ -85,7 +85,9 @@ Local-first does not mean sync-never. The architecture is designed so that a fut
 
 ### 2. Operation Log
 
-Every document mutation — creating a note, updating a field, moving a node, deleting a note, or managing user scripts — is recorded as an `Operation` before being applied.
+When sync is enabled, every document mutation — creating a note, updating a field, moving a node, deleting a note, or managing user scripts — is recorded as an `Operation` before being applied.
+
+`Workspace.operation_log` is `Option<OperationLog>`. It is set to `None` in both `create()` and `open()` until sync is implemented, so the log is currently always empty and the Operations Log menu item is permanently greyed out. All call sites use the private `log_op()` helper which no-ops when `operation_log` is `None`.
 
 ```
 User action
@@ -95,7 +97,7 @@ Workspace method (e.g. create_note)
     │
     ├── BEGIN TRANSACTION
     ├── Apply mutation to `notes` table
-    ├── Append Operation to `operations` table   ← immutable record
+    ├── log_op(Operation { ... })   ← no-op while sync is off; appends when sync is on
     ├── Purge old operations if over limit
     └── COMMIT
 ```
@@ -374,10 +376,10 @@ import pt from './locales/pt.json';
 pt: { translation: pt },
 ```
 
-Also add it to the language dropdown options in [SettingsDialog.tsx](krillnotes-desktop/src/components/SettingsDialog.tsx):
+Also add it to the language dropdown in [SettingsDialog.tsx](krillnotes-desktop/src/components/SettingsDialog.tsx) (inside the `<select>` in the Appearance tab):
 
 ```tsx
-{ value: 'pt', label: 'Português' },
+<option value="pt">Português (pt)</option>
 ```
 
 ### 3. Build and test

@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`on_hover` hook** — A new optional hook inside `schema()` blocks. Like `on_view`, it receives a note map and has access to all query functions (`get_children`, `get_notes_for_tag`, etc.) and display helpers (`field`, `stack`, `markdown`, …). The return value is rendered as HTML in the tooltip.
 - **`show_on_hover` field flag** — Fields defined with `show_on_hover: true` are surfaced in the hover tooltip without any scripting. Useful for quick previews of a single key field (e.g. a body or description).
 - **Zettelkasten template updated** — The bundled `zettelkasten.rhai` now demos both hover paths: Zettel notes show the body field on hover; Kasten folders show a live child-count badge via `on_hover`.
+- **Appearance tab in Settings** — Appearance settings (language, light/dark mode, and theme pickers) have been moved from the General tab into their own dedicated Appearance tab. The Settings dialog now has three tabs: General, Appearance, and Sync.
+- **Sync tab in Settings** — A locked Sync placeholder tab has been added to the Settings dialog in preparation for the upcoming sync feature.
+
+### Fixed
+- **Sync settings not translated** — The General and Sync tab labels, and the Sync placeholder text, were displayed in English regardless of the selected language. All six non-English language packs (de, fr, es, ja, ko, zh) now include correct translations for these strings.
+
+### Changed
+- **Operations log gated behind sync** — The operations log is no longer populated unless sync is enabled. Since sync is not yet implemented, the log is always empty and the Operations Log menu item is permanently greyed out until sync ships.
 
 ---
 
