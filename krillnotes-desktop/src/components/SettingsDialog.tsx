@@ -33,7 +33,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           setOriginalLanguage(s.language ?? 'en');
           setError('');
         })
-        .catch(err => setError(`Failed to load settings: ${err}`));
+        .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
     }
   }, [isOpen]);
 
@@ -86,7 +86,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
       setOriginalLanguage(language); // committed — no revert on close
       onClose();
     } catch (err) {
-      setError(`Failed to save settings: ${err}`);
+      setError(t('settings.failedSave', { error: String(err) }));
     } finally {
       setSaving(false);
     }
@@ -99,7 +99,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">
-            Default Workspace Directory
+            {t('settings.workspaceDir')}
           </label>
           <div className="flex gap-2">
             <input
@@ -115,11 +115,11 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
               onClick={handleBrowse}
               className="px-3 py-2 border border-secondary rounded hover:bg-secondary text-sm"
             >
-              Browse...
+              {t('common.browse')}
             </button>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            New workspaces will be created in this directory.
+            {t('settings.workspaceDirHint')}
           </p>
         </div>
 
@@ -132,9 +132,9 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
               className="w-4 h-4"
             />
             <div>
-              <span className="block text-sm font-medium">Remember workspace passwords for this session</span>
+              <span className="block text-sm font-medium">{t('settings.rememberPasswords')}</span>
               <span className="block text-xs text-muted-foreground mt-0.5">
-                Passwords are kept in memory until the app closes. Off by default.
+                {t('settings.rememberPasswordsHint')}
               </span>
             </div>
           </label>
@@ -142,7 +142,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
         {/* Appearance */}
         <div className="border-t border-border pt-4 mt-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Appearance</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-3">{t('settings.appearance')}</h3>
 
           {/* Language picker */}
           <div className="flex items-center gap-2 mb-3">
@@ -164,19 +164,19 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
           {/* Mode toggle */}
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-muted-foreground w-24">Mode</span>
+            <span className="text-sm text-muted-foreground w-24">{t('settings.mode')}</span>
             <div className="flex rounded border border-border overflow-hidden">
               {(['light', 'dark', 'system'] as const).map(m => (
                 <button
                   key={m}
                   onClick={() => setMode(m)}
-                  className={`px-3 py-1 text-sm capitalize ${
+                  className={`px-3 py-1 text-sm ${
                     activeMode === m
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                   }`}
                 >
-                  {m}
+                  {t(`settings.mode${m.charAt(0).toUpperCase() + m.slice(1)}`)}
                 </button>
               ))}
             </div>
@@ -184,30 +184,30 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
           {/* Light theme picker */}
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm text-muted-foreground w-24">Light theme</span>
+            <span className="text-sm text-muted-foreground w-24">{t('settings.lightTheme')}</span>
             <select
               value={lightThemeName}
               onChange={e => setLightTheme(e.target.value)}
               className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
             >
-              <option value="light">light (built-in)</option>
-              {themes.filter(t => t.hasLight).map(t => (
-                <option key={t.filename} value={t.name}>{t.name}</option>
+              <option value="light">{t('settings.lightBuiltIn')}</option>
+              {themes.filter(theme => theme.hasLight).map(theme => (
+                <option key={theme.filename} value={theme.name}>{theme.name}</option>
               ))}
             </select>
           </div>
 
           {/* Dark theme picker */}
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-muted-foreground w-24">Dark theme</span>
+            <span className="text-sm text-muted-foreground w-24">{t('settings.darkTheme')}</span>
             <select
               value={darkThemeName}
               onChange={e => setDarkTheme(e.target.value)}
               className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
             >
-              <option value="dark">dark (built-in)</option>
-              {themes.filter(t => t.hasDark).map(t => (
-                <option key={t.filename} value={t.name}>{t.name}</option>
+              <option value="dark">{t('settings.darkBuiltIn')}</option>
+              {themes.filter(theme => theme.hasDark).map(theme => (
+                <option key={theme.filename} value={theme.name}>{theme.name}</option>
               ))}
             </select>
           </div>
@@ -216,7 +216,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             onClick={() => setManageThemesOpen(true)}
             className="text-sm text-muted-foreground hover:text-foreground underline"
           >
-            Manage Themes…
+            {t('settings.manageThemes')}
           </button>
         </div>
 
