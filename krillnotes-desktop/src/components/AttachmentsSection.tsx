@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Paperclip, Trash2, FileText, Image } from 'lucide-react';
 import type { AttachmentMeta } from '../types';
 
@@ -44,11 +45,42 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
     }
   };
 
+  // noteId ref so the drag-drop handler always sees the current value
+  const noteIdRef = useRef(noteId);
+  useEffect(() => { noteIdRef.current = noteId; }, [noteId]);
+
   useEffect(() => {
     loadAttachments();
-    // Reset thumbnails when note changes so stale images don't show
     setThumbnails({});
   }, [noteId]);
+
+  // Tauri intercepts OS-level file drops before they reach the DOM, so we
+  // must use the window-level event rather than React's onDrop + file.path.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWebviewWindow()
+      .onDragDropEvent(async event => {
+        const type = event.payload.type;
+        if (type === 'enter') {
+          setDragging(true);
+        } else if (type === 'drop') {
+          setDragging(false);
+          const currentNoteId = noteIdRef.current;
+          if (!currentNoteId) return;
+          const paths: string[] = (event.payload as any).paths ?? [];
+          for (const filePath of paths) {
+            try {
+              await invoke('attach_file', { noteId: currentNoteId, filePath });
+            } catch (err) {
+              setError(`Failed to attach: ${err}`);
+            }
+          }
+          await loadAttachments();
+        }
+      })
+      .then(fn => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, []); // register once — noteId is read via ref
 
   const handleAdd = async () => {
     if (!noteId) return;
@@ -86,34 +118,11 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
-  const handleDragLeave = () => setDragging(false);
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    if (!noteId) return;
-    const files = Array.from(e.dataTransfer.files);
-    for (const file of files) {
-      const filePath = (file as any).path;
-      if (filePath) {
-        try {
-          await invoke('attach_file', { noteId, filePath });
-        } catch (err) {
-          setError(`Failed to attach ${file.name}: ${err}`);
-        }
-      }
-    }
-    await loadAttachments();
-  };
-
   if (!noteId) return null;
 
   return (
     <div
       className={`border-t border-border pt-3 mt-3 ${dragging ? 'ring-2 ring-primary rounded' : ''}`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
