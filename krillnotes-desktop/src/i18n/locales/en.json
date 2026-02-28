@@ -124,7 +124,9 @@
     "importSuccess": "Imported {{noteCount}} notes and {{scriptCount}} scripts",
     "importFailed": "Import failed: {{error}}",
     "importingProgress": "Importing {{noteCount}} notes and {{scriptCount}} scripts.",
-    "propertiesLoadFailed": "Failed to load workspace properties: {{error}}"
+    "propertiesLoadFailed": "Failed to load workspace properties: {{error}}",
+    "failedCheckChildren": "Failed to check children: {{error}}",
+    "failedDelete": "Failed to delete: {{error}}"
   },
   "dialogs": {
     "password": {
@@ -236,7 +238,9 @@
     "count_one": "{{count}} operation",
     "count_other": "{{count}} operations",
     "deleteAll": "Delete all operations?",
-    "purgeAll": "Purge All"
+    "purgeAll": "Purge All",
+    "failedLoad": "Failed to load operations: {{error}}",
+    "failedPurge": "Failed to purge operations: {{error}}"
   },
   "empty": {
     "getStarted": "Use File > New Workspace or File > Open Workspace to get started"

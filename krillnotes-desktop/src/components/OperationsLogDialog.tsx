@@ -50,7 +50,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
       setOperations(result);
       setError('');
     } catch (err) {
-      setError(`Failed to load operations: ${err}`);
+      setError(t('log.failedLoad', { error: String(err) }));
     }
   }, [typeFilter, sinceDate, untilDate]);
 
@@ -76,7 +76,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
       setConfirmPurge(false);
       loadOperations();
     } catch (err) {
-      setError(`Failed to purge operations: ${err}`);
+      setError(t('log.failedPurge', { error: String(err) }));
     }
   };
 

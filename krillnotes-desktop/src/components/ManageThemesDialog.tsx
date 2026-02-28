@@ -181,7 +181,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         filename = editingMeta.filename;
       } else {
         const base = name.toLowerCase().replace(/\s+/g, '-');
-        const taken = new Set(themes.map(t => t.filename));
+        const taken = new Set(themes.map(theme => theme.filename));
         filename = `${base}.krilltheme`;
         for (let i = 1; taken.has(filename); i++) {
           filename = `${base}-${i}.krilltheme`;
@@ -230,7 +230,7 @@ export default function ManageThemesDialog({ isOpen, onClose }: Props) {
         return;
       }
       const name = parsed.name ?? 'unnamed';
-      const conflict = themes.find(t => t.name === name) ?? null;
+      const conflict = themes.find(theme => theme.name === name) ?? null;
       setImportConflict(conflict);
       setEditingMeta(conflict ?? null);
       setEditorContent(content);

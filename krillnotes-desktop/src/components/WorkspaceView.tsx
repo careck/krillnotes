@@ -580,7 +580,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setPendingDeleteId(noteId);
       setShowDeleteDialog(true);
     } catch (err) {
-      alert(`Failed to check children: ${err}`);
+      alert(t('workspace.failedCheckChildren', { error: String(err) }));
     }
   };
 
@@ -597,7 +597,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setIsDeleting(false);
       handleNoteUpdated();
     } catch (err) {
-      alert(`Failed to delete: ${err}`);
+      alert(t('workspace.failedDelete', { error: String(err) }));
       setShowDeleteDialog(false);
       setPendingDeleteId(null);
       setIsDeleting(false);
