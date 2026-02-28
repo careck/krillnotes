@@ -40,7 +40,11 @@
     "manageThemes": "테마 관리…",
     "language": "언어",
     "failedLoad": "설정을 불러오지 못했습니다: {{error}}",
-    "failedSave": "설정을 저장하지 못했습니다: {{error}}"
+    "failedSave": "설정을 저장하지 못했습니다: {{error}}",
+    "tabGeneral": "General",
+    "tabSync": "Sync",
+    "sync": "Sync",
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
   "themes": {
     "manage": "테마 관리",

@@ -40,7 +40,11 @@
     "manageThemes": "テーマを管理…",
     "language": "言語",
     "failedLoad": "設定の読み込みに失敗しました: {{error}}",
-    "failedSave": "設定の保存に失敗しました: {{error}}"
+    "failedSave": "設定の保存に失敗しました: {{error}}",
+    "tabGeneral": "General",
+    "tabSync": "Sync",
+    "sync": "Sync",
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
   },
   "themes": {
     "manage": "テーマを管理",
