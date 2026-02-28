@@ -41,10 +41,10 @@
     "language": "Langue",
     "failedLoad": "Échec du chargement des paramètres : {{error}}",
     "failedSave": "Échec de l'enregistrement des paramètres : {{error}}",
-    "tabGeneral": "General",
+    "tabGeneral": "Général",
     "tabSync": "Sync",
     "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
+    "syncHint": "La synchronisation maintient vos notes à jour sur tous vos appareils. Bientôt disponible."
   },
   "themes": {
     "manage": "Gérer les thèmes",

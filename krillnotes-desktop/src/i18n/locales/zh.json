@@ -41,10 +41,10 @@
     "language": "语言",
     "failedLoad": "加载设置失败：{{error}}",
     "failedSave": "保存设置失败：{{error}}",
-    "tabGeneral": "General",
-    "tabSync": "Sync",
-    "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
+    "tabGeneral": "通用",
+    "tabSync": "同步",
+    "sync": "同步",
+    "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。"
   },
   "themes": {
     "manage": "管理主题",
