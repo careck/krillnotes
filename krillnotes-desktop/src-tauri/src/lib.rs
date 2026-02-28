@@ -1380,6 +1380,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("help_about", "Help > About Krillnotes clicked"),
     ("edit_manage_scripts", "Edit > Manage Scripts clicked"),
     ("edit_settings", "Edit > Settings clicked"),
+    // Retained for when sync is enabled per-workspace and the Operations Log item is unlocked.
     ("view_operations_log", "View > Operations Log clicked"),
     ("edit_copy_note",        "Edit > Copy Note clicked"),
     ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
