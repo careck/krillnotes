@@ -79,6 +79,7 @@
     "failedToggle": "Failed to toggle script: {{error}}",
     "failedDelete": "Failed to delete: {{error}}",
     "failedImport": "Failed to read file: {{error}}",
+    "failedReorder": "Failed to reorder scripts: {{error}}",
     "reloadErrors": "Script reload errors:\n{{errors}}"
   },
   "workspace": {
