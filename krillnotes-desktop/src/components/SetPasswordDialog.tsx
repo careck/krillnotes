@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface SetPasswordDialogProps {
   isOpen: boolean;
@@ -7,7 +8,8 @@ interface SetPasswordDialogProps {
   onCancel: () => void;
 }
 
-function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel }: SetPasswordDialogProps) {
+function SetPasswordDialog({ isOpen, title, onConfirm, onCancel }: SetPasswordDialogProps) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -33,11 +35,11 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
 
   const handleConfirm = () => {
     if (!password) {
-      setError('Please enter a password.');
+      setError(t('dialogs.password.required'));
       return;
     }
     if (password !== confirm) {
-      setError('Passwords do not match.');
+      setError(t('dialogs.password.mismatch'));
       return;
     }
     onConfirm(password);
@@ -50,10 +52,10 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-secondary p-6 rounded-lg w-96">
-        <h2 className="text-xl font-bold mb-4">{title}</h2>
+        <h2 className="text-xl font-bold mb-4">{title ?? t('dialogs.password.setTitle')}</h2>
 
         <div className="mb-3">
-          <label className="block text-sm font-medium mb-2">Password</label>
+          <label className="block text-sm font-medium mb-2">{t('dialogs.password.passwordLabel')}</label>
           <input
             type="password"
             value={password}
@@ -64,12 +66,12 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            placeholder="Enter password"
+            placeholder={t('dialogs.password.passwordPlaceholder')}
           />
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">Confirm Password</label>
+          <label className="block text-sm font-medium mb-2">{t('dialogs.password.confirmLabel')}</label>
           <input
             type="password"
             value={confirm}
@@ -79,7 +81,7 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            placeholder="Repeat password"
+            placeholder={t('dialogs.password.repeatPlaceholder')}
           />
         </div>
 
@@ -91,13 +93,13 @@ function SetPasswordDialog({ isOpen, title = 'Set Password', onConfirm, onCancel
 
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className="px-4 py-2 border border-secondary rounded hover:bg-secondary">
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleConfirm}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
           >
-            Confirm
+            {t('common.confirm')}
           </button>
         </div>
       </div>

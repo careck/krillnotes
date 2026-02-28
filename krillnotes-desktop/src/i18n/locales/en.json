@@ -156,7 +156,14 @@
       "title": "Export Workspace"
     },
     "delete": {
-      "confirm": "Discard changes?"
+      "confirm": "Discard changes?",
+      "noteTitle": "Delete Note",
+      "confirmSingle": "Are you sure you want to delete {{title}}?",
+      "confirmChildren": "Delete {{title}}? This note has {{count}} child.",
+      "confirmChildren_other": "Delete {{title}}? This note has {{count}} children.",
+      "deleteAll": "Delete this note and all descendants",
+      "promoteChildren": "Delete this note and promote children",
+      "promoteHint": "Children will be moved to parent level"
     }
   },
   "notes": {
@@ -181,7 +188,8 @@
     "modified": "Modified",
     "id": "ID",
     "discardChanges": "Discard changes?",
-    "backTo": "← Back to \"{{title}}\""
+    "backTo": "← Back to \"{{title}}\"",
+    "selectNote": "Select a note to view details"
   },
   "fields": {
     "notRated": "Not rated",
