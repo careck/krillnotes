@@ -163,10 +163,12 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         .enabled(false)
         .build(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
-    let undo = PredefinedMenuItem::undo(app, None)?;
-    let redo = PredefinedMenuItem::redo(app, None)?;
-    let copy = PredefinedMenuItem::copy(app, None)?;
-    let paste = PredefinedMenuItem::paste(app, None)?;
+    let undo       = PredefinedMenuItem::undo(app, None)?;
+    let redo       = PredefinedMenuItem::redo(app, None)?;
+    let cut        = PredefinedMenuItem::cut(app, None)?;
+    let copy       = PredefinedMenuItem::copy(app, None)?;
+    let paste      = PredefinedMenuItem::paste(app, None)?;
+    let select_all = PredefinedMenuItem::select_all(app, None)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "edit", "Edit"))
         .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling,
@@ -181,7 +183,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         builder.item(&settings).item(&sep4)
     };
 
-    let submenu = builder.items(&[&undo, &redo, &copy, &paste]).build()?;
+    let submenu = builder.items(&[&undo, &redo, &cut, &copy, &paste, &select_all]).build()?;
     Ok(EditMenuResult {
         submenu,
         paste_as_child: paste_child,
