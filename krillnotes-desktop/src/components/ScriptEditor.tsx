@@ -50,6 +50,7 @@ function ScriptEditor({ value, onChange }: ScriptEditorProps) {
             fontSize: '13px',
           },
           '.cm-scroller': {
+            overflow: 'auto',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           },
           '.cm-content': {
