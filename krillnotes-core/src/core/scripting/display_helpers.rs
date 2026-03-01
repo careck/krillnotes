@@ -134,15 +134,9 @@ pub fn render_markdown_to_html(text: &str) -> String {
 /// Inner logic for the `markdown()` Rhai host function, callable without a Rhai context.
 ///
 /// The closure registered in the Rhai engine pre-processes image blocks and then
-/// calls this function. It is also kept as a public function so that tests and
-/// any existing direct call sites continue to compile.
+/// calls this function.
 pub fn rhai_markdown_raw(text: String) -> String {
     format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&text))
-}
-
-/// Alias kept for backwards compatibility with existing tests and call sites.
-pub fn rhai_markdown(text: String) -> String {
-    rhai_markdown_raw(text)
 }
 
 // ── Structural helpers ────────────────────────────────────────────────────────
@@ -705,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_rhai_markdown_wraps_in_kn_view_markdown() {
-        let html = rhai_markdown("**bold text**".to_string());
+        let html = rhai_markdown_raw("**bold text**".to_string());
         assert!(
             html.contains("kn-view-markdown"),
             "rhai_markdown must wrap output in kn-view-markdown div, got: {html}"
