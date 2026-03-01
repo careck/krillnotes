@@ -524,18 +524,18 @@ impl ScriptRegistry {
         });
         engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
 
-        let ctx_for_display_image = Arc::clone(&run_context);
-        engine.register_fn("display_image", move |_source: String, _width: i64, _alt: String| -> String {
-            // TODO(task-4): resolve source → uuid then call make_display_image_html
-            let _ = &ctx_for_display_image;
-            "<span class=\"kn-image-error\">display_image not yet wired</span>".to_string()
+        engine.register_fn("display_image", |uuid: Dynamic, width: i64, alt: String| -> String {
+            match uuid.into_string() {
+                Ok(id) if !id.is_empty() => display_helpers::make_display_image_html(&id, width, &alt),
+                _ => "<span class=\"kn-image-error\">No image set</span>".to_string(),
+            }
         });
 
-        let ctx_for_download_link = Arc::clone(&run_context);
-        engine.register_fn("display_download_link", move |_source: String, _label: String| -> String {
-            // TODO(task-4): resolve source → uuid then call make_download_link_html
-            let _ = &ctx_for_download_link;
-            "<span class=\"kn-image-error\">display_download_link not yet wired</span>".to_string()
+        engine.register_fn("display_download_link", |uuid: Dynamic, label: String| -> String {
+            match uuid.into_string() {
+                Ok(id) if !id.is_empty() => display_helpers::make_download_link_html(&id, &label),
+                _ => "<span class=\"kn-image-error\">No file set</span>".to_string(),
+            }
         });
         engine.register_fn("stars",        display_helpers::rhai_stars_default);
         engine.register_fn("stars",        display_helpers::rhai_stars);
@@ -2647,6 +2647,61 @@ mod tests {
         let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
         assert!(html.contains("att-uuid-1"), "got: {html}");
         assert!(html.contains("photo.png"), "got: {html}");
+    }
+
+    #[test]
+    fn test_rhai_display_image_with_uuid_in_field() {
+        use crate::core::note::{FieldValue, Note};
+
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                fields: [#{ name: "photo", type: "file", required: false }],
+                on_view: |note| {
+                    display_image(note.fields["photo"], 300, "My alt")
+                }
+            });
+        "#, "test_script").unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("photo".to_string(), FieldValue::File(Some("abc-uuid-123".to_string())));
+        let note = Note {
+            id: "n1".to_string(), node_type: "PhotoNote".to_string(),
+            title: "T".to_string(), parent_id: None, fields, tags: vec![],
+            created_at: 0, modified_at: 0, position: 0,
+            created_by: 0, modified_by: 0, is_expanded: false,
+        };
+
+        let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
+        assert!(html.contains("data-kn-attach-id=\"abc-uuid-123\""), "got: {html}");
+        assert!(html.contains("data-kn-width=\"300\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_rhai_display_image_unset_field_shows_error() {
+        use crate::core::note::{FieldValue, Note};
+
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                fields: [#{ name: "photo", type: "file", required: false }],
+                on_view: |note| {
+                    display_image(note.fields["photo"], 0, "")
+                }
+            });
+        "#, "test_script").unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("photo".to_string(), FieldValue::File(None));
+        let note = Note {
+            id: "n2".to_string(), node_type: "PhotoNote".to_string(),
+            title: "T".to_string(), parent_id: None, fields, tags: vec![],
+            created_at: 0, modified_at: 0, position: 0,
+            created_by: 0, modified_by: 0, is_expanded: false,
+        };
+
+        let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
+        assert!(html.contains("kn-image-error"), "got: {html}");
     }
 
 }
