@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import type { FieldValue, FieldType } from '../types';
+import type { FieldValue, FieldType, FieldDefinition } from '../types';
 import { humaniseKey } from '../utils/humanise';
 import NoteLinkEditor from './NoteLinkEditor';
+import { FileField } from './FileField';
 
 interface FieldEditorProps {
   fieldName: string;
@@ -11,12 +12,26 @@ interface FieldEditorProps {
   options: string[];
   max: number;
   targetType?: string;
+  noteId?: string;
+  fieldDef?: FieldDefinition;
   onChange: (value: FieldValue) => void;
 }
 
-function FieldEditor({ fieldName, fieldType, value, required, options, max, targetType, onChange }: FieldEditorProps) {
+function FieldEditor({ fieldName, fieldType, value, required, options, max, targetType, noteId, fieldDef, onChange }: FieldEditorProps) {
   const { t } = useTranslation();
   const renderEditor = () => {
+    if (fieldType === 'file') {
+      const currentId = value && 'File' in value ? (value as { File: string | null }).File : null;
+      return (
+        <FileField
+          attachmentId={currentId}
+          allowedTypes={fieldDef?.allowedTypes ?? []}
+          isEditing={true}
+          noteId={noteId ?? ''}
+          onValueChange={onChange}
+        />
+      );
+    }
     if (fieldType === 'note_link') {
       const currentId = value && 'NoteLink' in value ? (value as { NoteLink: string | null }).NoteLink : null;
       return (

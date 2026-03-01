@@ -30,6 +30,7 @@ function defaultValueForFieldType(fieldType: string): FieldValue {
     case 'date':      return { Date: null };
     case 'email':     return { Email: '' };
     case 'note_link': return { NoteLink: null };
+    case 'file':      return { File: null };
     default:          return { Text: '' }; // covers 'text', 'textarea', 'select'
   }
 }
@@ -39,6 +40,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
   if ('Email' in value)    return value.Email === '';
   if ('Date' in value)     return value.Date === null;
   if ('NoteLink' in value) return value.NoteLink === null;
+  if ('File' in value)     return value.File === null;
   return false; // Number and Boolean are never empty
 }
 
@@ -428,6 +430,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 options={field.options}
                 max={field.max}
                 targetType={field.targetType}
+                noteId={selectedNote.id}
+                fieldDef={field}
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
             ))
@@ -445,6 +449,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                   fieldType={field.fieldType}
                   value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
                   max={field.max}
+                  noteId={selectedNote.id}
                 />
               ))}
             </dl>
