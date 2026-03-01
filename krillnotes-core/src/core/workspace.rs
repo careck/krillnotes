@@ -1050,13 +1050,10 @@ impl Workspace {
             }
         }
 
-        let attachments_by_note_id: HashMap<String, Vec<crate::core::attachment::AttachmentMeta>> = {
-            let mut map: HashMap<String, Vec<crate::core::attachment::AttachmentMeta>> = HashMap::new();
-            for att in self.list_all_attachments().unwrap_or_default() {
-                map.entry(att.note_id.clone()).or_default().push(att);
-            }
-            map
-        };
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id };
 
         // Set per-run context so markdown() and other helpers can resolve attachments.
@@ -1116,13 +1113,10 @@ impl Workspace {
             }
         }
 
-        let attachments_by_note_id: HashMap<String, Vec<crate::core::attachment::AttachmentMeta>> = {
-            let mut map: HashMap<String, Vec<crate::core::attachment::AttachmentMeta>> = HashMap::new();
-            for att in self.list_all_attachments().unwrap_or_default() {
-                map.entry(att.note_id.clone()).or_default().push(att);
-            }
-            map
-        };
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id };
 
         // Set per-run context so markdown() and other helpers can resolve attachments.
@@ -1181,13 +1175,10 @@ impl Workspace {
                 }
             }
         }
-        let attachments_by_note_id: HashMap<String, Vec<crate::core::attachment::AttachmentMeta>> = {
-            let mut map: HashMap<String, Vec<crate::core::attachment::AttachmentMeta>> = HashMap::new();
-            for att in self.list_all_attachments().unwrap_or_default() {
-                map.entry(att.note_id.clone()).or_default().push(att);
-            }
-            map
-        };
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id };
 
         // invoke_tree_action_hook returns an error if the script throws — in that case
