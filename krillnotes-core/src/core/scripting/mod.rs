@@ -46,6 +46,8 @@ pub struct QueryContext {
     /// Maps each target note ID to all source notes that link to it
     /// via a `note_link` field (pre-built for O(1) look-up).
     pub notes_by_link_target: HashMap<String, Vec<Dynamic>>,
+    /// Maps each note ID to its attachments, pre-built for O(1) script-time look-up.
+    pub attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>>,
 }
 
 static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
@@ -929,6 +931,7 @@ mod tests {
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap();
         assert!(html.is_some());
@@ -1832,6 +1835,7 @@ mod tests {
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
 
         let result = registry.run_on_view_hook(&note, context).unwrap();
@@ -2088,6 +2092,7 @@ mod tests {
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let err = registry.run_on_view_hook(&note, ctx).unwrap_err();
         let msg = err.to_string();
@@ -2145,6 +2150,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
         assert!(result.reorder.is_none(), "callback returning () should yield no reorder");
@@ -2170,6 +2176,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
         assert_eq!(result.reorder, Some(vec!["id-b".to_string(), "id-a".to_string()]));
@@ -2191,6 +2198,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("No Such Action", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("unknown tree action"), "got: {err}");
@@ -2216,6 +2224,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
@@ -2235,11 +2244,12 @@ mod tests {
 
     fn make_empty_ctx() -> QueryContext {
         QueryContext {
-            notes_by_id:    Default::default(),
-            children_by_id: Default::default(),
-            notes_by_type:  Default::default(),
-            notes_by_tag:   Default::default(),
-            notes_by_link_target: Default::default(),
+            notes_by_id:              Default::default(),
+            children_by_id:           Default::default(),
+            notes_by_type:            Default::default(),
+            notes_by_tag:             Default::default(),
+            notes_by_link_target:     Default::default(),
+            attachments_by_note_id:   Default::default(),
         }
     }
 
@@ -2384,6 +2394,7 @@ mod tests {
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
         assert!(html.contains("2:rust"), "expected '2:rust' in output, got: {html}");
@@ -2569,6 +2580,7 @@ mod tests {
             notes_by_id: Default::default(), children_by_id: Default::default(),
             notes_by_type: Default::default(), notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let html = registry.run_on_hover_hook(&note, ctx).unwrap();
         assert_eq!(html, Some("HOVER:Test Note".to_string()));
