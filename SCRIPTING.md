@@ -127,6 +127,7 @@ by an `on_save` hook but users cannot change it directly.
 | `"select"` | String | Dropdown; requires `options: [...]` |
 | `"rating"` | Float | Star rating; requires `max: N` (e.g. `max: 5`) |
 | `"note_link"` | String (UUID) or `null` | Link to another note; optional `target_type` restricts the picker to notes of that schema type |
+| `"file"` | String (UUID) or `null` | Attachment reference; optional `allowed_types` restricts the file picker to specific MIME types. In view mode images render as a thumbnail; other files show a paperclip icon and filename. |
 
 ### Reading field values in hooks
 
@@ -179,6 +180,51 @@ schema("Task", #{
     ]
 })
 ```
+
+### `file` field options
+
+| Option | Type | Description |
+|---|---|---|
+| `allowed_types` | Array of strings (optional) | MIME type filters for the file picker (e.g. `["image/*", "application/pdf"]`). Any file can still be stored programmatically. |
+
+Example field definitions:
+
+```rhai
+schema("Article", #{
+    fields: [
+        // Image attachment — picker filtered to images only
+        #{ name: "cover",    type: "file", allowed_types: ["image/*"] },
+        // Any file attachment
+        #{ name: "document", type: "file" },
+    ]
+})
+```
+
+`file` fields arrive as a UUID string when a file is attached, or as the unit value `()` when
+empty. Use `display_image()` or `display_download_link()` in `on_view` to render the attachment.
+
+```rhai
+let cover_uuid = note.fields["cover"];
+if cover_uuid != () {
+    display_image("field:cover", 400, "Cover image")
+}
+```
+
+Replacing a file (assigning a new one in edit mode) atomically attaches the new file and
+deletes the old one in a single operation.
+
+### Inline images in `textarea` markdown
+
+`textarea` fields rendered as markdown support an inline image block syntax:
+
+```
+{{image: field:cover, width: 400, alt: My caption}}
+{{image: attach:photo.png}}
+```
+
+The `field:` prefix reads the UUID from a `file` field. The `attach:` prefix finds an
+attachment by filename. `width` and `alt` are optional. Images are resolved and
+base64-embedded server-side, so they appear synchronously without any extra loading step.
 
 ---
 
@@ -662,6 +708,25 @@ schema("Journal", #{
 });
 ```
 
+#### Inline image blocks in markdown
+
+Markdown strings (both auto-rendered `textarea` fields and strings passed to `markdown()`)
+support a custom `{{image: …}}` block for embedding attached files:
+
+```
+{{image: field:cover, width: 400, alt: My caption}}
+{{image: attach:photo.png}}
+```
+
+| Parameter | Required | Description |
+|---|---|---|
+| first positional | Yes | `field:fieldName` reads the UUID from a `file` field; `attach:filename` finds by filename |
+| `width` | No | Pixel width (e.g. `400`). Omit to use the image's natural width. |
+| `alt` | No | Alt text for accessibility. |
+
+Images are resolved and base64-embedded server-side, so they render synchronously alongside
+the rest of the markdown output.
+
 ### `heading(text)`
 
 A bold section heading.
@@ -779,6 +844,46 @@ schema("Zettel", #{
         ])
     }
 });
+```
+
+### `stars(value)` / `stars(value, max)`
+
+Renders a numeric rating as filled (★) and empty (☆) star characters. The default scale
+is 5; pass a second argument to use a different maximum. Returns `"—"` for a zero or
+negative value, matching the default `rating` field display.
+
+```rhai
+stars(note.fields["rating"] ?? 0)          // e.g. "★★★☆☆" for 3 out of 5
+stars(note.fields["score"] ?? 0, 10)       // out of 10
+```
+
+### `display_image(source, width, alt)`
+
+Embeds an attached image inline in `on_view` or `on_hover` output. The image is
+base64-encoded server-side and rendered synchronously — no asynchronous loading.
+
+`source` is one of:
+- `"field:fieldName"` — reads the attachment UUID from a `file` field
+- `"attach:filename"` — finds an attachment by its original filename
+
+`width` and `alt` are optional (pass `0` or `""` to omit them).
+
+```rhai
+display_image("field:cover", 400, "Cover image")
+display_image("attach:diagram.png", 0, "")
+```
+
+### `display_download_link(source, label)`
+
+Renders a clickable download link for an attachment in `on_view` output. Clicking the
+link decrypts and downloads the file on demand.
+
+`source` follows the same `"field:fieldName"` / `"attach:filename"` convention as
+`display_image`. `label` is the link text shown to the user.
+
+```rhai
+display_download_link("field:document", "Download PDF")
+display_download_link("attach:report.xlsx", "Download Report")
 ```
 
 ### `divider()`
@@ -905,6 +1010,39 @@ schema("Project", #{
 ```
 
 `get_notes_with_link` is available in `on_view` hooks and `add_tree_action` closures.
+It is **not** available in `on_save` or `on_add_child`.
+
+### `get_attachments(note_id)`
+
+Returns an array of attachment metadata maps for the given note ID. Each map describes
+one attached file.
+
+```rhai
+let attachments = get_attachments(note.id);
+```
+
+Each entry has the following shape:
+
+| Key | Type | Description |
+|---|---|---|
+| `id` | String (UUID) | Attachment ID |
+| `filename` | String | Original filename |
+| `mime_type` | String | MIME type (e.g. `"image/png"`) |
+| `size_bytes` | Integer | File size in bytes |
+
+```rhai
+schema("Article", #{
+    fields: [ /* … */ ],
+    on_view: |note| {
+        let files = get_attachments(note.id);
+        if files.len() == 0 { return text(""); }
+        let rows = files.map(|f| [f.filename, f.mime_type, f.size_bytes.to_string() + " B"]);
+        section("Attachments", table(["File", "Type", "Size"], rows))
+    }
+});
+```
+
+`get_attachments` is available in `on_view`, `on_hover`, and `add_tree_action` closures.
 It is **not** available in `on_save` or `on_add_child`.
 
 ### Note map shape
