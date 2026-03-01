@@ -18,6 +18,8 @@ mac_address = "1.1"
 include_dir = "0.7"
 zip = { version = "8", default-features = false, features = ["deflate", "aes-crypto"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+regex = "1"
+base64 = "0.22"
 
 # Encryption
 chacha20poly1305 = "0.10"

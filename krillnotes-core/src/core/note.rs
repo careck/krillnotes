@@ -21,6 +21,8 @@ pub enum FieldValue {
     /// A reference to another note by UUID. `None` = not set, `Some(uuid)` = linked note ID.
     /// Serializes as JSON `null` or `"uuid-string"`.
     NoteLink(Option<String>),
+    /// A reference to an attachment by UUID. `None` means "not set".
+    File(Option<String>),
 }
 
 /// A single node in the workspace hierarchy.
@@ -158,5 +160,26 @@ mod tests {
         let v2: FieldValue = serde_json::from_str(&json).unwrap();
         // Verify round-trip via re-serialization
         assert_eq!(serde_json::to_string(&v2).unwrap(), json);
+    }
+
+    #[test]
+    fn test_field_value_file_roundtrip() {
+        let v = FieldValue::File(Some("abc-123".to_string()));
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"File":"abc-123"}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        match back {
+            FieldValue::File(Some(id)) => assert_eq!(id, "abc-123"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_field_value_file_none_roundtrip() {
+        let v = FieldValue::File(None);
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"File":null}"#);
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, FieldValue::File(None)));
     }
 }

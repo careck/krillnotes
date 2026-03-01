@@ -32,9 +32,9 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
       setAttachments(list);
       for (const att of list) {
         if (isImageMime(att.mimeType) && !thumbnails[att.id]) {
-          invoke<string>('get_attachment_data', { attachmentId: att.id })
-            .then(b64 => {
-              setThumbnails(prev => ({ ...prev, [att.id]: `data:${att.mimeType};base64,${b64}` }));
+          invoke<{ data: string; mime_type: string | null }>('get_attachment_data', { attachmentId: att.id })
+            .then(result => {
+              setThumbnails(prev => ({ ...prev, [att.id]: `data:${att.mimeType};base64,${result.data}` }));
             })
             .catch(() => {});
         }

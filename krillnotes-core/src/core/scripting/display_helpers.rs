@@ -8,8 +8,10 @@
 
 use pulldown_cmark::{html as md_html, Options, Parser};
 use rhai::{Array, Map};
+use std::sync::OnceLock;
 use std::collections::HashMap;
 use crate::{FieldValue, Note};
+use crate::core::attachment::AttachmentMeta;
 use super::schema::Schema;
 
 // ── Escaping ─────────────────────────────────────────────────────────────────
@@ -20,6 +22,96 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+// ── Attachment resolution ─────────────────────────────────────────────────────
+
+/// Resolve a source string to an `AttachmentMeta` reference.
+///
+/// Formats:
+///   `"attach:<filename>"` — finds the first attachment with that filename
+///   `"field:<fieldName>"` — reads `fields[fieldName]` as `FieldValue::File(uuid)`
+///                           then finds the attachment with that UUID
+pub fn resolve_attachment_source<'a>(
+    source: &str,
+    fields: &HashMap<String, FieldValue>,
+    attachments: &'a [AttachmentMeta],
+) -> Option<&'a AttachmentMeta> {
+    if let Some(filename) = source.strip_prefix("attach:") {
+        attachments.iter().find(|a| a.filename == filename)
+    } else if let Some(field_name) = source.strip_prefix("field:") {
+        if let Some(FieldValue::File(Some(uuid))) = fields.get(field_name) {
+            attachments.iter().find(|a| &a.id == uuid)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+// ── Image block preprocessing ─────────────────────────────────────────────────
+
+/// Pre-process `{{image: ...}}` blocks in markdown text.
+///
+/// Each block is replaced with an `<img data-kn-attach-id="UUID" ...>`
+/// sentinel element. The frontend will later hydrate these by fetching the
+/// decrypted attachment bytes and replacing `src`.
+///
+/// Syntax examples:
+///   `{{image: attach:photo.png}}`
+///   `{{image: field:cover, width: 400}}`
+///   `{{image: attach:hero.jpg, width: 200, alt: My caption}}`
+static IMAGE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
+
+pub fn preprocess_image_blocks(
+    text: &str,
+    fields: &HashMap<String, FieldValue>,
+    attachments: &[AttachmentMeta],
+) -> String {
+    let re = IMAGE_BLOCK_RE.get_or_init(|| {
+        regex::Regex::new(r"\{\{image:\s*([^}]*)\}\}").expect("valid regex")
+    });
+
+    re.replace_all(text, |caps: &regex::Captures| {
+        let inner = caps[1].trim();
+        let (source, opts) = parse_image_block(inner);
+
+        match resolve_attachment_source(source, fields, attachments) {
+            Some(meta) => {
+                let width_attr = opts.get("width")
+                    .map(|w| format!(" data-kn-width=\"{}\"", html_escape(w)))
+                    .unwrap_or_default();
+                let alt_attr = opts.get("alt")
+                    .map(|a| format!(" alt=\"{}\"", html_escape(a)))
+                    .unwrap_or_default();
+                format!(
+                    "<img data-kn-attach-id=\"{}\"{}{} class=\"kn-image-embed\" />",
+                    meta.id, width_attr, alt_attr
+                )
+            }
+            None => format!(
+                "<span class=\"kn-image-error\">Image not found: {}</span>",
+                html_escape(source)
+            ),
+        }
+    }).into_owned()
+}
+
+/// Parse `"attach:photo.png, width: 200, alt: My caption"` into
+/// `(source, {width: "200", alt: "My caption"})`.
+fn parse_image_block(inner: &str) -> (&str, HashMap<&str, &str>) {
+    let mut parts = inner.splitn(2, ',');
+    let source = parts.next().unwrap_or("").trim();
+    let mut opts = HashMap::new();
+    if let Some(rest) = parts.next() {
+        for kv in rest.split(',') {
+            if let Some((k, v)) = kv.split_once(':') {
+                opts.insert(k.trim(), v.trim());
+            }
+        }
+    }
+    (source, opts)
 }
 
 // ── Markdown rendering ────────────────────────────────────────────────────────
@@ -39,17 +131,11 @@ pub fn render_markdown_to_html(text: &str) -> String {
     html_output
 }
 
-/// Rhai host function wrapper for `render_markdown_to_html`.
+/// Inner logic for the `markdown()` Rhai host function, callable without a Rhai context.
 ///
-/// Registered as `markdown(text)` in the Rhai engine so `on_view` hooks can
-/// explicitly render markdown:
-///
-/// ```rhai
-/// on_view("Note", |note| {
-///     markdown(note.fields["body"])
-/// });
-/// ```
-pub fn rhai_markdown(text: String) -> String {
+/// The closure registered in the Rhai engine pre-processes image blocks and then
+/// calls this function.
+pub fn rhai_markdown_raw(text: String) -> String {
     format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&text))
 }
 
@@ -362,10 +448,21 @@ fn field_row_html(label: &str, value_html: &str) -> String {
 ///
 /// `resolved_titles` maps note IDs to their display titles so that NoteLink
 /// fields render as clickable anchors rather than raw UUIDs.
-fn format_field_value_html(value: &FieldValue, field_type: &str, max: i64, resolved_titles: &HashMap<String, String>) -> String {
+fn format_field_value_html(
+    value: &FieldValue,
+    field_type: &str,
+    max: i64,
+    resolved_titles: &HashMap<String, String>,
+    image_context: Option<(&HashMap<String, FieldValue>, &[AttachmentMeta])>,
+) -> String {
     match (value, field_type) {
         (FieldValue::Text(s), "textarea") => {
-            format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(s))
+            let preprocessed = if let Some((fields, attachments)) = image_context {
+                preprocess_image_blocks(s, fields, attachments)
+            } else {
+                s.clone()
+            };
+            format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&preprocessed))
         }
         (FieldValue::Text(s), _) => {
             format!("<span>{}</span>", html_escape(s))
@@ -398,7 +495,48 @@ fn format_field_value_html(value: &FieldValue, field_type: &str, max: i64, resol
             )
         }
         (FieldValue::NoteLink(None), _) => String::new(),
+        (FieldValue::File(Some(_)), _) => {
+            "<span class=\"kn-view-file\">📎 (file attached)</span>".to_string()
+        }
+        (FieldValue::File(None), _) => String::new(),
     }
+}
+
+// ── Attachment-aware display helpers ─────────────────────────────────────────
+
+/// Renders an `<img data-kn-attach-id>` sentinel for a resolved UUID.
+/// Returns a `kn-image-error` span when `uuid` is empty.
+pub fn make_display_image_html(uuid: &str, width: i64, alt: &str) -> String {
+    if uuid.is_empty() {
+        return "<span class=\"kn-image-error\">No image set</span>".to_string();
+    }
+    let width_attr = if width > 0 {
+        format!(" data-kn-width=\"{}\"", width)
+    } else {
+        String::new()
+    };
+    let alt_attr = if !alt.is_empty() {
+        format!(" alt=\"{}\"", html_escape(alt))
+    } else {
+        String::new()
+    };
+    format!(
+        "<img data-kn-attach-id=\"{}\"{}{} class=\"kn-image-embed\" />",
+        uuid, width_attr, alt_attr
+    )
+}
+
+/// Renders a `<a data-kn-download-id>` sentinel for a resolved UUID.
+/// Returns a `kn-image-error` span when `uuid` is empty.
+pub fn make_download_link_html(uuid: &str, label: &str) -> String {
+    if uuid.is_empty() {
+        return "<span class=\"kn-image-error\">No file set</span>".to_string();
+    }
+    format!(
+        "<a data-kn-download-id=\"{}\" class=\"kn-download-link\">{}</a>",
+        uuid,
+        html_escape(label)
+    )
 }
 
 /// Returns `true` if the field value is considered empty (and should be hidden).
@@ -408,6 +546,7 @@ fn is_field_empty(value: &FieldValue) -> bool {
         FieldValue::Date(d) => d.is_none(),
         FieldValue::Number(_) | FieldValue::Boolean(_) => false,
         FieldValue::NoteLink(id) => id.is_none(),
+        FieldValue::File(id) => id.is_none(),
     }
 }
 
@@ -422,8 +561,15 @@ fn is_field_empty(value: &FieldValue) -> bool {
 ///
 /// Accepts `None` for `schema` — in that case all fields are rendered as plain
 /// text in sorted order.
-pub fn render_default_view(note: &Note, schema: Option<&Schema>, resolved_titles: &HashMap<String, String>) -> String {
+pub fn render_default_view(
+    note: &Note,
+    schema: Option<&Schema>,
+    resolved_titles: &HashMap<String, String>,
+    attachments: &[AttachmentMeta],
+) -> String {
     let mut sections: Vec<String> = Vec::new();
+    let image_ctx: Option<(&HashMap<String, FieldValue>, &[AttachmentMeta])> =
+        Some((&note.fields, attachments));
 
     if let Some(schema) = schema {
         // Render schema-defined fields in declaration order.
@@ -438,7 +584,7 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>, resolved_titles
             }
             let label = humanise_key(&field_def.name);
             let value_html =
-                format_field_value_html(value, &field_def.field_type, field_def.max, resolved_titles);
+                format_field_value_html(value, &field_def.field_type, field_def.max, resolved_titles, image_ctx);
             if value_html.is_empty() {
                 continue;
             }
@@ -467,7 +613,7 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>, resolved_titles
                 continue;
             }
             let label = humanise_key(key);
-            let value_html = format_field_value_html(value, "text", 0, resolved_titles);
+            let value_html = format_field_value_html(value, "text", 0, resolved_titles, None);
             if !value_html.is_empty() {
                 legacy_rows.push(field_row_html(&label, &value_html));
             }
@@ -491,7 +637,7 @@ pub fn render_default_view(note: &Note, schema: Option<&Schema>, resolved_titles
                 continue;
             }
             let label = humanise_key(key);
-            let value_html = format_field_value_html(value, "text", 0, resolved_titles);
+            let value_html = format_field_value_html(value, "text", 0, resolved_titles, None);
             if !value_html.is_empty() {
                 field_rows.push(field_row_html(&label, &value_html));
             }
@@ -553,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_rhai_markdown_wraps_in_kn_view_markdown() {
-        let html = rhai_markdown("**bold text**".to_string());
+        let html = rhai_markdown_raw("**bold text**".to_string());
         assert!(
             html.contains("kn-view-markdown"),
             "rhai_markdown must wrap output in kn-view-markdown div, got: {html}"
@@ -609,14 +755,14 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "notes".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false,
+                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![],
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
             allowed_parent_types: vec![], allowed_children_types: vec![],
         };
 
-        let html = render_default_view(&note, Some(&schema), &HashMap::new());
+        let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
         assert!(html.contains("<strong>bold</strong>"), "expected rendered markdown, got: {html}");
         assert!(html.contains("kn-view-markdown"), "expected markdown wrapper class");
     }
@@ -639,14 +785,14 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "name".into(), field_type: "text".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false,
+                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![],
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
             allowed_parent_types: vec![], allowed_children_types: vec![],
         };
 
-        let html = render_default_view(&note, Some(&schema), &HashMap::new());
+        let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
         assert!(!html.contains("<script>"), "raw script tag must not appear");
         assert!(html.contains("&lt;script&gt;"));
     }
@@ -669,14 +815,14 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "secret".into(), field_type: "text".into(),
                 required: false, can_view: false, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false,
+                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![],
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
             allowed_parent_types: vec![], allowed_children_types: vec![],
         };
 
-        let html = render_default_view(&note, Some(&schema), &HashMap::new());
+        let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
         assert!(!html.contains("hidden"), "can_view:false fields must not appear");
     }
 
@@ -702,14 +848,14 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "body".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false,
+                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![],
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
             allowed_parent_types: vec![], allowed_children_types: vec![],
         };
 
-        let html = render_default_view(&note, Some(&schema), &HashMap::new());
+        let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
         // Must be wrapped in the markdown class (backend renders it).
         assert!(html.contains("kn-view-markdown"), "got: {html}");
         // pulldown-cmark renders **bold** as <strong>bold</strong>
@@ -759,14 +905,14 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "known".into(), field_type: "text".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false,
+                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![],
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
             allowed_parent_types: vec![], allowed_children_types: vec![],
         };
 
-        let html = render_default_view(&note, Some(&schema), &HashMap::new());
+        let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
         assert!(html.contains("legacy value"), "legacy fields must be shown");
         assert!(html.contains("Legacy Fields"), "legacy section header must appear");
     }
@@ -803,5 +949,134 @@ mod tests {
     fn test_stars_value_exceeds_max_clamps_to_max() {
         // value > max: all filled stars up to max
         assert_eq!(rhai_stars(7, 5), "★★★★★");
+    }
+
+    // ── resolve_attachment_source tests ──────────────────────────────────────
+
+    fn make_meta(id: &str, filename: &str) -> AttachmentMeta {
+        AttachmentMeta {
+            id: id.to_string(),
+            note_id: "note1".to_string(),
+            filename: filename.to_string(),
+            mime_type: Some("image/png".to_string()),
+            size_bytes: 100,
+            hash_sha256: "abc".to_string(),
+            salt: "00".repeat(32),
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn test_resolve_by_filename() {
+        let attachments = vec![make_meta("uuid-1", "photo.png")];
+        let fields = HashMap::new();
+        let result = resolve_attachment_source("attach:photo.png", &fields, &attachments);
+        assert_eq!(result.map(|a| a.id.as_str()), Some("uuid-1"));
+    }
+
+    #[test]
+    fn test_resolve_by_field() {
+        let attachments = vec![make_meta("uuid-2", "cover.jpg")];
+        let mut fields = HashMap::new();
+        fields.insert("cover".to_string(), FieldValue::File(Some("uuid-2".to_string())));
+        let result = resolve_attachment_source("field:cover", &fields, &attachments);
+        assert_eq!(result.map(|a| a.id.as_str()), Some("uuid-2"));
+    }
+
+    #[test]
+    fn test_resolve_missing_returns_none() {
+        let fields = HashMap::new();
+        assert!(resolve_attachment_source("attach:missing.png", &fields, &[]).is_none());
+    }
+
+    #[test]
+    fn test_resolve_field_not_set_returns_none() {
+        let mut fields = HashMap::new();
+        fields.insert("cover".to_string(), FieldValue::File(None));
+        assert!(resolve_attachment_source("field:cover", &fields, &[]).is_none());
+    }
+
+    // ── preprocess_image_blocks tests ────────────────────────────────────────
+
+    #[test]
+    fn test_preprocess_basic_attach() {
+        let attachments = vec![make_meta("uuid-1", "photo.png")];
+        let fields = HashMap::new();
+        let result = preprocess_image_blocks(
+            "Before {{image: attach:photo.png}} After",
+            &fields,
+            &attachments,
+        );
+        assert!(result.contains("data-kn-attach-id=\"uuid-1\""), "got: {result}");
+        assert!(result.contains("Before"));
+        assert!(result.contains("After"));
+    }
+
+    #[test]
+    fn test_preprocess_with_width_and_alt() {
+        let attachments = vec![make_meta("uuid-2", "cover.jpg")];
+        let fields = HashMap::new();
+        let result = preprocess_image_blocks(
+            "{{image: attach:cover.jpg, width: 300, alt: My cover}}",
+            &fields,
+            &attachments,
+        );
+        assert!(result.contains("data-kn-attach-id=\"uuid-2\""));
+        assert!(result.contains("data-kn-width=\"300\""));
+        assert!(result.contains("alt=\"My cover\""));
+    }
+
+    #[test]
+    fn test_preprocess_unresolvable_shows_error() {
+        let fields = HashMap::new();
+        let result = preprocess_image_blocks("{{image: attach:missing.png}}", &fields, &[]);
+        assert!(result.contains("kn-image-error"), "got: {result}");
+    }
+
+    #[test]
+    fn test_preprocess_field_source() {
+        let mut fields = HashMap::new();
+        fields.insert("cover".to_string(), FieldValue::File(Some("uuid-3".to_string())));
+        let attachments = vec![make_meta("uuid-3", "cover.jpg")];
+        let result = preprocess_image_blocks("{{image: field:cover, width: 200}}", &fields, &attachments);
+        assert!(result.contains("data-kn-attach-id=\"uuid-3\""));
+        assert!(result.contains("data-kn-width=\"200\""));
+    }
+
+    // ── make_display_image_html tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_display_image_basic() {
+        let html = make_display_image_html("uuid-5", 400, "Hero");
+        assert!(html.contains("data-kn-attach-id=\"uuid-5\""));
+        assert!(html.contains("data-kn-width=\"400\""));
+        assert!(html.contains("alt=\"Hero\""));
+    }
+
+    #[test]
+    fn test_display_image_zero_width_omits_attr() {
+        let html = make_display_image_html("uuid-6", 0, "");
+        assert!(!html.contains("data-kn-width"));
+    }
+
+    #[test]
+    fn test_display_image_empty_uuid_shows_error() {
+        let html = make_display_image_html("", 0, "");
+        assert!(html.contains("kn-image-error"), "got: {html}");
+    }
+
+    // ── make_download_link_html tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_display_download_link_with_label() {
+        let html = make_download_link_html("uuid-7", "Download PDF");
+        assert!(html.contains("data-kn-download-id=\"uuid-7\""));
+        assert!(html.contains("Download PDF"));
+    }
+
+    #[test]
+    fn test_display_download_link_empty_uuid_shows_error() {
+        let html = make_download_link_html("", "label");
+        assert!(html.contains("kn-image-error"), "got: {html}");
     }
 }

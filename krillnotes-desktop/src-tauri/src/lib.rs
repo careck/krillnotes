@@ -1453,21 +1453,30 @@ fn get_attachments(
     workspace.get_attachments(&note_id).map_err(|e| e.to_string())
 }
 
-/// Returns the decrypted base64-encoded bytes of an attachment (for display in UI).
+/// Returns the decrypted base64-encoded bytes of an attachment together with its MIME type.
+#[derive(serde::Serialize)]
+struct AttachmentDataResponse {
+    data: String,
+    mime_type: Option<String>,
+}
+
 #[tauri::command]
 fn get_attachment_data(
     window: tauri::Window,
     state: State<'_, AppState>,
     attachment_id: String,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<AttachmentDataResponse, String> {
     use base64::Engine;
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
-    let bytes = workspace
-        .get_attachment_bytes(&attachment_id)
+    let (bytes, mime_type) = workspace
+        .get_attachment_bytes_and_mime(&attachment_id)
         .map_err(|e| e.to_string())?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    Ok(AttachmentDataResponse {
+        data: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        mime_type,
+    })
 }
 
 /// Deletes an attachment from a note.

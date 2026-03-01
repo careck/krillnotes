@@ -31,9 +31,10 @@ export type FieldValue =
   | { Boolean: boolean }
   | { Date: string | null }   // ISO "YYYY-MM-DD" or null when not set
   | { Email: string }
-  | { NoteLink: string | null };  // null = not set, string = linked note UUID
+  | { NoteLink: string | null }  // null = not set, string = linked note UUID
+  | { File: string | null };     // null = not set, string = attachment UUID
 
-export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'email' | 'select' | 'rating' | 'note_link';
+export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'email' | 'select' | 'rating' | 'note_link' | 'file';
 
 export interface FieldDefinition {
   name: string;
@@ -41,10 +42,11 @@ export interface FieldDefinition {
   required: boolean;
   canView: boolean;
   canEdit: boolean;
-  options: string[];   // non-empty for 'select' fields
-  max: number;         // non-zero for 'rating' fields
-  targetType?: string;  // only meaningful for note_link fields
+  options: string[];       // non-empty for 'select' fields
+  max: number;             // non-zero for 'rating' fields
+  targetType?: string;     // only meaningful for note_link fields
   showOnHover: boolean;
+  allowedTypes: string[];  // MIME types; empty = all allowed; only meaningful for 'file' fields
 }
 
 export interface NoteSearchResult {

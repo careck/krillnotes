@@ -1,5 +1,6 @@
-import { Fragment, useRef, useLayoutEffect, useState } from 'react';
+import { Fragment, useRef, useLayoutEffect, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import type { Note, SchemaInfo, FieldValue } from '../types';
@@ -43,12 +44,39 @@ export default function HoverTooltip({
     setSpikeOffset(`${anchorY - clampedTop}px`);
   }, [anchorY, treeWidth, visible, hoverHtml]);
 
+  // Hydrate img[data-kn-attach-id] sentinels inside the tooltip after it renders.
+  useEffect(() => {
+    const container = tooltipRef.current;
+    if (!visible || !container || !hoverHtml) return;
+    const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img[data-kn-attach-id]'));
+    imgs.forEach(async (img) => {
+      const attachmentId = img.getAttribute('data-kn-attach-id')!;
+      const widthAttr = img.getAttribute('data-kn-width');
+      try {
+        const result = await invoke<{ data: string; mime_type: string | null }>('get_attachment_data', { attachmentId });
+        const mime = result.mime_type ?? 'image/png';
+        img.src = `data:${mime};base64,${result.data}`;
+        if (widthAttr && parseInt(widthAttr, 10) > 0) {
+          img.style.maxWidth = `${widthAttr}px`;
+          img.style.height = 'auto';
+        }
+        img.removeAttribute('data-kn-attach-id');
+        img.removeAttribute('data-kn-width');
+      } catch {
+        const span = document.createElement('span');
+        span.className = 'kn-image-error';
+        span.textContent = 'Image not found';
+        img.replaceWith(span);
+      }
+    });
+  }, [visible, hoverHtml]);
+
   if (!visible) return null;
 
   // hoverHtml is already sanitized by DOMPurify below before being set as innerHTML.
   // This is the same pattern used in InfoPanel for on_view hook output.
   const sanitizedHtml = hoverHtml !== null
-    ? DOMPurify.sanitize(hoverHtml, { ADD_ATTR: ['data-note-id'] })
+    ? DOMPurify.sanitize(hoverHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i })
     : null;
 
   return createPortal(

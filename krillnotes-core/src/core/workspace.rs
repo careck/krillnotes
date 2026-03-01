@@ -1016,7 +1016,8 @@ impl Workspace {
                     }
                 }
             }
-            return Ok(self.script_registry.render_default_view(&note, &resolved_titles));
+            let attachments = self.get_attachments(&note.id).unwrap_or_default();
+            return Ok(self.script_registry.render_default_view(&note, &resolved_titles, &attachments));
         }
 
         let all_notes = self.list_all_notes()?;
@@ -1049,12 +1050,27 @@ impl Workspace {
             }
         }
 
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id };
+
+        // Set per-run context so markdown() and other helpers can resolve attachments.
+        let attachments = self.get_attachments(&note.id).unwrap_or_default();
+        self.script_registry.set_run_context(note.clone(), attachments);
+        // RAII guard: ensures run_context is cleared even if hook panics
+        struct RunContextGuard<'a>(&'a crate::core::scripting::ScriptRegistry);
+        impl Drop for RunContextGuard<'_> {
+            fn drop(&mut self) { self.0.clear_run_context(); }
+        }
+        let _guard = RunContextGuard(&self.script_registry);
         // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
-        Ok(self
+        self
             .script_registry
-            .run_on_view_hook(&note, context)?
-            .unwrap_or_default())
+            .run_on_view_hook(&note, context)
+            .map(|opt| opt.unwrap_or_default())
+            .map(|html| self.embed_attachment_images(html))
     }
 
     /// Runs the `on_hover` hook for the given note, if one is registered.
@@ -1098,8 +1114,24 @@ impl Workspace {
             }
         }
 
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
-        self.script_registry.run_on_hover_hook(&note, context)
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id };
+
+        // Set per-run context so markdown() and other helpers can resolve attachments.
+        let attachments = self.get_attachments(&note.id).unwrap_or_default();
+        self.script_registry.set_run_context(note.clone(), attachments);
+        // RAII guard: ensures run_context is cleared even if hook panics
+        struct RunContextGuard<'a>(&'a crate::core::scripting::ScriptRegistry);
+        impl Drop for RunContextGuard<'_> {
+            fn drop(&mut self) { self.0.clear_run_context(); }
+        }
+        let _guard = RunContextGuard(&self.script_registry);
+        self.script_registry
+            .run_on_hover_hook(&note, context)
+            .map(|opt| opt.map(|html| self.embed_attachment_images(html)))
     }
 
     /// Returns the names of all registered note types (schema names).
@@ -1146,7 +1178,11 @@ impl Workspace {
                 }
             }
         }
-        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
+        let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id };
 
         // invoke_tree_action_hook returns an error if the script throws — in that case
         // we propagate the error without touching the DB (implicit rollback).
@@ -1824,6 +1860,41 @@ impl Workspace {
         let now = chrono::Utc::now().timestamp();
         let fields_json = serde_json::to_string(&fields)?;
 
+        // Clean up replaced or cleared File field attachments before the note UPDATE.
+        // Must run before connection_mut() is borrowed for the transaction below,
+        // since delete_attachment uses connection() (shared ref) which conflicts with
+        // an active connection_mut() Transaction.
+        //
+        // Note: if delete_attachment succeeds but the tx.commit() below fails, the
+        // note row still references old_uuid while the attachment is already gone,
+        // leaving a dangling File field reference. This is an accepted trade-off
+        // for a single-writer local store where commit failures are rare.
+        {
+            let old_fields_json: String = self
+                .storage
+                .connection()
+                .query_row(
+                    "SELECT fields_json FROM notes WHERE id = ?1",
+                    rusqlite::params![note_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+            let old_fields: HashMap<String, FieldValue> =
+                serde_json::from_str(&old_fields_json).unwrap_or_default();
+
+            for (key, old_val) in &old_fields {
+                if let FieldValue::File(Some(old_uuid)) = old_val {
+                    let still_same = matches!(
+                        fields.get(key),
+                        Some(FieldValue::File(Some(u))) if u == old_uuid
+                    );
+                    if !still_same {
+                        let _ = self.delete_attachment(old_uuid); // best-effort
+                    }
+                }
+            }
+        }
+
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
@@ -2425,6 +2496,81 @@ impl Workspace {
             .join(format!("{attachment_id}.enc"));
         let encrypted_bytes = std::fs::read(&enc_path)?;
         decrypt_attachment(&encrypted_bytes, self.attachment_key.as_ref(), &salt_bytes)
+    }
+
+    /// Returns decrypted attachment bytes together with the stored MIME type.
+    pub fn get_attachment_bytes_and_mime(
+        &self,
+        attachment_id: &str,
+    ) -> Result<(Vec<u8>, Option<String>)> {
+        let (salt_bytes, _, mime_type): (Vec<u8>, i64, Option<String>) =
+            self.storage.connection().query_row(
+                "SELECT salt, size_bytes, mime_type FROM attachments WHERE id = ?",
+                [attachment_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).map_err(|_| KrillnotesError::NoteNotFound(attachment_id.to_string()))?;
+
+        let enc_path = self
+            .workspace_root
+            .join("attachments")
+            .join(format!("{attachment_id}.enc"));
+        let encrypted_bytes = std::fs::read(&enc_path)?;
+        let bytes = decrypt_attachment(&encrypted_bytes, self.attachment_key.as_ref(), &salt_bytes)?;
+        Ok((bytes, mime_type))
+    }
+
+    /// Replaces `<img data-kn-attach-id="UUID">` sentinels in `html` with real
+    /// `src="data:mime;base64,..."` attributes and converts `data-kn-width="N"`
+    /// to an inline `style="max-width:Npx;height:auto"`.
+    ///
+    /// Called after running `on_view` and `on_hover` hooks so the frontend
+    /// receives fully-embedded HTML without needing client-side hydration.
+    /// Sentinels whose attachment cannot be read are left in place so the
+    /// client-side fallback can show an error message.
+    fn embed_attachment_images(&self, html: String) -> String {
+        use base64::Engine as _;
+        use std::sync::OnceLock;
+
+        static ID_RE: OnceLock<regex::Regex> = OnceLock::new();
+        static WIDTH_RE: OnceLock<regex::Regex> = OnceLock::new();
+
+        let id_re = ID_RE.get_or_init(|| {
+            regex::Regex::new(r#"data-kn-attach-id="([^"]+)""#).expect("valid regex")
+        });
+        let width_re = WIDTH_RE.get_or_init(|| {
+            regex::Regex::new(r#"data-kn-width="(\d+)""#).expect("valid regex")
+        });
+
+        // Collect unique attachment IDs present in the HTML.
+        let ids: Vec<String> = id_re
+            .captures_iter(&html)
+            .map(|cap| cap[1].to_string())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        if ids.is_empty() {
+            return html;
+        }
+
+        // Replace each sentinel with a real data URL.
+        let mut result = html;
+        for id in ids {
+            if let Ok((bytes, mime_opt)) = self.get_attachment_bytes_and_mime(&id) {
+                let mime = mime_opt.as_deref().unwrap_or("image/png");
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                let src = format!(r#"src="data:{mime};base64,{encoded}""#);
+                result = result.replace(&format!(r#"data-kn-attach-id="{id}""#), &src);
+            }
+            // If the attachment cannot be read, leave the sentinel; the client
+            // hydration fallback will display an "Image not found" error.
+        }
+
+        // Convert data-kn-width="N" → style="max-width:Npx;height:auto".
+        let result = width_re.replace_all(&result, |caps: &regex::Captures| {
+            format!(r#"style="max-width:{}px;height:auto""#, &caps[1])
+        });
+        result.into_owned()
     }
 
     /// Deletes an attachment: removes the `.enc` file and the DB row.
@@ -4408,5 +4554,59 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let big_data = vec![0u8; 100];
         let result = ws.attach_file(&root_id, "big.bin", None, &big_data);
         assert!(matches!(result, Err(KrillnotesError::AttachmentTooLarge { .. })));
+    }
+
+    #[test]
+    fn test_update_note_cleans_up_replaced_file_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+
+        // Use the root TextNote that is always created on workspace init.
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        // Attach a first file to the note.
+        let meta1 = ws.attach_file(&root_id, "a.png", Some("image/png"), b"fake_bytes_1").unwrap();
+
+        // Set the File field to point at the first attachment.
+        let mut fields = ws.get_note(&root_id).unwrap().fields.clone();
+        fields.insert("photo".to_string(), FieldValue::File(Some(meta1.id.clone())));
+        ws.update_note(&root_id, "Test".to_string(), fields).unwrap();
+
+        // Attach a second file and replace the field value with it.
+        let meta2 = ws.attach_file(&root_id, "b.png", Some("image/png"), b"fake_bytes_2").unwrap();
+        let mut fields2 = ws.get_note(&root_id).unwrap().fields.clone();
+        fields2.insert("photo".to_string(), FieldValue::File(Some(meta2.id.clone())));
+        ws.update_note(&root_id, "Test".to_string(), fields2).unwrap();
+
+        // The first attachment must have been deleted when the field was replaced.
+        let result = ws.get_attachment_bytes(&meta1.id);
+        assert!(result.is_err(), "old attachment should have been deleted when field value was replaced");
+
+        // The second attachment must still be readable.
+        assert!(ws.get_attachment_bytes(&meta2.id).is_ok(), "new attachment should still exist");
+    }
+
+    #[test]
+    fn test_update_note_cleans_up_cleared_file_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        // Attach a file and store its UUID in a File field.
+        let meta = ws.attach_file(&root_id, "x.png", Some("image/png"), b"fake").unwrap();
+        let mut fields = ws.get_note(&root_id).unwrap().fields.clone();
+        fields.insert("photo".to_string(), FieldValue::File(Some(meta.id.clone())));
+        ws.update_note(&root_id, "Test".to_string(), fields).unwrap();
+
+        // Clear the File field (set to None) — the attachment should be deleted.
+        let mut fields2 = ws.get_note(&root_id).unwrap().fields.clone();
+        fields2.insert("photo".to_string(), FieldValue::File(None));
+        ws.update_note(&root_id, "Test".to_string(), fields2).unwrap();
+
+        let result = ws.get_attachment_bytes(&meta.id);
+        assert!(result.is_err(), "attachment should have been deleted when field was cleared");
     }
 }

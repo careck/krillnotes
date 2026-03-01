@@ -30,6 +30,7 @@ function defaultValueForFieldType(fieldType: string): FieldValue {
     case 'date':      return { Date: null };
     case 'email':     return { Email: '' };
     case 'note_link': return { NoteLink: null };
+    case 'file':      return { File: null };
     default:          return { Text: '' }; // covers 'text', 'textarea', 'select'
   }
 }
@@ -39,6 +40,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
   if ('Email' in value)    return value.Email === '';
   if ('Date' in value)     return value.Date === null;
   if ('NoteLink' in value) return value.NoteLink === null;
+  if ('File' in value)     return value.File === null;
   return false; // Number and Boolean are never empty
 }
 
@@ -65,6 +67,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const viewHtmlRef = useRef<HTMLDivElement>(null);
   const pendingEditModeRef = useRef(false);
   // Tracks whether the schema fetch for the current note has already resolved.
   // Used by the requestEditMode effect to enter edit mode immediately when the
@@ -150,6 +153,38 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       }
     }
   }, [requestEditMode]);
+
+  // Hydrate img[data-kn-attach-id] placeholders with real base64 data after the view HTML renders
+  useEffect(() => {
+    const container = viewHtmlRef.current;
+    if (!container || !customViewHtml) return;
+
+    const imgs = Array.from(
+      container.querySelectorAll<HTMLImageElement>('img[data-kn-attach-id]')
+    );
+    Promise.all(
+      imgs.map(async (img) => {
+        const attachmentId = img.getAttribute('data-kn-attach-id')!;
+        const widthAttr = img.getAttribute('data-kn-width');
+        try {
+          const result = await invoke<{ data: string; mime_type: string | null }>('get_attachment_data', { attachmentId });
+          const mime = result.mime_type ?? 'image/png';
+          img.src = `data:${mime};base64,${result.data}`;
+          if (widthAttr && parseInt(widthAttr, 10) > 0) {
+            img.style.maxWidth = `${widthAttr}px`;
+            img.style.height = 'auto';
+          }
+          img.removeAttribute('data-kn-attach-id');
+          img.removeAttribute('data-kn-width');
+        } catch {
+          const span = document.createElement('span');
+          span.className = 'kn-image-error';
+          span.textContent = 'Image not found';
+          img.replaceWith(span);
+        }
+      })
+    ).catch(err => console.error('Image hydration error:', err));
+  }, [customViewHtml]);
 
   // Focus first editable field whenever edit mode activates
   useEffect(() => {
@@ -346,9 +381,30 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         {/* Custom view rendered by an on_view hook — shown only in view mode */}
         {!isEditing && customViewHtml && (
           <div
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id'] }) }}
+            ref={viewHtmlRef}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i }) }}
             onClick={(e) => {
               const target = e.target as Element;
+
+              const downloadLink = target.closest('[data-kn-download-id]');
+              if (downloadLink) {
+                e.preventDefault();
+                const attachmentId = downloadLink.getAttribute('data-kn-download-id')!;
+                const filename = downloadLink.textContent?.trim() ?? 'download';
+                invoke<{ data: string; mime_type: string | null }>('get_attachment_data', { attachmentId })
+                  .then(result => {
+                    const bytes = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+                    const blob = new Blob([bytes]);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                  })
+                  .catch(err => alert(String(err)));
+                return;
+              }
 
               const noteLink = target.closest('.kn-view-link');
               if (noteLink) {
@@ -428,6 +484,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 options={field.options}
                 max={field.max}
                 targetType={field.targetType}
+                noteId={selectedNote.id}
+                fieldDef={field}
                 onChange={(value) => handleFieldChange(field.name, value)}
               />
             ))
@@ -445,6 +503,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                   fieldType={field.fieldType}
                   value={selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)}
                   max={field.max}
+                  noteId={selectedNote.id}
                 />
               ))}
             </dl>
@@ -489,6 +548,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                     fieldName={`${name}${t('notes.legacySuffix')}`}
                     fieldType="text"
                     value={selectedNote.fields[name]}
+                    noteId={selectedNote.id}
                   />
                 ))}
               </dl>

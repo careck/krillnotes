@@ -48,6 +48,10 @@ pub struct FieldDefinition {
     /// Defaults to `false` (opt-in).
     #[serde(default)]
     pub show_on_hover: bool,
+    /// MIME types accepted by `file` fields; empty means all types are allowed.
+    /// Ignored for non-`file` field types.
+    #[serde(default)]
+    pub allowed_types: Vec<String>,
 }
 
 /// A parsed note-type schema containing an ordered list of field definitions.
@@ -91,6 +95,7 @@ impl Schema {
                 Some(FieldValue::Date(d)) => d.is_none(),
                 Some(FieldValue::Number(_) | FieldValue::Boolean(_)) => false,
                 Some(FieldValue::NoteLink(id)) => id.is_none(),
+                Some(FieldValue::File(id)) => id.is_none(),
                 None => true,
             };
             if empty {
@@ -116,6 +121,7 @@ impl Schema {
                 "select" => FieldValue::Text(String::new()),
                 "rating" => FieldValue::Number(0.0),
                 "note_link" => FieldValue::NoteLink(None),
+                "file" => FieldValue::File(None),
                 // Unknown types fall back to empty text; script validation catches typos.
                 _ => FieldValue::Text(String::new()),
             };
@@ -199,7 +205,20 @@ impl Schema {
                 .and_then(|v| v.clone().try_cast::<bool>())
                 .unwrap_or(false);
 
-            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type, show_on_hover });
+            let mut allowed_types: Vec<String> = Vec::new();
+            if let Some(arr) = field_map
+                .get("allowed_types")
+                .and_then(|v| v.clone().try_cast::<rhai::Array>())
+            {
+                for item in arr {
+                    let s = item.try_cast::<String>().ok_or_else(|| {
+                        KrillnotesError::Scripting("allowed_types array must contain only strings".into())
+                    })?;
+                    allowed_types.push(s);
+                }
+            }
+
+            fields.push(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type, show_on_hover, allowed_types });
         }
 
         let title_can_view = def
@@ -618,6 +637,8 @@ pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
         FieldValue::Email(s) => Dynamic::from(s.clone()),
         FieldValue::NoteLink(None) => Dynamic::UNIT,
         FieldValue::NoteLink(Some(id)) => Dynamic::from(id.clone()),
+        FieldValue::File(None) => Dynamic::UNIT,
+        FieldValue::File(Some(id)) => Dynamic::from(id.clone()),
     }
 }
 
@@ -705,6 +726,18 @@ pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<Fie
                 return Ok(FieldValue::NoteLink(None));
             }
             Ok(FieldValue::NoteLink(Some(s)))
+        }
+        "file" => {
+            if d.is_unit() {
+                return Ok(FieldValue::File(None));
+            }
+            let s = d
+                .try_cast::<String>()
+                .ok_or_else(|| KrillnotesError::Scripting("file field must be a string or ()".into()))?;
+            if s.is_empty() {
+                return Ok(FieldValue::File(None));
+            }
+            Ok(FieldValue::File(Some(s)))
         }
         _ => Ok(FieldValue::Text(String::new())),
     }

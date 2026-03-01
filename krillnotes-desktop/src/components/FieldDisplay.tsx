@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import type { FieldValue, FieldType } from '../types';
 import { humaniseKey } from '../utils/humanise';
+import { FileField } from './FileField';
 
 function NoteLinkDisplay({ noteId }: { noteId: string }) {
   const [title, setTitle] = useState<string | null>(null);
@@ -32,9 +33,10 @@ interface FieldDisplayProps {
   fieldType: FieldType;
   value: FieldValue;
   max?: number;
+  noteId: string;
 }
 
-function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProps) {
+function FieldDisplay({ fieldName, fieldType, value, max = 5, noteId }: FieldDisplayProps) {
   const { t } = useTranslation();
   const renderValue = () => {
     if ('Number' in value && fieldType === 'rating') {
@@ -70,6 +72,18 @@ function FieldDisplay({ fieldName, fieldType, value, max = 5 }: FieldDisplayProp
         return <span>—</span>;
       }
       return <NoteLinkDisplay noteId={(value as { NoteLink: string | null }).NoteLink as string} />;
+    }
+    if (fieldType === 'file') {
+      const fileId = value && 'File' in value ? (value as { File: string | null }).File : null;
+      return (
+        <FileField
+          attachmentId={fileId}
+          allowedTypes={[]}
+          isEditing={false}
+          noteId={noteId}
+          onValueChange={() => {}}
+        />
+      );
     }
     return <span className="text-muted-foreground italic">{t('fields.unknown')}</span>;
   };

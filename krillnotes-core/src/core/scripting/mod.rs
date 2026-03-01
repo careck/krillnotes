@@ -14,12 +14,22 @@ pub use schema::{AddChildResult, FieldDefinition, Schema};
 // StarterScript is defined in this file and re-exported via lib.rs.
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
+use crate::core::attachment::AttachmentMeta;
 use schema::HookEntry;
 use chrono::Local;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// Per-run context injected before executing a Rhai script so that
+/// context-aware Rhai helpers (markdown, display_image, etc.) can resolve
+/// attachment references for the current note.
+#[derive(Debug)]
+pub struct NoteRunContext {
+    pub note: crate::core::note::Note,
+    pub attachments: Vec<AttachmentMeta>,
+}
 
 /// Pre-built index of all workspace notes, populated before each `on_view` hook call
 /// and cleared immediately afterwards.
@@ -36,6 +46,8 @@ pub struct QueryContext {
     /// Maps each target note ID to all source notes that link to it
     /// via a `note_link` field (pre-built for O(1) look-up).
     pub notes_by_link_target: HashMap<String, Vec<Dynamic>>,
+    /// Maps each note ID to its attachments, pre-built for O(1) script-time look-up.
+    pub attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>>,
 }
 
 static STARTER_SCRIPTS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/system_scripts");
@@ -73,6 +85,8 @@ pub struct ScriptRegistry {
     query_context: Arc<Mutex<Option<QueryContext>>>,
     /// Active transaction context for a running tree action; `None` outside a hook call.
     action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>>,
+    /// Per-run note + attachment context set before a hook call and cleared after.
+    pub run_context: Arc<Mutex<Option<NoteRunContext>>>,
 }
 
 impl ScriptRegistry {
@@ -229,6 +243,9 @@ impl ScriptRegistry {
         // ── Action transaction context for tree action hooks ─────────────────
         let action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>> = Arc::new(Mutex::new(None));
 
+        // ── Per-run note + attachment context ─────────────────────────────────
+        let run_context: Arc<Mutex<Option<NoteRunContext>>> = Arc::new(Mutex::new(None));
+
         // Register get_children() — returns direct children of a note by ID.
         let qc1           = Arc::clone(&query_context);
         let action_ctx_gc = Arc::clone(&action_ctx);
@@ -313,6 +330,27 @@ impl ScriptRegistry {
             guard.as_ref()
                 .and_then(|ctx| ctx.notes_by_link_target.get(&target_id).cloned())
                 .unwrap_or_default()
+        });
+
+        // Register get_attachments(note_id) — returns attachment metadata for a note.
+        let qc6 = Arc::clone(&query_context);
+        engine.register_fn("get_attachments", move |note_id: String| -> rhai::Array {
+            let guard = qc6.lock().unwrap();
+            guard.as_ref()
+                .and_then(|ctx| ctx.attachments_by_note_id.get(&note_id).cloned())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|att| {
+                    let mut m = rhai::Map::new();
+                    m.insert("id".into(),        Dynamic::from(att.id));
+                    m.insert("filename".into(),  Dynamic::from(att.filename));
+                    m.insert("mime_type".into(), att.mime_type
+                        .map(Dynamic::from)
+                        .unwrap_or(Dynamic::UNIT));
+                    m.insert("size_bytes".into(), Dynamic::from(att.size_bytes));
+                    Dynamic::from(m)
+                })
+                .collect()
         });
 
         // create_note(parent_id, node_type) — available inside add_tree_action closures only.
@@ -472,8 +510,33 @@ impl ScriptRegistry {
         engine.register_fn("badge",   display_helpers::badge_colored);
         engine.register_fn("divider", display_helpers::divider);
         engine.register_fn("link_to", display_helpers::link_to);
-        engine.register_fn("markdown",     display_helpers::rhai_markdown);
+        let ctx_for_markdown = Arc::clone(&run_context);
+        engine.register_fn("markdown", move |text: String| -> String {
+            let guard = ctx_for_markdown.lock().expect("run_context poisoned");
+            let maybe_context = guard.as_ref().map(|ctx| (ctx.note.fields.clone(), ctx.attachments.clone()));
+            drop(guard);  // release lock before any further work
+            let processed = if let Some((fields, attachments)) = maybe_context {
+                display_helpers::preprocess_image_blocks(&text, &fields, &attachments)
+            } else {
+                text
+            };
+            display_helpers::rhai_markdown_raw(processed)
+        });
         engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
+
+        engine.register_fn("display_image", |uuid: Dynamic, width: i64, alt: String| -> String {
+            match uuid.into_string() {
+                Ok(id) if !id.is_empty() => display_helpers::make_display_image_html(&id, width, &alt),
+                _ => "<span class=\"kn-image-error\">No image set</span>".to_string(),
+            }
+        });
+
+        engine.register_fn("display_download_link", |uuid: Dynamic, label: String| -> String {
+            match uuid.into_string() {
+                Ok(id) if !id.is_empty() => display_helpers::make_download_link_html(&id, &label),
+                _ => "<span class=\"kn-image-error\">No file set</span>".to_string(),
+            }
+        });
         engine.register_fn("stars",        display_helpers::rhai_stars_default);
         engine.register_fn("stars",        display_helpers::rhai_stars);
 
@@ -489,6 +552,7 @@ impl ScriptRegistry {
             hook_registry,
             query_context,
             action_ctx,
+            run_context,
         })
     }
 
@@ -641,9 +705,9 @@ impl ScriptRegistry {
     /// `resolved_titles` maps note IDs to their display titles so that NoteLink
     /// fields render as clickable anchors. Pass `&Default::default()` when no
     /// resolution is needed.
-    pub fn render_default_view(&self, note: &Note, resolved_titles: &std::collections::HashMap<String, String>) -> String {
+    pub fn render_default_view(&self, note: &Note, resolved_titles: &std::collections::HashMap<String, String>, attachments: &[crate::core::attachment::AttachmentMeta]) -> String {
         let schema = self.schema_registry.get(&note.node_type).ok();
-        display_helpers::render_default_view(note, schema.as_ref(), resolved_titles)
+        display_helpers::render_default_view(note, schema.as_ref(), resolved_titles, attachments)
     }
 
     /// Runs the view hook registered for the given note's schema, if any.
@@ -717,6 +781,7 @@ impl ScriptRegistry {
         self.schema_owners.lock().unwrap().clear();
         self.hook_registry.clear();
         *self.query_context.lock().unwrap() = None;
+        *self.run_context.lock().unwrap() = None;
     }
 
     /// Returns a map of `note_type → [action_label, …]` for every registered tree action.
@@ -790,6 +855,17 @@ impl ScriptRegistry {
         self.schema_registry.exists(name)
     }
 
+    /// Sets the per-run note and attachment context before executing a hook.
+    pub fn set_run_context(&self, note: crate::core::note::Note, attachments: Vec<AttachmentMeta>) {
+        *self.run_context.lock().expect("run_context poisoned") =
+            Some(NoteRunContext { note, attachments });
+    }
+
+    /// Clears the per-run context after a hook has finished executing.
+    pub fn clear_run_context(&self) {
+        *self.run_context.lock().expect("run_context poisoned") = None;
+    }
+
 }
 
 #[cfg(test)]
@@ -860,6 +936,7 @@ mod tests {
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap();
         assert!(html.is_some());
@@ -984,6 +1061,7 @@ mod tests {
                     max: 0,
                     target_type: None,
                     show_on_hover: false,
+                    allowed_types: vec![],
                 },
                 FieldDefinition {
                     name: "count".to_string(),
@@ -995,6 +1073,7 @@ mod tests {
                     max: 0,
                     target_type: None,
                     show_on_hover: false,
+                    allowed_types: vec![],
                 },
             ],
             title_can_view: true,
@@ -1041,6 +1120,7 @@ mod tests {
                 max: 0,
                 target_type: None,
                 show_on_hover: false,
+                allowed_types: vec![],
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -1066,6 +1146,7 @@ mod tests {
                 max: 0,
                 target_type: None,
                 show_on_hover: false,
+                allowed_types: vec![],
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -1707,7 +1788,7 @@ mod tests {
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
 
-        let html = registry.render_default_view(&note, &Default::default());
+        let html = registry.render_default_view(&note, &Default::default(), &[]);
         assert!(html.contains("<strong>important</strong>"), "got: {html}");
     }
 
@@ -1759,6 +1840,7 @@ mod tests {
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
 
         let result = registry.run_on_view_hook(&note, context).unwrap();
@@ -2015,6 +2097,7 @@ mod tests {
             notes_by_type: HashMap::new(),
             notes_by_tag: HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let err = registry.run_on_view_hook(&note, ctx).unwrap_err();
         let msg = err.to_string();
@@ -2072,6 +2155,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Noop", &note, ctx).unwrap();
         assert!(result.reorder.is_none(), "callback returning () should yield no reorder");
@@ -2097,6 +2181,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let result = registry.invoke_tree_action_hook("Sort", &note, ctx).unwrap();
         assert_eq!(result.reorder, Some(vec!["id-b".to_string(), "id-a".to_string()]));
@@ -2118,6 +2203,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("No Such Action", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("unknown tree action"), "got: {err}");
@@ -2143,6 +2229,7 @@ mod tests {
             notes_by_type: Default::default(),
             notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let err = registry.invoke_tree_action_hook("Boom", &note, ctx).unwrap_err();
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
@@ -2162,11 +2249,12 @@ mod tests {
 
     fn make_empty_ctx() -> QueryContext {
         QueryContext {
-            notes_by_id:    Default::default(),
-            children_by_id: Default::default(),
-            notes_by_type:  Default::default(),
-            notes_by_tag:   Default::default(),
-            notes_by_link_target: Default::default(),
+            notes_by_id:              Default::default(),
+            children_by_id:           Default::default(),
+            notes_by_type:            Default::default(),
+            notes_by_tag:             Default::default(),
+            notes_by_link_target:     Default::default(),
+            attachments_by_note_id:   Default::default(),
         }
     }
 
@@ -2311,6 +2399,7 @@ mod tests {
             notes_by_type: std::collections::HashMap::new(),
             notes_by_tag: std::collections::HashMap::new(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
         assert!(html.contains("2:rust"), "expected '2:rust' in output, got: {html}");
@@ -2433,6 +2522,7 @@ mod tests {
                 max: 0,
                 target_type: None,
                 show_on_hover: false,
+                allowed_types: vec![],
             }],
             title_can_view: true,
             title_can_edit: true,
@@ -2495,6 +2585,7 @@ mod tests {
             notes_by_id: Default::default(), children_by_id: Default::default(),
             notes_by_type: Default::default(), notes_by_tag: Default::default(),
             notes_by_link_target: Default::default(),
+            attachments_by_note_id: Default::default(),
         };
         let html = registry.run_on_hover_hook(&note, ctx).unwrap();
         assert_eq!(html, Some("HOVER:Test Note".to_string()));
@@ -2517,6 +2608,100 @@ mod tests {
         let schema = registry.get_schema("HoverTest").unwrap();
         assert!(schema.fields[0].show_on_hover);
         assert!(!schema.fields[1].show_on_hover);
+    }
+
+    #[test]
+    fn test_get_attachments_returns_array_of_maps() {
+        use crate::core::attachment::AttachmentMeta;
+
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                fields: [],
+                on_view: |note| {
+                    let atts = get_attachments(note.id);
+                    if atts.len() == 0 { return text("none"); }
+                    let first = atts[0];
+                    text(first.id + "|" + first.filename)
+                }
+            });
+        "#, "test_script").unwrap();
+
+        let note = make_test_note("note-1", "PhotoNote");
+
+        let mut ctx = make_empty_ctx();
+        ctx.attachments_by_note_id.insert(
+            "note-1".to_string(),
+            vec![AttachmentMeta {
+                id: "att-uuid-1".to_string(),
+                note_id: "note-1".to_string(),
+                filename: "photo.png".to_string(),
+                mime_type: Some("image/png".to_string()),
+                size_bytes: 100,
+                hash_sha256: "abc".to_string(),
+                salt: "00".repeat(32),
+                created_at: 0,
+            }],
+        );
+
+        let html = registry.run_on_view_hook(&note, ctx).unwrap().unwrap();
+        assert!(html.contains("att-uuid-1"), "got: {html}");
+        assert!(html.contains("photo.png"), "got: {html}");
+    }
+
+    #[test]
+    fn test_rhai_display_image_with_uuid_in_field() {
+        use crate::core::note::{FieldValue, Note};
+
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                fields: [#{ name: "photo", type: "file", required: false }],
+                on_view: |note| {
+                    display_image(note.fields["photo"], 300, "My alt")
+                }
+            });
+        "#, "test_script").unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("photo".to_string(), FieldValue::File(Some("abc-uuid-123".to_string())));
+        let note = Note {
+            id: "n1".to_string(), node_type: "PhotoNote".to_string(),
+            title: "T".to_string(), parent_id: None, fields, tags: vec![],
+            created_at: 0, modified_at: 0, position: 0,
+            created_by: 0, modified_by: 0, is_expanded: false,
+        };
+
+        let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
+        assert!(html.contains("data-kn-attach-id=\"abc-uuid-123\""), "got: {html}");
+        assert!(html.contains("data-kn-width=\"300\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_rhai_display_image_unset_field_shows_error() {
+        use crate::core::note::{FieldValue, Note};
+
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                fields: [#{ name: "photo", type: "file", required: false }],
+                on_view: |note| {
+                    display_image(note.fields["photo"], 0, "")
+                }
+            });
+        "#, "test_script").unwrap();
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("photo".to_string(), FieldValue::File(None));
+        let note = Note {
+            id: "n2".to_string(), node_type: "PhotoNote".to_string(),
+            title: "T".to_string(), parent_id: None, fields, tags: vec![],
+            created_at: 0, modified_at: 0, position: 0,
+            created_by: 0, modified_by: 0, is_expanded: false,
+        };
+
+        let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
+        assert!(html.contains("kn-image-error"), "got: {html}");
     }
 
 }
