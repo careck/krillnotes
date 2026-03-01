@@ -1,6 +1,6 @@
 [package]
 name = "krillnotes-core"
-version = "0.2.2"
+version = "0.2.5"
 edition = "2021"
 authors = ["Your Name"]
 description = "Core library for Krillnotes - local-first note-taking"

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.5] — 2026-03-02
+
 ### Added
 - **File attachments** — Any note can have files attached to it. Attachments are encrypted at rest alongside the workspace database using ChaCha20-Poly1305. A drag-and-drop attachment panel in the InfoPanel lets you attach, preview (images show a thumbnail), open, and delete files. Attachments are included in workspace export/import archives and re-encrypted on import. A configurable max attachment size guard is enforced at attach time.
 - **`file` field type** — Schema fields can now be typed `file`, storing a reference to a single attached file. In view mode, images render as a thumbnail; other files show a paperclip icon and filename. In edit mode a file picker opens filtered by `allowed_types` MIME types. Replacing a file atomically attaches the new one before deleting the old.
@@ -185,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/careck/krillnotes/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/careck/krillnotes/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/careck/krillnotes/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/careck/krillnotes/compare/v0.2.1...v0.2.2
