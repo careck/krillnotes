@@ -487,8 +487,48 @@ impl ScriptRegistry {
         engine.register_fn("badge",   display_helpers::badge_colored);
         engine.register_fn("divider", display_helpers::divider);
         engine.register_fn("link_to", display_helpers::link_to);
-        engine.register_fn("markdown",     display_helpers::rhai_markdown);
+        let ctx_for_markdown = Arc::clone(&run_context);
+        engine.register_fn("markdown", move |text: String| -> String {
+            let guard = ctx_for_markdown.lock().expect("run_context poisoned");
+            let processed = if let Some(ref ctx) = *guard {
+                display_helpers::preprocess_image_blocks(&text, &ctx.note.fields, &ctx.attachments)
+            } else {
+                text
+            };
+            drop(guard); // release lock before rendering
+            display_helpers::rhai_markdown_raw(processed)
+        });
         engine.register_fn("render_tags",  display_helpers::rhai_render_tags);
+
+        let ctx_for_display_image = Arc::clone(&run_context);
+        engine.register_fn("display_image", move |source: String, width: i64, alt: String| -> String {
+            let guard = ctx_for_display_image.lock().expect("run_context poisoned");
+            if let Some(ref ctx) = *guard {
+                let result = display_helpers::make_display_image_html(
+                    &source, width, &alt, &ctx.note.fields, &ctx.attachments,
+                );
+                drop(guard);
+                result
+            } else {
+                drop(guard);
+                "<span class=\"kn-image-error\">No note context</span>".to_string()
+            }
+        });
+
+        let ctx_for_download_link = Arc::clone(&run_context);
+        engine.register_fn("display_download_link", move |source: String, label: String| -> String {
+            let guard = ctx_for_download_link.lock().expect("run_context poisoned");
+            if let Some(ref ctx) = *guard {
+                let result = display_helpers::make_download_link_html(
+                    &source, &label, &ctx.note.fields, &ctx.attachments,
+                );
+                drop(guard);
+                result
+            } else {
+                drop(guard);
+                "<span class=\"kn-image-error\">No note context</span>".to_string()
+            }
+        });
         engine.register_fn("stars",        display_helpers::rhai_stars_default);
         engine.register_fn("stars",        display_helpers::rhai_stars);
 

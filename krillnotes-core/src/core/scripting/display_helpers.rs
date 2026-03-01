@@ -131,18 +131,18 @@ pub fn render_markdown_to_html(text: &str) -> String {
     html_output
 }
 
-/// Rhai host function wrapper for `render_markdown_to_html`.
+/// Inner logic for the `markdown()` Rhai host function, callable without a Rhai context.
 ///
-/// Registered as `markdown(text)` in the Rhai engine so `on_view` hooks can
-/// explicitly render markdown:
-///
-/// ```rhai
-/// on_view("Note", |note| {
-///     markdown(note.fields["body"])
-/// });
-/// ```
-pub fn rhai_markdown(text: String) -> String {
+/// The closure registered in the Rhai engine pre-processes image blocks and then
+/// calls this function. It is also kept as a public function so that tests and
+/// any existing direct call sites continue to compile.
+pub fn rhai_markdown_raw(text: String) -> String {
     format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&text))
+}
+
+/// Alias kept for backwards compatibility with existing tests and call sites.
+pub fn rhai_markdown(text: String) -> String {
+    rhai_markdown_raw(text)
 }
 
 // ── Structural helpers ────────────────────────────────────────────────────────
@@ -494,6 +494,79 @@ fn format_field_value_html(value: &FieldValue, field_type: &str, max: i64, resol
             "<span class=\"kn-view-file\">📎 (file attached)</span>".to_string()
         }
         (FieldValue::File(None), _) => String::new(),
+    }
+}
+
+// ── Attachment-aware display helpers ─────────────────────────────────────────
+
+/// Renders an `<img>` tag that the frontend will hydrate with decrypted attachment bytes.
+///
+/// `source` follows the same format as `{{image: ...}}` blocks:
+///   `"attach:<filename>"` — finds the first attachment with that filename
+///   `"field:<fieldName>"` — reads `fields[fieldName]` as `FieldValue::File(uuid)`
+///
+/// `width` is emitted as `data-kn-width`; `0` means "no explicit width".
+/// `alt` is HTML-escaped and emitted as `alt`; empty string omits the attribute.
+///
+/// Returns a `<span class="kn-image-error">` when the source cannot be resolved.
+pub fn make_display_image_html(
+    source: &str,
+    width: i64,
+    alt: &str,
+    fields: &std::collections::HashMap<String, FieldValue>,
+    attachments: &[AttachmentMeta],
+) -> String {
+    match resolve_attachment_source(source, fields, attachments) {
+        Some(meta) => {
+            let width_attr = if width > 0 {
+                format!(" data-kn-width=\"{}\"", width)
+            } else {
+                String::new()
+            };
+            let alt_attr = if !alt.is_empty() {
+                format!(" alt=\"{}\"", html_escape(alt))
+            } else {
+                String::new()
+            };
+            format!(
+                "<img data-kn-attach-id=\"{}\"{}{} class=\"kn-image-embed\" />",
+                meta.id, width_attr, alt_attr
+            )
+        }
+        None => format!(
+            "<span class=\"kn-image-error\">Image not found: {}</span>",
+            html_escape(source)
+        ),
+    }
+}
+
+/// Renders a download link for an attachment.
+///
+/// `source` follows the same format as `{{image: ...}}` blocks:
+///   `"attach:<filename>"` or `"field:<fieldName>"`.
+///
+/// `label` is the visible link text. When empty, the attachment filename is used.
+///
+/// Returns a `<span class="kn-image-error">` when the source cannot be resolved.
+pub fn make_download_link_html(
+    source: &str,
+    label: &str,
+    fields: &std::collections::HashMap<String, FieldValue>,
+    attachments: &[AttachmentMeta],
+) -> String {
+    match resolve_attachment_source(source, fields, attachments) {
+        Some(meta) => {
+            let display = if label.is_empty() { meta.filename.as_str() } else { label };
+            format!(
+                "<a data-kn-download-id=\"{}\" class=\"kn-download-link\">{}</a>",
+                meta.id,
+                html_escape(display)
+            )
+        }
+        None => format!(
+            "<span class=\"kn-image-error\">File not found: {}</span>",
+            html_escape(source)
+        ),
     }
 }
 
@@ -992,5 +1065,61 @@ mod tests {
         let result = preprocess_image_blocks("{{image: field:cover, width: 200}}", &fields, &attachments);
         assert!(result.contains("data-kn-attach-id=\"uuid-3\""));
         assert!(result.contains("data-kn-width=\"200\""));
+    }
+
+    // ── make_display_image_html tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_display_image_basic() {
+        let attachments = vec![make_meta("uuid-5", "hero.jpg")];
+        let fields = HashMap::new();
+        let html = make_display_image_html("attach:hero.jpg", 400, "Hero", &fields, &attachments);
+        assert!(html.contains("data-kn-attach-id=\"uuid-5\""));
+        assert!(html.contains("data-kn-width=\"400\""));
+        assert!(html.contains("alt=\"Hero\""));
+    }
+
+    #[test]
+    fn test_display_image_zero_width_omits_attr() {
+        let attachments = vec![make_meta("uuid-6", "x.png")];
+        let fields = HashMap::new();
+        let html = make_display_image_html("attach:x.png", 0, "", &fields, &attachments);
+        assert!(!html.contains("data-kn-width"));
+    }
+
+    #[test]
+    fn test_display_image_not_found_shows_error() {
+        let fields = HashMap::new();
+        let html = make_display_image_html("attach:ghost.png", 0, "", &fields, &[]);
+        assert!(html.contains("kn-image-error"), "got: {html}");
+        assert!(html.contains("ghost.png"));
+    }
+
+    // ── make_download_link_html tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_display_download_link_with_label() {
+        let attachments = vec![make_meta("uuid-7", "report.pdf")];
+        let fields = HashMap::new();
+        let html = make_download_link_html("attach:report.pdf", "Download PDF", &fields, &attachments);
+        assert!(html.contains("data-kn-download-id=\"uuid-7\""));
+        assert!(html.contains("Download PDF"));
+    }
+
+    #[test]
+    fn test_display_download_link_empty_label_uses_filename() {
+        let attachments = vec![make_meta("uuid-8", "data.csv")];
+        let fields = HashMap::new();
+        let html = make_download_link_html("attach:data.csv", "", &fields, &attachments);
+        assert!(html.contains("data-kn-download-id=\"uuid-8\""));
+        assert!(html.contains("data.csv"));
+    }
+
+    #[test]
+    fn test_display_download_link_not_found_shows_error() {
+        let fields = HashMap::new();
+        let html = make_download_link_html("attach:missing.pdf", "label", &fields, &[]);
+        assert!(html.contains("kn-image-error"), "got: {html}");
+        assert!(html.contains("missing.pdf"));
     }
 }

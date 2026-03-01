@@ -1050,11 +1050,17 @@ impl Workspace {
         }
 
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
+
+        // Set per-run context so markdown() and other helpers can resolve attachments.
+        let attachments = self.get_attachments(&note.id).unwrap_or_default();
+        self.script_registry.set_run_context(note.clone(), attachments);
         // run_on_view_hook returns Some(...) since we've confirmed a hook exists above.
-        Ok(self
+        let result = self
             .script_registry
-            .run_on_view_hook(&note, context)?
-            .unwrap_or_default())
+            .run_on_view_hook(&note, context)
+            .map(|opt| opt.unwrap_or_default());
+        self.script_registry.clear_run_context();
+        result
     }
 
     /// Runs the `on_hover` hook for the given note, if one is registered.
@@ -1099,7 +1105,13 @@ impl Workspace {
         }
 
         let context = QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target };
-        self.script_registry.run_on_hover_hook(&note, context)
+
+        // Set per-run context so markdown() and other helpers can resolve attachments.
+        let attachments = self.get_attachments(&note.id).unwrap_or_default();
+        self.script_registry.set_run_context(note.clone(), attachments);
+        let result = self.script_registry.run_on_hover_hook(&note, context);
+        self.script_registry.clear_run_context();
+        result
     }
 
     /// Returns the names of all registered note types (schema names).
