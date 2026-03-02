@@ -67,6 +67,10 @@ pub struct Workspace {
     pub(crate) undo_limit: usize,
     /// When Some, mutations accumulate here instead of pushing to undo_stack.
     undo_group_buffer: Option<Vec<UndoEntry>>,
+    /// When `true`, `push_undo` is a no-op. Set while `apply_retract_inverse_internal`
+    /// is executing so that mutations called from within an undo/redo do not push
+    /// spurious entries onto the undo stack.
+    inside_undo: bool,
 }
 
 impl Workspace {
@@ -225,6 +229,7 @@ impl Workspace {
             redo_stack: Vec::new(),
             undo_limit: 50,
             undo_group_buffer: None,
+            inside_undo: false,
         })
     }
 
@@ -303,6 +308,7 @@ impl Workspace {
             redo_stack: Vec::new(),
             undo_limit: 50,
             undo_group_buffer: None,
+            inside_undo: false,
         };
 
         // Load enabled scripts from the workspace DB.
@@ -367,7 +373,15 @@ impl Workspace {
 
     /// Pushes an entry onto the undo stack (or into the group buffer if a group
     /// is open). Clears the redo stack. Trims to `undo_limit`.
+    ///
+    /// When `inside_undo` is `true` (i.e. we are executing `apply_retract_inverse_internal`
+    /// on behalf of an undo or redo call), this is a no-op so that mutations
+    /// invoked internally (e.g. `move_note` called from `PositionRestore`) do not
+    /// push spurious entries onto the stack.
     fn push_undo(&mut self, entry: UndoEntry) {
+        if self.inside_undo {
+            return;
+        }
         if let Some(buf) = &mut self.undo_group_buffer {
             buf.push(entry);
             return;
@@ -424,7 +438,49 @@ impl Workspace {
     /// Returns an error if the undo stack is empty or if applying the inverse
     /// operation fails.
     pub fn undo(&mut self) -> Result<UndoResult> {
-        todo!("implemented in Task 12")
+        let entry = self.undo_stack.pop()
+            .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to undo".into()))?;
+
+        // Build the redo inverse BEFORE applying the undo so that the current
+        // DB state can be captured. For example, for DeleteNote (which is the
+        // inverse of CreateNote), we need to snapshot the note's data into a
+        // SubtreeRestore while the note still exists in the DB.
+        let redo_inverse = self.build_redo_inverse(&entry)?;
+
+        // Apply the inverse to the DB. Set inside_undo so that any mutations
+        // called from within apply_retract_inverse_internal (e.g. move_note
+        // called from PositionRestore) do not push spurious undo entries.
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        let affected_note_id = apply_result?;
+
+        // Write RetractOperation to the log.
+        let retract_op_id = uuid::Uuid::new_v4().to_string();
+        let retract_op = Operation::RetractOperation {
+            operation_id: retract_op_id,
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            retracted_ids: entry.retracted_ids.clone(),
+            inverse: entry.inverse.clone(),
+            propagate: entry.propagate,
+        };
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            Self::log_op(&self.operation_log, &tx, &retract_op)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+            tx.commit()?;
+        }
+
+        // Push onto redo stack using the pre-captured redo inverse so that
+        // redo() can re-apply the forward operation (e.g. re-insert the note).
+        self.redo_stack.push(UndoEntry {
+            retracted_ids: entry.retracted_ids,
+            inverse: redo_inverse,
+            propagate: entry.propagate,
+        });
+
+        Ok(UndoResult { affected_note_id })
     }
 
     /// Re-applies the most recently undone operation from the redo stack.
@@ -437,7 +493,132 @@ impl Workspace {
     /// Returns an error if the redo stack is empty or if re-applying the
     /// operation fails.
     pub fn redo(&mut self) -> Result<UndoResult> {
-        todo!("implemented in Task 12")
+        let entry = self.redo_stack.pop()
+            .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to redo".into()))?;
+
+        // Build the new undo inverse BEFORE applying so that the current DB state
+        // can be captured for the "undo of redo" entry.
+        // For example:
+        //   - If entry.inverse is DeleteNote{id} (redo = re-delete a note),
+        //     we must capture SubtreeRestore while the note still exists in DB.
+        //   - If entry.inverse is SubtreeRestore{notes} (redo = re-insert a note),
+        //     we can extract the root ID from notes[0] without a DB query.
+        let new_undo_inverse = self.build_redo_inverse(&entry)?;
+
+        // Apply the redo entry's inverse to the DB.
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        let affected_note_id = apply_result?;
+
+        // Log redo as a new RetractOperation.
+        let new_op_id = uuid::Uuid::new_v4().to_string();
+        let redo_op = Operation::RetractOperation {
+            operation_id: new_op_id,
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            retracted_ids: entry.retracted_ids.clone(),
+            inverse: entry.inverse.clone(),
+            propagate: entry.propagate,
+        };
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            Self::log_op(&self.operation_log, &tx, &redo_op)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+            tx.commit()?;
+        }
+
+        // Push a new undo entry carrying the new_undo_inverse so the redo can
+        // itself be undone.
+        self.undo_stack.push(UndoEntry {
+            retracted_ids: entry.retracted_ids,
+            inverse: new_undo_inverse,
+            propagate: entry.propagate,
+        });
+
+        Ok(UndoResult { affected_note_id })
+    }
+
+    /// Builds the inverse needed to reverse a redo operation — i.e. captures
+    /// the current DB state so that the redo can itself be undone.
+    ///
+    /// For each `RetractInverse` variant this determines what "un-doing the redo"
+    /// would require:
+    ///
+    /// - `DeleteNote`     (undo was: un-do a CreateNote) → redo re-deletes.
+    ///                    Build `SubtreeRestore` from current state.
+    /// - `SubtreeRestore` (undo was: un-do a DeleteNote) → redo re-deletes root.
+    ///                    Build `DeleteNote`.
+    /// - `NoteRestore`    → redo re-updates. Capture current state as `NoteRestore`.
+    /// - `PositionRestore`→ redo re-moves. Capture current position as `PositionRestore`.
+    /// - `DeleteScript`   → redo re-deletes. Script no longer exists post-undo;
+    ///                    use a stub `ScriptRestore` (deletion needs no data).
+    /// - `ScriptRestore`  → redo re-restores. Build `DeleteScript`.
+    /// - `Batch`          → recurse in reverse LIFO order.
+    fn build_redo_inverse(&self, undo_entry: &UndoEntry) -> Result<RetractInverse> {
+        match &undo_entry.inverse {
+            RetractInverse::DeleteNote { note_id } => {
+                // Undo was DeleteNote (undoing CreateNote). Redo = re-delete.
+                // Current state: note exists. Capture subtree for redo's undo.
+                let notes = self.collect_subtree_notes(note_id)?;
+                let attachments = self.get_attachments(note_id).unwrap_or_default();
+                Ok(RetractInverse::SubtreeRestore { notes, attachments })
+            }
+            RetractInverse::SubtreeRestore { notes, .. } => {
+                // Undo was SubtreeRestore (undoing DeleteNote). Redo = re-delete root.
+                let root_id = notes.first().map(|n| n.id.clone())
+                    .ok_or_else(|| KrillnotesError::ValidationFailed("empty subtree in redo inverse".into()))?;
+                Ok(RetractInverse::DeleteNote { note_id: root_id })
+            }
+            RetractInverse::NoteRestore { note_id, .. } => {
+                let current = self.get_note(note_id)?;
+                Ok(RetractInverse::NoteRestore {
+                    note_id: note_id.clone(),
+                    old_title: current.title,
+                    old_fields: current.fields,
+                    old_tags: current.tags,
+                })
+            }
+            RetractInverse::PositionRestore { note_id, .. } => {
+                let current = self.get_note(note_id)?;
+                Ok(RetractInverse::PositionRestore {
+                    note_id: note_id.clone(),
+                    old_parent_id: current.parent_id,
+                    old_position: current.position,
+                })
+            }
+            RetractInverse::DeleteScript { script_id } => {
+                // Script was deleted by undo (undoing CreateScript). Redo = re-delete.
+                // Script no longer exists; return a stub ScriptRestore as placeholder.
+                // apply_retract_inverse_internal(DeleteScript) just deletes — no data
+                // needed for the deletion itself, but the redo entry must invert to
+                // something that can be applied should the redo itself be undone.
+                Ok(RetractInverse::ScriptRestore {
+                    script_id: script_id.clone(),
+                    name: String::new(),
+                    description: String::new(),
+                    source_code: String::new(),
+                    load_order: 0,
+                    enabled: false,
+                })
+            }
+            RetractInverse::ScriptRestore { script_id, .. } => {
+                Ok(RetractInverse::DeleteScript { script_id: script_id.clone() })
+            }
+            RetractInverse::Batch(items) => {
+                // Build redo inverses in reverse order (LIFO mirror).
+                let mut redo_items = Vec::with_capacity(items.len());
+                for item in items.iter().rev() {
+                    let entry = UndoEntry {
+                        retracted_ids: vec![],
+                        inverse: item.clone(),
+                        propagate: undo_entry.propagate,
+                    };
+                    redo_items.push(self.build_redo_inverse(&entry)?);
+                }
+                Ok(RetractInverse::Batch(redo_items))
+            }
+        }
     }
 
     /// Fetches a single note by ID.
@@ -5197,5 +5378,46 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         ws.delete_user_script(&script.id).unwrap();
         assert!(ws.can_undo());
         assert!(matches!(ws.undo_stack[0].inverse, RetractInverse::ScriptRestore { .. }));
+    }
+
+    #[test]
+    fn test_undo_redo_create_note_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        assert!(ws.can_undo());
+        assert!(!ws.can_redo());
+
+        ws.undo().unwrap();
+        assert!(ws.get_note(&child_id).is_err(), "note removed by undo");
+        assert!(!ws.can_undo());
+        assert!(ws.can_redo());
+
+        ws.redo().unwrap();
+        assert!(ws.can_undo());
+        assert!(!ws.can_redo());
+        // Note should be back — look it up by parent.
+        let children = ws.get_children(&root_id).unwrap();
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn test_undo_delete_note_full_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        ws.delete_note_recursive(&child_id).unwrap();
+        ws.undo().unwrap();
+
+        // Note must be back.
+        assert!(ws.get_note(&child_id).is_ok());
     }
 }
