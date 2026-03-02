@@ -2289,6 +2289,14 @@ impl Workspace {
 
         tx.commit()?;
 
+        // Push undo entry — inverse of CreateUserScript is DeleteScript.
+        let op_id = op.operation_id().to_string();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::DeleteScript { script_id: id.clone() },
+            propagate: true,
+        });
+
         // Full reload to ensure deterministic ordering and collect any load errors.
         let errors = self.reload_scripts()?;
         let script = self.get_user_script(&id)?;
@@ -2314,6 +2322,9 @@ impl Workspace {
             let _ = self.reload_scripts(); // restore registry; ignore restoration errors
             return Err(e);
         }
+
+        // Capture old script state BEFORE the update for undo.
+        let old_script = self.get_user_script(script_id)?;
 
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
@@ -2351,6 +2362,21 @@ impl Workspace {
 
         tx.commit()?;
 
+        // Push undo entry — inverse of UpdateUserScript is ScriptRestore to old state.
+        let op_id = op.operation_id().to_string();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::ScriptRestore {
+                script_id: script_id.to_string(),
+                name: old_script.name,
+                description: old_script.description,
+                source_code: old_script.source_code,
+                load_order: old_script.load_order,
+                enabled: old_script.enabled,
+            },
+            propagate: true,
+        });
+
         let errors = self.reload_scripts()?;
         let script = self.get_user_script(script_id)?;
         Ok((script, errors))
@@ -2358,6 +2384,9 @@ impl Workspace {
 
     /// Deletes a user script by ID and reloads remaining scripts.
     pub fn delete_user_script(&mut self, script_id: &str) -> Result<Vec<ScriptError>> {
+        // Capture old script state BEFORE deletion for undo.
+        let old_script = self.get_user_script(script_id)?;
+
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -2374,6 +2403,21 @@ impl Workspace {
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
+
+        // Push undo entry — inverse of DeleteUserScript is ScriptRestore.
+        let op_id = op.operation_id().to_string();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::ScriptRestore {
+                script_id: script_id.to_string(),
+                name: old_script.name,
+                description: old_script.description,
+                source_code: old_script.source_code,
+                load_order: old_script.load_order,
+                enabled: old_script.enabled,
+            },
+            propagate: true,
+        });
 
         self.reload_scripts()
     }
@@ -5138,5 +5182,20 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             }
             _ => panic!("expected PositionRestore"),
         }
+    }
+
+    #[test]
+    fn test_undo_delete_script_restores_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+
+        let src = "// @name: TestScript\n// @description: desc\n";
+        let (script, _) = ws.create_user_script(src).unwrap();
+        ws.undo_stack.clear();
+
+        ws.delete_user_script(&script.id).unwrap();
+        assert!(ws.can_undo());
+        assert!(matches!(ws.undo_stack[0].inverse, RetractInverse::ScriptRestore { .. }));
     }
 }
