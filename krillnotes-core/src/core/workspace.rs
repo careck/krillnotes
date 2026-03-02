@@ -1004,6 +1004,12 @@ impl Workspace {
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
         tx.commit()?;
 
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![],
+            inverse: RetractInverse::DeleteNote { note_id: root_new_id.clone() },
+            propagate: true,
+        });
+
         Ok(root_new_id)
     }
 

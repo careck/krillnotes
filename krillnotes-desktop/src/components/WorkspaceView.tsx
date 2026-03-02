@@ -155,7 +155,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       await loadNotes();
       if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
       await refreshUndoState();
-    } catch { /* nothing to undo */ }
+    } catch (e) {
+      const msg = String(e);
+      if (!msg.includes('Nothing to undo') && !msg.includes('Nothing to redo')) {
+        console.error('[undo/redo]', e);
+      }
+    }
   }, [refreshUndoState]);
 
   const performRedo = useCallback(async () => {
@@ -164,7 +169,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       await loadNotes();
       if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
       await refreshUndoState();
-    } catch { /* nothing to redo */ }
+    } catch (e) {
+      const msg = String(e);
+      if (!msg.includes('Nothing to undo') && !msg.includes('Nothing to redo')) {
+        console.error('[undo/redo]', e);
+      }
+    }
   }, [refreshUndoState]);
 
   // Load notes on mount
@@ -649,7 +659,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setShowDeleteDialog(false);
       setPendingDeleteId(null);
       setIsDeleting(false);
-      handleNoteUpdated();
+      await handleNoteUpdated();
     } catch (err) {
       alert(t('workspace.failedDelete', { error: String(err) }));
       setShowDeleteDialog(false);
