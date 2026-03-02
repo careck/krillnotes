@@ -1081,6 +1081,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -1127,6 +1129,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -1153,6 +1157,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -1360,6 +1366,34 @@ mod tests {
         let schema = registry.get_schema("TitleExplicit").unwrap();
         assert!(schema.title_can_view,  "explicit title_can_view: true should parse as true");
         assert!(schema.title_can_edit,  "explicit title_can_edit: true should parse as true");
+    }
+
+    #[test]
+    fn test_schema_allow_attachments_defaults_to_false() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("AttachTest", #{
+                fields: [#{ name: "name", type: "text" }]
+            });
+        "#, "test").unwrap();
+        let schema = registry.get_schema("AttachTest").unwrap();
+        assert!(!schema.allow_attachments, "allow_attachments should default to false");
+        assert!(schema.attachment_types.is_empty(), "attachment_types should default to empty");
+    }
+
+    #[test]
+    fn test_schema_allow_attachments_explicit_with_types() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                allow_attachments: true,
+                attachment_types: ["image/jpeg", "image/png"],
+                fields: [#{ name: "caption", type: "text" }]
+            });
+        "#, "test").unwrap();
+        let schema = registry.get_schema("PhotoNote").unwrap();
+        assert!(schema.allow_attachments);
+        assert_eq!(schema.attachment_types, vec!["image/jpeg", "image/png"]);
     }
 
     #[test]
@@ -2529,6 +2563,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));

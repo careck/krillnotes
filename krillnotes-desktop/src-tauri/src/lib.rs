@@ -551,6 +551,8 @@ struct SchemaInfo {
     children_sort: String,
     allowed_parent_types: Vec<String>,
     allowed_children_types: Vec<String>,
+    allow_attachments: bool,
+    attachment_types: Vec<String>,
     has_view_hook: bool,
     has_hover_hook: bool,
 }
@@ -587,6 +589,8 @@ fn get_schema_fields(
         children_sort: schema.children_sort,
         allowed_parent_types: schema.allowed_parent_types,
         allowed_children_types: schema.allowed_children_types,
+        allow_attachments: schema.allow_attachments,
+        attachment_types: schema.attachment_types,
     })
 }
 
@@ -614,6 +618,8 @@ fn get_all_schemas(
             children_sort: schema.children_sort,
             allowed_parent_types: schema.allowed_parent_types,
             allowed_children_types: schema.allowed_children_types,
+            allow_attachments: schema.allow_attachments,
+            attachment_types: schema.attachment_types,
         });
     }
     Ok(result)

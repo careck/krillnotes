@@ -55,6 +55,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     allowedChildrenTypes: [],
     hasViewHook: false,
     hasHoverHook: false,
+    allowAttachments: false,
+    attachmentTypes: [],
   });
   const [customViewHtml, setCustomViewHtml] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -77,6 +79,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const emptySchemaInfo: SchemaInfo = {
     fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none',
     allowedParentTypes: [], allowedChildrenTypes: [], hasViewHook: false, hasHoverHook: false,
+    allowAttachments: false, attachmentTypes: [],
   };
 
   useEffect(() => {
@@ -570,7 +573,12 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       </div>
 
       {/* Attachments */}
-      <AttachmentsSection noteId={selectedNote?.id ?? null} />
+      {schemaInfo?.allowAttachments && (
+        <AttachmentsSection
+          noteId={selectedNote?.id ?? null}
+          allowedTypes={schemaInfo.attachmentTypes}
+        />
+      )}
 
       {/* Metadata Section */}
       <details className="bg-secondary rounded-lg">

@@ -63,6 +63,8 @@ export interface SchemaInfo {
   allowedChildrenTypes: string[];
   hasViewHook: boolean;
   hasHoverHook: boolean;
+  allowAttachments: boolean;
+  attachmentTypes: string[];
 }
 
 export enum DeleteStrategy {

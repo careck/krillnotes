@@ -5,8 +5,24 @@ import { confirm } from '@tauri-apps/plugin-dialog';
 import { Paperclip, Trash2, FileText, Image } from 'lucide-react';
 import type { AttachmentMeta } from '../types';
 
+function mimeToExtension(mime: string): string {
+  const sub = mime.split('/')[1] ?? mime;
+  const clean = sub.split(';')[0].trim();
+  const special: Record<string, string> = {
+    'svg+xml': 'svg',
+    'x-matroska': 'mkv',
+    'vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'x-m4v': 'mp4',
+    'quicktime': 'mov',
+  };
+  return special[clean] ?? clean.replace(/\+.*$/, '').replace(/^x-/, '');
+}
+
 interface AttachmentsSectionProps {
   noteId: string | null;
+  allowedTypes: string[];   // MIME types; empty = all allowed
 }
 
 function formatBytes(bytes: number): string {
@@ -19,7 +35,7 @@ function isImageMime(mime: string | null): boolean {
   return mime?.startsWith('image/') ?? false;
 }
 
-export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) {
+export default function AttachmentsSection({ noteId, allowedTypes }: AttachmentsSectionProps) {
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -47,6 +63,7 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
   useEffect(() => {
     loadAttachments();
     setThumbnails({});
+    setError('');
   }, [noteId]);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
@@ -60,6 +77,10 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
     if (!noteId) return;
     const files = Array.from(e.dataTransfer.files);
     for (const file of files) {
+      if (allowedTypes.length > 0 && !allowedTypes.includes(file.type)) {
+        setError(`File type "${file.type || file.name}" is not allowed.`);
+        continue;
+      }
       try {
         const buffer = await file.arrayBuffer();
         // Encode filename as base64(UTF-8 bytes) — http headers are ASCII-only.
@@ -81,7 +102,13 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
     if (!noteId) return;
     setError('');
     try {
-      const selected = await openFilePicker({ multiple: true });
+      const filters = allowedTypes.length > 0
+        ? [{ name: 'Allowed files', extensions: allowedTypes.flatMap(m => {
+            const ext = mimeToExtension(m);
+            return ext === 'jpeg' ? ['jpeg', 'jpg'] : [ext];
+          }) }]
+        : [];
+      const selected = await openFilePicker({ multiple: true, filters });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
       for (const filePath of paths) {
