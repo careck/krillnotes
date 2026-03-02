@@ -45,7 +45,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Erscheinungsbild",
     "sync": "Sync",
-    "syncHint": "Sync hält deine Notizen auf allen Geräten auf dem neuesten Stand. Kommt bald."
+    "syncHint": "Sync hält deine Notizen auf allen Geräten auf dem neuesten Stand. Kommt bald.",
+    "undoHistoryLimit": "Rückgängig-Verlauf-Limit",
+    "undoHistoryLimitHint": "Anzahl der Aktionen, die rückgängig gemacht werden können (1–500)"
   },
   "themes": {
     "manage": "Designs verwalten",

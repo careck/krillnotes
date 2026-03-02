@@ -45,7 +45,9 @@
     "tabSync": "同步",
     "tabAppearance": "外观",
     "sync": "同步",
-    "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。"
+    "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。",
+    "undoHistoryLimit": "撤销历史限制",
+    "undoHistoryLimitHint": "可撤销的操作数量（1–500）"
   },
   "themes": {
     "manage": "管理主题",

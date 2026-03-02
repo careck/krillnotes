@@ -45,7 +45,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Apariencia",
     "sync": "Sync",
-    "syncHint": "La sincronización mantiene tus notas actualizadas en todos tus dispositivos. Próximamente."
+    "syncHint": "La sincronización mantiene tus notas actualizadas en todos tus dispositivos. Próximamente.",
+    "undoHistoryLimit": "Límite del historial de deshacer",
+    "undoHistoryLimitHint": "Número de acciones que se pueden deshacer (1–500)"
   },
   "themes": {
     "manage": "Gestionar temas",

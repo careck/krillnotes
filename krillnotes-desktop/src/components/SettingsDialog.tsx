@@ -23,6 +23,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const { activeMode, lightThemeName, darkThemeName, themes, setMode, setLightTheme, setDarkTheme } = useTheme();
   const [manageThemesOpen, setManageThemesOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'sync'>('general');
+  const [undoLimit, setUndoLimit] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (isOpen) {
@@ -35,6 +36,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           setError('');
         })
         .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
+      invoke<number>('get_undo_limit').then(setUndoLimit).catch(() => {});
     }
   }, [isOpen]);
 
@@ -84,6 +86,9 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           language,
         },
       });
+      if (undoLimit !== undefined) {
+        await invoke('set_undo_limit', { limit: undoLimit });
+      }
       setOriginalLanguage(language); // committed — no revert on close
       onClose();
     } catch (err) {
@@ -175,6 +180,27 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                   </span>
                 </div>
               </label>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium">
+                {t('settings.undoHistoryLimit')}
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={undoLimit ?? 50}
+                disabled={undoLimit === undefined}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  if (!isNaN(v)) setUndoLimit(Math.max(1, Math.min(500, v)));
+                }}
+                className="bg-background border border-input rounded px-2 py-1 text-sm w-24 disabled:opacity-50"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.undoHistoryLimitHint')}
+              </p>
             </div>
 
           </>

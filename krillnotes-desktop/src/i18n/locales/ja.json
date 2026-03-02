@@ -45,7 +45,9 @@
     "tabSync": "同期",
     "tabAppearance": "外観",
     "sync": "同期",
-    "syncHint": "同期により、デバイス間でノートを常に最新の状態に保ちます。近日公開。"
+    "syncHint": "同期により、デバイス間でノートを常に最新の状態に保ちます。近日公開。",
+    "undoHistoryLimit": "元に戻す履歴の上限",
+    "undoHistoryLimitHint": "元に戻せる操作の数（1〜500）"
   },
   "themes": {
     "manage": "テーマを管理",

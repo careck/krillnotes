@@ -45,7 +45,9 @@
     "tabSync": "동기화",
     "tabAppearance": "외관",
     "sync": "동기화",
-    "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다."
+    "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다.",
+    "undoHistoryLimit": "실행 취소 기록 한도",
+    "undoHistoryLimitHint": "실행 취소할 수 있는 작업 수 (1–500)"
   },
   "themes": {
     "manage": "테마 관리",

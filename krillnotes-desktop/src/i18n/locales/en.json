@@ -45,7 +45,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Appearance",
     "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon.",
+    "undoHistoryLimit": "Undo history limit",
+    "undoHistoryLimitHint": "Number of actions that can be undone (1–500)"
   },
   "themes": {
     "manage": "Manage Themes",
