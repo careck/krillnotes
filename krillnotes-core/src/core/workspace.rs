@@ -1693,6 +1693,18 @@ impl Workspace {
         // 9. Commit
         tx.commit()?;
 
+        // Push undo entry — inverse of MoveNote is PositionRestore.
+        let op_id = op.operation_id().to_string();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::PositionRestore {
+                note_id: note_id.to_string(),
+                old_parent_id,
+                old_position,
+            },
+            propagate: true,
+        });
+
         Ok(())
     }
 
@@ -1861,6 +1873,16 @@ impl Workspace {
     /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
     /// The transaction is rolled back automatically on any failure.
     pub fn delete_note_promote(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Capture before-state for undo before any mutations.
+        // Map Database error (QueryReturnedNoRows) to NoteNotFound for a missing ID.
+        let deleted_note = self.get_note(note_id)
+            .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+        let children = self.get_children(note_id)?;
+        let deleted_attachments = self.get_attachments(note_id).unwrap_or_default();
+
+        // Generate a stable operation ID before the deletion transaction.
+        let op_id = Uuid::new_v4().to_string();
+
         // Clear incoming NoteLink fields from other notes before opening the
         // deletion transaction (satisfies note_links.target_id ON DELETE RESTRICT).
         self.clear_links_to(note_id)?;
@@ -1904,7 +1926,47 @@ impl Workspace {
             rusqlite::params![note_id],
         )?;
 
+        // Log a DeleteNote operation for the promoted note.
+        let op = Operation::DeleteNote {
+            operation_id: op_id.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+        };
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+
         tx.commit()?;
+
+        // Build the Batch undo entry.
+        //
+        // `apply_retract_inverse_internal` applies Batch items with `.iter().rev()`
+        // (LIFO), so the last item pushed is applied first.
+        //
+        // Required execution order on undo:
+        //   1. SubtreeRestore — recreates the deleted note (must exist before
+        //      children can point to it).
+        //   2. PositionRestore for each child — moves them back to point at the
+        //      restored note (each child's old_parent_id was note_id).
+        //
+        // To achieve that with LIFO: push PositionRestores FIRST, SubtreeRestore LAST.
+        let mut batch_items: Vec<RetractInverse> = Vec::new();
+        for child in &children {
+            batch_items.push(RetractInverse::PositionRestore {
+                note_id: child.id.clone(),
+                old_parent_id: Some(deleted_note.id.clone()),
+                old_position: child.position,
+            });
+        }
+        batch_items.push(RetractInverse::SubtreeRestore {
+            notes: vec![deleted_note.clone()],
+            attachments: deleted_attachments,
+        });
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::Batch(batch_items),
+            propagate: true,
+        });
 
         Ok(DeleteResult {
             deleted_count: 1,
@@ -5052,5 +5114,29 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
 
         // Undo entry must be SubtreeRestore.
         assert!(matches!(ws.undo_stack[0].inverse, RetractInverse::SubtreeRestore { .. }));
+    }
+
+    #[test]
+    fn test_undo_move_note_restores_position() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let sibling_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        let old_note = ws.get_note(&sibling_id).unwrap();
+        ws.move_note(&sibling_id, Some(&child_id), 0).unwrap();
+
+        assert!(ws.can_undo());
+        match &ws.undo_stack[0].inverse {
+            RetractInverse::PositionRestore { note_id, old_parent_id, old_position } => {
+                assert_eq!(note_id, &sibling_id);
+                assert_eq!(old_parent_id, &old_note.parent_id);
+                assert_eq!(*old_position, old_note.position);
+            }
+            _ => panic!("expected PositionRestore"),
+        }
     }
 }
