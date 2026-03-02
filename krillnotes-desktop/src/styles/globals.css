@@ -402,3 +402,63 @@ body {
   white-space: nowrap;
   max-width: 180px;
 }
+
+/* ── Media embed cards ─────────────────────────────────────────────────────── */
+
+.kn-media-thumbnail {
+  position: relative;
+  display: block;
+  max-width: 480px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.kn-media-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.kn-media-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 56px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 20px;
+  pointer-events: none;
+}
+
+.kn-media-card {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 8px 0;
+  max-width: 480px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.kn-media-card--instagram {
+  background: linear-gradient(45deg, #833ab4, #fd1d1d, #fcb045);
+  color: white;
+}
+
+.kn-media-card-label {
+  font-size: 14px;
+  font-weight: 500;
+}

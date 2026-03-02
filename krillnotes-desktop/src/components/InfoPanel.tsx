@@ -189,6 +189,51 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     ).catch(err => console.error('Image hydration error:', err));
   }, [customViewHtml]);
 
+  // Hydrate [data-kn-embed-type] sentinels into click-to-play media cards
+  useEffect(() => {
+    const container = viewHtmlRef.current;
+    if (!container || !customViewHtml) return;
+
+    const sentinels = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-kn-embed-type]')
+    );
+
+    sentinels.forEach((el) => {
+      const type = el.getAttribute('data-kn-embed-type');
+      const id   = el.getAttribute('data-kn-embed-id') ?? '';
+      const url  = el.getAttribute('data-kn-embed-url') ?? '';
+
+      const card = document.createElement('div');
+
+      if (type === 'youtube' && id) {
+        card.className = 'kn-media-thumbnail';
+        const img = document.createElement('img');
+        img.src = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+        img.alt = 'Video thumbnail';
+        const play = document.createElement('div');
+        play.className = 'kn-media-play-btn';
+        play.textContent = '▶';
+        card.appendChild(img);
+        card.appendChild(play);
+      } else if (type === 'instagram') {
+        card.className = 'kn-media-card kn-media-card--instagram';
+        const label = document.createElement('span');
+        label.className = 'kn-media-card-label';
+        label.textContent = 'Open on Instagram ↗';
+        card.appendChild(label);
+      } else {
+        return; // unknown type — leave sentinel in place
+      }
+
+      card.addEventListener('click', () => {
+        if (url.startsWith('https://') || url.startsWith('http://')) {
+          openUrl(url);
+        }
+      });
+      el.replaceWith(card);
+    });
+  }, [customViewHtml]);
+
   // Focus first editable field whenever edit mode activates
   useEffect(() => {
     if (!isEditing) return;
@@ -385,7 +430,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         {!isEditing && customViewHtml && (
           <div
             ref={viewHtmlRef}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i }) }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id', 'data-kn-embed-type', 'data-kn-embed-id', 'data-kn-embed-url'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i }) }}
             onClick={(e) => {
               const target = e.target as Element;
 
