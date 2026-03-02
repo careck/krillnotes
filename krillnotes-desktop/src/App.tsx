@@ -104,6 +104,31 @@ function App() {
     }
   }, []);
 
+  // Cold-start: pull any file path that arrived via OS file-open before JS
+  // listeners were registered. Only the "main" (launcher) window handles imports.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    if (win.label !== 'main') return;
+    invoke<string | null>('consume_pending_file_open').then(path => {
+      if (path) proceedWithImport(path, null);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Warm-start (macOS): the backend emits "file-opened" when the app is already
+  // running and the user opens a .krillnotes file from the OS.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    if (win.label !== 'main') return;
+    const unlisten = win.listen<string>('file-opened', () => {
+      // Path is already stored in AppState; use the canonical pull command so
+      // both paths (cold and warm start) share the same read-and-clear logic.
+      invoke<string | null>('consume_pending_file_open').then(p => {
+        if (p) proceedWithImport(p, null);
+      });
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Apply saved language on startup
   useEffect(() => {
     invoke<AppSettings>('get_settings')

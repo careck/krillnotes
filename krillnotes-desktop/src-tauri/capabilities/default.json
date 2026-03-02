@@ -8,6 +8,7 @@
     "opener:default",
     "dialog:default",
     "dialog:allow-save",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "deep-link:default"
   ]
 }

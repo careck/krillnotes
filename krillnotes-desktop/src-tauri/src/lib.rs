@@ -50,6 +50,10 @@ pub struct AppState {
     /// language changes, but items are enabled at build time so the stored handles are
     /// never read back to toggle enabled state.
     pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<tauri::menu::MenuItem<tauri::Wry>>>>>,
+    /// File path that arrived via OS file-open before the frontend JS was
+    /// ready to receive a pushed event. Cleared on first read by
+    /// `consume_pending_file_open`. `None` when no file is pending.
+    pub pending_file_open: Arc<Mutex<Option<PathBuf>>>,
 }
 
 /// Serialisable summary of an open workspace, returned to the frontend.
@@ -110,6 +114,60 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
             window.set_focus()
                 .map_err(|e| format!("Failed to focus: {e}"))
         })
+}
+
+/// Dispatches an OS file-open event to the appropriate handler based on
+/// the file extension. Add new file type handlers here as new cases.
+fn handle_file_opened(app: &AppHandle, state: &AppState, path: PathBuf) {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("krillnotes") => handle_krillnotes_open(app, state, path),
+        // future: Some("swarm") => handle_swarm_open(app, state, path),
+        _ => {}
+    }
+}
+
+/// Handles opening a `.krillnotes` file from the OS.
+///
+/// Stores the path in [`AppState::pending_file_open`] for the cold-start
+/// case (frontend not yet ready), then either emits a `"file-opened"` event
+/// to the existing `"main"` window or creates a new one that will poll
+/// `consume_pending_file_open` on mount.
+fn handle_krillnotes_open(app: &AppHandle, state: &AppState, path: PathBuf) {
+    {
+        let mut pending = state.pending_file_open.lock().expect("Mutex poisoned");
+        *pending = Some(path.clone());
+    }
+
+    if let Some(win) = app.get_webview_window("main") {
+        // App is warm-started and the launcher window is open — JS is listening.
+        // Emit the event; the listener calls consume_pending_file_open to dequeue.
+        win.emit("file-opened", path.to_string_lossy().to_string()).ok();
+    } else {
+        // No launcher window — create one. Its mount effect will call
+        // consume_pending_file_open and start the import flow.
+        create_main_window(app);
+    }
+}
+
+/// Creates a new launcher ("main") window programmatically.
+///
+/// Used when the user opens a `.krillnotes` file while all launcher windows
+/// have been closed (only workspace windows remain open).
+fn create_main_window(app: &AppHandle) {
+    let lang = settings::load_settings().language;
+    let strings = locales::menu_strings(&lang);
+    if let Ok(menu_result) = menu::build_menu(app, &strings) {
+        let _ = tauri::WebviewWindowBuilder::new(
+            app,
+            "main",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Krillnotes")
+        .inner_size(800.0, 600.0)
+        .disable_drag_drop_handler()
+        .menu(menu_result.menu)
+        .build();
+    }
 }
 
 /// Opens a new 1024×768 webview window with the given `label`.
@@ -1225,6 +1283,23 @@ fn get_app_version() -> String {
     APP_VERSION.to_string()
 }
 
+/// Dequeues and returns the pending file path that arrived via OS file-open
+/// before the frontend was ready. Returns `None` when no file is pending.
+///
+/// This is the pull-side of the cold-start delivery mechanism. The frontend
+/// calls this once on mount (main window only) so that files opened at app
+/// launch are handled even if the `"file-opened"` push event fired before
+/// the JS listener was registered.
+#[tauri::command]
+fn consume_pending_file_open(state: State<'_, AppState>) -> Option<String> {
+    state
+        .pending_file_open
+        .lock()
+        .expect("Mutex poisoned")
+        .take()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 /// Returns the cached password for the workspace at `path`, if one is stored.
 ///
 /// Returns `None` when the `cache_workspace_passwords` setting is disabled or
@@ -1626,6 +1701,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(AppState {
             workspaces: Arc::new(Mutex::new(HashMap::new())),
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
@@ -1633,6 +1709,7 @@ pub fn run() {
             workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
+            pending_file_open: Arc::new(Mutex::new(None)),
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();
@@ -1717,6 +1794,21 @@ pub fn run() {
                 }
             }
 
+            // Windows / Linux cold-start: the OS passes the file path as a
+            // CLI argument when the user opens a .krillnotes file.
+            // On macOS this path is empty (files arrive via RunEvent::Opened instead).
+            let state_ref = app.state::<AppState>();
+            let file_args: Vec<PathBuf> = std::env::args()
+                .skip(1)
+                .filter_map(|a| {
+                    let p = PathBuf::from(&a);
+                    if p.exists() { Some(p) } else { None }
+                })
+                .collect();
+            for path in file_args {
+                handle_file_opened(app.handle(), &state_ref, path);
+            }
+
             Ok(())
         })
         .on_menu_event(handle_menu_event)
@@ -1762,6 +1854,7 @@ pub fn run() {
             peek_import_cmd,
             execute_import,
             get_app_version,
+            consume_pending_file_open,
             get_settings,
             update_settings,
             list_themes,
@@ -1778,8 +1871,27 @@ pub fn run() {
             delete_attachment,
             open_attachment,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // macOS warm-start and cold-start: the OS delivers file-open events via the
+            // NSApplicationDelegate applicationOpenURLs: callback, which Tauri surfaces
+            // here as RunEvent::Opened. On Windows and Linux the OS spawns a fresh
+            // process instead, so files arrive via std::env::args() in setup().
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                let state = app_handle.state::<AppState>();
+                for url in urls {
+                    if url.scheme() == "file" {
+                        let path = PathBuf::from(url.path());
+                        if path.exists() {
+                            handle_file_opened(app_handle, &state, path);
+                        }
+                    }
+                }
+            }
+            let _ = event;
+        });
 }
 
 #[cfg(test)]
