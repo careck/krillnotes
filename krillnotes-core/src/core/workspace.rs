@@ -379,6 +379,41 @@ impl Workspace {
         }
     }
 
+    /// Opens an undo group. Subsequent mutations accumulate in a staging buffer
+    /// until `end_undo_group` is called, at which point they are collapsed into
+    /// a single `UndoEntry` with a `RetractInverse::Batch` inverse.
+    ///
+    /// Nested calls are ignored — the outermost begin/end pair wins.
+    pub fn begin_undo_group(&mut self) {
+        if self.undo_group_buffer.is_none() {
+            self.undo_group_buffer = Some(Vec::new());
+        }
+    }
+
+    /// Closes the undo group and pushes a single batched `UndoEntry`.
+    /// If the buffer is empty or no group is open, this is a no-op.
+    pub fn end_undo_group(&mut self) {
+        let Some(mut buf) = self.undo_group_buffer.take() else { return };
+        if buf.is_empty() { return; }
+
+        let retracted_ids: Vec<String> = buf.iter()
+            .flat_map(|e| e.retracted_ids.iter().cloned())
+            .collect();
+        let propagate = buf.iter().any(|e| e.propagate);
+        // Build Batch in original order; undo will apply LIFO.
+        let inverses: Vec<RetractInverse> = buf.drain(..).map(|e| e.inverse).collect();
+
+        self.redo_stack.clear();
+        self.undo_stack.push(UndoEntry {
+            retracted_ids,
+            inverse: RetractInverse::Batch(inverses),
+            propagate,
+        });
+        if self.undo_stack.len() > self.undo_limit {
+            self.undo_stack.remove(0);
+        }
+    }
+
     /// Fetches a single note by ID.
     ///
     /// # Errors
@@ -4663,5 +4698,26 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let ws = Workspace::create(&path, "").unwrap();
         assert!(!ws.can_undo());
         assert!(!ws.can_redo());
+    }
+
+    #[test]
+    fn test_undo_group_collapses_to_one_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        // Clear the undo entry from root creation
+        ws.undo_stack.clear();
+
+        ws.begin_undo_group();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.end_undo_group();
+
+        assert_eq!(ws.undo_stack.len(), 1, "group must collapse to one entry");
+        match &ws.undo_stack[0].inverse {
+            RetractInverse::Batch(items) => assert_eq!(items.len(), 2),
+            _ => panic!("expected Batch"),
+        }
     }
 }
