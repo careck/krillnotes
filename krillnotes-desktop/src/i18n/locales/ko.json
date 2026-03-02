@@ -134,7 +134,9 @@
     "importingProgress": "{{noteCount}}개의 노트와 {{scriptCount}}개의 스크립트를 가져오는 중.",
     "propertiesLoadFailed": "작업 공간 속성을 불러오지 못했습니다: {{error}}",
     "failedCheckChildren": "하위 항목을 확인하지 못했습니다: {{error}}",
-    "failedDelete": "삭제하지 못했습니다: {{error}}"
+    "failedDelete": "삭제하지 못했습니다: {{error}}",
+    "undoTooltip": "실행 취소 (Cmd+Z)",
+    "redoTooltip": "다시 실행 (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

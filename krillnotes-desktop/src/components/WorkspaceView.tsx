@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Undo2, Redo2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useTranslation } from 'react-i18next';
@@ -148,6 +149,24 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     setCanRedo(r);
   }, []);
 
+  const performUndo = useCallback(async () => {
+    try {
+      const result = await invoke<UndoResult>('undo');
+      await loadNotes();
+      if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+      await refreshUndoState();
+    } catch { /* nothing to undo */ }
+  }, [refreshUndoState]);
+
+  const performRedo = useCallback(async () => {
+    try {
+      const result = await invoke<UndoResult>('redo');
+      await loadNotes();
+      if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+      await refreshUndoState();
+    } catch { /* nothing to redo */ }
+  }, [refreshUndoState]);
+
   // Load notes on mount
   useEffect(() => {
     loadNotes();
@@ -286,25 +305,15 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       if (isInputFocused()) return;
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        try {
-          const result = await invoke<UndoResult>('undo');
-          await loadNotes();
-          if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
-          await refreshUndoState();
-        } catch { /* nothing to undo */ }
+        await performUndo();
       } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
         e.preventDefault();
-        try {
-          const result = await invoke<UndoResult>('redo');
-          await loadNotes();
-          if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
-          await refreshUndoState();
-        } catch { /* nothing to redo */ }
+        await performRedo();
       }
     };
     document.addEventListener('keydown', handleUndoRedo);
     return () => document.removeEventListener('keydown', handleUndoRedo);
-  }, [refreshUndoState]);
+  }, [performUndo, performRedo]);
 
   // When this window regains focus, re-sync the native paste menu state.
   // This matters on macOS where a single menu bar is shared by all workspace
@@ -683,7 +692,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   }
 
   return (
-    <div className="flex h-screen" data-can-undo={canUndo} data-can-redo={canRedo}>
+    <div className="flex h-screen">
       {/* Left sidebar - Tree */}
       <div
         ref={treePanelRef}
@@ -741,17 +750,38 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       />
 
       {/* Right panel - Info */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <InfoPanel
-          selectedNote={selectedNote}
-          onNoteUpdated={handleNoteUpdated}
-          onDeleteRequest={handleDeleteRequest}
-          requestEditMode={requestEditMode}
-          onEditDone={handleEditDone}
-          onLinkNavigate={handleLinkNavigate}
-          onBack={handleBack}
-          backNoteTitle={backNoteTitle}
-        />
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 px-2 py-1 border-b border-border shrink-0">
+          <button
+            onClick={performUndo}
+            disabled={!canUndo}
+            title={t('workspace.undoTooltip')}
+            className="p-1 rounded hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={performRedo}
+            disabled={!canRedo}
+            title={t('workspace.redoTooltip')}
+            className="p-1 rounded hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <InfoPanel
+            selectedNote={selectedNote}
+            onNoteUpdated={handleNoteUpdated}
+            onDeleteRequest={handleDeleteRequest}
+            requestEditMode={requestEditMode}
+            onEditDone={handleEditDone}
+            onLinkNavigate={handleLinkNavigate}
+            onBack={handleBack}
+            backNoteTitle={backNoteTitle}
+          />
+        </div>
       </div>
 
       {/* Add Note Dialog */}

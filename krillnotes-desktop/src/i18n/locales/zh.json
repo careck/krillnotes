@@ -134,7 +134,9 @@
     "importingProgress": "正在导入 {{noteCount}} 条笔记和 {{scriptCount}} 个脚本。",
     "propertiesLoadFailed": "加载工作区属性失败：{{error}}",
     "failedCheckChildren": "检查子项失败：{{error}}",
-    "failedDelete": "删除失败：{{error}}"
+    "failedDelete": "删除失败：{{error}}",
+    "undoTooltip": "撤销 (Cmd+Z)",
+    "redoTooltip": "重做 (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

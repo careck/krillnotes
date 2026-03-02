@@ -134,7 +134,9 @@
     "importingProgress": "Importing {{noteCount}} notes and {{scriptCount}} scripts.",
     "propertiesLoadFailed": "Failed to load workspace properties: {{error}}",
     "failedCheckChildren": "Failed to check children: {{error}}",
-    "failedDelete": "Failed to delete: {{error}}"
+    "failedDelete": "Failed to delete: {{error}}",
+    "undoTooltip": "Undo (Cmd+Z)",
+    "redoTooltip": "Redo (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

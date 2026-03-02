@@ -134,7 +134,9 @@
     "importingProgress": "Importiere {{noteCount}} Notizen und {{scriptCount}} Skripte.",
     "propertiesLoadFailed": "Arbeitsbereich-Eigenschaften konnten nicht geladen werden: {{error}}",
     "failedCheckChildren": "Unterelemente konnten nicht geprüft werden: {{error}}",
-    "failedDelete": "Löschen fehlgeschlagen: {{error}}"
+    "failedDelete": "Löschen fehlgeschlagen: {{error}}",
+    "undoTooltip": "Rückgängig (Cmd+Z)",
+    "redoTooltip": "Wiederholen (Cmd+Umschalt+Z)"
   },
   "dialogs": {
     "password": {

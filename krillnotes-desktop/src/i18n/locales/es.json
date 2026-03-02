@@ -134,7 +134,9 @@
     "importingProgress": "Importando {{noteCount}} notas y {{scriptCount}} scripts.",
     "propertiesLoadFailed": "Error al cargar las propiedades: {{error}}",
     "failedCheckChildren": "Error al comprobar los elementos hijos: {{error}}",
-    "failedDelete": "Error al eliminar: {{error}}"
+    "failedDelete": "Error al eliminar: {{error}}",
+    "undoTooltip": "Deshacer (Cmd+Z)",
+    "redoTooltip": "Rehacer (Cmd+Mayús+Z)"
   },
   "dialogs": {
     "password": {

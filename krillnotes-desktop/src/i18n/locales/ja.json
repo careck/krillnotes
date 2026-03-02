@@ -134,7 +134,9 @@
     "importingProgress": "{{noteCount}} 件のノートと {{scriptCount}} 件のスクリプトをインポート中。",
     "propertiesLoadFailed": "ワークスペースのプロパティの読み込みに失敗しました: {{error}}",
     "failedCheckChildren": "子要素の確認に失敗しました: {{error}}",
-    "failedDelete": "削除に失敗しました: {{error}}"
+    "failedDelete": "削除に失敗しました: {{error}}",
+    "undoTooltip": "元に戻す (Cmd+Z)",
+    "redoTooltip": "やり直す (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

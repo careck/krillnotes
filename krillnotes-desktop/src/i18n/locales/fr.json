@@ -134,7 +134,9 @@
     "importingProgress": "Importation de {{noteCount}} notes et {{scriptCount}} scripts.",
     "propertiesLoadFailed": "Échec du chargement des propriétés : {{error}}",
     "failedCheckChildren": "Échec de la vérification des enfants : {{error}}",
-    "failedDelete": "Échec de la suppression : {{error}}"
+    "failedDelete": "Échec de la suppression : {{error}}",
+    "undoTooltip": "Annuler (Cmd+Z)",
+    "redoTooltip": "Rétablir (Cmd+Maj+Z)"
   },
   "dialogs": {
     "password": {
