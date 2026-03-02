@@ -1081,6 +1081,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -1127,6 +1129,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -1153,6 +1157,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -2529,6 +2535,8 @@ mod tests {
             children_sort: "none".to_string(),
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));
