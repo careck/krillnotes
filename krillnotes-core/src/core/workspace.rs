@@ -46,7 +46,7 @@ pub enum AddPosition {
 pub struct Workspace {
     storage: Storage,
     script_registry: ScriptRegistry,
-    operation_log: Option<OperationLog>,
+    operation_log: OperationLog,
     device_id: String,
     current_user_id: i64,
     /// Root directory for this workspace (parent of `notes.db`).
@@ -67,7 +67,7 @@ impl Workspace {
     pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
-        let operation_log: Option<OperationLog> = None;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         // Get hardware-based device ID
         let device_id = get_device_id()?;
@@ -222,7 +222,7 @@ impl Workspace {
     pub fn open<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
-        let operation_log: Option<OperationLog> = None;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         // Read metadata from database
         let device_id = storage.connection()
@@ -321,25 +321,17 @@ impl Workspace {
         self.storage.connection()
     }
 
-    /// Logs an operation if sync is enabled (i.e. `operation_log` is `Some`).
+    /// Logs an operation to the always-active operation log.
     /// Takes the log as an explicit parameter to avoid a whole-`self` borrow
     /// conflict with the transaction (which is borrowed from `self.storage`).
-    /// Does nothing when `log` is `None`.
-    fn log_op(log: Option<&OperationLog>, tx: &rusqlite::Transaction, op: &Operation) -> Result<()> {
-        if let Some(log) = log {
-            log.log(tx, op)?;
-        }
-        Ok(())
+    fn log_op(log: &OperationLog, tx: &rusqlite::Transaction, op: &Operation) -> Result<()> {
+        log.log(tx, op)
     }
 
-    /// Purges stale operations if sync is enabled and the log is `Some`.
+    /// Purges stale operations from the always-active operation log.
     /// Takes the log as an explicit parameter for the same borrow-checker reason.
-    /// Does nothing when `log` is `None`.
-    fn purge_ops_if_needed(log: Option<&OperationLog>, tx: &rusqlite::Transaction) -> Result<()> {
-        if let Some(log) = log {
-            log.purge_if_needed(tx)?;
-        }
-        Ok(())
+    fn purge_ops_if_needed(log: &OperationLog, tx: &rusqlite::Transaction) -> Result<()> {
+        log.purge_if_needed(tx)
     }
 
     /// Fetches a single note by ID.
@@ -516,8 +508,8 @@ impl Workspace {
             fields: note.fields.clone(),
             created_by: note.created_by,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
         // Must run inside the transaction so the link update is atomic with the note write.
@@ -670,10 +662,10 @@ impl Workspace {
                 fields: note.fields.clone(),
                 created_by: self.current_user_id,
             };
-            Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+            Self::log_op(&self.operation_log, &tx, &op)?;
         }
 
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
         tx.commit()?;
 
         Ok(root_new_id)
@@ -746,8 +738,8 @@ impl Workspace {
             fields: new_note.fields.clone(),
             created_by: new_note.created_by,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
         // Must run inside the transaction so the link update is atomic with the note write.
@@ -783,8 +775,8 @@ impl Workspace {
             value: crate::FieldValue::Text(new_title),
             modified_by: self.current_user_id,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
         Ok(())
@@ -1236,7 +1228,7 @@ impl Workspace {
                     fields: create.fields.clone(),
                     created_by: self.current_user_id,
                 };
-                Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+                Self::log_op(&self.operation_log, &tx, &op)?;
             }
 
             // ── updates ────────────────────────────────────────────────────────
@@ -1266,7 +1258,7 @@ impl Workspace {
                     value: crate::FieldValue::Text(update.title.clone()),
                     modified_by: self.current_user_id,
                 };
-                Self::log_op(self.operation_log.as_ref(), &tx, &title_op)?;
+                Self::log_op(&self.operation_log, &tx, &title_op)?;
 
                 // Log one UpdateField per field value
                 for (field_key, field_value) in &update.fields {
@@ -1279,11 +1271,11 @@ impl Workspace {
                         value: field_value.clone(),
                         modified_by: self.current_user_id,
                     };
-                    Self::log_op(self.operation_log.as_ref(), &tx, &field_op)?;
+                    Self::log_op(&self.operation_log, &tx, &field_op)?;
                 }
             }
 
-            Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
             tx.commit()?;
         }
 
@@ -1571,8 +1563,8 @@ impl Workspace {
             new_parent_id: new_parent_id.map(|s| s.to_string()),
             new_position,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // 9. Commit
         tx.commit()?;
@@ -1920,7 +1912,7 @@ impl Workspace {
             value: crate::FieldValue::Text(title.clone()),
             modified_by: self.current_user_id,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &title_op)?;
+        Self::log_op(&self.operation_log, &tx, &title_op)?;
 
         // Log one UpdateField operation per field value that was written.
         for (field_key, field_value) in &fields {
@@ -1933,10 +1925,10 @@ impl Workspace {
                 value: field_value.clone(),
                 modified_by: self.current_user_id,
             };
-            Self::log_op(self.operation_log.as_ref(), &tx, &field_op)?;
+            Self::log_op(&self.operation_log, &tx, &field_op)?;
         }
 
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // Keep the note_links junction table in sync with the written field values.
         // Must run inside the transaction so the link update is atomic with the note write.
@@ -2046,8 +2038,8 @@ impl Workspace {
             load_order,
             enabled: true,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2108,8 +2100,8 @@ impl Workspace {
             load_order,
             enabled,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2132,8 +2124,8 @@ impl Workspace {
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2169,8 +2161,8 @@ impl Workspace {
             load_order,
             enabled,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2206,8 +2198,8 @@ impl Workspace {
             load_order: new_load_order,
             enabled,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2234,26 +2226,18 @@ impl Workspace {
     // ── Operations log queries ───────────────────────────────────────
 
     /// Returns operation summaries matching the given filters, newest first.
-    /// Returns an empty vec when sync is off (`operation_log` is `None`).
     pub fn list_operations(
         &self,
         type_filter: Option<&str>,
         since: Option<i64>,
         until: Option<i64>,
     ) -> Result<Vec<crate::OperationSummary>> {
-        match &self.operation_log {
-            Some(log) => log.list(self.connection(), type_filter, since, until),
-            None => Ok(vec![]),
-        }
+        self.operation_log.list(self.connection(), type_filter, since, until)
     }
 
     /// Deletes all operations from the log. Returns the number deleted.
-    /// Returns 0 when sync is off (`operation_log` is `None`).
     pub fn purge_all_operations(&self) -> Result<usize> {
-        match &self.operation_log {
-            Some(log) => log.purge_all(self.connection()),
-            None => Ok(0),
-        }
+        self.operation_log.purge_all(self.connection())
     }
 
     /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB in order.
@@ -3593,12 +3577,12 @@ mod tests {
 
     #[test]
     fn test_move_note_logs_operation() {
-        // When sync is off (operation_log is None), no operations are logged.
+        // The operation log is always active — MoveNote must be recorded.
         let (mut ws, root_id, children, _temp) = setup_with_children(2);
         ws.move_note(&children[1], Some(&root_id), 0).unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
         let move_ops: Vec<_> = ops.iter().filter(|o| o.operation_type == "MoveNote").collect();
-        assert_eq!(move_ops.len(), 0, "Expected no operations when sync is off");
+        assert_eq!(move_ops.len(), 1, "Expected one MoveNote operation in always-on log");
     }
 
     #[test]
@@ -4391,13 +4375,16 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
     }
 
     #[test]
-    fn operations_log_empty_when_sync_off() {
+    fn operations_log_always_records_create_note() {
+        // The operation log is always active — every mutation must be recorded.
         let temp = tempfile::NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
-        assert!(ops.is_empty(), "expected no operations when sync is off");
+        assert!(!ops.is_empty(), "operation log must always be active");
+        let create_ops: Vec<_> = ops.iter().filter(|o| o.operation_type == "CreateNote").collect();
+        assert!(!create_ops.is_empty(), "CreateNote must be recorded in always-on log");
     }
 
     #[test]
@@ -4585,6 +4572,20 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
 
         // The second attachment must still be readable.
         assert!(ws.get_attachment_bytes(&meta2.id).is_ok(), "new attachment should still exist");
+    }
+
+    #[test]
+    fn test_operation_log_always_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+
+        // The operation log should record the CreateNote even without sync.
+        let ops = ws.list_operations(None, None, None).unwrap();
+        assert!(!ops.is_empty(), "operation log must always be active");
+        assert_eq!(ops[0].operation_type, "CreateNote");
+        let _ = root_id;
     }
 
     #[test]
