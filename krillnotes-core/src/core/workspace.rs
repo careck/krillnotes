@@ -2686,6 +2686,166 @@ impl Workspace {
         Ok(())
     }
 
+    /// Returns full `Note` data for every node in the subtree rooted at `note_id`,
+    /// ordered parent-first (root at index 0) via a recursive CTE.
+    fn collect_subtree_notes(&self, note_id: &str) -> Result<Vec<Note>> {
+        let conn = self.connection();
+        let mut stmt = conn.prepare(
+            "WITH RECURSIVE subtree AS (
+                SELECT n.id, 0 AS depth FROM notes n WHERE n.id = ?1
+                UNION ALL
+                SELECT n.id, s.depth + 1 FROM notes n JOIN subtree s ON n.parent_id = s.id
+            )
+            SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                   n.created_at, n.modified_at, n.created_by, n.modified_by,
+                   n.fields_json, n.is_expanded,
+                   GROUP_CONCAT(nt.tag, ',') AS tags_csv
+            FROM notes n
+            JOIN subtree s ON n.id = s.id
+            LEFT JOIN note_tags nt ON nt.note_id = n.id
+            GROUP BY n.id
+            ORDER BY s.depth ASC",
+        )?;
+        let rows = stmt.query_map([note_id], map_note_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(note_from_row_tuple).collect()
+    }
+
+    /// Applies `inverse` to the database without touching undo/redo stacks.
+    ///
+    /// Returns the note ID most relevant for UI re-selection, if any.
+    pub(crate) fn apply_retract_inverse_internal(
+        &mut self,
+        inverse: &RetractInverse,
+    ) -> Result<Option<String>> {
+        match inverse {
+            RetractInverse::DeleteNote { note_id } => {
+                // Undo of CreateNote: delete the note (no children expected).
+                let all_ids = self.collect_subtree_ids(note_id)?;
+                for id in &all_ids {
+                    self.clear_links_to(id)?;
+                }
+                let tx = self.storage.connection_mut().transaction()?;
+                Self::delete_recursive_in_tx(&tx, note_id)?;
+                tx.commit()?;
+                Ok(None)
+            }
+
+            RetractInverse::SubtreeRestore { notes, attachments } => {
+                // Undo of DeleteNote: re-insert notes (parent-first) and attachment rows.
+                let root_id = notes.first().map(|n| n.id.clone());
+                let conn = self.storage.connection_mut();
+                let tx = conn.transaction()?;
+                for note in notes {
+                    let fields_json = serde_json::to_string(&note.fields)
+                        .map_err(KrillnotesError::Json)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO notes
+                         (id, title, node_type, parent_id, position,
+                          created_at, modified_at, created_by, modified_by,
+                          fields_json, is_expanded)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        rusqlite::params![
+                            note.id, note.title, note.node_type, note.parent_id,
+                            note.position, note.created_at, note.modified_at,
+                            note.created_by, note.modified_by, fields_json,
+                            note.is_expanded as i32,
+                        ],
+                    )?;
+                    for tag in &note.tags {
+                        tx.execute(
+                            "INSERT OR IGNORE INTO note_tags (note_id, tag) VALUES (?,?)",
+                            rusqlite::params![note.id, tag],
+                        )?;
+                    }
+                }
+                for att in attachments {
+                    // salt is hex-encoded in AttachmentMeta; DB stores raw bytes.
+                    let salt_bytes = hex::decode(&att.salt)
+                        .unwrap_or_else(|_| att.salt.as_bytes().to_vec());
+                    tx.execute(
+                        "INSERT OR IGNORE INTO attachments
+                         (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+                         VALUES (?,?,?,?,?,?,?,?)",
+                        rusqlite::params![
+                            att.id, att.note_id, att.filename, att.mime_type,
+                            att.size_bytes as i64, att.hash_sha256,
+                            salt_bytes.as_slice(), att.created_at,
+                        ],
+                    )?;
+                }
+                tx.commit()?;
+                Ok(root_id)
+            }
+
+            RetractInverse::NoteRestore { note_id, old_title, old_fields, old_tags } => {
+                // Restore title + fields + tags atomically.
+                let fields_json = serde_json::to_string(old_fields)
+                    .map_err(KrillnotesError::Json)?;
+                let now = chrono::Utc::now().timestamp();
+                let conn = self.storage.connection_mut();
+                let tx = conn.transaction()?;
+                tx.execute(
+                    "UPDATE notes SET title=?, fields_json=?, modified_at=? WHERE id=?",
+                    rusqlite::params![old_title, fields_json, now, note_id],
+                )?;
+                tx.execute("DELETE FROM note_tags WHERE note_id=?", [note_id])?;
+                for tag in old_tags {
+                    tx.execute(
+                        "INSERT INTO note_tags (note_id, tag) VALUES (?,?)",
+                        rusqlite::params![note_id, tag],
+                    )?;
+                }
+                tx.commit()?;
+                Ok(Some(note_id.clone()))
+            }
+
+            RetractInverse::PositionRestore { note_id, old_parent_id, old_position } => {
+                self.move_note(note_id, old_parent_id.as_deref(), *old_position)?;
+                Ok(Some(note_id.clone()))
+            }
+
+            RetractInverse::DeleteScript { script_id } => {
+                self.storage.connection().execute(
+                    "DELETE FROM user_scripts WHERE id=?",
+                    [script_id],
+                )?;
+                self.reload_scripts()?;
+                Ok(None)
+            }
+
+            RetractInverse::ScriptRestore {
+                script_id, name, description,
+                source_code, load_order, enabled,
+            } => {
+                let now = chrono::Utc::now().timestamp();
+                self.storage.connection().execute(
+                    "INSERT OR REPLACE INTO user_scripts
+                     (id, name, description, source_code, load_order, enabled,
+                      created_at, modified_at)
+                     VALUES (?,?,?,?,?,?,?,?)",
+                    rusqlite::params![
+                        script_id, name, description, source_code,
+                        load_order, enabled, now, now,
+                    ],
+                )?;
+                self.reload_scripts()?;
+                Ok(None)
+            }
+
+            RetractInverse::Batch(items) => {
+                // Apply in reverse order (LIFO).
+                let mut last_note = None;
+                for item in items.iter().rev() {
+                    if let Some(id) = self.apply_retract_inverse_internal(item)? {
+                        last_note = Some(id);
+                    }
+                }
+                Ok(last_note)
+            }
+        }
+    }
+
 }
 
 /// Keeps the `note_links` junction table in sync with the current field values of a note.
@@ -4698,6 +4858,21 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let ws = Workspace::create(&path, "").unwrap();
         assert!(!ws.can_undo());
         assert!(!ws.can_redo());
+    }
+
+    #[test]
+    fn test_collect_subtree_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let _grandchild = ws.create_note(&child_id, AddPosition::AsChild, "TextNote").unwrap();
+
+        let notes = ws.collect_subtree_notes(&root_id).unwrap();
+        assert_eq!(notes.len(), 3);
+        // Root must be first.
+        assert_eq!(notes[0].id, root_id);
     }
 
     #[test]
