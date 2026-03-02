@@ -539,6 +539,63 @@ pub fn make_download_link_html(uuid: &str, label: &str) -> String {
     )
 }
 
+// ── Media embed helpers ───────────────────────────────────────────────────────
+
+static YT_WATCH_RE: OnceLock<regex::Regex> = OnceLock::new();
+static YT_SHORT_RE: OnceLock<regex::Regex> = OnceLock::new();
+static IG_POST_RE:  OnceLock<regex::Regex> = OnceLock::new();
+static IG_REEL_RE:  OnceLock<regex::Regex> = OnceLock::new();
+
+/// Given a YouTube or Instagram URL, returns a sentinel `<div>` that the
+/// frontend will hydrate into a click-to-play thumbnail card.
+///
+/// Returns an empty string for unrecognised URLs.
+pub fn make_media_embed_html(url: &str) -> String {
+    if url.is_empty() {
+        return String::new();
+    }
+
+    let yt_watch = YT_WATCH_RE.get_or_init(|| {
+        regex::Regex::new(r"(?:https?://)?(?:www\.)?youtube\.com/watch\?(?:[^&\s]*&)*v=([A-Za-z0-9_-]{11})")
+            .expect("valid regex")
+    });
+    let yt_short = YT_SHORT_RE.get_or_init(|| {
+        regex::Regex::new(r"(?:https?://)?youtu\.be/([A-Za-z0-9_-]{11})")
+            .expect("valid regex")
+    });
+    let ig_post = IG_POST_RE.get_or_init(|| {
+        regex::Regex::new(r"(?:https?://)?(?:www\.)?instagram\.com/p/([A-Za-z0-9_-]+)")
+            .expect("valid regex")
+    });
+    let ig_reel = IG_REEL_RE.get_or_init(|| {
+        regex::Regex::new(r"(?:https?://)?(?:www\.)?instagram\.com/reel/([A-Za-z0-9_-]+)")
+            .expect("valid regex")
+    });
+
+    let (embed_type, id) =
+        if let Some(caps) = yt_watch.captures(url) {
+            ("youtube", caps[1].to_string())
+        } else if let Some(caps) = yt_short.captures(url) {
+            ("youtube", caps[1].to_string())
+        } else if let Some(caps) = ig_post.captures(url) {
+            ("instagram", caps[1].to_string())
+        } else if let Some(caps) = ig_reel.captures(url) {
+            ("instagram", caps[1].to_string())
+        } else {
+            return String::new();
+        };
+
+    format!(
+        "<div class=\"kn-media-embed\" \
+              data-kn-embed-type=\"{}\" \
+              data-kn-embed-id=\"{}\" \
+              data-kn-embed-url=\"{}\"></div>",
+        html_escape(embed_type),
+        html_escape(&id),
+        html_escape(url),
+    )
+}
+
 /// Returns `true` if the field value is considered empty (and should be hidden).
 fn is_field_empty(value: &FieldValue) -> bool {
     match value {
@@ -1088,5 +1145,69 @@ mod tests {
     fn test_display_download_link_empty_uuid_shows_error() {
         let html = make_download_link_html("", "label");
         assert!(html.contains("kn-image-error"), "got: {html}");
+    }
+
+    // ── make_media_embed_html tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_embed_youtube_watch_url() {
+        let html = make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert!(html.contains("data-kn-embed-type=\"youtube\""), "got: {html}");
+        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        assert!(html.contains("kn-media-embed"), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_youtube_short_url() {
+        let html = make_media_embed_html("https://youtu.be/dQw4w9WgXcQ");
+        assert!(html.contains("data-kn-embed-type=\"youtube\""), "got: {html}");
+        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_youtube_watch_with_extra_params() {
+        let html = make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&list=PL123");
+        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_youtube_watch_v_not_first_param() {
+        // Real-world share URLs often put v= after other params
+        let html = make_media_embed_html("https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ");
+        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_instagram_post_url() {
+        let html = make_media_embed_html("https://www.instagram.com/p/ABC123def/");
+        assert!(html.contains("data-kn-embed-type=\"instagram\""), "got: {html}");
+        assert!(html.contains("data-kn-embed-id=\"ABC123def\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_instagram_reel_url() {
+        let html = make_media_embed_html("https://www.instagram.com/reel/XYZ789/");
+        assert!(html.contains("data-kn-embed-type=\"instagram\""), "got: {html}");
+        assert!(html.contains("data-kn-embed-id=\"XYZ789\""), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_unknown_url_returns_empty() {
+        let html = make_media_embed_html("https://example.com/video");
+        assert!(html.is_empty(), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_empty_string_returns_empty() {
+        let html = make_media_embed_html("");
+        assert!(html.is_empty(), "got: {html}");
+    }
+
+    #[test]
+    fn test_embed_url_is_html_escaped_in_output() {
+        // URL with & must be escaped in attribute value
+        let html = make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42");
+        assert!(!html.contains("watch?v=dQw4w9WgXcQ&t=42"), "raw & must be escaped");
+        assert!(html.contains("&amp;"), "got: {html}");
     }
 }
