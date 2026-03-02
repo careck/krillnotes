@@ -68,6 +68,12 @@ pub struct Schema {
     /// Note types that this schema allows as direct children.
     /// Empty means no restriction (any child type is allowed here).
     pub allowed_children_types: Vec<String>,
+    /// When `true`, the note-level attachments panel is shown for this schema.
+    /// Defaults to `false` (opt-in).
+    pub allow_attachments: bool,
+    /// MIME types accepted by the note-level attachments panel; empty means all types are allowed.
+    /// Ignored when `allow_attachments` is `false`.
+    pub attachment_types: Vec<String>,
 }
 
 impl Schema {
@@ -262,7 +268,7 @@ impl Schema {
             }
         }
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_types, allowed_children_types })
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_types, allowed_children_types, allow_attachments: false, attachment_types: Vec::new() })
     }
 }
 
