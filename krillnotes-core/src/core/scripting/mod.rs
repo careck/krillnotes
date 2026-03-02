@@ -1369,6 +1369,34 @@ mod tests {
     }
 
     #[test]
+    fn test_schema_allow_attachments_defaults_to_false() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("AttachTest", #{
+                fields: [#{ name: "name", type: "text" }]
+            });
+        "#, "test").unwrap();
+        let schema = registry.get_schema("AttachTest").unwrap();
+        assert!(!schema.allow_attachments, "allow_attachments should default to false");
+        assert!(schema.attachment_types.is_empty(), "attachment_types should default to empty");
+    }
+
+    #[test]
+    fn test_schema_allow_attachments_explicit_with_types() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        registry.load_script(r#"
+            schema("PhotoNote", #{
+                allow_attachments: true,
+                attachment_types: ["image/jpeg", "image/png"],
+                fields: [#{ name: "caption", type: "text" }]
+            });
+        "#, "test").unwrap();
+        let schema = registry.get_schema("PhotoNote").unwrap();
+        assert!(schema.allow_attachments);
+        assert_eq!(schema.attachment_types, vec!["image/jpeg", "image/png"]);
+    }
+
+    #[test]
     fn test_contact_title_can_edit_false() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(include_str!(concat!(
