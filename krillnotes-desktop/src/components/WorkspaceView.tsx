@@ -12,7 +12,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, UndoResult } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -81,6 +81,10 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
 
+  // Undo/redo state
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
   // Tag cloud
   const [workspaceTags, setWorkspaceTags] = useState<string[]>([]);
   const [tagCloudHeight, setTagCloudHeight] = useState(120);
@@ -134,6 +138,15 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   }, []);
 
   selectedNoteIdRef.current = selectedNoteId;
+
+  const refreshUndoState = useCallback(async () => {
+    const [u, r] = await Promise.all([
+      invoke<boolean>('can_undo'),
+      invoke<boolean>('can_redo'),
+    ]);
+    setCanUndo(u);
+    setCanRedo(r);
+  }, []);
 
   // Load notes on mount
   useEffect(() => {
@@ -222,31 +235,33 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setSelectedNoteId(newId);
       setCopiedNoteId(null);
       invoke('set_paste_menu_enabled', { enabled: false }).catch(console.error);
+      await refreshUndoState();
     } catch (err) {
       console.error('Failed to paste note:', err);
     }
-  }, [copiedNoteId, selectedNoteId]);
+  }, [copiedNoteId, selectedNoteId, refreshUndoState]);
 
   const handleTreeAction = useCallback(async (noteId: string, label: string) => {
     try {
       await invoke('invoke_tree_action', { noteId, label });
       await loadNotes();
+      await refreshUndoState();
     } catch (err) {
       setError(t('workspace.treeActionFailed', { error: String(err) }));
     }
-  }, []);
+  }, [refreshUndoState]);
+
+  const isInputFocused = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
+  };
 
   // Keyboard shortcuts: Cmd/Ctrl+C copies selected note, Cmd/Ctrl+V pastes as child,
   // Cmd/Ctrl+Shift+V pastes as sibling. Guards against input fields so normal
   // text copy/paste is unaffected.
   useEffect(() => {
-    const isInputFocused = () => {
-      const el = document.activeElement;
-      if (!el) return false;
-      const tag = el.tagName.toLowerCase();
-      return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
-    };
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (isInputFocused()) return;
@@ -263,6 +278,33 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [selectedNoteId, copiedNoteId, copyNote, pasteNote]);
+
+  // Keyboard shortcuts: Cmd/Ctrl+Z for undo, Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y for redo.
+  useEffect(() => {
+    const handleUndoRedo = async (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (isInputFocused()) return;
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        try {
+          const result = await invoke<UndoResult>('undo');
+          await loadNotes();
+          if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+          await refreshUndoState();
+        } catch { /* nothing to undo */ }
+      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        try {
+          const result = await invoke<UndoResult>('redo');
+          await loadNotes();
+          if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+          await refreshUndoState();
+        } catch { /* nothing to redo */ }
+      }
+    };
+    document.addEventListener('keydown', handleUndoRedo);
+    return () => document.removeEventListener('keydown', handleUndoRedo);
+  }, [refreshUndoState]);
 
   // When this window regains focus, re-sync the native paste menu state.
   // This matters on macOS where a single menu bar is shared by all workspace
@@ -390,6 +432,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     try {
       await invoke('move_note', { noteId, newParentId, newPosition });
       await loadNotes();
+      await refreshUndoState();
     } catch (err) {
       console.error('Failed to move note:', err);
     }
@@ -478,6 +521,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     if (!fetchedNotes.some(n => n.id === noteId)) return;
     await handleSelectNote(noteId);
     setRequestEditMode(prev => prev + 1);
+    await refreshUndoState();
   };
 
   const handleNoteUpdated = async () => {
@@ -502,6 +546,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           setSelectedNoteId(null);
         }
       }
+      await refreshUndoState();
     } finally {
       isRefreshing.current = false;
     }
@@ -524,7 +569,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const parentId = position === 'root' ? null : referenceNoteId;
       const tauriPosition = position === 'root' ? 'child' : position;
       invoke<Note>('create_note_with_type', { parentId, position: tauriPosition, nodeType: available[0] })
-        .then(note => handleNoteCreated(note.id))
+        .then(note => handleNoteCreated(note.id).then(() => refreshUndoState()))
         .catch(err => console.error('Failed to create note:', err));
       return;
     }
@@ -638,7 +683,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen" data-can-undo={canUndo} data-can-redo={canRedo}>
       {/* Left sidebar - Tree */}
       <div
         ref={treePanelRef}
@@ -756,7 +801,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       <ScriptManagerDialog
         isOpen={showScriptManager}
         onClose={() => setShowScriptManager(false)}
-        onScriptsChanged={loadNotes}
+        onScriptsChanged={async () => { await loadNotes(); await refreshUndoState(); }}
       />
 
       {/* Operations Log Dialog */}
