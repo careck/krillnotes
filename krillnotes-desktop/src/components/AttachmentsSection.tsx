@@ -62,8 +62,14 @@ export default function AttachmentsSection({ noteId }: AttachmentsSectionProps) 
     for (const file of files) {
       try {
         const buffer = await file.arrayBuffer();
-        const data = Array.from(new Uint8Array(buffer));
-        await invoke('attach_file_bytes', { noteId, filename: file.name, data });
+        // Encode filename as base64(UTF-8 bytes) — http headers are ASCII-only.
+        const nameBytes = new TextEncoder().encode(file.name);
+        let nameBinary = '';
+        for (const b of nameBytes) nameBinary += String.fromCharCode(b);
+        const filenameB64 = btoa(nameBinary);
+        await invoke('attach_file_bytes', new Uint8Array(buffer), {
+          headers: { 'x-note-id': noteId, 'x-filename': filenameB64 },
+        });
       } catch (err) {
         setError(`Failed to attach ${file.name}: ${err}`);
       }
