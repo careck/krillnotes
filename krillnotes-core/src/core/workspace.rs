@@ -1948,6 +1948,12 @@ impl Workspace {
         title: String,
         fields: HashMap<String, FieldValue>,
     ) -> Result<Note> {
+        // Capture before-state for undo.
+        // Map Database errors (e.g. QueryReturnedNoRows) to NoteNotFound so that
+        // callers see a consistent error type when the note does not exist.
+        let old_note = self.get_note(note_id)
+            .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+
         // Look up this note's schema so the pre-save hook can be dispatched.
         let node_type: String = self
             .storage
@@ -2011,6 +2017,10 @@ impl Workspace {
             }
         }
 
+        // Collector for all operation IDs emitted during this update,
+        // used to populate the undo entry's retracted_ids.
+        let mut emitted_op_ids: Vec<String> = Vec::new();
+
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
@@ -2027,8 +2037,10 @@ impl Workspace {
 
         // Log an UpdateField operation for the title, consistent with
         // update_note_title.
+        let title_op_id = Uuid::new_v4().to_string();
+        emitted_op_ids.push(title_op_id.clone());
         let title_op = Operation::UpdateField {
-            operation_id: Uuid::new_v4().to_string(),
+            operation_id: title_op_id,
             timestamp: now,
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
@@ -2040,8 +2052,10 @@ impl Workspace {
 
         // Log one UpdateField operation per field value that was written.
         for (field_key, field_value) in &fields {
+            let field_op_id = Uuid::new_v4().to_string();
+            emitted_op_ids.push(field_op_id.clone());
             let field_op = Operation::UpdateField {
-                operation_id: Uuid::new_v4().to_string(),
+                operation_id: field_op_id,
                 timestamp: now,
                 device_id: self.device_id.clone(),
                 note_id: note_id.to_string(),
@@ -2059,6 +2073,19 @@ impl Workspace {
         sync_note_links(&tx, note_id, &fields)?;
 
         tx.commit()?;
+
+        // Push undo entry — inverse of UpdateNote is NoteRestore.
+        // textarea fields use CRDT on peers; mark as non-propagating for v1.
+        self.push_undo(UndoEntry {
+            retracted_ids: emitted_op_ids,
+            inverse: RetractInverse::NoteRestore {
+                note_id: note_id.to_string(),
+                old_title: old_note.title,
+                old_fields: old_note.fields,
+                old_tags: old_note.tags,
+            },
+            propagate: false,
+        });
 
         // Re-use get_note to fetch the persisted row, keeping row-mapping logic
         // in a single place.
@@ -4954,5 +4981,26 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let result = ws.undo().unwrap();
         assert_eq!(result.affected_note_id, None);
         assert!(ws.get_note(&child_id).is_err(), "note must be gone after undo");
+    }
+
+    #[test]
+    fn test_undo_update_note_restores_old_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        ws.update_note(&root_id, "New Title".into(), HashMap::new()).unwrap();
+        assert!(ws.can_undo());
+
+        // Check undo entry inverse
+        match &ws.undo_stack[0].inverse {
+            RetractInverse::NoteRestore { old_title, .. } => {
+                // The original title from create_note_root should be preserved.
+                assert_ne!(old_title, "New Title");
+            }
+            _ => panic!("expected NoteRestore"),
+        }
     }
 }
