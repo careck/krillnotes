@@ -1366,6 +1366,80 @@ fn read_file_content(path: String) -> std::result::Result<String, String> {
     read_file_content_impl(&path)
 }
 
+// ── Undo / Redo commands ──────────────────────────────────────────
+
+/// Undoes the most recent workspace mutation.
+/// Returns the note_id to re-select, or null if not applicable.
+#[tauri::command]
+fn undo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<UndoResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.undo().map_err(|e| e.to_string())
+}
+
+/// Re-applies the most recently undone mutation.
+#[tauri::command]
+fn redo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<UndoResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.redo().map_err(|e| e.to_string())
+}
+
+/// Returns true if there is an action to undo.
+#[tauri::command]
+fn can_undo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> bool {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    workspaces.get(label).map(|ws| ws.can_undo()).unwrap_or(false)
+}
+
+/// Returns true if there is an action to redo.
+#[tauri::command]
+fn can_redo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> bool {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    workspaces.get(label).map(|ws| ws.can_redo()).unwrap_or(false)
+}
+
+/// Returns the workspace undo history limit.
+#[tauri::command]
+fn get_undo_limit(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<usize, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces.get(label).ok_or("No workspace open")?;
+    Ok(ws.get_undo_limit())
+}
+
+/// Sets the workspace undo history limit (1–500).
+#[tauri::command]
+fn set_undo_limit(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    limit: usize,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces.get_mut(label).ok_or("No workspace open")?;
+    ws.set_undo_limit(limit).map_err(|e| e.to_string())
+}
+
 // ── Settings commands ─────────────────────────────────────────────
 
 /// Returns the current application settings.
@@ -1870,6 +1944,12 @@ pub fn run() {
             get_attachment_data,
             delete_attachment,
             open_attachment,
+            undo,
+            redo,
+            can_undo,
+            can_redo,
+            get_undo_limit,
+            set_undo_limit,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
