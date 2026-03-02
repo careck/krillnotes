@@ -510,6 +510,9 @@ impl ScriptRegistry {
         engine.register_fn("badge",   display_helpers::badge_colored);
         engine.register_fn("divider", display_helpers::divider);
         engine.register_fn("link_to", display_helpers::link_to);
+        engine.register_fn("embed_media", |url: String| -> String {
+            display_helpers::make_media_embed_html(&url)
+        });
         let ctx_for_markdown = Arc::clone(&run_context);
         engine.register_fn("markdown", move |text: String| -> String {
             let guard = ctx_for_markdown.lock().expect("run_context poisoned");
@@ -2739,6 +2742,31 @@ mod tests {
 
         let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
         assert!(html.contains("kn-image-error"), "got: {html}");
+    }
+
+    // ── embed_media() Rhai host function ────────────────────────────────────
+
+    #[test]
+    fn test_embed_media_rhai_function_youtube() {
+        let registry = ScriptRegistry::new().unwrap();
+        let result = registry
+            .engine
+            .eval::<String>(
+                r#"embed_media("https://www.youtube.com/watch?v=dQw4w9WgXcQ")"#,
+            )
+            .expect("eval failed");
+        assert!(result.contains("data-kn-embed-type=\"youtube\""), "got: {result}");
+        assert!(result.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {result}");
+    }
+
+    #[test]
+    fn test_embed_media_rhai_function_unknown_returns_empty() {
+        let registry = ScriptRegistry::new().unwrap();
+        let result = registry
+            .engine
+            .eval::<String>(r#"embed_media("https://example.com")"#)
+            .expect("eval failed");
+        assert!(result.is_empty(), "got: {result}");
     }
 
 }
