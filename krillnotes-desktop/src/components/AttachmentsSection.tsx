@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { confirm } from '@tauri-apps/plugin-dialog';
@@ -24,6 +24,8 @@ interface AttachmentsSectionProps {
   noteId: string | null;
   allowedTypes: string[];   // MIME types; empty = all allowed
   refreshSignal?: number;
+  recentlyDeleted: AttachmentMeta[];
+  onRecentlyDeletedChange: Dispatch<SetStateAction<AttachmentMeta[]>>;
 }
 
 function formatBytes(bytes: number): string {
@@ -36,12 +38,11 @@ function isImageMime(mime: string | null): boolean {
   return mime?.startsWith('image/') ?? false;
 }
 
-export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal }: AttachmentsSectionProps) {
+export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal, recentlyDeleted, onRecentlyDeletedChange }: AttachmentsSectionProps) {
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
-  const [recentlyDeleted, setRecentlyDeleted] = useState<AttachmentMeta[]>([]);
 
   const loadAttachments = async () => {
     if (!noteId) { setAttachments([]); return; }
@@ -137,7 +138,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
       await invoke('delete_attachment', { attachmentId: att.id });
       setAttachments(prev => prev.filter(a => a.id !== att.id));
       setThumbnails(prev => { const copy = { ...prev }; delete copy[att.id]; return copy; });
-      setRecentlyDeleted(prev => [...prev, att]);
+      onRecentlyDeletedChange(prev => [...prev, att]);
     } catch (e) {
       setError(`Failed to delete: ${e}`);
     }
@@ -146,7 +147,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
   const handleRestore = async (att: AttachmentMeta) => {
     try {
       await invoke('restore_attachment', { meta: att });
-      setRecentlyDeleted(prev => prev.filter(a => a.id !== att.id));
+      onRecentlyDeletedChange(prev => prev.filter(a => a.id !== att.id));
       await loadAttachments();
     } catch (e) {
       setError(`Failed to restore: ${e}`);
