@@ -44,6 +44,7 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
     setLoading(true);
     setError('');
     try {
+      await invoke('begin_undo_group');
       const note = await invoke<Note>('create_note_with_type', {
         parentId: position === 'root' ? null : referenceNoteId,
         position: position === 'root' ? 'child' : position,

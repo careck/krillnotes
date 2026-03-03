@@ -1366,6 +1366,155 @@ fn read_file_content(path: String) -> std::result::Result<String, String> {
     read_file_content_impl(&path)
 }
 
+// ── Undo / Redo commands ──────────────────────────────────────────
+
+/// Undoes the most recent workspace mutation.
+/// Returns the note_id to re-select, or null if not applicable.
+#[tauri::command]
+fn undo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<UndoResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.undo().map_err(|e| e.to_string())
+}
+
+/// Re-applies the most recently undone mutation.
+#[tauri::command]
+fn redo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<UndoResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.redo().map_err(|e| e.to_string())
+}
+
+/// Returns true if there is an action to undo.
+#[tauri::command]
+fn can_undo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> bool {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    workspaces.get(label).map(|ws| ws.can_undo()).unwrap_or(false)
+}
+
+/// Returns true if there is an action to redo.
+#[tauri::command]
+fn can_redo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> bool {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    workspaces.get(label).map(|ws| ws.can_redo()).unwrap_or(false)
+}
+
+/// Undoes the most recent script mutation (isolated from the note undo stack).
+#[tauri::command]
+fn script_undo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<UndoResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.script_undo().map_err(|e| e.to_string())
+}
+
+/// Re-applies the most recently undone script mutation.
+#[tauri::command]
+fn script_redo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<UndoResult, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.script_redo().map_err(|e| e.to_string())
+}
+
+/// Returns true if there is a script action to undo.
+#[tauri::command]
+fn can_script_undo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> bool {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    workspaces.get(label).map(|ws| ws.can_script_undo()).unwrap_or(false)
+}
+
+/// Returns true if there is a script action to redo.
+#[tauri::command]
+fn can_script_redo(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> bool {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    workspaces.get(label).map(|ws| ws.can_script_redo()).unwrap_or(false)
+}
+
+/// Returns the workspace undo history limit.
+#[tauri::command]
+fn get_undo_limit(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<usize, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces.get(label).ok_or("No workspace open")?;
+    Ok(ws.get_undo_limit())
+}
+
+/// Sets the workspace undo history limit (1–500).
+#[tauri::command]
+fn set_undo_limit(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    limit: usize,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces.get_mut(label).ok_or("No workspace open")?;
+    ws.set_undo_limit(limit).map_err(|e| e.to_string())
+}
+
+/// Opens an undo group. Subsequent mutations accumulate in a staging buffer
+/// until `end_undo_group` is called, collapsing them into a single undo step.
+/// Nested calls are ignored — the outermost begin/end pair wins.
+#[tauri::command]
+fn begin_undo_group(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    if let Some(ws) = workspaces.get_mut(label) {
+        ws.begin_undo_group();
+    }
+}
+
+/// Closes the open undo group and collapses buffered mutations into one entry.
+/// No-op if no group is open or the buffer is empty.
+#[tauri::command]
+fn end_undo_group(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    if let Some(ws) = workspaces.get_mut(label) {
+        ws.end_undo_group();
+    }
+}
+
 // ── Settings commands ─────────────────────────────────────────────
 
 /// Returns the current application settings.
@@ -1602,6 +1751,22 @@ fn delete_attachment(
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
     workspace
         .delete_attachment(&attachment_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Restores a previously soft-deleted attachment (moves `.enc.trash` → `.enc`, re-inserts DB row).
+/// Called from the in-section "Restore" button in AttachmentsSection.
+#[tauri::command]
+fn restore_attachment(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    meta: AttachmentMeta,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .restore_attachment(&meta)
         .map_err(|e| e.to_string())
 }
 
@@ -1869,7 +2034,20 @@ pub fn run() {
             get_attachments,
             get_attachment_data,
             delete_attachment,
+            restore_attachment,
             open_attachment,
+            undo,
+            redo,
+            can_undo,
+            can_redo,
+            get_undo_limit,
+            set_undo_limit,
+            begin_undo_group,
+            end_undo_group,
+            script_undo,
+            script_redo,
+            can_script_undo,
+            can_script_redo,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

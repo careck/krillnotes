@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Undo2, Redo2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +13,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, UndoResult } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -81,6 +82,14 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
 
+  // Undo/redo state
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const [noteRefreshSignal, setNoteRefreshSignal] = useState(0);
+  // Tracks whether a note-creation undo group is currently open.
+  // Set to true just before create_note_with_type; cleared when edit mode ends.
+  const pendingUndoGroupRef = useRef(false);
+
   // Tag cloud
   const [workspaceTags, setWorkspaceTags] = useState<string[]>([]);
   const [tagCloudHeight, setTagCloudHeight] = useState(120);
@@ -134,6 +143,55 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   }, []);
 
   selectedNoteIdRef.current = selectedNoteId;
+
+  const refreshUndoState = useCallback(async () => {
+    const [u, r] = await Promise.all([
+      invoke<boolean>('can_undo'),
+      invoke<boolean>('can_redo'),
+    ]);
+    setCanUndo(u);
+    setCanRedo(r);
+  }, []);
+
+  const performUndo = useCallback(async () => {
+    try {
+      const result = await invoke<UndoResult>('undo');
+      await loadNotes();
+      if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+      setNoteRefreshSignal(s => s + 1);
+      await refreshUndoState();
+    } catch (e) {
+      const msg = String(e);
+      if (!msg.includes('Nothing to undo') && !msg.includes('Nothing to redo')) {
+        console.error('[undo/redo]', e);
+      }
+    }
+  }, [refreshUndoState]);
+
+  const performRedo = useCallback(async () => {
+    try {
+      const result = await invoke<UndoResult>('redo');
+      await loadNotes();
+      if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+      setNoteRefreshSignal(s => s + 1);
+      await refreshUndoState();
+    } catch (e) {
+      const msg = String(e);
+      if (!msg.includes('Nothing to undo') && !msg.includes('Nothing to redo')) {
+        console.error('[undo/redo]', e);
+      }
+    }
+  }, [refreshUndoState]);
+
+  // Closes the pending note-creation undo group (if one is open) and refreshes state.
+  // Safe to call at any time — if no group is open, end_undo_group is a no-op.
+  const closePendingUndoGroup = useCallback(async () => {
+    if (pendingUndoGroupRef.current) {
+      pendingUndoGroupRef.current = false;
+      await invoke('end_undo_group');
+      await refreshUndoState();
+    }
+  }, [refreshUndoState]);
 
   // Load notes on mount
   useEffect(() => {
@@ -222,31 +280,33 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setSelectedNoteId(newId);
       setCopiedNoteId(null);
       invoke('set_paste_menu_enabled', { enabled: false }).catch(console.error);
+      await refreshUndoState();
     } catch (err) {
       console.error('Failed to paste note:', err);
     }
-  }, [copiedNoteId, selectedNoteId]);
+  }, [copiedNoteId, selectedNoteId, refreshUndoState]);
 
   const handleTreeAction = useCallback(async (noteId: string, label: string) => {
     try {
       await invoke('invoke_tree_action', { noteId, label });
       await loadNotes();
+      await refreshUndoState();
     } catch (err) {
       setError(t('workspace.treeActionFailed', { error: String(err) }));
     }
-  }, []);
+  }, [refreshUndoState]);
+
+  const isInputFocused = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
+  };
 
   // Keyboard shortcuts: Cmd/Ctrl+C copies selected note, Cmd/Ctrl+V pastes as child,
   // Cmd/Ctrl+Shift+V pastes as sibling. Guards against input fields so normal
   // text copy/paste is unaffected.
   useEffect(() => {
-    const isInputFocused = () => {
-      const el = document.activeElement;
-      if (!el) return false;
-      const tag = el.tagName.toLowerCase();
-      return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
-    };
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (isInputFocused()) return;
@@ -263,6 +323,23 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [selectedNoteId, copiedNoteId, copyNote, pasteNote]);
+
+  // Keyboard shortcuts: Cmd/Ctrl+Z for undo, Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y for redo.
+  useEffect(() => {
+    const handleUndoRedo = async (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (isInputFocused()) return;
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        await performUndo();
+      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        await performRedo();
+      }
+    };
+    document.addEventListener('keydown', handleUndoRedo);
+    return () => document.removeEventListener('keydown', handleUndoRedo);
+  }, [performUndo, performRedo]);
 
   // When this window regains focus, re-sync the native paste menu state.
   // This matters on macOS where a single menu bar is shared by all workspace
@@ -331,6 +408,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   }, [draggedNoteId, handleHoverEnd]);
 
   const handleSelectNote = async (noteId: string) => {
+    // Close any pending note-creation undo group before switching notes.
+    await closePendingUndoGroup();
     setViewHistory([]);
     setSelectedNoteId(noteId);
     try {
@@ -390,6 +469,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     try {
       await invoke('move_note', { noteId, newParentId, newPosition });
       await loadNotes();
+      await refreshUndoState();
     } catch (err) {
       console.error('Failed to move note:', err);
     }
@@ -476,8 +556,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const handleNoteCreated = async (noteId: string) => {
     const fetchedNotes = await loadNotes();
     if (!fetchedNotes.some(n => n.id === noteId)) return;
+    // Mark that a note-creation undo group is open so handleEditDone can close it.
+    pendingUndoGroupRef.current = true;
     await handleSelectNote(noteId);
     setRequestEditMode(prev => prev + 1);
+    await refreshUndoState();
   };
 
   const handleNoteUpdated = async () => {
@@ -502,6 +585,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           setSelectedNoteId(null);
         }
       }
+      await refreshUndoState();
     } finally {
       isRefreshing.current = false;
     }
@@ -523,8 +607,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     if (available.length === 1) {
       const parentId = position === 'root' ? null : referenceNoteId;
       const tauriPosition = position === 'root' ? 'child' : position;
-      invoke<Note>('create_note_with_type', { parentId, position: tauriPosition, nodeType: available[0] })
-        .then(note => handleNoteCreated(note.id))
+      invoke('begin_undo_group')
+        .then(() => invoke<Note>('create_note_with_type', { parentId, position: tauriPosition, nodeType: available[0] }))
+        .then(note => handleNoteCreated(note.id).then(() => refreshUndoState()))
         .catch(err => console.error('Failed to create note:', err));
       return;
     }
@@ -595,7 +680,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       setShowDeleteDialog(false);
       setPendingDeleteId(null);
       setIsDeleting(false);
-      handleNoteUpdated();
+      await handleNoteUpdated();
     } catch (err) {
       alert(t('workspace.failedDelete', { error: String(err) }));
       setShowDeleteDialog(false);
@@ -611,6 +696,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   };
 
   const handleEditDone = () => {
+    closePendingUndoGroup();
     requestAnimationFrame(() => {
       // targets the TreeView container div which carries tabIndex={0}
       treePanelRef.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
@@ -696,17 +782,39 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       />
 
       {/* Right panel - Info */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <InfoPanel
-          selectedNote={selectedNote}
-          onNoteUpdated={handleNoteUpdated}
-          onDeleteRequest={handleDeleteRequest}
-          requestEditMode={requestEditMode}
-          onEditDone={handleEditDone}
-          onLinkNavigate={handleLinkNavigate}
-          onBack={handleBack}
-          backNoteTitle={backNoteTitle}
-        />
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 px-2 py-1 border-b border-border shrink-0">
+          <button
+            onClick={performUndo}
+            disabled={!canUndo}
+            title={t('workspace.undoTooltip')}
+            className="p-1 rounded hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={performRedo}
+            disabled={!canRedo}
+            title={t('workspace.redoTooltip')}
+            className="p-1 rounded hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <InfoPanel
+            selectedNote={selectedNote}
+            onNoteUpdated={handleNoteUpdated}
+            onDeleteRequest={handleDeleteRequest}
+            requestEditMode={requestEditMode}
+            onEditDone={handleEditDone}
+            onLinkNavigate={handleLinkNavigate}
+            onBack={handleBack}
+            backNoteTitle={backNoteTitle}
+            refreshSignal={noteRefreshSignal}
+          />
+        </div>
       </div>
 
       {/* Add Note Dialog */}
@@ -756,7 +864,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       <ScriptManagerDialog
         isOpen={showScriptManager}
         onClose={() => setShowScriptManager(false)}
-        onScriptsChanged={loadNotes}
+        onScriptsChanged={async () => { await loadNotes(); await refreshUndoState(); }}
       />
 
       {/* Operations Log Dialog */}

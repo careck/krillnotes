@@ -20,7 +20,9 @@
     "next": "Suivant",
     "add": "+ Ajouter",
     "yes": "Oui",
-    "no": "Non"
+    "no": "Non",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "Paramètres",
@@ -45,7 +47,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Apparence",
     "sync": "Sync",
-    "syncHint": "La synchronisation maintient vos notes à jour sur tous vos appareils. Bientôt disponible."
+    "syncHint": "La synchronisation maintient vos notes à jour sur tous vos appareils. Bientôt disponible.",
+    "undoHistoryLimit": "Limite de l'historique des annulations",
+    "undoHistoryLimitHint": "Nombre d'actions pouvant être annulées (1–500)"
   },
   "themes": {
     "manage": "Gérer les thèmes",
@@ -88,7 +92,9 @@
     "failedDelete": "Échec de la suppression : {{error}}",
     "failedImport": "Échec de la lecture du fichier : {{error}}",
     "failedReorder": "Échec du réordonnancement des scripts : {{error}}",
-    "reloadErrors": "Erreurs lors du rechargement des scripts :\n{{errors}}"
+    "reloadErrors": "Erreurs lors du rechargement des scripts :\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "Ouvrir un espace de travail",
@@ -134,7 +140,9 @@
     "importingProgress": "Importation de {{noteCount}} notes et {{scriptCount}} scripts.",
     "propertiesLoadFailed": "Échec du chargement des propriétés : {{error}}",
     "failedCheckChildren": "Échec de la vérification des enfants : {{error}}",
-    "failedDelete": "Échec de la suppression : {{error}}"
+    "failedDelete": "Échec de la suppression : {{error}}",
+    "undoTooltip": "Annuler (Cmd+Z)",
+    "redoTooltip": "Rétablir (Cmd+Maj+Z)"
   },
   "dialogs": {
     "password": {

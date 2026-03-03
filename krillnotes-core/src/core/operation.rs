@@ -132,6 +132,24 @@ pub enum Operation {
         /// ID of the deleted script.
         script_id: String,
     },
+    /// Reverses one or more previously logged operations (undo).
+    ///
+    /// `retracted_ids` lists all operation IDs this retract covers.
+    /// A note save emits title + N field ops; one retract covers all of them.
+    RetractOperation {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// Unix timestamp (seconds) when the operation was created.
+        timestamp: i64,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// Operation IDs that this retract reverses.
+        retracted_ids: Vec<String>,
+        /// The inverse data needed to restore the previous state.
+        inverse: crate::RetractInverse,
+        /// `false` for textarea (CRDT) field retracts — excluded from `.swarm` diffs.
+        propagate: bool,
+    },
 }
 
 impl Operation {
@@ -145,7 +163,8 @@ impl Operation {
             | Self::MoveNote { operation_id, .. }
             | Self::CreateUserScript { operation_id, .. }
             | Self::UpdateUserScript { operation_id, .. }
-            | Self::DeleteUserScript { operation_id, .. } => operation_id,
+            | Self::DeleteUserScript { operation_id, .. }
+            | Self::RetractOperation { operation_id, .. } => operation_id,
         }
     }
 
@@ -159,7 +178,8 @@ impl Operation {
             | Self::MoveNote { timestamp, .. }
             | Self::CreateUserScript { timestamp, .. }
             | Self::UpdateUserScript { timestamp, .. }
-            | Self::DeleteUserScript { timestamp, .. } => *timestamp,
+            | Self::DeleteUserScript { timestamp, .. }
+            | Self::RetractOperation { timestamp, .. } => *timestamp,
         }
     }
 
@@ -173,7 +193,8 @@ impl Operation {
             | Self::MoveNote { device_id, .. }
             | Self::CreateUserScript { device_id, .. }
             | Self::UpdateUserScript { device_id, .. }
-            | Self::DeleteUserScript { device_id, .. } => device_id,
+            | Self::DeleteUserScript { device_id, .. }
+            | Self::RetractOperation { device_id, .. } => device_id,
         }
     }
 }
@@ -181,6 +202,23 @@ impl Operation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_retract_operation_serialization() {
+        use crate::RetractInverse;
+        let op = Operation::RetractOperation {
+            operation_id: "ret-1".into(),
+            timestamp: 9999,
+            device_id: "dev-1".into(),
+            retracted_ids: vec!["op-1".into(), "op-2".into()],
+            inverse: RetractInverse::DeleteNote { note_id: "n-1".into() },
+            propagate: true,
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let back: Operation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.operation_id(), "ret-1");
+        assert_eq!(back.timestamp(), 9999);
+    }
 
     #[test]
     fn test_operation_serialization() {

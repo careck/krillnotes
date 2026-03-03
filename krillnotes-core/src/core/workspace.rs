@@ -8,8 +8,8 @@ use crate::core::user_script;
 #[allow(unused_imports)]
 use crate::{
     get_device_id, DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
-    Operation, OperationLog, PurgeStrategy, QueryContext, Result, ScriptError, ScriptRegistry,
-    Storage, UserScript,
+    Operation, OperationLog, PurgeStrategy, QueryContext, Result, RetractInverse, ScriptError,
+    ScriptRegistry, Storage, UndoResult, UserScript,
 };
 use rhai::Dynamic;
 use rusqlite::Connection;
@@ -18,6 +18,14 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+/// An entry on the in-memory undo stack.
+pub(crate) struct UndoEntry {
+    /// Operation IDs in the log that this entry covers.
+    pub(crate) retracted_ids: Vec<String>,
+    pub(crate) inverse: RetractInverse,
+    pub(crate) propagate: bool,
+}
 
 /// A lightweight search result containing only the ID and title of a note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +54,7 @@ pub enum AddPosition {
 pub struct Workspace {
     storage: Storage,
     script_registry: ScriptRegistry,
-    operation_log: Option<OperationLog>,
+    operation_log: OperationLog,
     device_id: String,
     current_user_id: i64,
     /// Root directory for this workspace (parent of `notes.db`).
@@ -54,6 +62,19 @@ pub struct Workspace {
     /// ChaCha20-Poly1305 attachment key derived from password + workspace_id.
     /// `None` for unencrypted workspaces (empty password).
     attachment_key: Option<[u8; 32]>,
+    pub(crate) undo_stack: Vec<UndoEntry>,
+    pub(crate) redo_stack: Vec<UndoEntry>,
+    pub(crate) undo_limit: usize,
+    /// Separate undo/redo stacks for script-only mutations (create/update/delete script).
+    /// Isolated from the note undo stack so script saves don't interleave with note edits.
+    pub(crate) script_undo_stack: Vec<UndoEntry>,
+    pub(crate) script_redo_stack: Vec<UndoEntry>,
+    /// When Some, mutations accumulate here instead of pushing to undo_stack.
+    undo_group_buffer: Option<Vec<UndoEntry>>,
+    /// When `true`, `push_undo` is a no-op. Set while `apply_retract_inverse_internal`
+    /// is executing so that mutations called from within an undo/redo do not push
+    /// spurious entries onto the undo stack.
+    inside_undo: bool,
 }
 
 impl Workspace {
@@ -67,7 +88,7 @@ impl Workspace {
     pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
-        let operation_log: Option<OperationLog> = None;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         // Get hardware-based device ID
         let device_id = get_device_id()?;
@@ -200,6 +221,12 @@ impl Workspace {
         )?;
         tx.commit()?;
 
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["undo_limit", "50"],
+        )?;
+        let undo_limit: usize = 50;
+
         Ok(Self {
             storage,
             script_registry,
@@ -208,6 +235,13 @@ impl Workspace {
             current_user_id: 0,
             workspace_root,
             attachment_key,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            undo_limit,
+            script_undo_stack: Vec::new(),
+            script_redo_stack: Vec::new(),
+            undo_group_buffer: None,
+            inside_undo: false,
         })
     }
 
@@ -222,7 +256,7 @@ impl Workspace {
     pub fn open<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
-        let operation_log: Option<OperationLog> = None;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         // Read metadata from database
         let device_id = storage.connection()
@@ -274,6 +308,17 @@ impl Workspace {
             None
         };
 
+        let undo_limit: usize = storage
+            .connection()
+            .query_row(
+                "SELECT value FROM workspace_meta WHERE key = 'undo_limit'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(50);
+
         let mut ws = Self {
             storage,
             script_registry,
@@ -282,6 +327,13 @@ impl Workspace {
             current_user_id,
             workspace_root,
             attachment_key,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            undo_limit,
+            script_undo_stack: Vec::new(),
+            script_redo_stack: Vec::new(),
+            undo_group_buffer: None,
+            inside_undo: false,
         };
 
         // Load enabled scripts from the workspace DB.
@@ -291,6 +343,10 @@ impl Workspace {
                 eprintln!("Failed to load script '{}': {}", script.name, e);
             }
         }
+
+        // Clean up any .enc.trash files left from a previous session.
+        // Undo stacks are in-session only, so prior-session trash is always safe to remove.
+        ws.purge_attachment_trash();
 
         Ok(ws)
     }
@@ -321,25 +377,409 @@ impl Workspace {
         self.storage.connection()
     }
 
-    /// Logs an operation if sync is enabled (i.e. `operation_log` is `Some`).
+    /// Logs an operation to the always-active operation log.
     /// Takes the log as an explicit parameter to avoid a whole-`self` borrow
     /// conflict with the transaction (which is borrowed from `self.storage`).
-    /// Does nothing when `log` is `None`.
-    fn log_op(log: Option<&OperationLog>, tx: &rusqlite::Transaction, op: &Operation) -> Result<()> {
-        if let Some(log) = log {
-            log.log(tx, op)?;
+    fn log_op(log: &OperationLog, tx: &rusqlite::Transaction, op: &Operation) -> Result<()> {
+        log.log(tx, op)
+    }
+
+    /// Purges stale operations from the always-active operation log.
+    /// Takes the log as an explicit parameter for the same borrow-checker reason.
+    fn purge_ops_if_needed(log: &OperationLog, tx: &rusqlite::Transaction) -> Result<()> {
+        log.purge_if_needed(tx)
+    }
+
+    /// Returns `true` if there is at least one action to undo.
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// Returns `true` if there is at least one action to redo.
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    /// Returns `true` if there is at least one script action to undo.
+    pub fn can_script_undo(&self) -> bool {
+        !self.script_undo_stack.is_empty()
+    }
+
+    /// Returns `true` if there is at least one script action to redo.
+    pub fn can_script_redo(&self) -> bool {
+        !self.script_redo_stack.is_empty()
+    }
+
+    /// Undoes the most recent script mutation (create/update/delete script).
+    ///
+    /// Script undo is separate from note undo to prevent script saves from
+    /// interleaving with note edits in the workspace undo stack.
+    pub fn script_undo(&mut self) -> Result<UndoResult> {
+        let entry = self.script_undo_stack.pop()
+            .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to undo".into()))?;
+
+        let redo_inverse = self.build_redo_inverse(&entry)?;
+
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        apply_result?;
+
+        self.script_redo_stack.push(UndoEntry {
+            retracted_ids: entry.retracted_ids,
+            inverse: redo_inverse,
+            propagate: entry.propagate,
+        });
+        Ok(UndoResult { affected_note_id: None })
+    }
+
+    /// Re-applies the most recently undone script mutation.
+    pub fn script_redo(&mut self) -> Result<UndoResult> {
+        let entry = self.script_redo_stack.pop()
+            .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to redo".into()))?;
+
+        let new_undo_inverse = self.build_redo_inverse(&entry)?;
+
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        apply_result?;
+
+        self.script_undo_stack.push(UndoEntry {
+            retracted_ids: entry.retracted_ids,
+            inverse: new_undo_inverse,
+            propagate: entry.propagate,
+        });
+        // Trim to undo_limit.
+        if self.script_undo_stack.len() > self.undo_limit {
+            self.script_undo_stack.drain(0..1);
+        }
+        Ok(UndoResult { affected_note_id: None })
+    }
+
+    /// Returns the current undo stack depth limit.
+    pub fn get_undo_limit(&self) -> usize {
+        self.undo_limit
+    }
+
+    /// Sets the undo stack depth limit, persisting it to `workspace_meta`.
+    ///
+    /// The value is clamped to `[1, 500]`. If the new limit is smaller than
+    /// the current stack depth, the oldest entries are dropped.
+    pub fn set_undo_limit(&mut self, limit: usize) -> Result<()> {
+        let limit = limit.max(1).min(500);
+        self.storage.connection().execute(
+            "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES ('undo_limit', ?)",
+            [limit.to_string()],
+        )?;
+        self.undo_limit = limit;
+        if self.undo_stack.len() > limit {
+            let excess = self.undo_stack.len() - limit;
+            self.undo_stack.drain(0..excess);
         }
         Ok(())
     }
 
-    /// Purges stale operations if sync is enabled and the log is `Some`.
-    /// Takes the log as an explicit parameter for the same borrow-checker reason.
-    /// Does nothing when `log` is `None`.
-    fn purge_ops_if_needed(log: Option<&OperationLog>, tx: &rusqlite::Transaction) -> Result<()> {
-        if let Some(log) = log {
-            log.purge_if_needed(tx)?;
+    /// Pushes an entry onto the undo stack (or into the group buffer if a group
+    /// is open). Clears the redo stack. Trims to `undo_limit`.
+    ///
+    /// When `inside_undo` is `true` (i.e. we are executing `apply_retract_inverse_internal`
+    /// on behalf of an undo or redo call), this is a no-op so that mutations
+    /// invoked internally (e.g. `move_note` called from `PositionRestore`) do not
+    /// push spurious entries onto the stack.
+    fn push_undo(&mut self, entry: UndoEntry) {
+        if self.inside_undo {
+            return;
         }
-        Ok(())
+        if let Some(buf) = &mut self.undo_group_buffer {
+            buf.push(entry);
+            return;
+        }
+        self.redo_stack.clear();
+        self.undo_stack.push(entry);
+        if self.undo_stack.len() > self.undo_limit {
+            self.undo_stack.drain(0..1);
+        }
+    }
+
+    /// Pushes an entry onto the script undo stack. Clears the script redo stack.
+    /// No-op while `inside_undo` is `true`.
+    fn push_script_undo(&mut self, entry: UndoEntry) {
+        if self.inside_undo {
+            return;
+        }
+        self.script_redo_stack.clear();
+        self.script_undo_stack.push(entry);
+        if self.script_undo_stack.len() > self.undo_limit {
+            self.script_undo_stack.drain(0..1);
+        }
+    }
+
+    /// Opens an undo group. Subsequent mutations accumulate in a staging buffer
+    /// until `end_undo_group` is called, at which point they are collapsed into
+    /// a single `UndoEntry` with a `RetractInverse::Batch` inverse.
+    ///
+    /// Nested calls are ignored — the outermost begin/end pair wins.
+    pub fn begin_undo_group(&mut self) {
+        if self.undo_group_buffer.is_none() {
+            self.undo_group_buffer = Some(Vec::new());
+        }
+    }
+
+    /// Closes the undo group and pushes a single batched `UndoEntry`.
+    /// If the buffer is empty or no group is open, this is a no-op.
+    pub fn end_undo_group(&mut self) {
+        let Some(mut buf) = self.undo_group_buffer.take() else { return };
+        if buf.is_empty() { return; }
+
+        let retracted_ids: Vec<String> = buf.iter()
+            .flat_map(|e| e.retracted_ids.iter().cloned())
+            .collect();
+        let propagate = buf.iter().any(|e| e.propagate);
+        // Build Batch in original order; undo will apply LIFO.
+        let inverses: Vec<RetractInverse> = buf.drain(..).map(|e| e.inverse).collect();
+
+        self.redo_stack.clear();
+        self.undo_stack.push(UndoEntry {
+            retracted_ids,
+            inverse: RetractInverse::Batch(inverses),
+            propagate,
+        });
+        if self.undo_stack.len() > self.undo_limit {
+            self.undo_stack.drain(0..1);
+        }
+    }
+
+    /// Undoes the most recent operation on the undo stack.
+    ///
+    /// Returns an [`UndoResult`] indicating which note (if any) should be
+    /// re-selected in the UI.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the undo stack is empty or if applying the inverse
+    /// operation fails.
+    pub fn undo(&mut self) -> Result<UndoResult> {
+        let entry = self.undo_stack.pop()
+            .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to undo".into()))?;
+
+        // Build the redo inverse BEFORE applying the undo so that the current
+        // DB state can be captured. For example, for DeleteNote (which is the
+        // inverse of CreateNote), we need to snapshot the note's data into a
+        // SubtreeRestore while the note still exists in the DB.
+        let redo_inverse = self.build_redo_inverse(&entry)?;
+
+        // Apply the inverse to the DB. Set inside_undo so that any mutations
+        // called from within apply_retract_inverse_internal (e.g. move_note
+        // called from PositionRestore) do not push spurious undo entries.
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        let affected_note_id = apply_result?;
+
+        // Write RetractOperation to the log.
+        let retract_op_id = uuid::Uuid::new_v4().to_string();
+        let retract_op = Operation::RetractOperation {
+            operation_id: retract_op_id,
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            retracted_ids: entry.retracted_ids.clone(),
+            inverse: entry.inverse.clone(),
+            propagate: entry.propagate,
+        };
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            Self::log_op(&self.operation_log, &tx, &retract_op)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+            tx.commit()?;
+        }
+
+        // Push onto redo stack using the pre-captured redo inverse so that
+        // redo() can re-apply the forward operation (e.g. re-insert the note).
+        self.redo_stack.push(UndoEntry {
+            retracted_ids: entry.retracted_ids,
+            inverse: redo_inverse,
+            propagate: entry.propagate,
+        });
+
+        Ok(UndoResult { affected_note_id })
+    }
+
+    /// Re-applies the most recently undone operation from the redo stack.
+    ///
+    /// Returns an [`UndoResult`] indicating which note (if any) should be
+    /// re-selected in the UI.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the redo stack is empty or if re-applying the
+    /// operation fails.
+    pub fn redo(&mut self) -> Result<UndoResult> {
+        let entry = self.redo_stack.pop()
+            .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to redo".into()))?;
+
+        // Build the new undo inverse BEFORE applying so that the current DB state
+        // can be captured for the "undo of redo" entry.
+        // For example:
+        //   - If entry.inverse is DeleteNote{id} (redo = re-delete a note),
+        //     we must capture SubtreeRestore while the note still exists in DB.
+        //   - If entry.inverse is SubtreeRestore{notes} (redo = re-insert a note),
+        //     we can extract the root ID from notes[0] without a DB query.
+        let new_undo_inverse = self.build_redo_inverse(&entry)?;
+
+        // Apply the redo entry's inverse to the DB.
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        let affected_note_id = apply_result?;
+
+        // Log redo as a new RetractOperation.
+        let new_op_id = uuid::Uuid::new_v4().to_string();
+        let redo_op = Operation::RetractOperation {
+            operation_id: new_op_id,
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            retracted_ids: entry.retracted_ids.clone(),
+            inverse: entry.inverse.clone(),
+            propagate: entry.propagate,
+        };
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            Self::log_op(&self.operation_log, &tx, &redo_op)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+            tx.commit()?;
+        }
+
+        // Push a new undo entry carrying the new_undo_inverse so the redo can
+        // itself be undone.
+        self.undo_stack.push(UndoEntry {
+            retracted_ids: entry.retracted_ids,
+            inverse: new_undo_inverse,
+            propagate: entry.propagate,
+        });
+
+        Ok(UndoResult { affected_note_id })
+    }
+
+    /// Builds the inverse needed to reverse a redo operation — i.e. captures
+    /// the current DB state so that the redo can itself be undone.
+    ///
+    /// For each `RetractInverse` variant this determines what "un-doing the redo"
+    /// would require:
+    ///
+    /// - `DeleteNote`     (undo was: un-do a CreateNote) → redo re-deletes.
+    ///                    Build `SubtreeRestore` from current state.
+    /// - `SubtreeRestore` (undo was: un-do a DeleteNote) → redo re-deletes root.
+    ///                    Build `DeleteNote`.
+    /// - `NoteRestore`    → redo re-updates. Capture current state as `NoteRestore`.
+    /// - `PositionRestore`→ redo re-moves. Capture current position as `PositionRestore`.
+    /// - `DeleteScript`   → redo re-deletes. Script no longer exists post-undo;
+    ///                    use a stub `ScriptRestore` (deletion needs no data).
+    /// - `ScriptRestore`  → redo re-restores. Build `DeleteScript`.
+    /// - `Batch`          → recurse in reverse LIFO order.
+    fn build_redo_inverse(&self, undo_entry: &UndoEntry) -> Result<RetractInverse> {
+        match &undo_entry.inverse {
+            RetractInverse::DeleteNote { note_id } => {
+                // Undo was DeleteNote (undoing CreateNote). Redo = re-delete.
+                // Current state: note exists. Capture subtree for redo's undo.
+                let notes = self.collect_subtree_notes(note_id)?;
+                let attachments = self.get_attachments(note_id).unwrap_or_default();
+                Ok(RetractInverse::SubtreeRestore { notes, attachments })
+            }
+            RetractInverse::SubtreeRestore { notes, .. } => {
+                // Undo was SubtreeRestore (undoing DeleteNote). Redo = re-delete root.
+                let root_id = notes.first().map(|n| n.id.clone())
+                    .ok_or_else(|| KrillnotesError::ValidationFailed("empty subtree in redo inverse".into()))?;
+                Ok(RetractInverse::DeleteNote { note_id: root_id })
+            }
+            RetractInverse::NoteRestore { note_id, .. } => {
+                let current = self.get_note(note_id)?;
+                Ok(RetractInverse::NoteRestore {
+                    note_id: note_id.clone(),
+                    old_title: current.title,
+                    old_fields: current.fields,
+                    old_tags: current.tags,
+                })
+            }
+            RetractInverse::PositionRestore { note_id, .. } => {
+                let current = self.get_note(note_id)?;
+                Ok(RetractInverse::PositionRestore {
+                    note_id: note_id.clone(),
+                    old_parent_id: current.parent_id,
+                    old_position: current.position,
+                })
+            }
+            RetractInverse::DeleteScript { script_id } => {
+                // Undo of CreateScript: redo should re-delete. Capture the
+                // script's current state so that a subsequent undo-of-redo can
+                // restore it fully (rather than using an empty placeholder).
+                if let Ok(current) = self.get_user_script(script_id) {
+                    Ok(RetractInverse::ScriptRestore {
+                        script_id: script_id.clone(),
+                        name: current.name,
+                        description: current.description,
+                        source_code: current.source_code,
+                        load_order: current.load_order,
+                        enabled: current.enabled,
+                    })
+                } else {
+                    // Script already absent — redo entry is a no-op placeholder.
+                    Ok(RetractInverse::ScriptRestore {
+                        script_id: script_id.clone(),
+                        name: String::new(),
+                        description: String::new(),
+                        source_code: String::new(),
+                        load_order: 0,
+                        enabled: false,
+                    })
+                }
+            }
+            RetractInverse::ScriptRestore { script_id, .. } => {
+                // If the script exists now (undo of UpdateUserScript), redo must
+                // restore it to its current (pre-undo) state, not delete it.
+                // If it doesn't exist (undo of DeleteUserScript — script absent),
+                // redo should delete it again.
+                if let Ok(current) = self.get_user_script(script_id) {
+                    Ok(RetractInverse::ScriptRestore {
+                        script_id: script_id.clone(),
+                        name: current.name,
+                        description: current.description,
+                        source_code: current.source_code,
+                        load_order: current.load_order,
+                        enabled: current.enabled,
+                    })
+                } else {
+                    Ok(RetractInverse::DeleteScript { script_id: script_id.clone() })
+                }
+            }
+            RetractInverse::AttachmentRestore { meta } => {
+                // Undo was AttachmentRestore (undoing a DeleteAttachment).
+                // build_redo_inverse is called BEFORE undo is applied, so the .enc.trash
+                // file exists and the DB row is absent. Redo should soft-delete again.
+                Ok(RetractInverse::AttachmentSoftDelete { attachment_id: meta.id.clone() })
+            }
+            RetractInverse::AttachmentSoftDelete { attachment_id } => {
+                // Undo was AttachmentSoftDelete (redoing a DeleteAttachment).
+                // build_redo_inverse is called BEFORE undo is applied, so the .enc file
+                // exists and the DB row is present. Redo should restore to prior state.
+                // Capture current meta from DB to populate the restore entry.
+                let meta = self.get_attachment_meta(attachment_id)?;
+                Ok(RetractInverse::AttachmentRestore { meta })
+            }
+            RetractInverse::Batch(items) => {
+                // Build redo inverses in reverse order (LIFO mirror).
+                let mut redo_items = Vec::with_capacity(items.len());
+                for item in items.iter().rev() {
+                    let entry = UndoEntry {
+                        retracted_ids: vec![],
+                        inverse: item.clone(),
+                        propagate: undo_entry.propagate,
+                    };
+                    redo_items.push(self.build_redo_inverse(&entry)?);
+                }
+                Ok(RetractInverse::Batch(redo_items))
+            }
+        }
     }
 
     /// Fetches a single note by ID.
@@ -516,14 +956,23 @@ impl Workspace {
             fields: note.fields.clone(),
             created_by: note.created_by,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
         // Must run inside the transaction so the link update is atomic with the note write.
         sync_note_links(&tx, &note.id, &note.fields)?;
 
         tx.commit()?;
+
+        // Push undo entry — inverse of CreateNote is DeleteNote.
+        let op_id = op.operation_id().to_string();
+        let note_id = note.id.clone();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::DeleteNote { note_id },
+            propagate: true,
+        });
 
         Ok(note.id)
     }
@@ -670,11 +1119,17 @@ impl Workspace {
                 fields: note.fields.clone(),
                 created_by: self.current_user_id,
             };
-            Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+            Self::log_op(&self.operation_log, &tx, &op)?;
         }
 
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
         tx.commit()?;
+
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![],
+            inverse: RetractInverse::DeleteNote { note_id: root_new_id.clone() },
+            propagate: true,
+        });
 
         Ok(root_new_id)
     }
@@ -746,14 +1201,23 @@ impl Workspace {
             fields: new_note.fields.clone(),
             created_by: new_note.created_by,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // Keep the note_links junction table in sync (no-op for default fields, correct for future use).
         // Must run inside the transaction so the link update is atomic with the note write.
         sync_note_links(&tx, &new_note.id, &new_note.fields)?;
 
         tx.commit()?;
+
+        // Push undo entry — inverse of CreateNote is DeleteNote.
+        let op_id = op.operation_id().to_string();
+        let note_id = new_note.id.clone();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::DeleteNote { note_id },
+            propagate: true,
+        });
 
         Ok(new_note.id)
     }
@@ -783,8 +1247,8 @@ impl Workspace {
             value: crate::FieldValue::Text(new_title),
             modified_by: self.current_user_id,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
         Ok(())
@@ -1154,6 +1618,13 @@ impl Workspace {
     /// Returns an error if the note or any workspace note cannot be fetched, if
     /// no action is registered under `label`, or if the callback throws.
     pub fn run_tree_action(&mut self, note_id: &str, label: &str) -> Result<()> {
+        self.begin_undo_group();
+        let result = self.run_tree_action_inner(note_id, label);
+        self.end_undo_group();
+        result
+    }
+
+    fn run_tree_action_inner(&mut self, note_id: &str, label: &str) -> Result<()> {
         let note = self.get_note(note_id)?;
         let all_notes = self.list_all_notes()?;
 
@@ -1236,7 +1707,7 @@ impl Workspace {
                     fields: create.fields.clone(),
                     created_by: self.current_user_id,
                 };
-                Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
+                Self::log_op(&self.operation_log, &tx, &op)?;
             }
 
             // ── updates ────────────────────────────────────────────────────────
@@ -1266,7 +1737,7 @@ impl Workspace {
                     value: crate::FieldValue::Text(update.title.clone()),
                     modified_by: self.current_user_id,
                 };
-                Self::log_op(self.operation_log.as_ref(), &tx, &title_op)?;
+                Self::log_op(&self.operation_log, &tx, &title_op)?;
 
                 // Log one UpdateField per field value
                 for (field_key, field_value) in &update.fields {
@@ -1279,11 +1750,11 @@ impl Workspace {
                         value: field_value.clone(),
                         modified_by: self.current_user_id,
                     };
-                    Self::log_op(self.operation_log.as_ref(), &tx, &field_op)?;
+                    Self::log_op(&self.operation_log, &tx, &field_op)?;
                 }
             }
 
-            Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
             tx.commit()?;
         }
 
@@ -1571,11 +2042,23 @@ impl Workspace {
             new_parent_id: new_parent_id.map(|s| s.to_string()),
             new_position,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // 9. Commit
         tx.commit()?;
+
+        // Push undo entry — inverse of MoveNote is PositionRestore.
+        let op_id = op.operation_id().to_string();
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::PositionRestore {
+                note_id: note_id.to_string(),
+                old_parent_id,
+                old_position,
+            },
+            propagate: true,
+        });
 
         Ok(())
     }
@@ -1629,6 +2112,18 @@ impl Workspace {
     /// than errors in that case). The transaction is rolled back automatically
     /// on any failure.
     pub fn delete_note_recursive(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Capture full subtree for undo before any deletion.
+        let subtree_notes = self.collect_subtree_notes(note_id)?;
+        let subtree_ids: Vec<&str> = subtree_notes.iter().map(|n| n.id.as_str()).collect();
+        let attachments = self.list_all_attachments()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|a| subtree_ids.contains(&a.note_id.as_str()))
+            .collect::<Vec<_>>();
+
+        // Generate a stable operation ID before the deletion transaction.
+        let op_id = Uuid::new_v4().to_string();
+
         // Collect all IDs in the subtree that will be deleted, then clear any
         // incoming NoteLink fields from other notes before the deletion transaction
         // opens (satisfies the note_links.target_id ON DELETE RESTRICT constraint).
@@ -1640,6 +2135,27 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
         let result = Self::delete_recursive_in_tx(&tx, note_id)?;
         tx.commit()?;
+
+        // Log a DeleteNote operation for the root of the deleted subtree.
+        let op = Operation::DeleteNote {
+            operation_id: op_id.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+        };
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            Self::log_op(&self.operation_log, &tx, &op)?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+            tx.commit()?;
+        }
+
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::SubtreeRestore { notes: subtree_notes, attachments },
+            propagate: true,
+        });
+
         Ok(result)
     }
 
@@ -1712,6 +2228,16 @@ impl Workspace {
     /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
     /// The transaction is rolled back automatically on any failure.
     pub fn delete_note_promote(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Capture before-state for undo before any mutations.
+        // Map Database error (QueryReturnedNoRows) to NoteNotFound for a missing ID.
+        let deleted_note = self.get_note(note_id)
+            .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+        let children = self.get_children(note_id)?;
+        let deleted_attachments = self.get_attachments(note_id).unwrap_or_default();
+
+        // Generate a stable operation ID before the deletion transaction.
+        let op_id = Uuid::new_v4().to_string();
+
         // Clear incoming NoteLink fields from other notes before opening the
         // deletion transaction (satisfies note_links.target_id ON DELETE RESTRICT).
         self.clear_links_to(note_id)?;
@@ -1755,7 +2281,47 @@ impl Workspace {
             rusqlite::params![note_id],
         )?;
 
+        // Log a DeleteNote operation for the promoted note.
+        let op = Operation::DeleteNote {
+            operation_id: op_id.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+        };
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+
         tx.commit()?;
+
+        // Build the Batch undo entry.
+        //
+        // `apply_retract_inverse_internal` applies Batch items with `.iter().rev()`
+        // (LIFO), so the last item pushed is applied first.
+        //
+        // Required execution order on undo:
+        //   1. SubtreeRestore — recreates the deleted note (must exist before
+        //      children can point to it).
+        //   2. PositionRestore for each child — moves them back to point at the
+        //      restored note (each child's old_parent_id was note_id).
+        //
+        // To achieve that with LIFO: push PositionRestores FIRST, SubtreeRestore LAST.
+        let mut batch_items: Vec<RetractInverse> = Vec::new();
+        for child in &children {
+            batch_items.push(RetractInverse::PositionRestore {
+                note_id: child.id.clone(),
+                old_parent_id: Some(deleted_note.id.clone()),
+                old_position: child.position,
+            });
+        }
+        batch_items.push(RetractInverse::SubtreeRestore {
+            notes: vec![deleted_note.clone()],
+            attachments: deleted_attachments,
+        });
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::Batch(batch_items),
+            propagate: true,
+        });
 
         Ok(DeleteResult {
             deleted_count: 1,
@@ -1832,6 +2398,12 @@ impl Workspace {
         title: String,
         fields: HashMap<String, FieldValue>,
     ) -> Result<Note> {
+        // Capture before-state for undo.
+        // Map Database errors (e.g. QueryReturnedNoRows) to NoteNotFound so that
+        // callers see a consistent error type when the note does not exist.
+        let old_note = self.get_note(note_id)
+            .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
+
         // Look up this note's schema so the pre-save hook can be dispatched.
         let node_type: String = self
             .storage
@@ -1895,6 +2467,10 @@ impl Workspace {
             }
         }
 
+        // Collector for all operation IDs emitted during this update,
+        // used to populate the undo entry's retracted_ids.
+        let mut emitted_op_ids: Vec<String> = Vec::new();
+
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
@@ -1911,8 +2487,10 @@ impl Workspace {
 
         // Log an UpdateField operation for the title, consistent with
         // update_note_title.
+        let title_op_id = Uuid::new_v4().to_string();
+        emitted_op_ids.push(title_op_id.clone());
         let title_op = Operation::UpdateField {
-            operation_id: Uuid::new_v4().to_string(),
+            operation_id: title_op_id,
             timestamp: now,
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
@@ -1920,12 +2498,14 @@ impl Workspace {
             value: crate::FieldValue::Text(title.clone()),
             modified_by: self.current_user_id,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &title_op)?;
+        Self::log_op(&self.operation_log, &tx, &title_op)?;
 
         // Log one UpdateField operation per field value that was written.
         for (field_key, field_value) in &fields {
+            let field_op_id = Uuid::new_v4().to_string();
+            emitted_op_ids.push(field_op_id.clone());
             let field_op = Operation::UpdateField {
-                operation_id: Uuid::new_v4().to_string(),
+                operation_id: field_op_id,
                 timestamp: now,
                 device_id: self.device_id.clone(),
                 note_id: note_id.to_string(),
@@ -1933,16 +2513,29 @@ impl Workspace {
                 value: field_value.clone(),
                 modified_by: self.current_user_id,
             };
-            Self::log_op(self.operation_log.as_ref(), &tx, &field_op)?;
+            Self::log_op(&self.operation_log, &tx, &field_op)?;
         }
 
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         // Keep the note_links junction table in sync with the written field values.
         // Must run inside the transaction so the link update is atomic with the note write.
         sync_note_links(&tx, note_id, &fields)?;
 
         tx.commit()?;
+
+        // Push undo entry — inverse of UpdateNote is NoteRestore.
+        // textarea fields use CRDT on peers; mark as non-propagating for v1.
+        self.push_undo(UndoEntry {
+            retracted_ids: emitted_op_ids,
+            inverse: RetractInverse::NoteRestore {
+                note_id: note_id.to_string(),
+                old_title: old_note.title,
+                old_fields: old_note.fields,
+                old_tags: old_note.tags,
+            },
+            propagate: false,
+        });
 
         // Re-use get_note to fetch the persisted row, keeping row-mapping logic
         // in a single place.
@@ -2046,10 +2639,18 @@ impl Workspace {
             load_order,
             enabled: true,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
+
+        // Push onto the script-specific undo stack (isolated from note undo).
+        let op_id = op.operation_id().to_string();
+        self.push_script_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::DeleteScript { script_id: id.clone() },
+            propagate: true,
+        });
 
         // Full reload to ensure deterministic ordering and collect any load errors.
         let errors = self.reload_scripts()?;
@@ -2076,6 +2677,9 @@ impl Workspace {
             let _ = self.reload_scripts(); // restore registry; ignore restoration errors
             return Err(e);
         }
+
+        // Capture old script state BEFORE the update for undo.
+        let old_script = self.get_user_script(script_id)?;
 
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
@@ -2108,10 +2712,25 @@ impl Workspace {
             load_order,
             enabled,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
+
+        // Push onto the script-specific undo stack (isolated from note undo).
+        let op_id = op.operation_id().to_string();
+        self.push_script_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::ScriptRestore {
+                script_id: script_id.to_string(),
+                name: old_script.name,
+                description: old_script.description,
+                source_code: old_script.source_code,
+                load_order: old_script.load_order,
+                enabled: old_script.enabled,
+            },
+            propagate: true,
+        });
 
         let errors = self.reload_scripts()?;
         let script = self.get_user_script(script_id)?;
@@ -2120,6 +2739,9 @@ impl Workspace {
 
     /// Deletes a user script by ID and reloads remaining scripts.
     pub fn delete_user_script(&mut self, script_id: &str) -> Result<Vec<ScriptError>> {
+        // Capture old script state BEFORE deletion for undo.
+        let old_script = self.get_user_script(script_id)?;
+
         let now = chrono::Utc::now().timestamp();
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -2132,10 +2754,25 @@ impl Workspace {
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
+
+        // Push onto the script-specific undo stack (isolated from note undo).
+        let op_id = op.operation_id().to_string();
+        self.push_script_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::ScriptRestore {
+                script_id: script_id.to_string(),
+                name: old_script.name,
+                description: old_script.description,
+                source_code: old_script.source_code,
+                load_order: old_script.load_order,
+                enabled: old_script.enabled,
+            },
+            propagate: true,
+        });
 
         self.reload_scripts()
     }
@@ -2169,8 +2806,8 @@ impl Workspace {
             load_order,
             enabled,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2206,8 +2843,8 @@ impl Workspace {
             load_order: new_load_order,
             enabled,
         };
-        Self::log_op(self.operation_log.as_ref(), &tx, &op)?;
-        Self::purge_ops_if_needed(self.operation_log.as_ref(), &tx)?;
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
 
@@ -2234,26 +2871,18 @@ impl Workspace {
     // ── Operations log queries ───────────────────────────────────────
 
     /// Returns operation summaries matching the given filters, newest first.
-    /// Returns an empty vec when sync is off (`operation_log` is `None`).
     pub fn list_operations(
         &self,
         type_filter: Option<&str>,
         since: Option<i64>,
         until: Option<i64>,
     ) -> Result<Vec<crate::OperationSummary>> {
-        match &self.operation_log {
-            Some(log) => log.list(self.connection(), type_filter, since, until),
-            None => Ok(vec![]),
-        }
+        self.operation_log.list(self.connection(), type_filter, since, until)
     }
 
     /// Deletes all operations from the log. Returns the number deleted.
-    /// Returns 0 when sync is off (`operation_log` is `None`).
     pub fn purge_all_operations(&self) -> Result<usize> {
-        match &self.operation_log {
-            Some(log) => log.purge_all(self.connection()),
-            None => Ok(0),
-        }
+        self.operation_log.purge_all(self.connection())
     }
 
     /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB in order.
@@ -2574,19 +3203,94 @@ impl Workspace {
     }
 
     /// Deletes an attachment: removes the `.enc` file and the DB row.
+    /// Returns the metadata for a single attachment by ID.
+    fn get_attachment_meta(&self, attachment_id: &str) -> Result<AttachmentMeta> {
+        let row = self.storage.connection().query_row(
+            "SELECT id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at
+             FROM attachments WHERE id = ?",
+            [attachment_id],
+            |row| {
+                let salt_bytes: Vec<u8> = row.get(6)?;
+                Ok(AttachmentMeta {
+                    id: row.get(0)?,
+                    note_id: row.get(1)?,
+                    filename: row.get(2)?,
+                    mime_type: row.get(3)?,
+                    size_bytes: row.get(4)?,
+                    hash_sha256: row.get(5)?,
+                    salt: hex::encode(&salt_bytes),
+                    created_at: row.get(7)?,
+                })
+            },
+        )?;
+        Ok(row)
+    }
+
+    /// Soft-deletes an attachment: renames `{id}.enc` → `{id}.enc.trash` and removes the
+    /// DB row. Pushes an `AttachmentRestore` entry onto the undo stack so the deletion
+    /// can be reversed. The `.enc.trash` file is cleaned up when the undo entry is
+    /// discarded (workspace close or stack overflow past the limit).
     pub fn delete_attachment(&mut self, attachment_id: &str) -> Result<()> {
         let enc_path = self
             .workspace_root
             .join("attachments")
             .join(format!("{attachment_id}.enc"));
+        let trash_path = self
+            .workspace_root
+            .join("attachments")
+            .join(format!("{attachment_id}.enc.trash"));
+
         if enc_path.exists() {
-            std::fs::remove_file(&enc_path)?;
+            std::fs::rename(&enc_path, &trash_path)?;
         }
         self.storage.connection().execute(
             "DELETE FROM attachments WHERE id = ?",
             [attachment_id],
         )?;
         Ok(())
+    }
+
+    /// Restores a soft-deleted attachment: renames `.enc.trash` → `.enc` (if the
+    /// trash file exists) and re-inserts the DB row. Used by the in-section "Restore"
+    /// button. Safe to call even if the session ended and the trash file was purged —
+    /// only the DB row is re-inserted in that case.
+    pub fn restore_attachment(&mut self, meta: &AttachmentMeta) -> Result<()> {
+        let trash_path = self.workspace_root.join("attachments")
+            .join(format!("{}.enc.trash", meta.id));
+        let enc_path = self.workspace_root.join("attachments")
+            .join(format!("{}.enc", meta.id));
+        if trash_path.exists() {
+            std::fs::rename(&trash_path, &enc_path)?;
+        }
+        let salt_bytes = hex::decode(&meta.salt)
+            .unwrap_or_else(|_| meta.salt.as_bytes().to_vec());
+        self.storage.connection().execute(
+            "INSERT OR IGNORE INTO attachments
+             (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+             VALUES (?,?,?,?,?,?,?,?)",
+            rusqlite::params![
+                meta.id, meta.note_id, meta.filename, meta.mime_type,
+                meta.size_bytes as i64, meta.hash_sha256,
+                salt_bytes.as_slice(), meta.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Purges any `.enc.trash` files left over from a previous session.
+    ///
+    /// Should be called once on workspace open. Since undo stacks are in-session
+    /// only, all `.enc.trash` files from prior sessions are safe to remove.
+    fn purge_attachment_trash(&self) {
+        let trash_dir = self.workspace_root.join("attachments");
+        if let Ok(entries) = std::fs::read_dir(&trash_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("trash") {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
     }
 
     /// Returns the workspace-level max attachment size in bytes, or `None` if unlimited.
@@ -2620,6 +3324,195 @@ impl Workspace {
             }
         }
         Ok(())
+    }
+
+    /// Returns full `Note` data for every node in the subtree rooted at `note_id`,
+    /// ordered parent-first (root at index 0) via a recursive CTE.
+    fn collect_subtree_notes(&self, note_id: &str) -> Result<Vec<Note>> {
+        let conn = self.connection();
+        let mut stmt = conn.prepare(
+            "WITH RECURSIVE subtree AS (
+                SELECT n.id, 0 AS depth FROM notes n WHERE n.id = ?1
+                UNION ALL
+                SELECT n.id, s.depth + 1 FROM notes n JOIN subtree s ON n.parent_id = s.id
+            )
+            SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+                   n.created_at, n.modified_at, n.created_by, n.modified_by,
+                   n.fields_json, n.is_expanded,
+                   GROUP_CONCAT(nt.tag, ',') AS tags_csv
+            FROM notes n
+            JOIN subtree s ON n.id = s.id
+            LEFT JOIN note_tags nt ON nt.note_id = n.id
+            GROUP BY n.id
+            ORDER BY s.depth ASC",
+        )?;
+        let rows = stmt.query_map([note_id], map_note_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(note_from_row_tuple).collect()
+    }
+
+    /// Applies `inverse` to the database without touching undo/redo stacks.
+    ///
+    /// Returns the note ID most relevant for UI re-selection, if any.
+    pub(crate) fn apply_retract_inverse_internal(
+        &mut self,
+        inverse: &RetractInverse,
+    ) -> Result<Option<String>> {
+        match inverse {
+            RetractInverse::DeleteNote { note_id } => {
+                // Undo of CreateNote: delete the note (no children expected).
+                let all_ids = self.collect_subtree_ids(note_id)?;
+                for id in &all_ids {
+                    self.clear_links_to(id)?;
+                }
+                let tx = self.storage.connection_mut().transaction()?;
+                Self::delete_recursive_in_tx(&tx, note_id)?;
+                tx.commit()?;
+                Ok(None)
+            }
+
+            RetractInverse::SubtreeRestore { notes, attachments } => {
+                // Undo of DeleteNote: re-insert notes (parent-first) and attachment rows.
+                let root_id = notes.first().map(|n| n.id.clone());
+                let conn = self.storage.connection_mut();
+                let tx = conn.transaction()?;
+                for note in notes {
+                    let fields_json = serde_json::to_string(&note.fields)
+                        .map_err(KrillnotesError::Json)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO notes
+                         (id, title, node_type, parent_id, position,
+                          created_at, modified_at, created_by, modified_by,
+                          fields_json, is_expanded)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        rusqlite::params![
+                            note.id, note.title, note.node_type, note.parent_id,
+                            note.position, note.created_at, note.modified_at,
+                            note.created_by, note.modified_by, fields_json,
+                            note.is_expanded as i32,
+                        ],
+                    )?;
+                    for tag in &note.tags {
+                        tx.execute(
+                            "INSERT OR IGNORE INTO note_tags (note_id, tag) VALUES (?,?)",
+                            rusqlite::params![note.id, tag],
+                        )?;
+                    }
+                }
+                for att in attachments {
+                    // salt is hex-encoded in AttachmentMeta; DB stores raw bytes.
+                    let salt_bytes = hex::decode(&att.salt)
+                        .unwrap_or_else(|_| att.salt.as_bytes().to_vec());
+                    tx.execute(
+                        "INSERT OR IGNORE INTO attachments
+                         (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+                         VALUES (?,?,?,?,?,?,?,?)",
+                        rusqlite::params![
+                            att.id, att.note_id, att.filename, att.mime_type,
+                            att.size_bytes as i64, att.hash_sha256,
+                            salt_bytes.as_slice(), att.created_at,
+                        ],
+                    )?;
+                }
+                tx.commit()?;
+                Ok(root_id)
+            }
+
+            RetractInverse::NoteRestore { note_id, old_title, old_fields, old_tags } => {
+                // Restore title + fields + tags atomically.
+                let fields_json = serde_json::to_string(old_fields)
+                    .map_err(KrillnotesError::Json)?;
+                let now = chrono::Utc::now().timestamp();
+                let conn = self.storage.connection_mut();
+                let tx = conn.transaction()?;
+                tx.execute(
+                    "UPDATE notes SET title=?, fields_json=?, modified_at=? WHERE id=?",
+                    rusqlite::params![old_title, fields_json, now, note_id],
+                )?;
+                tx.execute("DELETE FROM note_tags WHERE note_id=?", [note_id])?;
+                for tag in old_tags {
+                    tx.execute(
+                        "INSERT INTO note_tags (note_id, tag) VALUES (?,?)",
+                        rusqlite::params![note_id, tag],
+                    )?;
+                }
+                tx.commit()?;
+                Ok(Some(note_id.clone()))
+            }
+
+            RetractInverse::PositionRestore { note_id, old_parent_id, old_position } => {
+                self.move_note(note_id, old_parent_id.as_deref(), *old_position)?;
+                Ok(Some(note_id.clone()))
+            }
+
+            RetractInverse::DeleteScript { script_id } => {
+                self.storage.connection().execute(
+                    "DELETE FROM user_scripts WHERE id=?",
+                    [script_id],
+                )?;
+                self.reload_scripts()?;
+                Ok(None)
+            }
+
+            RetractInverse::ScriptRestore {
+                script_id, name, description,
+                source_code, load_order, enabled,
+            } => {
+                let now = chrono::Utc::now().timestamp();
+                self.storage.connection().execute(
+                    "INSERT OR REPLACE INTO user_scripts
+                     (id, name, description, source_code, load_order, enabled,
+                      created_at, modified_at)
+                     VALUES (?,?,?,?,?,?,?,?)",
+                    rusqlite::params![
+                        script_id, name, description, source_code,
+                        load_order, enabled, now, now,
+                    ],
+                )?;
+                self.reload_scripts()?;
+                Ok(None)
+            }
+
+            RetractInverse::AttachmentRestore { meta } => {
+                let note_id = meta.note_id.clone();
+                self.restore_attachment(meta)?;
+                Ok(Some(note_id))
+            }
+
+            RetractInverse::AttachmentSoftDelete { attachment_id } => {
+                // Redo of DeleteAttachment: rename .enc → .enc.trash, delete DB row.
+                let note_id: Option<String> = self.storage.connection()
+                    .query_row(
+                        "SELECT note_id FROM attachments WHERE id = ?",
+                        [attachment_id],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                let enc_path = self.workspace_root.join("attachments")
+                    .join(format!("{attachment_id}.enc"));
+                let trash_path = self.workspace_root.join("attachments")
+                    .join(format!("{attachment_id}.enc.trash"));
+                if enc_path.exists() {
+                    std::fs::rename(&enc_path, &trash_path)?;
+                }
+                self.storage.connection().execute(
+                    "DELETE FROM attachments WHERE id = ?",
+                    [attachment_id],
+                )?;
+                Ok(note_id)
+            }
+
+            RetractInverse::Batch(items) => {
+                // Apply in reverse order (LIFO).
+                let mut last_note = None;
+                for item in items.iter().rev() {
+                    if let Some(id) = self.apply_retract_inverse_internal(item)? {
+                        last_note = Some(id);
+                    }
+                }
+                Ok(last_note)
+            }
+        }
     }
 
 }
@@ -3593,12 +4486,12 @@ mod tests {
 
     #[test]
     fn test_move_note_logs_operation() {
-        // When sync is off (operation_log is None), no operations are logged.
+        // The operation log is always active — MoveNote must be recorded.
         let (mut ws, root_id, children, _temp) = setup_with_children(2);
         ws.move_note(&children[1], Some(&root_id), 0).unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
         let move_ops: Vec<_> = ops.iter().filter(|o| o.operation_type == "MoveNote").collect();
-        assert_eq!(move_ops.len(), 0, "Expected no operations when sync is off");
+        assert_eq!(move_ops.len(), 1, "Expected one MoveNote operation in always-on log");
     }
 
     #[test]
@@ -4391,13 +5284,16 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
     }
 
     #[test]
-    fn operations_log_empty_when_sync_off() {
+    fn operations_log_always_records_create_note() {
+        // The operation log is always active — every mutation must be recorded.
         let temp = tempfile::NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "").unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
-        assert!(ops.is_empty(), "expected no operations when sync is off");
+        assert!(!ops.is_empty(), "operation log must always be active");
+        let create_ops: Vec<_> = ops.iter().filter(|o| o.operation_type == "CreateNote").collect();
+        assert!(!create_ops.is_empty(), "CreateNote must be recorded in always-on log");
     }
 
     #[test]
@@ -4528,7 +5424,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
     }
 
     #[test]
-    fn test_delete_attachment_removes_file_and_row() {
+    fn test_delete_attachment_soft_deletes() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
         let mut ws = Workspace::create(&db_path, "testpass").unwrap();
@@ -4536,11 +5432,17 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
 
         let meta = ws.attach_file(&root_id, "bye.txt", None, b"temp").unwrap();
         let enc_path = dir.path().join("attachments").join(format!("{}.enc", meta.id));
+        let trash_path = dir.path().join("attachments").join(format!("{}.enc.trash", meta.id));
         assert!(enc_path.exists());
 
+        // Soft-delete: file moves to .enc.trash, DB row removed.
+        // Attachment deletions do NOT go on the main undo stack (to avoid interfering
+        // with note-edit undo/redo which uses the same Cmd+Z shortcut).
         ws.delete_attachment(&meta.id).unwrap();
-        assert!(!enc_path.exists(), "File must be deleted from disk");
-        assert!(ws.get_attachments(&root_id).unwrap().is_empty());
+        assert!(!enc_path.exists(), ".enc must be gone after soft-delete");
+        assert!(trash_path.exists(), ".enc.trash must exist after soft-delete");
+        assert!(ws.get_attachments(&root_id).unwrap().is_empty(), "DB row must be gone");
+        assert!(!ws.can_undo(), "attachment deletion must NOT push to main undo stack");
     }
 
     #[test]
@@ -4588,6 +5490,20 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
     }
 
     #[test]
+    fn test_operation_log_always_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+
+        // The operation log should record the CreateNote even without sync.
+        let ops = ws.list_operations(None, None, None).unwrap();
+        assert!(!ops.is_empty(), "operation log must always be active");
+        assert_eq!(ops[0].operation_type, "CreateNote");
+        let _ = root_id;
+    }
+
+    #[test]
     fn test_update_note_cleans_up_cleared_file_field() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
@@ -4608,5 +5524,301 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
 
         let result = ws.get_attachment_bytes(&meta.id);
         assert!(result.is_err(), "attachment should have been deleted when field was cleared");
+    }
+
+    #[test]
+    fn test_can_undo_initially_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let ws = Workspace::create(&path, "").unwrap();
+        assert!(!ws.can_undo());
+        assert!(!ws.can_redo());
+    }
+
+    #[test]
+    fn test_collect_subtree_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let _grandchild = ws.create_note(&child_id, AddPosition::AsChild, "TextNote").unwrap();
+
+        let notes = ws.collect_subtree_notes(&root_id).unwrap();
+        assert_eq!(notes.len(), 3);
+        // Root must be first.
+        assert_eq!(notes[0].id, root_id);
+    }
+
+    #[test]
+    fn test_undo_group_collapses_to_one_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        // Clear the undo entry from root creation
+        ws.undo_stack.clear();
+
+        ws.begin_undo_group();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.end_undo_group();
+
+        assert_eq!(ws.undo_stack.len(), 1, "group must collapse to one entry");
+        match &ws.undo_stack[0].inverse {
+            RetractInverse::Batch(items) => assert_eq!(items.len(), 2),
+            _ => panic!("expected Batch"),
+        }
+    }
+
+    #[test]
+    fn test_undo_create_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear(); // ignore root creation
+
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        assert!(ws.can_undo());
+
+        let result = ws.undo().unwrap();
+        assert_eq!(result.affected_note_id, None);
+        assert!(ws.get_note(&child_id).is_err(), "note must be gone after undo");
+    }
+
+    #[test]
+    fn test_undo_update_note_restores_old_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        ws.update_note(&root_id, "New Title".into(), HashMap::new()).unwrap();
+        assert!(ws.can_undo());
+
+        // Check undo entry inverse
+        match &ws.undo_stack[0].inverse {
+            RetractInverse::NoteRestore { old_title, .. } => {
+                // The original title from create_note_root should be preserved.
+                assert_ne!(old_title, "New Title");
+            }
+            _ => panic!("expected NoteRestore"),
+        }
+    }
+
+    #[test]
+    fn test_undo_delete_note_restores_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        ws.delete_note_recursive(&child_id).unwrap();
+        assert!(ws.can_undo());
+        assert!(ws.get_note(&child_id).is_err(), "note gone after delete");
+
+        // Undo entry must be SubtreeRestore.
+        assert!(matches!(ws.undo_stack[0].inverse, RetractInverse::SubtreeRestore { .. }));
+    }
+
+    #[test]
+    fn test_undo_move_note_restores_position() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        let sibling_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        let old_note = ws.get_note(&sibling_id).unwrap();
+        ws.move_note(&sibling_id, Some(&child_id), 0).unwrap();
+
+        assert!(ws.can_undo());
+        match &ws.undo_stack[0].inverse {
+            RetractInverse::PositionRestore { note_id, old_parent_id, old_position } => {
+                assert_eq!(note_id, &sibling_id);
+                assert_eq!(old_parent_id, &old_note.parent_id);
+                assert_eq!(*old_position, old_note.position);
+            }
+            _ => panic!("expected PositionRestore"),
+        }
+    }
+
+    #[test]
+    fn test_undo_delete_script_restores_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+
+        let src = "// @name: TestScript\n// @description: desc\n";
+        let (script, _) = ws.create_user_script(src).unwrap();
+        ws.script_undo_stack.clear();
+
+        ws.delete_user_script(&script.id).unwrap();
+        // Script operations now land on the separate script_undo_stack.
+        assert!(ws.can_script_undo());
+        assert!(!ws.can_undo(), "note undo stack must be unaffected by script ops");
+        assert!(matches!(ws.script_undo_stack[0].inverse, RetractInverse::ScriptRestore { .. }));
+    }
+
+    #[test]
+    fn test_undo_redo_create_note_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        assert!(ws.can_undo());
+        assert!(!ws.can_redo());
+
+        ws.undo().unwrap();
+        assert!(ws.get_note(&child_id).is_err(), "note removed by undo");
+        assert!(!ws.can_undo());
+        assert!(ws.can_redo());
+
+        ws.redo().unwrap();
+        assert!(ws.can_undo());
+        assert!(!ws.can_redo());
+        // Note should be back — look it up by parent.
+        let children = ws.get_children(&root_id).unwrap();
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn test_undo_delete_note_full_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        ws.delete_note_recursive(&child_id).unwrap();
+        ws.undo().unwrap();
+
+        // Note must be back.
+        assert!(ws.get_note(&child_id).is_ok());
+    }
+
+    #[test]
+    fn test_tree_action_collapses_to_one_undo_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear();
+
+        // Simulate what run_tree_action does internally.
+        ws.begin_undo_group();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.end_undo_group();
+
+        assert_eq!(ws.undo_stack.len(), 1, "three creates must collapse to one undo step");
+    }
+
+    #[test]
+    fn test_undo_limit_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+        ws.set_undo_limit(10).unwrap();
+        drop(ws);
+
+        let ws2 = Workspace::open(&path, "").unwrap();
+        assert_eq!(ws2.undo_limit, 10);
+    }
+
+    #[test]
+    fn test_undo_limit_clamp_and_trim() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+
+        ws.set_undo_limit(0).unwrap();
+        assert_eq!(ws.get_undo_limit(), 1);
+
+        ws.set_undo_limit(9999).unwrap();
+        assert_eq!(ws.get_undo_limit(), 500);
+
+        // Grow the undo stack to 5 entries, then shrink
+        ws.set_undo_limit(500).unwrap();
+        let root_id = ws.create_note_root("TextNote").unwrap();
+        ws.undo_stack.clear();
+        for _ in 0..5 {
+            ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
+        }
+        assert_eq!(ws.undo_stack.len(), 5);
+        ws.set_undo_limit(3).unwrap();
+        assert_eq!(ws.undo_stack.len(), 3, "oldest entries should have been dropped");
+    }
+
+    #[test]
+    fn test_undo_redo_update_script_full_cycle() {
+        // Regression: build_redo_inverse(ScriptRestore) used to always return
+        // DeleteScript, causing redo to delete the script instead of re-applying
+        // the update.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+
+        let src_v1 = "// @name: CycleScript\n// @description: v1\nlet x = 1;";
+        let (script, _) = ws.create_user_script(src_v1).unwrap();
+        ws.script_undo_stack.clear();
+
+        let src_v2 = "// @name: CycleScript\n// @description: v2\nlet x = 2;";
+        ws.update_user_script(&script.id, src_v2).unwrap();
+
+        // Script undo: should restore v1.
+        ws.script_undo().unwrap();
+        let after_undo = ws.get_user_script(&script.id).unwrap();
+        assert_eq!(after_undo.source_code, src_v1, "script_undo should restore v1");
+        assert!(ws.can_script_redo());
+
+        // Script redo: should restore v2 (not delete the script!).
+        ws.script_redo().unwrap();
+        let after_redo = ws.get_user_script(&script.id).unwrap();
+        assert_eq!(after_redo.source_code, src_v2, "script_redo should re-apply v2");
+
+        // Script undo again: back to v1.
+        ws.script_undo().unwrap();
+        let final_state = ws.get_user_script(&script.id).unwrap();
+        assert_eq!(final_state.source_code, src_v1, "second script_undo should restore v1 again");
+    }
+
+    #[test]
+    fn test_undo_redo_create_script_full_cycle() {
+        // Undo of CreateScript (DeleteScript inverse) should be able to re-create
+        // the script with its real content on redo, not an empty placeholder.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "").unwrap();
+
+        let src = "// @name: RedoScript\n// @description: test\nlet y = 42;";
+        let (script, _) = ws.create_user_script(src).unwrap();
+        ws.script_undo_stack.clear();
+        // Re-push just the create entry we care about onto the script stack.
+        ws.push_script_undo(UndoEntry {
+            retracted_ids: vec!["test-op".into()],
+            inverse: RetractInverse::DeleteScript { script_id: script.id.clone() },
+            propagate: true,
+        });
+
+        // Script undo: script deleted.
+        ws.script_undo().unwrap();
+        assert!(ws.get_user_script(&script.id).is_err(), "script deleted by script_undo");
+
+        // Script redo: script recreated with real content.
+        ws.script_redo().unwrap();
+        let after_redo = ws.get_user_script(&script.id).unwrap();
+        assert_eq!(after_redo.source_code, src, "script_redo must restore real source, not empty");
     }
 }

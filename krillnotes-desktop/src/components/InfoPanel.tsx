@@ -4,7 +4,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
-import type { Note, FieldValue, SchemaInfo } from '../types';
+import type { Note, FieldValue, SchemaInfo, AttachmentMeta } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
 import TagPill from './TagPill';
@@ -20,6 +20,7 @@ interface InfoPanelProps {
   onLinkNavigate: (noteId: string) => void;
   onBack: () => void;
   backNoteTitle?: string;
+  refreshSignal?: number;
 }
 
 function defaultValueForFieldType(fieldType: string): FieldValue {
@@ -44,7 +45,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
   return false; // Number and Boolean are never empty
 }
 
-function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle }: InfoPanelProps) {
+function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle, refreshSignal }: InfoPanelProps) {
   const { t } = useTranslation();
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
@@ -67,6 +68,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const [allTags, setAllTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [recentlyDeleted, setRecentlyDeleted] = useState<AttachmentMeta[]>([]);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const viewHtmlRef = useRef<HTMLDivElement>(null);
@@ -622,6 +624,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         <AttachmentsSection
           noteId={selectedNote?.id ?? null}
           allowedTypes={schemaInfo.attachmentTypes}
+          refreshSignal={refreshSignal}
+          recentlyDeleted={recentlyDeleted}
+          onRecentlyDeletedChange={setRecentlyDeleted}
         />
       )}
 
@@ -661,5 +666,6 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 export default memo(InfoPanel, (prev, next) =>
   prev.selectedNote === next.selectedNote &&
   prev.requestEditMode === next.requestEditMode &&
-  prev.backNoteTitle === next.backNoteTitle,
+  prev.backNoteTitle === next.backNoteTitle &&
+  prev.refreshSignal === next.refreshSignal,
 );

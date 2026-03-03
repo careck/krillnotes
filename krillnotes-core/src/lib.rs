@@ -24,6 +24,7 @@ pub use core::{
     operation_log::{OperationLog, OperationSummary, PurgeStrategy},
     scripting::{FieldDefinition, HookRegistry, QueryContext, Schema, ScriptError, ScriptRegistry, StarterScript},
     storage::Storage,
+    undo::{RetractInverse, UndoResult},
     user_script::UserScript,
     workspace::{AddPosition, NoteSearchResult, Workspace},
 };

@@ -14,6 +14,7 @@ pub mod operation_log;
 pub mod scripting;
 pub mod storage;
 pub mod user_script;
+pub mod undo;
 pub mod workspace;
 
 #[doc(inline)]
@@ -39,6 +40,8 @@ pub use operation_log::{OperationLog, OperationSummary, PurgeStrategy};
 pub use scripting::{FieldDefinition, HookRegistry, Schema, ScriptRegistry};
 #[doc(inline)]
 pub use storage::Storage;
+#[doc(inline)]
+pub use undo::{RetractInverse, UndoResult};
 #[doc(inline)]
 pub use user_script::UserScript;
 #[doc(inline)]

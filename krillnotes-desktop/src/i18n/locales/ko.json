@@ -20,7 +20,9 @@
     "next": "다음",
     "add": "+ 추가",
     "yes": "예",
-    "no": "아니요"
+    "no": "아니요",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "설정",
@@ -45,7 +47,9 @@
     "tabSync": "동기화",
     "tabAppearance": "외관",
     "sync": "동기화",
-    "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다."
+    "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다.",
+    "undoHistoryLimit": "실행 취소 기록 한도",
+    "undoHistoryLimitHint": "실행 취소할 수 있는 작업 수 (1–500)"
   },
   "themes": {
     "manage": "테마 관리",
@@ -88,7 +92,9 @@
     "failedDelete": "삭제하지 못했습니다: {{error}}",
     "failedImport": "파일을 읽지 못했습니다: {{error}}",
     "failedReorder": "스크립트를 재정렬하지 못했습니다: {{error}}",
-    "reloadErrors": "스크립트 다시 로드 오류:\n{{errors}}"
+    "reloadErrors": "스크립트 다시 로드 오류:\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "작업 공간 열기",
@@ -134,7 +140,9 @@
     "importingProgress": "{{noteCount}}개의 노트와 {{scriptCount}}개의 스크립트를 가져오는 중.",
     "propertiesLoadFailed": "작업 공간 속성을 불러오지 못했습니다: {{error}}",
     "failedCheckChildren": "하위 항목을 확인하지 못했습니다: {{error}}",
-    "failedDelete": "삭제하지 못했습니다: {{error}}"
+    "failedDelete": "삭제하지 못했습니다: {{error}}",
+    "undoTooltip": "실행 취소 (Cmd+Z)",
+    "redoTooltip": "다시 실행 (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

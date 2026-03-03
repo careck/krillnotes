@@ -149,3 +149,7 @@ export interface AttachmentMeta {
   salt: string;
   createdAt: number;
 }
+
+export interface UndoResult {
+  affectedNoteId: string | null;
+}

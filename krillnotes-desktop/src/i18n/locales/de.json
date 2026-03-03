@@ -20,7 +20,9 @@
     "next": "Weiter",
     "add": "+ Hinzufügen",
     "yes": "Ja",
-    "no": "Nein"
+    "no": "Nein",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "Einstellungen",
@@ -45,7 +47,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Erscheinungsbild",
     "sync": "Sync",
-    "syncHint": "Sync hält deine Notizen auf allen Geräten auf dem neuesten Stand. Kommt bald."
+    "syncHint": "Sync hält deine Notizen auf allen Geräten auf dem neuesten Stand. Kommt bald.",
+    "undoHistoryLimit": "Rückgängig-Verlauf-Limit",
+    "undoHistoryLimitHint": "Anzahl der Aktionen, die rückgängig gemacht werden können (1–500)"
   },
   "themes": {
     "manage": "Designs verwalten",
@@ -88,7 +92,9 @@
     "failedDelete": "Löschen fehlgeschlagen: {{error}}",
     "failedImport": "Datei konnte nicht gelesen werden: {{error}}",
     "failedReorder": "Skripte konnten nicht neu angeordnet werden: {{error}}",
-    "reloadErrors": "Fehler beim Neuladen der Skripte:\n{{errors}}"
+    "reloadErrors": "Fehler beim Neuladen der Skripte:\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "Arbeitsbereich öffnen",
@@ -134,7 +140,9 @@
     "importingProgress": "Importiere {{noteCount}} Notizen und {{scriptCount}} Skripte.",
     "propertiesLoadFailed": "Arbeitsbereich-Eigenschaften konnten nicht geladen werden: {{error}}",
     "failedCheckChildren": "Unterelemente konnten nicht geprüft werden: {{error}}",
-    "failedDelete": "Löschen fehlgeschlagen: {{error}}"
+    "failedDelete": "Löschen fehlgeschlagen: {{error}}",
+    "undoTooltip": "Rückgängig (Cmd+Z)",
+    "redoTooltip": "Wiederholen (Cmd+Umschalt+Z)"
   },
   "dialogs": {
     "password": {

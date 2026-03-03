@@ -177,6 +177,7 @@ impl OperationLog {
             Operation::CreateUserScript { .. } => "CreateUserScript",
             Operation::UpdateUserScript { .. } => "UpdateUserScript",
             Operation::DeleteUserScript { .. } => "DeleteUserScript",
+            Operation::RetractOperation { .. } => "RetractOperation",
         }
     }
 

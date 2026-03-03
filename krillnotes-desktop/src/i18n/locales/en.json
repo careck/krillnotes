@@ -20,7 +20,9 @@
     "next": "Next",
     "add": "+ Add",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "Settings",
@@ -45,7 +47,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Appearance",
     "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon."
+    "syncHint": "Sync keeps your notes up to date across devices. Coming soon.",
+    "undoHistoryLimit": "Undo history limit",
+    "undoHistoryLimitHint": "Number of actions that can be undone (1–500)"
   },
   "themes": {
     "manage": "Manage Themes",
@@ -88,7 +92,9 @@
     "failedDelete": "Failed to delete: {{error}}",
     "failedImport": "Failed to read file: {{error}}",
     "failedReorder": "Failed to reorder scripts: {{error}}",
-    "reloadErrors": "Script reload errors:\n{{errors}}"
+    "reloadErrors": "Script reload errors:\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "Open Workspace",
@@ -134,7 +140,9 @@
     "importingProgress": "Importing {{noteCount}} notes and {{scriptCount}} scripts.",
     "propertiesLoadFailed": "Failed to load workspace properties: {{error}}",
     "failedCheckChildren": "Failed to check children: {{error}}",
-    "failedDelete": "Failed to delete: {{error}}"
+    "failedDelete": "Failed to delete: {{error}}",
+    "undoTooltip": "Undo (Cmd+Z)",
+    "redoTooltip": "Redo (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

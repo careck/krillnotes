@@ -20,7 +20,9 @@
     "next": "次へ",
     "add": "+ 追加",
     "yes": "はい",
-    "no": "いいえ"
+    "no": "いいえ",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "設定",
@@ -45,7 +47,9 @@
     "tabSync": "同期",
     "tabAppearance": "外観",
     "sync": "同期",
-    "syncHint": "同期により、デバイス間でノートを常に最新の状態に保ちます。近日公開。"
+    "syncHint": "同期により、デバイス間でノートを常に最新の状態に保ちます。近日公開。",
+    "undoHistoryLimit": "元に戻す履歴の上限",
+    "undoHistoryLimitHint": "元に戻せる操作の数（1〜500）"
   },
   "themes": {
     "manage": "テーマを管理",
@@ -88,7 +92,9 @@
     "failedDelete": "削除に失敗しました: {{error}}",
     "failedImport": "ファイルの読み込みに失敗しました: {{error}}",
     "failedReorder": "スクリプトの並び替えに失敗しました: {{error}}",
-    "reloadErrors": "スクリプト再読み込みエラー:\n{{errors}}"
+    "reloadErrors": "スクリプト再読み込みエラー:\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "ワークスペースを開く",
@@ -134,7 +140,9 @@
     "importingProgress": "{{noteCount}} 件のノートと {{scriptCount}} 件のスクリプトをインポート中。",
     "propertiesLoadFailed": "ワークスペースのプロパティの読み込みに失敗しました: {{error}}",
     "failedCheckChildren": "子要素の確認に失敗しました: {{error}}",
-    "failedDelete": "削除に失敗しました: {{error}}"
+    "failedDelete": "削除に失敗しました: {{error}}",
+    "undoTooltip": "元に戻す (Cmd+Z)",
+    "redoTooltip": "やり直す (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {

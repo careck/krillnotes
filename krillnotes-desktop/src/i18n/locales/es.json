@@ -20,7 +20,9 @@
     "next": "Siguiente",
     "add": "+ Añadir",
     "yes": "Sí",
-    "no": "No"
+    "no": "No",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "Ajustes",
@@ -45,7 +47,9 @@
     "tabSync": "Sync",
     "tabAppearance": "Apariencia",
     "sync": "Sync",
-    "syncHint": "La sincronización mantiene tus notas actualizadas en todos tus dispositivos. Próximamente."
+    "syncHint": "La sincronización mantiene tus notas actualizadas en todos tus dispositivos. Próximamente.",
+    "undoHistoryLimit": "Límite del historial de deshacer",
+    "undoHistoryLimitHint": "Número de acciones que se pueden deshacer (1–500)"
   },
   "themes": {
     "manage": "Gestionar temas",
@@ -88,7 +92,9 @@
     "failedDelete": "Error al eliminar: {{error}}",
     "failedImport": "Error al leer el archivo: {{error}}",
     "failedReorder": "Error al reordenar los scripts: {{error}}",
-    "reloadErrors": "Errores al recargar los scripts:\n{{errors}}"
+    "reloadErrors": "Errores al recargar los scripts:\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "Abrir espacio de trabajo",
@@ -134,7 +140,9 @@
     "importingProgress": "Importando {{noteCount}} notas y {{scriptCount}} scripts.",
     "propertiesLoadFailed": "Error al cargar las propiedades: {{error}}",
     "failedCheckChildren": "Error al comprobar los elementos hijos: {{error}}",
-    "failedDelete": "Error al eliminar: {{error}}"
+    "failedDelete": "Error al eliminar: {{error}}",
+    "undoTooltip": "Deshacer (Cmd+Z)",
+    "redoTooltip": "Rehacer (Cmd+Mayús+Z)"
   },
   "dialogs": {
     "password": {

@@ -50,6 +50,8 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   const [importConflict, setImportConflict] = useState<UserScript | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [canScriptUndo, setCanScriptUndo] = useState(false);
+  const [canScriptRedo, setCanScriptRedo] = useState(false);
 
   const loadScripts = useCallback(async () => {
     try {
@@ -60,14 +62,24 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     }
   }, [t]);
 
+  const refreshScriptUndoState = useCallback(async () => {
+    const [u, r] = await Promise.all([
+      invoke<boolean>('can_script_undo'),
+      invoke<boolean>('can_script_redo'),
+    ]);
+    setCanScriptUndo(u);
+    setCanScriptRedo(r);
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       loadScripts();
+      refreshScriptUndoState();
       setView('list');
       setError('');
       setImportConflict(null);
     }
-  }, [isOpen, loadScripts]);
+  }, [isOpen, loadScripts, refreshScriptUndoState]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -141,6 +153,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
         loadErrors = result.loadErrors;
       }
       await loadScripts();
+      await refreshScriptUndoState();
       setImportConflict(null);
       setView('list');
       onScriptsChanged?.();
@@ -161,6 +174,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     try {
       const loadErrors = await invoke<ScriptError[]>('delete_user_script', { scriptId: editingScript.id });
       await loadScripts();
+      await refreshScriptUndoState();
       setImportConflict(null);
       setView('list');
       setError(loadErrors.length > 0 ? t('scripts.reloadErrors', { errors: formatLoadErrors(loadErrors) }) : '');
@@ -241,6 +255,28 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   const handleDragEnd = () => {
     setDragIndex(null);
     setDragOverIndex(null);
+  };
+
+  const handleScriptUndo = async () => {
+    try {
+      await invoke('script_undo');
+      await loadScripts();
+      await refreshScriptUndoState();
+      onScriptsChanged?.();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handleScriptRedo = async () => {
+    try {
+      await invoke('script_redo');
+      await loadScripts();
+      await refreshScriptUndoState();
+      onScriptsChanged?.();
+    } catch (err) {
+      setError(String(err));
+    }
   };
 
   return (
@@ -332,7 +368,25 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
             )}
 
             {/* Footer */}
-            <div className="flex justify-end p-4 border-t border-border">
+            <div className="flex justify-between items-center p-4 border-t border-border">
+              <div className="flex gap-2">
+                <button
+                  onClick={handleScriptUndo}
+                  disabled={!canScriptUndo}
+                  title={t('scripts.undoLastSave')}
+                  className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {t('common.undo')}
+                </button>
+                <button
+                  onClick={handleScriptRedo}
+                  disabled={!canScriptRedo}
+                  title={t('scripts.redoLastSave')}
+                  className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {t('common.redo')}
+                </button>
+              </div>
               <button
                 onClick={onClose}
                 className="px-4 py-2 border border-border rounded-md hover:bg-secondary"

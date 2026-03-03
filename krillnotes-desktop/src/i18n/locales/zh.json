@@ -20,7 +20,9 @@
     "next": "下一步",
     "add": "+ 添加",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "undo": "Undo",
+    "redo": "Redo"
   },
   "settings": {
     "title": "设置",
@@ -45,7 +47,9 @@
     "tabSync": "同步",
     "tabAppearance": "外观",
     "sync": "同步",
-    "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。"
+    "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。",
+    "undoHistoryLimit": "撤销历史限制",
+    "undoHistoryLimitHint": "可撤销的操作数量（1–500）"
   },
   "themes": {
     "manage": "管理主题",
@@ -88,7 +92,9 @@
     "failedDelete": "删除失败：{{error}}",
     "failedImport": "读取文件失败：{{error}}",
     "failedReorder": "重新排序脚本失败：{{error}}",
-    "reloadErrors": "脚本重新加载错误：\n{{errors}}"
+    "reloadErrors": "脚本重新加载错误：\n{{errors}}",
+    "undoLastSave": "Undo last script save",
+    "redoLastSave": "Redo last script save"
   },
   "workspace": {
     "openTitle": "打开工作区",
@@ -134,7 +140,9 @@
     "importingProgress": "正在导入 {{noteCount}} 条笔记和 {{scriptCount}} 个脚本。",
     "propertiesLoadFailed": "加载工作区属性失败：{{error}}",
     "failedCheckChildren": "检查子项失败：{{error}}",
-    "failedDelete": "删除失败：{{error}}"
+    "failedDelete": "删除失败：{{error}}",
+    "undoTooltip": "撤销 (Cmd+Z)",
+    "redoTooltip": "重做 (Cmd+Shift+Z)"
   },
   "dialogs": {
     "password": {
