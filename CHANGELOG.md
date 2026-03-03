@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.6] — 2026-03-04
+
+### Added
+- **Undo / Redo** — Cmd+Z undoes the most recent note-tree action; Cmd+Shift+Z redoes it. Toolbar buttons are also available. Supported operations: note create, title and field edits, delete (with full subtree restored), move / reorder, and script create / update / delete. Tree hook side-effects (e.g. auto-entering a title immediately after creating a note) are collapsed into a single undo step so one Cmd+Z reverses the whole action. The history limit is configurable in Settings (default 50, max 500) and stored per workspace in `workspace_meta`.
+- **Separate script editor undo** — The CodeMirror editor in the Script Manager maintains its own independent undo history. Cmd+Z inside the editor undoes text changes within the editor only and does not affect the note-tree undo stack.
+- **Attachment Restore** — Deleting an attachment now shows a "Recently deleted" strip below the attachment list with a per-item Restore button. Deleted attachments can be recovered for the duration of the app session, including after navigating away from the note and returning.
+
+### Changed
+- **Operations log always active** — The operations log is now populated for every workspace, regardless of sync settings. Previously it was gated behind sync being enabled (v0.2.5 change); it must be unconditionally active because undo/redo is recorded as first-class `RetractOperation` entries in the same log.
+
+---
+
 ## [0.2.5] — 2026-03-02
 
 ### Added
@@ -189,7 +201,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/careck/krillnotes/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/careck/krillnotes/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/careck/krillnotes/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/careck/krillnotes/compare/v0.2.2...v0.2.3
