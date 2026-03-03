@@ -66,7 +66,6 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
     loadAttachments();
     setThumbnails({});
     setError('');
-    setRecentlyDeleted([]);
   }, [noteId, refreshSignal]);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
@@ -224,11 +223,11 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
         </div>
       )}
 
-      {recentlyDeleted.length > 0 && (
+      {recentlyDeleted.filter(a => a.noteId === noteId).length > 0 && (
         <div className="mt-2 pt-2 border-t border-dashed border-border">
           <p className="text-xs text-muted-foreground mb-1">Recently deleted</p>
           <div className="space-y-1">
-            {recentlyDeleted.map(att => (
+            {recentlyDeleted.filter(a => a.noteId === noteId).map(att => (
               <div key={att.id} className="flex items-center gap-2 rounded p-1 opacity-60">
                 <div className="w-10 h-10 rounded flex-shrink-0 bg-secondary flex items-center justify-center">
                   {isImageMime(att.mimeType)
