@@ -1754,6 +1754,22 @@ fn delete_attachment(
         .map_err(|e| e.to_string())
 }
 
+/// Restores a previously soft-deleted attachment (moves `.enc.trash` → `.enc`, re-inserts DB row).
+/// Called from the in-section "Restore" button in AttachmentsSection.
+#[tauri::command]
+fn restore_attachment(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    meta: AttachmentMeta,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .restore_attachment(&meta)
+        .map_err(|e| e.to_string())
+}
+
 /// Decrypts an attachment to a temp file and opens it with the default system application.
 #[tauri::command]
 async fn open_attachment(
@@ -2018,6 +2034,7 @@ pub fn run() {
             get_attachments,
             get_attachment_data,
             delete_attachment,
+            restore_attachment,
             open_attachment,
             undo,
             redo,

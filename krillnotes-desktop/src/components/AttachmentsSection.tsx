@@ -41,6 +41,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [recentlyDeleted, setRecentlyDeleted] = useState<AttachmentMeta[]>([]);
 
   const loadAttachments = async () => {
     if (!noteId) { setAttachments([]); return; }
@@ -65,6 +66,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
     loadAttachments();
     setThumbnails({});
     setError('');
+    setRecentlyDeleted([]);
   }, [noteId, refreshSignal]);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
@@ -136,8 +138,19 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
       await invoke('delete_attachment', { attachmentId: att.id });
       setAttachments(prev => prev.filter(a => a.id !== att.id));
       setThumbnails(prev => { const copy = { ...prev }; delete copy[att.id]; return copy; });
+      setRecentlyDeleted(prev => [...prev, att]);
     } catch (e) {
       setError(`Failed to delete: ${e}`);
+    }
+  };
+
+  const handleRestore = async (att: AttachmentMeta) => {
+    try {
+      await invoke('restore_attachment', { meta: att });
+      setRecentlyDeleted(prev => prev.filter(a => a.id !== att.id));
+      await loadAttachments();
+    } catch (e) {
+      setError(`Failed to restore: ${e}`);
     }
   };
 
@@ -208,6 +221,33 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {recentlyDeleted.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-dashed border-border">
+          <p className="text-xs text-muted-foreground mb-1">Recently deleted</p>
+          <div className="space-y-1">
+            {recentlyDeleted.map(att => (
+              <div key={att.id} className="flex items-center gap-2 rounded p-1 opacity-60">
+                <div className="w-10 h-10 rounded flex-shrink-0 bg-secondary flex items-center justify-center">
+                  {isImageMime(att.mimeType)
+                    ? <Image size={18} className="text-muted-foreground" />
+                    : <FileText size={18} className="text-muted-foreground" />
+                  }
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate line-through text-muted-foreground">{att.filename}</p>
+                </div>
+                <button
+                  onClick={() => handleRestore(att)}
+                  className="text-xs text-primary hover:text-primary/80 px-2 py-1 rounded hover:bg-secondary flex-shrink-0"
+                >
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -3250,6 +3250,33 @@ impl Workspace {
         Ok(())
     }
 
+    /// Restores a soft-deleted attachment: renames `.enc.trash` → `.enc` (if the
+    /// trash file exists) and re-inserts the DB row. Used by the in-section "Restore"
+    /// button. Safe to call even if the session ended and the trash file was purged —
+    /// only the DB row is re-inserted in that case.
+    pub fn restore_attachment(&mut self, meta: &AttachmentMeta) -> Result<()> {
+        let trash_path = self.workspace_root.join("attachments")
+            .join(format!("{}.enc.trash", meta.id));
+        let enc_path = self.workspace_root.join("attachments")
+            .join(format!("{}.enc", meta.id));
+        if trash_path.exists() {
+            std::fs::rename(&trash_path, &enc_path)?;
+        }
+        let salt_bytes = hex::decode(&meta.salt)
+            .unwrap_or_else(|_| meta.salt.as_bytes().to_vec());
+        self.storage.connection().execute(
+            "INSERT OR IGNORE INTO attachments
+             (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+             VALUES (?,?,?,?,?,?,?,?)",
+            rusqlite::params![
+                meta.id, meta.note_id, meta.filename, meta.mime_type,
+                meta.size_bytes as i64, meta.hash_sha256,
+                salt_bytes.as_slice(), meta.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Purges any `.enc.trash` files left over from a previous session.
     ///
     /// Should be called once on workspace open. Since undo stacks are in-session
@@ -3447,27 +3474,9 @@ impl Workspace {
             }
 
             RetractInverse::AttachmentRestore { meta } => {
-                // Undo of DeleteAttachment: rename .enc.trash back to .enc, re-insert DB row.
-                let trash_path = self.workspace_root.join("attachments")
-                    .join(format!("{}.enc.trash", meta.id));
-                let enc_path = self.workspace_root.join("attachments")
-                    .join(format!("{}.enc", meta.id));
-                if trash_path.exists() {
-                    std::fs::rename(&trash_path, &enc_path)?;
-                }
-                let salt_bytes = hex::decode(&meta.salt)
-                    .unwrap_or_else(|_| meta.salt.as_bytes().to_vec());
-                self.storage.connection().execute(
-                    "INSERT OR IGNORE INTO attachments
-                     (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
-                     VALUES (?,?,?,?,?,?,?,?)",
-                    rusqlite::params![
-                        meta.id, meta.note_id, meta.filename, meta.mime_type,
-                        meta.size_bytes as i64, meta.hash_sha256,
-                        salt_bytes.as_slice(), meta.created_at,
-                    ],
-                )?;
-                Ok(Some(meta.note_id.clone()))
+                let note_id = meta.note_id.clone();
+                self.restore_attachment(meta)?;
+                Ok(Some(note_id))
             }
 
             RetractInverse::AttachmentSoftDelete { attachment_id } => {
