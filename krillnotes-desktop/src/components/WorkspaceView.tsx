@@ -85,6 +85,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // Undo/redo state
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [noteRefreshSignal, setNoteRefreshSignal] = useState(0);
   // Tracks whether a note-creation undo group is currently open.
   // Set to true just before create_note_with_type; cleared when edit mode ends.
   const pendingUndoGroupRef = useRef(false);
@@ -157,6 +158,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const result = await invoke<UndoResult>('undo');
       await loadNotes();
       if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+      setNoteRefreshSignal(s => s + 1);
       await refreshUndoState();
     } catch (e) {
       const msg = String(e);
@@ -171,6 +173,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const result = await invoke<UndoResult>('redo');
       await loadNotes();
       if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
+      setNoteRefreshSignal(s => s + 1);
       await refreshUndoState();
     } catch (e) {
       const msg = String(e);
@@ -809,6 +812,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             onLinkNavigate={handleLinkNavigate}
             onBack={handleBack}
             backNoteTitle={backNoteTitle}
+            refreshSignal={noteRefreshSignal}
           />
         </div>
       </div>

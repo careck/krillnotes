@@ -23,6 +23,7 @@ function mimeToExtension(mime: string): string {
 interface AttachmentsSectionProps {
   noteId: string | null;
   allowedTypes: string[];   // MIME types; empty = all allowed
+  refreshSignal?: number;
 }
 
 function formatBytes(bytes: number): string {
@@ -35,7 +36,7 @@ function isImageMime(mime: string | null): boolean {
   return mime?.startsWith('image/') ?? false;
 }
 
-export default function AttachmentsSection({ noteId, allowedTypes }: AttachmentsSectionProps) {
+export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal }: AttachmentsSectionProps) {
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -64,7 +65,7 @@ export default function AttachmentsSection({ noteId, allowedTypes }: Attachments
     loadAttachments();
     setThumbnails({});
     setError('');
-  }, [noteId]);
+  }, [noteId, refreshSignal]);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
   const handleDragLeave = () => setDragging(false);

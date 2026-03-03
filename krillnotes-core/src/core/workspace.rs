@@ -3476,11 +3476,18 @@ impl Workspace {
                         salt_bytes.as_slice(), meta.created_at,
                     ],
                 )?;
-                Ok(None)
+                Ok(Some(meta.note_id.clone()))
             }
 
             RetractInverse::AttachmentSoftDelete { attachment_id } => {
                 // Redo of DeleteAttachment: rename .enc → .enc.trash, delete DB row.
+                let note_id: Option<String> = self.storage.connection()
+                    .query_row(
+                        "SELECT note_id FROM attachments WHERE id = ?",
+                        [attachment_id],
+                        |row| row.get(0),
+                    )
+                    .ok();
                 let enc_path = self.workspace_root.join("attachments")
                     .join(format!("{attachment_id}.enc"));
                 let trash_path = self.workspace_root.join("attachments")
@@ -3492,7 +3499,7 @@ impl Workspace {
                     "DELETE FROM attachments WHERE id = ?",
                     [attachment_id],
                 )?;
-                Ok(None)
+                Ok(note_id)
             }
 
             RetractInverse::Batch(items) => {

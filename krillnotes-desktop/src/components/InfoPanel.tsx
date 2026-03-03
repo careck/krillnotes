@@ -20,6 +20,7 @@ interface InfoPanelProps {
   onLinkNavigate: (noteId: string) => void;
   onBack: () => void;
   backNoteTitle?: string;
+  refreshSignal?: number;
 }
 
 function defaultValueForFieldType(fieldType: string): FieldValue {
@@ -44,7 +45,7 @@ function isEmptyFieldValue(value: FieldValue): boolean {
   return false; // Number and Boolean are never empty
 }
 
-function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle }: InfoPanelProps) {
+function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle, refreshSignal }: InfoPanelProps) {
   const { t } = useTranslation();
   const [schemaInfo, setSchemaInfo] = useState<SchemaInfo>({
     fields: [],
@@ -577,6 +578,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         <AttachmentsSection
           noteId={selectedNote?.id ?? null}
           allowedTypes={schemaInfo.attachmentTypes}
+          refreshSignal={refreshSignal}
         />
       )}
 
@@ -616,5 +618,6 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 export default memo(InfoPanel, (prev, next) =>
   prev.selectedNote === next.selectedNote &&
   prev.requestEditMode === next.requestEditMode &&
-  prev.backNoteTitle === next.backNoteTitle,
+  prev.backNoteTitle === next.backNoteTitle &&
+  prev.refreshSignal === next.refreshSignal,
 );
