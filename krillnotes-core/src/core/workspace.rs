@@ -3231,9 +3231,6 @@ impl Workspace {
     /// can be reversed. The `.enc.trash` file is cleaned up when the undo entry is
     /// discarded (workspace close or stack overflow past the limit).
     pub fn delete_attachment(&mut self, attachment_id: &str) -> Result<()> {
-        // Capture metadata before deletion for the undo entry.
-        let meta = self.get_attachment_meta(attachment_id)?;
-
         let enc_path = self
             .workspace_root
             .join("attachments")
@@ -3250,12 +3247,6 @@ impl Workspace {
             "DELETE FROM attachments WHERE id = ?",
             [attachment_id],
         )?;
-
-        self.push_undo(UndoEntry {
-            retracted_ids: vec![],
-            inverse: RetractInverse::AttachmentRestore { meta },
-            propagate: false,
-        });
         Ok(())
     }
 
@@ -5424,7 +5415,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
     }
 
     #[test]
-    fn test_delete_attachment_soft_deletes_and_is_undoable() {
+    fn test_delete_attachment_soft_deletes() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
         let mut ws = Workspace::create(&db_path, "testpass").unwrap();
@@ -5435,24 +5426,14 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let trash_path = dir.path().join("attachments").join(format!("{}.enc.trash", meta.id));
         assert!(enc_path.exists());
 
-        // Soft-delete: file moves to .enc.trash, DB row removed, undo entry pushed.
+        // Soft-delete: file moves to .enc.trash, DB row removed.
+        // Attachment deletions do NOT go on the main undo stack (to avoid interfering
+        // with note-edit undo/redo which uses the same Cmd+Z shortcut).
         ws.delete_attachment(&meta.id).unwrap();
         assert!(!enc_path.exists(), ".enc must be gone after soft-delete");
         assert!(trash_path.exists(), ".enc.trash must exist after soft-delete");
         assert!(ws.get_attachments(&root_id).unwrap().is_empty(), "DB row must be gone");
-        assert!(ws.can_undo(), "undo entry must be present");
-
-        // Undo: file restored, DB row re-inserted.
-        ws.undo().unwrap();
-        assert!(enc_path.exists(), ".enc must be restored after undo");
-        assert!(!trash_path.exists(), ".enc.trash must be gone after undo");
-        assert_eq!(ws.get_attachments(&root_id).unwrap().len(), 1, "DB row must be back");
-
-        // Redo: soft-delete again.
-        ws.redo().unwrap();
-        assert!(!enc_path.exists(), ".enc must be gone after redo");
-        assert!(trash_path.exists(), ".enc.trash must exist after redo");
-        assert!(ws.get_attachments(&root_id).unwrap().is_empty(), "DB row must be gone after redo");
+        assert!(!ws.can_undo(), "attachment deletion must NOT push to main undo stack");
     }
 
     #[test]
