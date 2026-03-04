@@ -370,7 +370,7 @@ impl Workspace {
     pub fn write_info_json(&self) -> Result<()> {
         let note_count: i64 = self.connection()
             .query_row(
-                "SELECT COUNT(*) FROM notes WHERE parent_id IS NOT NULL",
+                "SELECT COUNT(*) FROM notes",
                 [],
                 |row| row.get(0),
             )
@@ -380,10 +380,10 @@ impl Workspace {
             .query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))
             .unwrap_or(0);
 
-        // created_at = root note's created_at (best proxy for workspace age)
+        // created_at = oldest note's created_at (best proxy for workspace age)
         let created_at: i64 = self.connection()
             .query_row(
-                "SELECT created_at FROM notes WHERE parent_id IS NULL LIMIT 1",
+                "SELECT MIN(created_at) FROM notes",
                 [],
                 |row| row.get(0),
             )
@@ -5875,7 +5875,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let content = std::fs::read_to_string(&info_path).unwrap();
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert!(v["created_at"].is_number());
-        assert_eq!(v["note_count"].as_u64().unwrap(), 0); // root excluded
+        assert_eq!(v["note_count"].as_u64().unwrap(), 1);
         assert_eq!(v["attachment_count"].as_u64().unwrap(), 0);
     }
 
@@ -5892,7 +5892,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
 
         let content = std::fs::read_to_string(dir.path().join("info.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(v["note_count"].as_u64().unwrap(), 2);
+        assert_eq!(v["note_count"].as_u64().unwrap(), 3);
     }
 
     #[test]
