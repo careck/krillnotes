@@ -5,6 +5,7 @@
 
 pub mod attachment;
 pub mod delete;
+pub mod identity;
 pub mod export;
 pub mod device;
 pub mod error;
