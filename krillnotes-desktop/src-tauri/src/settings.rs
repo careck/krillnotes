@@ -15,7 +15,7 @@ pub struct AppSettings {
     pub workspace_directory: String,
     /// When true, the app caches workspace passwords in memory for the
     /// duration of the session so the user is not re-prompted on reopen.
-    #[serde(default)]
+    #[serde(default = "default_cache_passwords")]
     pub cache_workspace_passwords: bool,
     /// Current theme mode: "light", "dark", or "system".
     #[serde(default = "default_theme_mode")]
@@ -37,7 +37,7 @@ impl Default for AppSettings {
             workspace_directory: default_workspace_directory()
                 .to_string_lossy()
                 .to_string(),
-            cache_workspace_passwords: false,
+            cache_workspace_passwords: true,
             active_theme_mode: default_theme_mode(),
             light_theme: default_light_theme(),
             dark_theme: default_dark_theme(),
@@ -63,6 +63,7 @@ pub fn settings_file_path() -> PathBuf {
     }
 }
 
+fn default_cache_passwords() -> bool { true }
 fn default_theme_mode() -> String { "system".to_string() }
 fn default_light_theme() -> String { "light".to_string() }
 fn default_dark_theme() -> String { "dark".to_string() }
@@ -120,5 +121,12 @@ mod tests {
         let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.language, "en");
+    }
+
+    #[test]
+    fn cache_passwords_defaults_to_true_when_field_absent() {
+        let json = r#"{"workspaceDirectory":"/tmp"}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(s.cache_workspace_passwords, "password caching should default to on");
     }
 }

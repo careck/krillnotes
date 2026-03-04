@@ -3,13 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import type { AppSettings, WorkspaceInfo } from '../types';
 import SetPasswordDialog from './SetPasswordDialog';
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify } from '../utils/slugify';
 
 interface NewWorkspaceDialogProps {
   isOpen: boolean;

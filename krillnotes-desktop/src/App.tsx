@@ -6,7 +6,7 @@ import WorkspaceView from './components/WorkspaceView';
 import EmptyState from './components/EmptyState';
 import StatusMessage from './components/StatusMessage';
 import NewWorkspaceDialog from './components/NewWorkspaceDialog';
-import OpenWorkspaceDialog from './components/OpenWorkspaceDialog';
+import WorkspaceManagerDialog from './components/WorkspaceManagerDialog';
 import SettingsDialog from './components/SettingsDialog';
 import SetPasswordDialog from './components/SetPasswordDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
@@ -304,9 +304,13 @@ function App() {
         isOpen={showNewWorkspace}
         onClose={() => setShowNewWorkspace(false)}
       />
-      <OpenWorkspaceDialog
+      <WorkspaceManagerDialog
         isOpen={showOpenWorkspace}
         onClose={() => setShowOpenWorkspace(false)}
+        onNewWorkspace={() => {
+          setShowOpenWorkspace(false);
+          setShowNewWorkspace(true);
+        }}
       />
       <SettingsDialog
         isOpen={showSettings}

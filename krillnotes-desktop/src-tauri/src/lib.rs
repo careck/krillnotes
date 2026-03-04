@@ -1568,6 +1568,50 @@ struct WorkspaceEntry {
     path: String,
     /// Whether this workspace is currently open in a window.
     is_open: bool,
+    /// Unix timestamp (seconds) of the workspace folder's last modification.
+    last_modified: i64,
+    /// Total size in bytes: notes.db + attachments/ directory combined.
+    size_bytes: u64,
+    /// From info.json: root note's created_at. None if info.json is missing.
+    created_at: Option<i64>,
+    /// From info.json: number of notes excluding the root. None if info.json is missing.
+    note_count: Option<usize>,
+    /// From info.json: number of attachments. None if info.json is missing.
+    attachment_count: Option<usize>,
+}
+
+/// Returns the total size in bytes of all files under `dir` (recursive).
+fn dir_size_bytes(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                total += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            } else if p.is_dir() {
+                total += dir_size_bytes(&p);
+            }
+        }
+    }
+    total
+}
+
+/// Reads `info.json` from `workspace_dir` and returns `(created_at, note_count, attachment_count)`.
+/// Returns `(None, None, None)` if the file is missing or malformed.
+fn read_info_json(workspace_dir: &Path) -> (Option<i64>, Option<usize>, Option<usize>) {
+    let path = workspace_dir.join("info.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return (None, None, None),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return (None, None, None),
+    };
+    let created_at = v["created_at"].as_i64();
+    let note_count = v["note_count"].as_u64().map(|n| n as usize);
+    let attachment_count = v["attachment_count"].as_u64().map(|n| n as usize);
+    (created_at, note_count, attachment_count)
 }
 
 /// Lists all workspace folders (subdirectories containing `notes.db`) in the
@@ -1588,13 +1632,15 @@ fn list_workspace_files(
             .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
     }
 
-    // Collect currently open workspace paths for the is_open check
-    let open_paths: Vec<PathBuf> = state
+    // Build path → label map for open workspaces.
+    // Collected as an owned HashMap so the lock is released before we
+    // later lock state.workspaces to refresh info.json.
+    let open_labels: HashMap<PathBuf, String> = state
         .workspace_paths
         .lock()
         .expect("Mutex poisoned")
-        .values()
-        .cloned()
+        .iter()
+        .map(|(label, path)| (path.clone(), label.clone()))
         .collect();
 
     let mut entries = Vec::new();
@@ -1607,17 +1653,110 @@ fn list_workspace_files(
         let db_file = folder.join("notes.db");
         if !db_file.exists() { continue; }
         if let Some(name) = folder.file_name().and_then(|s| s.to_str()) {
-            let is_open = open_paths.iter().any(|p| *p == folder);
+            let is_open = open_labels.contains_key(&folder);
+
+            // For open workspaces, refresh info.json from the live workspace
+            // object so that notes created since open() are counted correctly.
+            if let Some(label) = open_labels.get(&folder) {
+                if let Some(ws) = state.workspaces.lock().expect("Mutex poisoned").get(label) {
+                    let _ = ws.write_info_json();
+                }
+            }
+            let last_modified = std::fs::metadata(&folder)
+                .and_then(|m| m.modified())
+                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                .unwrap_or(0);
+            let size_bytes = dir_size_bytes(&folder);
+            let (created_at, note_count, attachment_count) = read_info_json(&folder);
+
             entries.push(WorkspaceEntry {
                 name: name.to_string(),
                 path: folder.display().to_string(),
                 is_open,
+                last_modified,
+                size_bytes,
+                created_at,
+                note_count,
+                attachment_count,
             });
         }
     }
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(entries)
+}
+
+/// Permanently deletes a workspace folder and all its contents.
+/// Returns an error if the workspace is currently open in any window.
+#[tauri::command]
+fn delete_workspace(
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<(), String> {
+    let folder = PathBuf::from(&path);
+
+    let is_open = state
+        .workspace_paths
+        .lock()
+        .expect("Mutex poisoned")
+        .values()
+        .any(|p| *p == folder);
+
+    if is_open {
+        return Err("Close the workspace before deleting it.".to_string());
+    }
+
+    std::fs::remove_dir_all(&folder)
+        .map_err(|e| format!("Failed to delete workspace: {e}"))
+}
+
+/// Duplicates a workspace by exporting it to a temp file and importing it
+/// under a new name in the same workspace directory.
+/// Does NOT open the duplicated workspace in a window — just creates it on disk.
+#[tauri::command]
+fn duplicate_workspace(
+    source_path: String,
+    source_password: String,
+    new_name: String,
+    new_password: String,
+) -> std::result::Result<(), String> {
+    let app_settings = settings::load_settings();
+    let workspace_dir = PathBuf::from(&app_settings.workspace_directory);
+    let dest_folder = workspace_dir.join(&new_name);
+
+    if dest_folder.exists() {
+        return Err(format!("A workspace named '{new_name}' already exists."));
+    }
+
+    // Open the source workspace to validate password and export.
+    let source_db = PathBuf::from(&source_path).join("notes.db");
+    let workspace = Workspace::open(&source_db, &source_password)
+        .map_err(|e| e.to_string())?;
+
+    // Export to a temp file.
+    let mut tmp_file = tempfile::tempfile()
+        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    export_workspace(&workspace, &mut tmp_file, Some(&source_password))
+        .map_err(|e| e.to_string())?;
+
+    // Import from temp file into dest folder.
+    std::fs::create_dir_all(&dest_folder)
+        .map_err(|e| format!("Failed to create destination: {e}"))?;
+    let dest_db = dest_folder.join("notes.db");
+
+    use std::io::Seek;
+    tmp_file
+        .seek(std::io::SeekFrom::Start(0))
+        .map_err(|e| format!("Seek failed: {e}"))?;
+    import_workspace(tmp_file, &dest_db, Some(&source_password), &new_password)
+        .map_err(|e| e.to_string())?;
+
+    // Write info.json for the new workspace (best-effort).
+    if let Ok(new_ws) = Workspace::open(&dest_db, &new_password) {
+        let _ = new_ws.write_info_json();
+    }
+
+    Ok(())
 }
 
 /// Attaches a file to a note. Reads the file from disk, encrypts it, and stores it.
@@ -1883,6 +2022,10 @@ pub fn run() {
                 // Remove workspace state when a window is destroyed so the same
                 // file can be reopened after its window has been closed.
                 tauri::WindowEvent::Destroyed => {
+                    // Persist cached metadata before dropping the workspace.
+                    if let Some(ws) = state.workspaces.lock().expect("Mutex poisoned").get(&label) {
+                        let _ = ws.write_info_json();
+                    }
                     state.workspaces.lock().expect("Mutex poisoned").remove(&label);
                     state.workspace_paths.lock().expect("Mutex poisoned").remove(&label);
 
@@ -2028,6 +2171,8 @@ pub fn run() {
             delete_theme,
             read_file_content,
             list_workspace_files,
+            delete_workspace,
+            duplicate_workspace,
             get_cached_password,
             attach_file,
             attach_file_bytes,
