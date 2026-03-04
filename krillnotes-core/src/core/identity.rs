@@ -388,6 +388,28 @@ impl IdentityManager {
         Ok(())
     }
 
+    /// Renames an identity's display name in both the identity file and the settings registry.
+    pub fn rename_identity(&self, identity_uuid: &Uuid, new_name: &str) -> Result<()> {
+        // Update identity file
+        let identity_path = self.identities_dir().join(format!("{}.json", identity_uuid));
+        let content = std::fs::read_to_string(&identity_path)
+            .map_err(|_| crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()))?;
+        let mut identity_file: IdentityFile = serde_json::from_str(&content)
+            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))?;
+        identity_file.display_name = new_name.to_string();
+        let json = serde_json::to_string_pretty(&identity_file)?;
+        std::fs::write(&identity_path, json)?;
+
+        // Update settings registry
+        let mut settings = self.load_settings()?;
+        if let Some(identity_ref) = settings.identities.iter_mut().find(|i| i.uuid == *identity_uuid) {
+            identity_ref.display_name = new_name.to_string();
+        }
+        self.save_settings(&settings)?;
+
+        Ok(())
+    }
+
     /// Bind a workspace to an identity, encrypting the DB password with a key
     /// derived from the Ed25519 seed.
     pub fn bind_workspace(
@@ -808,6 +830,25 @@ mod tests {
             result.unwrap_err(),
             crate::KrillnotesError::IdentityHasBoundWorkspaces(_)
         ));
+    }
+
+    #[test]
+    fn test_rename_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
+        let file = mgr.create_identity("Old Name", "pass123").unwrap();
+        let uuid = file.identity_uuid;
+
+        mgr.rename_identity(&uuid, "New Name").unwrap();
+
+        // Check settings
+        let identities = mgr.list_identities().unwrap();
+        assert_eq!(identities.len(), 1);
+        assert_eq!(identities[0].display_name, "New Name");
+
+        // Check identity file
+        let unlocked = mgr.unlock_identity(&uuid, "pass123").unwrap();
+        assert_eq!(unlocked.display_name, "New Name");
     }
 
     #[test]
