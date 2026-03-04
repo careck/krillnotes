@@ -131,6 +131,59 @@ User action → React component → invoke("tauri_command", {...})
 - `krillnotes-desktop/dist/`
 - `docs/plans/` (design docs for completed features — only read if asked)
 
+## Using rust-analyzer for Code Navigation
+
+rust-analyzer is installed and available. **Use it instead of reading entire files** when you need
+to understand types, find definitions, or trace references. This saves significant context.
+
+### Preferred Navigation Strategy (in order of preference)
+
+1. **Structural search** — find patterns in the codebase:
+```bash
+   # Find all calls matching a pattern (e.g. all .lock().unwrap() calls)
+   rust-analyzer search '$a.lock().unwrap()'
+   
+   # Find specific patterns
+   rust-analyzer search 'Workspace::$fn_name($args)'
+```
+
+2. **Diagnostics** — check for errors without reading files:
+```bash
+   rust-analyzer diagnostics .
+```
+
+3. **Symbols from a file** — get function/struct/enum signatures without reading the whole file:
+```bash
+   cat krillnotes-core/src/core/workspace.rs | rust-analyzer symbols
+```
+
+4. **cargo doc output** — understand public API and types:
+```bash
+   # Generate docs, then read specific type docs
+   cargo doc --no-deps -p krillnotes-core --document-private-items 2>/dev/null
+   # Then check target/doc/krillnotes_core/
+```
+
+5. **grep + line ranges** — when you know what you're looking for:
+```bash
+   grep -rn "fn create_note" krillnotes-core/src/
+   sed -n '100,130p' krillnotes-core/src/core/workspace.rs
+```
+
+### When NOT to use rust-analyzer
+
+- For quick string/symbol searches, `grep -rn` is faster
+- For understanding file structure, `cat file | rust-analyzer symbols` or `grep -n "^pub\|^impl\|^fn\|^struct\|^enum\|^trait" file` is enough
+- Don't run `rust-analyzer analysis-stats` — it analyses the whole project and is slow
+
+### Rule: Never Read a Full File to Find One Thing
+
+If you need to understand a single function, type, or trait:
+1. First `grep -n` to find the line number
+2. Then `sed -n 'START,ENDp'` to read just that section
+3. Only read full files if you're doing a comprehensive review or refactor of that file
+
+
 ## Key Types Quick Reference
 
 ### Core Rust Types (krillnotes-core)
