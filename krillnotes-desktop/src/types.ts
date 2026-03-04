@@ -124,6 +124,11 @@ export interface WorkspaceEntry {
   name: string;
   path: string;
   isOpen: boolean;
+  lastModified: number;       // Unix timestamp (seconds)
+  sizeBytes: number;
+  createdAt: number | null;
+  noteCount: number | null;
+  attachmentCount: number | null;
 }
 
 export interface WorkspaceMetadata {

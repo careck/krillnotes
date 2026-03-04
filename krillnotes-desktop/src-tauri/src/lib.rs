@@ -1568,6 +1568,50 @@ struct WorkspaceEntry {
     path: String,
     /// Whether this workspace is currently open in a window.
     is_open: bool,
+    /// Unix timestamp (seconds) of the workspace folder's last modification.
+    last_modified: i64,
+    /// Total size in bytes: notes.db + attachments/ directory combined.
+    size_bytes: u64,
+    /// From info.json: root note's created_at. None if info.json is missing.
+    created_at: Option<i64>,
+    /// From info.json: number of notes excluding the root. None if info.json is missing.
+    note_count: Option<usize>,
+    /// From info.json: number of attachments. None if info.json is missing.
+    attachment_count: Option<usize>,
+}
+
+/// Returns the total size in bytes of all files under `dir` (recursive).
+fn dir_size_bytes(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                total += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            } else if p.is_dir() {
+                total += dir_size_bytes(&p);
+            }
+        }
+    }
+    total
+}
+
+/// Reads `info.json` from `workspace_dir` and returns `(created_at, note_count, attachment_count)`.
+/// Returns `(None, None, None)` if the file is missing or malformed.
+fn read_info_json(workspace_dir: &Path) -> (Option<i64>, Option<usize>, Option<usize>) {
+    let path = workspace_dir.join("info.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return (None, None, None),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return (None, None, None),
+    };
+    let created_at = v["created_at"].as_i64();
+    let note_count = v["note_count"].as_u64().map(|n| n as usize);
+    let attachment_count = v["attachment_count"].as_u64().map(|n| n as usize);
+    (created_at, note_count, attachment_count)
 }
 
 /// Lists all workspace folders (subdirectories containing `notes.db`) in the
@@ -1608,10 +1652,22 @@ fn list_workspace_files(
         if !db_file.exists() { continue; }
         if let Some(name) = folder.file_name().and_then(|s| s.to_str()) {
             let is_open = open_paths.iter().any(|p| *p == folder);
+            let last_modified = std::fs::metadata(&folder)
+                .and_then(|m| m.modified())
+                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                .unwrap_or(0);
+            let size_bytes = dir_size_bytes(&folder);
+            let (created_at, note_count, attachment_count) = read_info_json(&folder);
+
             entries.push(WorkspaceEntry {
                 name: name.to_string(),
                 path: folder.display().to_string(),
                 is_open,
+                last_modified,
+                size_bytes,
+                created_at,
+                note_count,
+                attachment_count,
             });
         }
     }
