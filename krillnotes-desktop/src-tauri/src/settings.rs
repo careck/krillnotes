@@ -46,6 +46,22 @@ impl Default for AppSettings {
     }
 }
 
+/// Returns the config directory for Krillnotes.
+/// - macOS / Linux: `~/.config/krillnotes/`
+/// - Windows: `%APPDATA%/Krillnotes/`
+pub fn config_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        base.join("Krillnotes")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        home.join(".config").join("krillnotes")
+    }
+}
+
 /// Returns the path to the settings JSON file.
 ///
 /// - macOS / Linux: `~/.config/krillnotes/settings.json`

@@ -15,6 +15,8 @@ use tauri::Emitter;
 #[doc(inline)]
 pub use krillnotes_core::*;
 
+use uuid::Uuid;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,9 +37,11 @@ pub struct AppState {
     /// native menu events to the correct window without relying on async
     /// focus checks in the frontend (which are unreliable on Windows).
     pub focused_window: Arc<Mutex<Option<String>>>,
-    /// In-memory password cache keyed by workspace file path.
-    /// Populated only when settings.cacheWorkspacePasswords is true.
-    pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,
+    /// Identity manager — handles identity CRUD, unlock, and workspace bindings.
+    pub identity_manager: Arc<Mutex<IdentityManager>>,
+    /// In-memory map of currently unlocked identities (UUID → unlocked state).
+    /// Entries are removed when an identity is locked or the app exits.
+    pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
     /// Paste menu item handles for dynamic enable/disable.
     /// On macOS: one global pair keyed by "macos" (the menu bar is shared).
     /// On Windows: keyed by window label (each window owns its own menu bar).
@@ -394,13 +398,6 @@ async fn create_workspace(
             let workspace = Workspace::create(&db_path, &password)
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
-            // Cache password if setting is enabled
-            let settings = settings::load_settings();
-            if settings.cache_workspace_passwords {
-                state.workspace_passwords.lock().expect("Mutex poisoned")
-                    .insert(folder.clone(), password);
-            }
-
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone());
 
@@ -448,13 +445,6 @@ async fn open_workspace(
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
                     other => format!("Failed to open: {other}"),
                 })?;
-
-            // Cache password if setting is enabled
-            let settings = settings::load_settings();
-            if settings.cache_workspace_passwords {
-                state.workspace_passwords.lock().expect("Mutex poisoned")
-                    .insert(folder.clone(), password);
-            }
 
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone());
@@ -1300,27 +1290,6 @@ fn consume_pending_file_open(state: State<'_, AppState>) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-/// Returns the cached password for the workspace at `path`, if one is stored.
-///
-/// Returns `None` when the `cache_workspace_passwords` setting is disabled or
-/// when no password has been cached for this path yet.
-#[tauri::command]
-fn get_cached_password(
-    state: State<'_, AppState>,
-    path: String,
-) -> Option<String> {
-    let settings = settings::load_settings();
-    if !settings.cache_workspace_passwords {
-        return None;
-    }
-    let path_buf = PathBuf::from(&path);
-    state.workspace_passwords
-        .lock()
-        .expect("Mutex poisoned")
-        .get(&path_buf)
-        .cloned()
-}
-
 // ── Theme commands ────────────────────────────────────────────────
 
 /// Lists all user theme files in the themes directory.
@@ -2010,7 +1979,10 @@ pub fn run() {
             workspaces: Arc::new(Mutex::new(HashMap::new())),
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
-            workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
+            identity_manager: Arc::new(Mutex::new(
+                IdentityManager::new(settings::config_dir()).expect("Failed to init IdentityManager")
+            )),
+            unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
             pending_file_open: Arc::new(Mutex::new(None)),
@@ -2173,7 +2145,6 @@ pub fn run() {
             list_workspace_files,
             delete_workspace,
             duplicate_workspace,
-            get_cached_password,
             attach_file,
             attach_file_bytes,
             get_attachments,
