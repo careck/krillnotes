@@ -361,6 +361,43 @@ impl Workspace {
         &self.workspace_root
     }
 
+    /// Writes `info.json` to the workspace root with cached metadata.
+    /// Called on open, create, and window close so the workspace manager
+    /// can display counts without opening the encrypted database.
+    pub fn write_info_json(&self) -> Result<()> {
+        let note_count: i64 = self.connection()
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE parent_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let attachment_count: i64 = self.connection()
+            .query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))
+            .unwrap_or(0);
+
+        // created_at = root note's created_at (best proxy for workspace age)
+        let created_at: i64 = self.connection()
+            .query_row(
+                "SELECT created_at FROM notes WHERE parent_id IS NULL LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| chrono::Utc::now().timestamp());
+
+        let info = serde_json::json!({
+            "created_at": created_at,
+            "note_count": note_count,
+            "attachment_count": attachment_count,
+        });
+
+        let path = self.workspace_root().join("info.json");
+        std::fs::write(&path, serde_json::to_string(&info)?)?;
+
+        Ok(())
+    }
+
     /// Returns a reference to the script registry for this workspace.
     pub fn script_registry(&self) -> &ScriptRegistry {
         &self.script_registry
@@ -5820,5 +5857,38 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         ws.script_redo().unwrap();
         let after_redo = ws.get_user_script(&script.id).unwrap();
         assert_eq!(after_redo.source_code, src, "script_redo must restore real source, not empty");
+    }
+
+    #[test]
+    fn test_write_info_json_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+        ws.write_info_json().unwrap();
+
+        let info_path = dir.path().join("info.json");
+        assert!(info_path.exists(), "info.json should be created");
+
+        let content = std::fs::read_to_string(&info_path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(v["created_at"].is_number());
+        assert_eq!(v["note_count"].as_u64().unwrap(), 0); // root excluded
+        assert_eq!(v["attachment_count"].as_u64().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_write_info_json_counts_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "").unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        ws.write_info_json().unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join("info.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(v["note_count"].as_u64().unwrap(), 2);
     }
 }
