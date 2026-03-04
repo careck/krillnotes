@@ -102,16 +102,16 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
   });
 
   // --- Open flow ---
-  const handleOpen = async () => {
-    if (!selected || selected.isOpen) return;
+  const handleOpen = async (target: WorkspaceEntry = selected!) => {
+    if (!target || target.isOpen) return;
     setOpening(true);
     setError('');
 
     try {
-      const cached = await invoke<string | null>('get_cached_password', { path: selected.path });
+      const cached = await invoke<string | null>('get_cached_password', { path: target.path });
       if (cached !== null) {
         try {
-          await invoke('open_workspace', { path: selected.path, password: cached });
+          await invoke('open_workspace', { path: target.path, password: cached });
           onClose();
           return;
         } catch {
@@ -124,7 +124,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
     }
 
     setOpening(false);
-    setPendingOpen(selected);
+    setPendingOpen(target);
     setPasswordError('');
   };
 
@@ -266,6 +266,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
                 <button
                   key={entry.path}
                   onClick={() => setSelected(entry)}
+                  onDoubleClick={() => { setSelected(entry); handleOpen(entry); }}
                   className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between transition-colors ${
                     selected?.path === entry.path
                       ? 'bg-primary/15 border border-primary/30'
@@ -453,7 +454,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
         {activeView === 'list' && (
           <div className="px-6 pt-3 pb-2 flex gap-2">
             <button
-              onClick={handleOpen}
+              onClick={() => handleOpen()}
               disabled={!selected || selected.isOpen || opening}
               className="px-3 py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 text-sm"
             >
