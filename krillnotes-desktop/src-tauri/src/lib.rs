@@ -1676,6 +1676,30 @@ fn list_workspace_files(
     Ok(entries)
 }
 
+/// Permanently deletes a workspace folder and all its contents.
+/// Returns an error if the workspace is currently open in any window.
+#[tauri::command]
+fn delete_workspace(
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<(), String> {
+    let folder = PathBuf::from(&path);
+
+    let is_open = state
+        .workspace_paths
+        .lock()
+        .expect("Mutex poisoned")
+        .values()
+        .any(|p| *p == folder);
+
+    if is_open {
+        return Err("Close the workspace before deleting it.".to_string());
+    }
+
+    std::fs::remove_dir_all(&folder)
+        .map_err(|e| format!("Failed to delete workspace: {e}"))
+}
+
 /// Attaches a file to a note. Reads the file from disk, encrypts it, and stores it.
 #[tauri::command]
 fn attach_file(
@@ -2088,6 +2112,7 @@ pub fn run() {
             delete_theme,
             read_file_content,
             list_workspace_files,
+            delete_workspace,
             get_cached_password,
             attach_file,
             attach_file_bytes,
