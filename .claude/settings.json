@@ -25,6 +25,7 @@
       "Bash(git diff *)",
       "Bash(git status *)",
       "Bash(git branch *)",
+      "Bash(git -C *)",
       "Bash(gh pr view *)",
       "Bash(gh pr list *)",
       "Bash(gh pr checks *)",
