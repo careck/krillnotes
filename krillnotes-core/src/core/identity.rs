@@ -11,7 +11,7 @@ use aes_gcm::{
 use argon2::Argon2;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::{DateTime, Utc};
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::SigningKey;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -500,6 +500,7 @@ impl IdentityManager {
 mod tests {
     use super::*;
     use base64::Engine;
+    use ed25519_dalek::Signer;
 
     #[test]
     fn test_identity_file_roundtrip_serde() {
@@ -823,5 +824,33 @@ mod tests {
 
         let workspaces = mgr.get_workspaces_for_identity(&id_a.identity_uuid).unwrap();
         assert_eq!(workspaces.len(), 2);
+    }
+
+    #[test]
+    fn test_identity_file_format_matches_spec() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
+        let identity = mgr.create_identity("Spec Check", "pass").unwrap();
+
+        // Read the raw JSON file
+        let file_path = dir.path().join("identities").join(format!("{}.json", identity.identity_uuid));
+        let raw = std::fs::read_to_string(&file_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        // Verify top-level keys match spec
+        assert!(json.get("identity_uuid").unwrap().is_string());
+        assert!(json.get("display_name").unwrap().is_string());
+        assert!(json.get("public_key").unwrap().is_string());
+
+        let enc = json.get("private_key_enc").unwrap();
+        assert!(enc.get("ciphertext").unwrap().is_string());
+        assert!(enc.get("nonce").unwrap().is_string());
+        assert_eq!(enc.get("kdf").unwrap().as_str().unwrap(), "argon2id");
+
+        let params = enc.get("kdf_params").unwrap();
+        assert!(params.get("salt").unwrap().is_string());
+        assert!(params.get("m_cost").unwrap().is_u64());
+        assert!(params.get("t_cost").unwrap().is_u64());
+        assert!(params.get("p_cost").unwrap().is_u64());
     }
 }
