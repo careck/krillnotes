@@ -103,12 +103,12 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
   // --- Open flow ---
   const handleOpen = async () => {
     if (!selected || selected.isOpen) return;
+    setOpening(true);
     setError('');
 
     try {
       const cached = await invoke<string | null>('get_cached_password', { path: selected.path });
       if (cached !== null) {
-        setOpening(true);
         try {
           await invoke('open_workspace', { path: selected.path, password: cached });
           onClose();
@@ -122,6 +122,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
       // Cache lookup failed — fall through to password dialog.
     }
 
+    setOpening(false);
     setPendingOpen(selected);
     setPasswordError('');
   };
@@ -186,7 +187,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
       setDupError('Please enter a name for the duplicate workspace.');
       return;
     }
-    if (dupNewPassword !== dupNewPasswordConfirm) {
+    if (dupNewPassword.length > 0 && dupNewPassword !== dupNewPasswordConfirm) {
       setDupError('New passwords do not match.');
       return;
     }
