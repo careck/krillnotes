@@ -10,6 +10,7 @@ use crate::core::attachment::{
     decrypt_attachment, encrypt_attachment, AttachmentMeta,
 };
 use crate::core::export::WorkspaceMetadata;
+use crate::core::hlc::HlcTimestamp;
 use crate::core::user_script;
 #[allow(unused_imports)]
 use crate::{
@@ -639,7 +640,7 @@ impl Workspace {
         let retract_op_id = uuid::Uuid::new_v4().to_string();
         let retract_op = Operation::RetractOperation {
             operation_id: retract_op_id,
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: HlcTimestamp::from_unix_secs(chrono::Utc::now().timestamp()),
             device_id: self.device_id.clone(),
             retracted_ids: entry.retracted_ids.clone(),
             inverse: entry.inverse.clone(),
@@ -695,7 +696,7 @@ impl Workspace {
         let new_op_id = uuid::Uuid::new_v4().to_string();
         let redo_op = Operation::RetractOperation {
             operation_id: new_op_id,
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: HlcTimestamp::from_unix_secs(chrono::Utc::now().timestamp()),
             device_id: self.device_id.clone(),
             retracted_ids: entry.retracted_ids.clone(),
             inverse: entry.inverse.clone(),
@@ -1004,15 +1005,16 @@ impl Workspace {
         // Log operation
         let op = Operation::CreateNote {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: note.created_at,
+            timestamp: HlcTimestamp::from_unix_secs(note.created_at),
             device_id: self.device_id.clone(),
             note_id: note.id.clone(),
             parent_id: note.parent_id.clone(),
-            position: note.position,
+            position: note.position as f64,
             node_type: note.node_type.clone(),
             title: note.title.clone(),
             fields: note.fields.clone(),
-            created_by: note.created_by,
+            created_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -1167,15 +1169,16 @@ impl Workspace {
             // Log a CreateNote operation for each inserted note.
             let op = Operation::CreateNote {
                 operation_id: Uuid::new_v4().to_string(),
-                timestamp: now,
+                timestamp: HlcTimestamp::from_unix_secs(now),
                 device_id: self.device_id.clone(),
                 note_id: new_id.clone(),
                 parent_id: new_parent,
-                position: this_position,
+                position: this_position as f64,
                 node_type: note.node_type.clone(),
                 title: note.title.clone(),
                 fields: note.fields.clone(),
-                created_by: self.current_user_id,
+                created_by: String::new(),
+                signature: String::new(),
             };
             Self::log_op(&self.operation_log, &tx, &op)?;
         }
@@ -1249,15 +1252,16 @@ impl Workspace {
         // Log operation
         let op = Operation::CreateNote {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: new_note.created_at,
+            timestamp: HlcTimestamp::from_unix_secs(new_note.created_at),
             device_id: self.device_id.clone(),
             note_id: new_note.id.clone(),
             parent_id: new_note.parent_id.clone(),
-            position: new_note.position,
+            position: new_note.position as f64,
             node_type: new_note.node_type.clone(),
             title: new_note.title.clone(),
             fields: new_note.fields.clone(),
-            created_by: new_note.created_by,
+            created_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -1298,12 +1302,13 @@ impl Workspace {
         // Log operation
         let op = Operation::UpdateField {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             field: "title".to_string(),
             value: crate::FieldValue::Text(new_title),
-            modified_by: self.current_user_id,
+            modified_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -1755,15 +1760,16 @@ impl Workspace {
 
                 let op = Operation::CreateNote {
                     operation_id: Uuid::new_v4().to_string(),
-                    timestamp: now,
+                    timestamp: HlcTimestamp::from_unix_secs(now),
                     device_id: self.device_id.clone(),
                     note_id: create.id.clone(),
                     parent_id: Some(create.parent_id.clone()),
-                    position,
+                    position: position as f64,
                     node_type: create.node_type.clone(),
                     title: create.title.clone(),
                     fields: create.fields.clone(),
-                    created_by: self.current_user_id,
+                    created_by: String::new(),
+                    signature: String::new(),
                 };
                 Self::log_op(&self.operation_log, &tx, &op)?;
             }
@@ -1788,12 +1794,13 @@ impl Workspace {
                 // Log title update
                 let title_op = Operation::UpdateField {
                     operation_id: Uuid::new_v4().to_string(),
-                    timestamp: now,
+                    timestamp: HlcTimestamp::from_unix_secs(now),
                     device_id: self.device_id.clone(),
                     note_id: update.note_id.clone(),
                     field: "title".to_string(),
                     value: crate::FieldValue::Text(update.title.clone()),
-                    modified_by: self.current_user_id,
+                    modified_by: String::new(),
+                    signature: String::new(),
                 };
                 Self::log_op(&self.operation_log, &tx, &title_op)?;
 
@@ -1801,12 +1808,13 @@ impl Workspace {
                 for (field_key, field_value) in &update.fields {
                     let field_op = Operation::UpdateField {
                         operation_id: Uuid::new_v4().to_string(),
-                        timestamp: now,
+                        timestamp: HlcTimestamp::from_unix_secs(now),
                         device_id: self.device_id.clone(),
                         note_id: update.note_id.clone(),
                         field: field_key.clone(),
                         value: field_value.clone(),
-                        modified_by: self.current_user_id,
+                        modified_by: String::new(),
+                        signature: String::new(),
                     };
                     Self::log_op(&self.operation_log, &tx, &field_op)?;
                 }
@@ -2094,11 +2102,13 @@ impl Workspace {
         // 8. Log a MoveNote operation
         let op = Operation::MoveNote {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             new_parent_id: new_parent_id.map(|s| s.to_string()),
-            new_position,
+            new_position: new_position as f64,
+            moved_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -2197,9 +2207,11 @@ impl Workspace {
         // Log a DeleteNote operation for the root of the deleted subtree.
         let op = Operation::DeleteNote {
             operation_id: op_id.clone(),
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: HlcTimestamp::from_unix_secs(chrono::Utc::now().timestamp()),
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
+            deleted_by: String::new(),
+            signature: String::new(),
         };
         {
             let tx = self.storage.connection_mut().transaction()?;
@@ -2342,9 +2354,11 @@ impl Workspace {
         // Log a DeleteNote operation for the promoted note.
         let op = Operation::DeleteNote {
             operation_id: op_id.clone(),
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: HlcTimestamp::from_unix_secs(chrono::Utc::now().timestamp()),
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
+            deleted_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -2549,12 +2563,13 @@ impl Workspace {
         emitted_op_ids.push(title_op_id.clone());
         let title_op = Operation::UpdateField {
             operation_id: title_op_id,
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             field: "title".to_string(),
             value: crate::FieldValue::Text(title.clone()),
-            modified_by: self.current_user_id,
+            modified_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &title_op)?;
 
@@ -2564,12 +2579,13 @@ impl Workspace {
             emitted_op_ids.push(field_op_id.clone());
             let field_op = Operation::UpdateField {
                 operation_id: field_op_id,
-                timestamp: now,
+                timestamp: HlcTimestamp::from_unix_secs(now),
                 device_id: self.device_id.clone(),
                 note_id: note_id.to_string(),
                 field: field_key.clone(),
                 value: field_value.clone(),
-                modified_by: self.current_user_id,
+                modified_by: String::new(),
+                signature: String::new(),
             };
             Self::log_op(&self.operation_log, &tx, &field_op)?;
         }
@@ -2688,7 +2704,7 @@ impl Workspace {
         // Log operation
         let op = Operation::CreateUserScript {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             script_id: id.clone(),
             name: fm.name.clone(),
@@ -2696,6 +2712,8 @@ impl Workspace {
             source_code: source_code.to_string(),
             load_order,
             enabled: true,
+            created_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -2761,7 +2779,7 @@ impl Workspace {
         // Log operation
         let op = Operation::UpdateUserScript {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             name: fm.name.clone(),
@@ -2769,6 +2787,8 @@ impl Workspace {
             source_code: source_code.to_string(),
             load_order,
             enabled,
+            modified_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -2808,9 +2828,11 @@ impl Workspace {
         // Log operation
         let op = Operation::DeleteUserScript {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
+            deleted_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -2855,7 +2877,7 @@ impl Workspace {
         // Log operation
         let op = Operation::UpdateUserScript {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             name,
@@ -2863,6 +2885,8 @@ impl Workspace {
             source_code,
             load_order,
             enabled,
+            modified_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
@@ -2892,7 +2916,7 @@ impl Workspace {
         // Log operation
         let op = Operation::UpdateUserScript {
             operation_id: Uuid::new_v4().to_string(),
-            timestamp: now,
+            timestamp: HlcTimestamp::from_unix_secs(now),
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             name,
@@ -2900,6 +2924,8 @@ impl Workspace {
             source_code,
             load_order: new_load_order,
             enabled,
+            modified_by: String::new(),
+            signature: String::new(),
         };
         Self::log_op(&self.operation_log, &tx, &op)?;
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;

@@ -27,6 +27,22 @@ pub struct HlcTimestamp {
     pub node_id: u32,
 }
 
+impl HlcTimestamp {
+    /// Construct an `HlcTimestamp` from a Unix timestamp in seconds.
+    ///
+    /// This is a compatibility helper for code that still generates
+    /// `chrono::Utc::now().timestamp()` (seconds). Counter and node_id
+    /// are zeroed; these timestamps should be replaced with proper HLC
+    /// values once the workspace acquires an `HlcClock`.
+    pub fn from_unix_secs(secs: i64) -> Self {
+        HlcTimestamp {
+            wall_ms: (secs.max(0) as u64).saturating_mul(1_000),
+            counter: 0,
+            node_id: 0,
+        }
+    }
+}
+
 impl Ord for HlcTimestamp {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.wall_ms

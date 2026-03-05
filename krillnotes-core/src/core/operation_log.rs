@@ -55,15 +55,16 @@ impl OperationLog {
     /// [`crate::KrillnotesError::Json`] if `op` cannot be serialised.
     pub fn log(&self, tx: &Transaction, op: &Operation) -> Result<()> {
         let op_json = serde_json::to_string(op)?;
-        // Convert Unix seconds to milliseconds for the HLC wall_ms column.
-        let wall_ms = op.timestamp() * 1000;
+        let ts = op.timestamp();
 
         tx.execute(
             "INSERT INTO operations (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, device_id, operation_type, operation_data, synced)
-             VALUES (?, ?, 0, 0, ?, ?, ?, 0)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
             rusqlite::params![
                 op.operation_id(),
-                wall_ms,
+                ts.wall_ms as i64,
+                ts.counter as i64,
+                ts.node_id as i64,
                 op.device_id(),
                 self.operation_type_name(op),
                 op_json,
@@ -184,9 +185,11 @@ impl OperationLog {
     fn operation_type_name(&self, op: &Operation) -> &str {
         match op {
             Operation::CreateNote { .. } => "CreateNote",
+            Operation::UpdateNote { .. } => "UpdateNote",
             Operation::UpdateField { .. } => "UpdateField",
             Operation::DeleteNote { .. } => "DeleteNote",
             Operation::MoveNote { .. } => "MoveNote",
+            Operation::SetTags { .. } => "SetTags",
             Operation::CreateUserScript { .. } => "CreateUserScript",
             Operation::UpdateUserScript { .. } => "UpdateUserScript",
             Operation::DeleteUserScript { .. } => "DeleteUserScript",
@@ -227,9 +230,14 @@ impl OperationLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::hlc::HlcTimestamp;
     use crate::Storage;
     use std::collections::HashMap;
     use tempfile::NamedTempFile;
+
+    fn ts(wall_ms: u64) -> HlcTimestamp {
+        HlcTimestamp { wall_ms, counter: 0, node_id: 0 }
+    }
 
     #[test]
     fn test_log_and_purge() {
@@ -239,18 +247,19 @@ mod tests {
 
         let tx = storage.connection_mut().transaction().unwrap();
 
-        for i in 0..10 {
+        for i in 0..10u64 {
             let op = Operation::CreateNote {
                 operation_id: format!("op-{}", i),
-                timestamp: 1000 + i,
+                timestamp: ts(1_000_000 + i),
                 device_id: "dev-1".to_string(),
                 note_id: format!("note-{}", i),
                 parent_id: None,
-                position: i as i32,
+                position: i as f64,
                 node_type: "TextNote".to_string(),
                 title: format!("Note {}", i),
                 fields: HashMap::new(),
-                created_by: 0,
+                created_by: String::new(),
+                signature: String::new(),
             };
             log.log(&tx, &op).unwrap();
         }
@@ -278,21 +287,22 @@ mod tests {
 
             let op1 = Operation::CreateNote {
                 operation_id: "op-1".to_string(),
-                timestamp: 1000,
+                timestamp: ts(1_000_000),
                 device_id: "dev-1".to_string(),
                 note_id: "note-1".to_string(),
                 parent_id: None,
-                position: 0,
+                position: 0.0,
                 node_type: "TextNote".to_string(),
                 title: "My Note".to_string(),
                 fields: HashMap::new(),
-                created_by: 0,
+                created_by: String::new(),
+                signature: String::new(),
             };
             log.log(&tx, &op1).unwrap();
 
             let op2 = Operation::CreateUserScript {
                 operation_id: "op-2".to_string(),
-                timestamp: 2000,
+                timestamp: ts(2_000_000),
                 device_id: "dev-1".to_string(),
                 script_id: "script-1".to_string(),
                 name: "My Script".to_string(),
@@ -300,6 +310,8 @@ mod tests {
                 source_code: "print(42);".to_string(),
                 load_order: 0,
                 enabled: true,
+                created_by: String::new(),
+                signature: String::new(),
             };
             log.log(&tx, &op2).unwrap();
 
@@ -324,7 +336,7 @@ mod tests {
         assert_eq!(notes_only[0].operation_id, "op-1");
 
         // Filter by since (timestamp_wall_ms is in milliseconds).
-        // op1 stored as 1000 * 1000 = 1_000_000 ms, op2 as 2000 * 1000 = 2_000_000 ms.
+        // op1 stored at wall_ms=1_000_000, op2 at wall_ms=2_000_000.
         let recent = log
             .list(storage.connection(), None, Some(1_500_000), None)
             .unwrap();
@@ -340,18 +352,19 @@ mod tests {
 
         {
             let tx = storage.connection_mut().transaction().unwrap();
-            for i in 0..5 {
+            for i in 0..5u64 {
                 let op = Operation::CreateNote {
                     operation_id: format!("op-{}", i),
-                    timestamp: 1000 + i,
+                    timestamp: ts(1_000_000 + i),
                     device_id: "dev-1".to_string(),
                     note_id: format!("note-{}", i),
                     parent_id: None,
-                    position: i as i32,
+                    position: i as f64,
                     node_type: "TextNote".to_string(),
                     title: format!("Note {}", i),
                     fields: HashMap::new(),
-                    created_by: 0,
+                    created_by: String::new(),
+                    signature: String::new(),
                 };
                 log.log(&tx, &op).unwrap();
             }
