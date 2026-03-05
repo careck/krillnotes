@@ -344,6 +344,13 @@
     "passphraseChanged": "Passphrase changed successfully.",
     "selectIdentity": "Identity",
     "noUnlockedIdentities": "No unlocked identities. Unlock an identity first.",
-    "workspaceNotBound": "This workspace is not bound to any identity."
+    "workspaceNotBound": "This workspace is not bound to any identity.",
+    "export": "Export…",
+    "importSwarmid": "Import .swarmid…",
+    "exportPassphrasePrompt": "Enter your passphrase to export",
+    "exportSuccess": "Identity exported successfully",
+    "importSuccess": "Identity imported successfully",
+    "importOverwrite": "This identity already exists on this device. Replace it?",
+    "invalidSwarmid": "Invalid .swarmid file"
   }
 }
