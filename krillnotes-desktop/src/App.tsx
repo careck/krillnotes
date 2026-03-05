@@ -8,7 +8,6 @@ import StatusMessage from './components/StatusMessage';
 import NewWorkspaceDialog from './components/NewWorkspaceDialog';
 import WorkspaceManagerDialog from './components/WorkspaceManagerDialog';
 import SettingsDialog from './components/SettingsDialog';
-import SetPasswordDialog from './components/SetPasswordDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings, IdentityRef } from './types';
 import CreateIdentityDialog from './components/CreateIdentityDialog';
 import IdentityManagerDialog from './components/IdentityManagerDialog';
@@ -94,8 +93,6 @@ function App() {
   const [showExportPasswordDialog, setShowExportPasswordDialog] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
-  const [showImportWorkspacePasswordDialog, setShowImportWorkspacePasswordDialog] = useState(false);
-  const [pendingImportArgs, setPendingImportArgs] = useState<{ zipPath: string; folderPath: string; zipPassword?: string } | null>(null);
   const [showCreateFirstIdentity, setShowCreateFirstIdentity] = useState(false);
   const [showIdentityManager, setShowIdentityManager] = useState(false);
 
@@ -213,36 +210,25 @@ function App() {
     try {
       const settings = await invoke<AppSettings>('get_settings');
       const folderPath = `${settings.workspaceDirectory}/${slug}`;
-      setPendingImportArgs({
+
+      // Get the first unlocked identity to own this imported workspace.
+      const unlockedIds = await invoke<string[]>('get_unlocked_identities');
+      if (unlockedIds.length === 0) {
+        setImportError(t('identity.noUnlockedIdentities'));
+        setImporting(false);
+        return;
+      }
+      const identityUuid = unlockedIds[0];
+
+      const prev = importState;
+      await invoke<WorkspaceInfoType>('execute_import', {
         zipPath: importState.zipPath,
         folderPath,
-        zipPassword: pendingImportPassword ?? undefined,
+        password: pendingImportPassword ?? null,
+        identityUuid,
       });
-      setImporting(false);
-      setImportState(null);
-      setShowImportWorkspacePasswordDialog(true);
-    } catch (error) {
-      setImportError(`${error}`);
-      setImporting(false);
-    }
-  };
-
-  const handleImportWorkspacePassword = async (wsPassword: string) => {
-    if (!pendingImportArgs) return;
-    setShowImportWorkspacePasswordDialog(false);
-    setImporting(true);
-    setImportError('');
-    try {
-      await invoke<WorkspaceInfoType>('execute_import', {
-        zipPath: pendingImportArgs.zipPath,
-        folderPath: pendingImportArgs.folderPath,
-        password: pendingImportArgs.zipPassword ?? null,
-        workspacePassword: wsPassword,
-      });
-      const prev = importState;
       setImportState(null);
       setPendingImportPassword(null);
-      setPendingImportArgs(null);
       setImporting(false);
       if (prev) {
         statusSetter(t('workspace.importSuccess', { noteCount: prev.noteCount, scriptCount: prev.scriptCount }));
@@ -250,7 +236,6 @@ function App() {
     } catch (error) {
       setImportError(`${error}`);
       setImporting(false);
-      setPendingImportArgs(null);
     }
   };
 
@@ -474,19 +459,6 @@ function App() {
           </div>
         </div>
       )}
-
-      {/* Import workspace password dialog */}
-      <SetPasswordDialog
-        isOpen={showImportWorkspacePasswordDialog}
-        title={t('dialogs.password.importedWorkspaceTitle')}
-        onConfirm={handleImportWorkspacePassword}
-        onCancel={() => {
-          setShowImportWorkspacePasswordDialog(false);
-          setPendingImportArgs(null);
-          setImportState(null);
-          setPendingImportPassword(null);
-        }}
-      />
 
       {/* Import name dialog — inline since it's a lightweight prompt */}
       {importState && (
