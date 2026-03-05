@@ -112,12 +112,14 @@ function App() {
       }
     }
 
-    // First-launch identity check: show create identity dialog if no identities exist
-    invoke<IdentityRef[]>('list_identities').then(identities => {
-      if (identities.length === 0) {
-        setShowCreateFirstIdentity(true);
-      }
-    }).catch(err => console.error('Failed to check identities:', err));
+    // First-launch identity check: only on main window
+    if (getCurrentWebviewWindow().label === 'main') {
+      invoke<IdentityRef[]>('list_identities').then(identities => {
+        if (identities.length === 0) {
+          setShowCreateFirstIdentity(true);
+        }
+      }).catch(err => console.error('Failed to check identities:', err));
+    }
   }, []);
 
   // Cold-start: pull any file path that arrived via OS file-open before JS
