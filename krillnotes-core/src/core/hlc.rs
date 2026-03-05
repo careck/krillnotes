@@ -118,6 +118,15 @@ impl HlcClock {
         }
     }
 
+    /// Saturate a counter at `u32::MAX` rather than wrapping or panicking.
+    ///
+    /// In practice this requires billions of operations per millisecond, which is
+    /// impossible in any real deployment. If saturation does occur, timestamps at the
+    /// same `wall_ms` are still unique because they carry different `node_id` values.
+    fn saturating_increment(counter: u32) -> u32 {
+        counter.saturating_add(1)
+    }
+
     /// Advance the clock and return the next timestamp.
     ///
     /// Guarantees monotonically increasing timestamps.
@@ -127,7 +136,7 @@ impl HlcClock {
         let counter = if new_wall_ms > self.wall_ms {
             0
         } else {
-            self.counter + 1
+            Self::saturating_increment(self.counter)
         };
         self.wall_ms = new_wall_ms;
         self.counter = counter;
@@ -146,13 +155,13 @@ impl HlcClock {
         let new_wall_ms = wall.max(self.wall_ms).max(remote.wall_ms);
         let counter = if self.wall_ms == remote.wall_ms && remote.wall_ms == new_wall_ms {
             // All three agree — take max counter and increment
-            self.counter.max(remote.counter) + 1
+            Self::saturating_increment(self.counter.max(remote.counter))
         } else if self.wall_ms == new_wall_ms {
             // Local wall clock led
-            self.counter + 1
+            Self::saturating_increment(self.counter)
         } else if remote.wall_ms == new_wall_ms {
             // Remote wall clock led
-            remote.counter + 1
+            Self::saturating_increment(remote.counter)
         } else {
             // Physical clock led (new_wall_ms == wall, which is ahead of both)
             0
@@ -163,14 +172,16 @@ impl HlcClock {
 
     /// Load the HLC state from the `hlc_state` table.
     ///
-    /// Returns `Err` if the table does not exist yet; returns `HlcClock::new(0)` if the
-    /// table exists but has no row.
-    pub fn load_from_db(conn: &Connection) -> Result<Self, rusqlite::Error> {
+    /// Returns `Err` if the table does not exist yet; returns `HlcClock::new(node_id)` if the
+    /// table exists but has no row. The `node_id` parameter is used only for the fallback —
+    /// when a row exists, the stored `node_id` takes priority.
+    pub fn load_from_db(conn: &Connection, node_id: u32) -> Result<Self, rusqlite::Error> {
         let result = conn.query_row(
             "SELECT wall_ms, counter, node_id FROM hlc_state WHERE id = 1",
             [],
             |row| {
                 // rusqlite does not implement FromSql/ToSql for u64/u32; store as i64 and cast.
+                // SQLite INTEGER is signed i64; wall_ms won't overflow i64 until year ~292M — safe cast.
                 let wall_ms = row.get::<_, i64>(0)? as u64;
                 let counter = row.get::<_, i64>(1)? as u32;
                 let node_id = row.get::<_, i64>(2)? as u32;
@@ -183,7 +194,7 @@ impl HlcClock {
         );
         match result {
             Ok(clock) => Ok(clock),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(HlcClock::new(0)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(HlcClock::new(node_id)),
             Err(e) => Err(e),
         }
     }
@@ -191,6 +202,7 @@ impl HlcClock {
     /// Persist the current HLC state to the `hlc_state` table within a transaction.
     pub fn save_to_db(&self, tx: &Transaction) -> Result<(), rusqlite::Error> {
         // Cast to i64 — rusqlite has no ToSql impl for u64/u32.
+        // SQLite INTEGER is signed i64; wall_ms won't overflow i64 until year ~292M — safe cast.
         tx.execute(
             "INSERT OR REPLACE INTO hlc_state (id, wall_ms, counter, node_id) VALUES (1, ?, ?, ?)",
             rusqlite::params![self.wall_ms as i64, self.counter as i64, self.node_id as i64],
