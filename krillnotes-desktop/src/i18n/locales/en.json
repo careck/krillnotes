@@ -248,6 +248,7 @@
     "noOperations": "No operations found.",
     "dateTime": "Date & Time",
     "target": "Target",
+    "author": "Author",
     "type": "Type",
     "count_one": "{{count}} operation",
     "count_other": "{{count}} operations",

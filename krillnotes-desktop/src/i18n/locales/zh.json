@@ -247,6 +247,7 @@
     "noOperations": "未找到操作。",
     "dateTime": "日期和时间",
     "target": "目标",
+    "author": "作者",
     "type": "类型",
     "count": "{{count}} 条",
     "deleteAll": "删除所有操作？",

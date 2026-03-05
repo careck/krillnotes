@@ -247,6 +247,7 @@
     "noOperations": "操作が見つかりませんでした。",
     "dateTime": "日時",
     "target": "対象",
+    "author": "作成者",
     "type": "種類",
     "count": "{{count}} 件",
     "deleteAll": "すべての操作を削除しますか？",

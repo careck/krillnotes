@@ -248,6 +248,7 @@
     "noOperations": "Keine Vorgänge gefunden.",
     "dateTime": "Datum & Uhrzeit",
     "target": "Ziel",
+    "author": "Autor",
     "type": "Typ",
     "count_one": "{{count}} Vorgang",
     "count_other": "{{count}} Vorgänge",

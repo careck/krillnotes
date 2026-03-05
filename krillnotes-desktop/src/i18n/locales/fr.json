@@ -248,6 +248,7 @@
     "noOperations": "Aucune opération trouvée.",
     "dateTime": "Date et heure",
     "target": "Cible",
+    "author": "Auteur",
     "type": "Type",
     "count_one": "{{count}} opération",
     "count_other": "{{count}} opérations",
