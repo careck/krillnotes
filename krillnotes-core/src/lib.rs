@@ -29,6 +29,7 @@ pub use core::{
     operation::Operation,
     operation_log::{OperationLog, OperationSummary, PurgeStrategy},
     scripting::{FieldDefinition, HookRegistry, QueryContext, Schema, ScriptError, ScriptRegistry, StarterScript},
+    hlc::{HlcClock, HlcTimestamp},
     identity::{IdentityFile, IdentityManager, IdentitySettings, IdentityRef, WorkspaceBinding, UnlockedIdentity, SwarmIdFile},
     storage::Storage,
     undo::{RetractInverse, UndoResult},
