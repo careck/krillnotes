@@ -24,6 +24,7 @@ Krillnotes/
 │           ├── delete.rs          # Delete strategies (DeleteAll, PromoteChildren)
 │           ├── user_script.rs     # UserScript type + CRUD operations
 │           ├── export.rs          # Workspace export/import (zip archives)
+│           ├── hlc.rs             # HlcTimestamp, HlcClock — Hybrid Logical Clock
 │           ├── identity.rs        # Identity model (Ed25519 + Argon2id + AES-GCM + .swarmid)
 │           ├── undo.rs            # RetractInverse enum — undo/redo inverse operations
 │           ├── scripting/
@@ -84,7 +85,7 @@ Krillnotes/
 
 All data lives in a **workspace folder** on the user's disk. The folder contains:
 
-- `notes.db` — the SQLCipher-encrypted SQLite database (schema in [schema.sql](krillnotes-core/src/core/schema.sql))
+- `notes.db` — the SQLCipher-encrypted SQLite database (schema in [schema.sql](krillnotes-core/src/core/schema.sql)); contains 7 tables: `notes`, `note_tags`, `operations`, `workspace_meta`, `user_scripts`, `attachments`, `hlc_state`
 - `attachments/<uuid>` — per-file ChaCha20-Poly1305 encrypted blobs
 - `info.json` — unencrypted metadata sidecar (name, counts, workspace UUID) for the Workspace Manager
 
@@ -114,19 +115,30 @@ Operations are defined in [krillnotes-core/src/core/operation.rs](krillnotes-cor
 ```rust
 pub enum Operation {
     // Note operations
-    CreateNote { operation_id, timestamp, device_id, note_id, parent_id,
-                 position, node_type, title, fields, created_by },
-    UpdateField { operation_id, timestamp, device_id, note_id, field, value, modified_by },
-    DeleteNote  { operation_id, timestamp, device_id, note_id },
-    MoveNote    { operation_id, timestamp, device_id, note_id, new_parent_id, new_position },
+    CreateNote  { operation_id, timestamp: HlcTimestamp, device_id, note_id, parent_id,
+                  position: f64, node_type, title, fields, created_by, signature },
+    UpdateNote  { operation_id, timestamp: HlcTimestamp, device_id, note_id,
+                  title, modified_by, signature },
+    UpdateField { operation_id, timestamp: HlcTimestamp, device_id, note_id,
+                  field, value, modified_by, signature },
+    DeleteNote  { operation_id, timestamp: HlcTimestamp, device_id, note_id, signature },
+    MoveNote    { operation_id, timestamp: HlcTimestamp, device_id, note_id,
+                  new_parent_id, new_position: f64, signature },
+    SetTags     { operation_id, timestamp: HlcTimestamp, device_id, note_id,
+                  tags: Vec<String>, modified_by, signature },
 
     // User script operations
-    CreateUserScript { operation_id, timestamp, device_id, script_id, name, description },
-    UpdateUserScript { operation_id, timestamp, device_id, script_id, name, description },
-    DeleteUserScript { operation_id, timestamp, device_id, script_id },
+    CreateUserScript { operation_id, timestamp: HlcTimestamp, device_id, script_id,
+                       name, description, signature },
+    UpdateUserScript { operation_id, timestamp: HlcTimestamp, device_id, script_id,
+                       name, description, signature },
+    DeleteUserScript { operation_id, timestamp: HlcTimestamp, device_id,
+                       script_id, signature },
 
     // Undo/redo
-    RetractOperation { operation_id, timestamp, device_id, retracted_id },
+    RetractOperation { operation_id, timestamp: HlcTimestamp, device_id,
+                       retracted_ids: Vec<String>, inverse: RetractInverse,
+                       propagate: bool },
 }
 ```
 
@@ -134,10 +146,11 @@ pub enum Operation {
 
 Each operation carries:
 - A stable UUID (`operation_id`)
-- A wall-clock timestamp
+- An `HlcTimestamp` (Hybrid Logical Clock — `wall_ms`, `counter`, `node_id`) that is monotonic across devices and provides a total ordering for CRDT merge
 - The `device_id` of the originating machine
+- An Ed25519 `signature` over the canonical JSON payload (base64)
 
-This makes the log replayable and mergeable. The `synced` flag on each row (0 = local, 1 = acknowledged by a remote) is reserved for the future sync phase.
+This makes the log replayable, mergeable, and cryptographically attributable. The `synced` flag on each row (0 = local, 1 = acknowledged by a remote) is reserved for the future sync phase.
 
 **Purge strategies** ([operation_log.rs](krillnotes-core/src/core/operation_log.rs)):
 
@@ -341,11 +354,11 @@ Expansion and selection are *view state* — local to the device and not meaning
 
 ### 10. Tree Hierarchy
 
-Notes form an ordered tree via two columns: `parent_id` (nullable foreign key to `notes.id`) and `position` (zero-based integer sort order among siblings).
+Notes form an ordered tree via two columns: `parent_id` (nullable foreign key to `notes.id`) and `position` (a `REAL` / `f64` sort key among siblings).
 
 The database enforces referential integrity: deleting a note cascades to all its descendants.
 
-When a note is inserted as a sibling, all following siblings have their `position` incremented in the same transaction before the new row is inserted. This keeps positions gapless and consistent.
+`position` values are fractional (`f64`), which allows inserting a note between two existing siblings by picking a value between their positions — no sibling rows need to be updated. This is the standard mid-point strategy used by CRDTs for ordered sequences.
 
 ---
 
@@ -514,7 +527,8 @@ Tests live alongside the code they test in `#[cfg(test)]` modules at the bottom 
 | 9 — Encryption | Done | SQLCipher AES-256 for workspace DBs; optional AES-256 zip for exports |
 | 10 — Undo / redo | Done | `RetractOperation` log entries; undo groups; per-workspace history limit |
 | 11 — Identity model | Done | Ed25519 + Argon2id; workspace binding; `.swarmid` portable export |
-| 12 — Sync infrastructure | Planned | CRDT merge, conflict resolution, `synced` flag, swarm discovery |
+| 12 — HLC + signed operations | Done | `HlcTimestamp` per-operation; Ed25519 `signature` on every op; `hlc_state` table; fractional `f64` positions; `SetTags` + `UpdateNote` variants |
+| 13 — Sync infrastructure | Planned | CRDT merge, conflict resolution, `synced` flag, swarm discovery |
 
 ---
 
@@ -533,7 +547,8 @@ Tests live alongside the code they test in `#[cfg(test)]` modules at the bottom 
 | [krillnotes-core/src/core/storage.rs](krillnotes-core/src/core/storage.rs) | SQLCipher connection management, PRAGMA key, migrations, unencrypted-workspace detection |
 | [krillnotes-core/src/core/identity.rs](krillnotes-core/src/core/identity.rs) | Identity model — Ed25519 + Argon2id + AES-GCM; workspace bindings; `.swarmid` export/import |
 | [krillnotes-core/src/core/undo.rs](krillnotes-core/src/core/undo.rs) | `RetractInverse` enum — maps operations to their compensating inverses |
-| [krillnotes-core/src/core/schema.sql](krillnotes-core/src/core/schema.sql) | Database DDL (6 tables: notes, note_tags, operations, workspace_meta, user_scripts, attachments) |
+| [krillnotes-core/src/core/hlc.rs](krillnotes-core/src/core/hlc.rs) | `HlcTimestamp` (wall_ms, counter, node_id) and `HlcClock` — Hybrid Logical Clock for cross-device ordering |
+| [krillnotes-core/src/core/schema.sql](krillnotes-core/src/core/schema.sql) | Database DDL (7 tables: notes, note_tags, operations, workspace_meta, user_scripts, attachments, hlc_state) |
 | [krillnotes-desktop/src-tauri/build.rs](krillnotes-desktop/src-tauri/build.rs) | Compile-time locale embedding — generates `locales_generated.rs` from `src/i18n/locales/*.json` |
 | [krillnotes-desktop/src-tauri/src/lib.rs](krillnotes-desktop/src-tauri/src/lib.rs) | Tauri commands + AppState (identity manager, unlocked identities, menu item handles) |
 | [krillnotes-desktop/src-tauri/src/locales.rs](krillnotes-desktop/src-tauri/src/locales.rs) | `menu_strings(lang)` — locale lookup with English merge-over fallback |

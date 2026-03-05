@@ -247,6 +247,7 @@
     "noOperations": "작업을 찾을 수 없습니다.",
     "dateTime": "날짜 및 시간",
     "target": "대상",
+    "author": "작성자",
     "type": "유형",
     "count": "{{count}} 건",
     "deleteAll": "모든 작업을 삭제하시겠습니까?",

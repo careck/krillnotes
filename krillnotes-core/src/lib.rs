@@ -29,9 +29,14 @@ pub use core::{
     operation::Operation,
     operation_log::{OperationLog, OperationSummary, PurgeStrategy},
     scripting::{FieldDefinition, HookRegistry, QueryContext, Schema, ScriptError, ScriptRegistry, StarterScript},
+    hlc::{HlcClock, HlcTimestamp},
     identity::{IdentityFile, IdentityManager, IdentitySettings, IdentityRef, WorkspaceBinding, UnlockedIdentity, SwarmIdFile},
     storage::Storage,
     undo::{RetractInverse, UndoResult},
     user_script::UserScript,
     workspace::{AddPosition, NoteSearchResult, Workspace},
 };
+
+// Re-export SigningKey so consumers don't need a direct ed25519-dalek dependency.
+#[doc(inline)]
+pub use ed25519_dalek::SigningKey as Ed25519SigningKey;

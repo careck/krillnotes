@@ -324,6 +324,22 @@ impl IdentityManager {
         Ok(settings.identities)
     }
 
+    /// Look up the display name for a given base64-encoded public key.
+    /// Reads each identity file until a match is found. Returns `None` if
+    /// no local identity has that public key.
+    pub fn lookup_display_name(&self, public_key: &str) -> Option<String> {
+        let settings = self.load_settings().ok()?;
+        for identity_ref in &settings.identities {
+            let file_path = self.identities_dir().join(format!("{}.json", identity_ref.uuid));
+            let Ok(data) = std::fs::read_to_string(&file_path) else { continue };
+            let Ok(identity_file) = serde_json::from_str::<IdentityFile>(&data) else { continue };
+            if identity_file.public_key == public_key {
+                return Some(identity_file.display_name);
+            }
+        }
+        None
+    }
+
     /// Delete an identity. Fails if any workspaces are still bound to it.
     pub fn delete_identity(&self, identity_uuid: &Uuid) -> Result<()> {
         let mut settings = self.load_settings()?;

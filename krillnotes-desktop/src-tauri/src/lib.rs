@@ -24,7 +24,7 @@ pub use krillnotes_core::*;
 use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
@@ -416,11 +416,19 @@ async fn create_workspace(
                 base64::engine::general_purpose::STANDARD.encode(&bytes)
             };
 
+            // Get the signing key from the unlocked identity before creating the workspace.
+            let signing_key = {
+                let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+                let unlocked = identities.get(&uuid)
+                    .ok_or_else(|| "Identity is not unlocked".to_string())?;
+                Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+            };
+
             let label = generate_unique_label(&state, &folder);
             std::fs::create_dir_all(&folder)
                 .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
             let db_path = folder.join("notes.db");
-            let workspace = Workspace::create(&db_path, &password)
+            let workspace = Workspace::create(&db_path, &password, Some(signing_key))
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
             // Read the workspace_id from the newly created workspace
@@ -519,7 +527,8 @@ async fn open_workspace(
                     .map_err(|e| format!("Failed to decrypt DB password: {e}"))?
             };
 
-            let workspace = Workspace::open(&db_path, &db_password)
+            let signing_key = Ed25519SigningKey::from_bytes(&seed);
+            let workspace = Workspace::open(&db_path, &db_password, Some(signing_key))
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
@@ -832,7 +841,7 @@ fn update_note(
     state: State<'_, AppState>,
     note_id: String,
     title: String,
-    fields: HashMap<String, FieldValue>,
+    fields: BTreeMap<String, FieldValue>,
 ) -> std::result::Result<Note, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
@@ -1034,7 +1043,7 @@ fn move_note(
     state: State<'_, AppState>,
     note_id: String,
     new_parent_id: Option<String>,
-    new_position: i32,
+    new_position: f64,
 ) -> std::result::Result<(), String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
@@ -1246,12 +1255,27 @@ fn list_operations(
     until: Option<i64>,
 ) -> std::result::Result<Vec<krillnotes_core::OperationSummary>, String> {
     let label = window.label();
-    state.workspaces.lock()
+    let mut summaries = state.workspaces.lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
         .list_operations(type_filter.as_deref(), since, until)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Resolve raw base64 public keys to identity display names where possible.
+    let identity_manager = state.identity_manager.lock().expect("Mutex poisoned");
+    for summary in &mut summaries {
+        if !summary.author_key.is_empty() {
+            if let Some(name) = identity_manager.lookup_display_name(&summary.author_key) {
+                summary.author_key = name;
+            } else {
+                // Unknown key: show first 8 chars of base64 as a compact fingerprint.
+                summary.author_key = summary.author_key.chars().take(8).collect();
+            }
+        }
+    }
+
+    Ok(summaries)
 }
 
 /// Deletes all operations from the log.
@@ -1336,6 +1360,15 @@ async fn execute_import(
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     };
 
+    // Extract the signing key from the unlocked identity before opening the workspace.
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let import_seed = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities.get(&uuid)
+            .ok_or_else(|| "Identity is not unlocked".to_string())?;
+        unlocked.signing_key.to_bytes()
+    };
+
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
     import_workspace(reader, &db_path_buf, password.as_deref(), &workspace_password)
@@ -1344,11 +1377,11 @@ async fn execute_import(
     // Ensure the attachments directory exists after import
     let _ = std::fs::create_dir_all(folder.join("attachments"));
 
-    let workspace = Workspace::open(&db_path_buf, &workspace_password)
+    let import_signing_key = Ed25519SigningKey::from_bytes(&import_seed);
+    let workspace = Workspace::open(&db_path_buf, &workspace_password, Some(import_signing_key))
         .map_err(|e| e.to_string())?;
 
     // Bind the imported workspace to the chosen identity so it can be opened later.
-    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let workspace_uuid = workspace.workspace_id().to_string();
     {
         let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
@@ -2129,8 +2162,8 @@ fn duplicate_workspace(
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     };
 
-    // Open the source workspace and export to a temp file
-    let workspace = Workspace::open(&source_db, &source_password)
+    // Open the source workspace and export to a temp file (no signing key needed for export)
+    let workspace = Workspace::open(&source_db, &source_password, None)
         .map_err(|e| e.to_string())?;
 
     let mut tmp_file = tempfile::tempfile()
@@ -2150,8 +2183,8 @@ fn duplicate_workspace(
     import_workspace(tmp_file, &dest_db, Some(&source_password), &new_password)
         .map_err(|e| e.to_string())?;
 
-    // Write info.json for the new workspace so we can read its UUID
-    let new_ws = Workspace::open(&dest_db, &new_password)
+    // Write info.json for the new workspace so we can read its UUID (no signing key needed here)
+    let new_ws = Workspace::open(&dest_db, &new_password, None)
         .map_err(|e| format!("Failed to open new workspace: {e}"))?;
     let _ = new_ws.write_info_json();
     let new_ws_uuid = new_ws.workspace_id().to_string();

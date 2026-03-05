@@ -25,8 +25,8 @@ const OPERATION_TYPES = [
   'DeleteUserScript',
 ] as const;
 
-function formatTimestamp(unix: number): string {
-  const date = new Date(unix * 1000);
+function formatTimestamp(wallMs: number): string {
+  const date = new Date(wallMs);
   return date.toLocaleString();
 }
 
@@ -42,10 +42,10 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
   const loadOperations = useCallback(async () => {
     try {
       const since = sinceDate
-        ? Math.floor(new Date(sinceDate + 'T00:00:00').getTime() / 1000)
+        ? new Date(sinceDate + 'T00:00:00').getTime()
         : undefined;
       const until = untilDate
-        ? Math.floor(new Date(untilDate + 'T23:59:59').getTime() / 1000)
+        ? new Date(untilDate + 'T23:59:59').getTime()
         : undefined;
 
       const result = await invoke<OperationSummary[]>('list_operations', {
@@ -154,6 +154,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
                 <tr>
                   <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
                   <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
+                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.author')}</th>
                   <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
                 </tr>
               </thead>
@@ -161,10 +162,15 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
                 {operations.map((op) => (
                   <tr key={op.operationId} className="border-b border-border/50 hover:bg-muted/20">
                     <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                      {formatTimestamp(op.timestamp)}
+                      {formatTimestamp(op.timestampWallMs)}
                     </td>
-                    <td className="px-4 py-2 truncate max-w-[250px]" title={op.targetName}>
+                    <td className="px-4 py-2 truncate max-w-[200px]" title={op.targetName}>
                       {op.targetName || <span className="text-muted-foreground italic">&mdash;</span>}
+                    </td>
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <span className="text-xs font-mono text-muted-foreground">
+                        {op.authorKey || '—'}
+                      </span>
                     </td>
                     <td className="px-4 py-2 text-right">
                       <span className="inline-block bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs font-mono">

@@ -248,6 +248,7 @@
     "noOperations": "No se encontraron operaciones.",
     "dateTime": "Fecha y hora",
     "target": "Destino",
+    "author": "Autor",
     "type": "Tipo",
     "count_one": "{{count}} operación",
     "count_other": "{{count}} operaciones",

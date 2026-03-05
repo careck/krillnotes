@@ -10,7 +10,7 @@ use crate::{FieldValue, KrillnotesError, Result};
 use chrono::NaiveDate;
 use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 /// A stored hook entry: the Rhai closure and the AST it was defined in.
@@ -27,8 +27,8 @@ pub(super) struct HookEntry {
 /// modifications for that note, or `None` when the hook left it unchanged.
 #[derive(Debug)]
 pub struct AddChildResult {
-    pub parent: Option<(String, HashMap<String, FieldValue>)>,
-    pub child:  Option<(String, HashMap<String, FieldValue>)>,
+    pub parent: Option<(String, BTreeMap<String, FieldValue>)>,
+    pub child:  Option<(String, BTreeMap<String, FieldValue>)>,
 }
 
 /// Describes a single typed field within a note schema.
@@ -96,7 +96,7 @@ impl Schema {
     ///
     /// Returns [`KrillnotesError::ValidationFailed`] for the first required
     /// field that is empty, naming the field in the error message.
-    pub fn validate_required_fields(&self, fields: &HashMap<String, FieldValue>) -> crate::Result<()> {
+    pub fn validate_required_fields(&self, fields: &BTreeMap<String, FieldValue>) -> crate::Result<()> {
         for field_def in &self.fields {
             if !field_def.required {
                 continue;
@@ -121,8 +121,8 @@ impl Schema {
     }
 
     /// Returns a map of field names to their zero-value defaults.
-    pub fn default_fields(&self) -> HashMap<String, FieldValue> {
-        let mut fields = HashMap::new();
+    pub fn default_fields(&self) -> BTreeMap<String, FieldValue> {
+        let mut fields = BTreeMap::new();
         for field_def in &self.fields {
             let default_value = match field_def.field_type.as_str() {
                 "text" | "textarea" => FieldValue::Text(String::new()),
@@ -406,8 +406,8 @@ impl SchemaRegistry {
         note_id: &str,
         node_type: &str,
         title: &str,
-        fields: &HashMap<String, FieldValue>,
-    ) -> Result<Option<(String, HashMap<String, FieldValue>)>> {
+        fields: &BTreeMap<String, FieldValue>,
+    ) -> Result<Option<(String, BTreeMap<String, FieldValue>)>> {
         let entry = {
             let hooks = self.on_save_hooks
                 .lock()
@@ -448,7 +448,7 @@ impl SchemaRegistry {
             .and_then(|v| v.clone().try_cast::<Map>())
             .ok_or_else(|| KrillnotesError::Scripting("hook result 'fields' must be a map".to_string()))?;
 
-        let mut new_fields = HashMap::new();
+        let mut new_fields = BTreeMap::new();
         for field_def in &schema.fields {
             let dyn_val = new_fields_dyn
                 .get(field_def.name.as_str())
@@ -549,12 +549,12 @@ impl SchemaRegistry {
         parent_id: &str,
         parent_type: &str,
         parent_title: &str,
-        parent_fields: &HashMap<String, FieldValue>,
+        parent_fields: &BTreeMap<String, FieldValue>,
         child_schema: &Schema,
         child_id: &str,
         child_type: &str,
         child_title: &str,
-        child_fields: &HashMap<String, FieldValue>,
+        child_fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<AddChildResult>> {
         let entry = {
             let hooks = self.on_add_child_hooks
@@ -616,7 +616,7 @@ impl SchemaRegistry {
             let new_fields_dyn = pm.get("fields")
                 .and_then(|v| v.clone().try_cast::<Map>())
                 .ok_or_else(|| KrillnotesError::Scripting("hook result parent 'fields' must be a map".to_string()))?;
-            let mut new_fields = HashMap::new();
+            let mut new_fields = BTreeMap::new();
             for field_def in &parent_schema.fields {
                 let dyn_val = new_fields_dyn.get(field_def.name.as_str()).cloned().unwrap_or(Dynamic::UNIT);
                 let fv = dynamic_to_field_value(dyn_val, &field_def.field_type)
@@ -636,7 +636,7 @@ impl SchemaRegistry {
             let new_fields_dyn = cm.get("fields")
                 .and_then(|v| v.clone().try_cast::<Map>())
                 .ok_or_else(|| KrillnotesError::Scripting("hook result child 'fields' must be a map".to_string()))?;
-            let mut new_fields = HashMap::new();
+            let mut new_fields = BTreeMap::new();
             for field_def in &child_schema.fields {
                 let dyn_val = new_fields_dyn.get(field_def.name.as_str()).cloned().unwrap_or(Dynamic::UNIT);
                 let fv = dynamic_to_field_value(dyn_val, &field_def.field_type)

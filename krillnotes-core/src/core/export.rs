@@ -499,7 +499,7 @@ pub fn import_workspace<R: Read + Seek>(
     drop(storage);
 
     // Rebuild the note_links index from the imported fields_json data.
-    let mut workspace = Workspace::open(db_path, workspace_password)
+    let mut workspace = Workspace::open(db_path, workspace_password, None)
         .map_err(|e| ExportError::Database(e.to_string()))?;
     workspace
         .rebuild_note_links_index()
@@ -595,7 +595,7 @@ mod tests {
     fn test_export_workspace_creates_valid_zip() {
         // Create a workspace with a note and a script
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
 
         // Add a user script (unique name to avoid collision with starters)
         let script_source =
@@ -636,7 +636,7 @@ mod tests {
     fn test_peek_import_reads_metadata() {
         // Create a workspace with a script
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "").unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let script_source =
             "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ fields: [] });";
@@ -662,7 +662,7 @@ mod tests {
     fn test_round_trip_export_import() {
         // Create a workspace with nested notes and a script
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "Root Note".to_string()).unwrap();
@@ -696,7 +696,7 @@ mod tests {
         assert!(result.script_count >= 2, "Should have starters + user script, got {}", result.script_count);
 
         // Open the imported workspace and verify contents
-        let imported_ws = Workspace::open(temp_dst.path(), "").unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "", None).unwrap();
 
         let notes = imported_ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 3);
@@ -727,7 +727,7 @@ mod tests {
     #[test]
     fn test_export_includes_workspace_json() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -741,7 +741,7 @@ mod tests {
     #[test]
     fn test_round_trip_preserves_tags() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_tags(&root.id, vec!["rust".into()]).unwrap();
 
@@ -751,7 +751,7 @@ mod tests {
         let temp_dst = NamedTempFile::new().unwrap();
         import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
 
-        let imported = Workspace::open(temp_dst.path(), "").unwrap();
+        let imported = Workspace::open(temp_dst.path(), "", None).unwrap();
         let tags = imported.get_all_tags().unwrap();
         assert_eq!(tags, vec!["rust"]);
 
@@ -788,7 +788,7 @@ mod tests {
     #[test]
     fn test_export_with_password_creates_encrypted_zip() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("hunter2")).unwrap();
@@ -805,7 +805,7 @@ mod tests {
     #[test]
     fn test_export_without_password_creates_plain_zip() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -820,7 +820,7 @@ mod tests {
     fn test_read_entry_wrong_password_returns_invalid_password() {
         // Export with a password
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("correct")).unwrap();
 
@@ -832,7 +832,7 @@ mod tests {
     #[test]
     fn test_peek_import_returns_encrypted_archive_error_when_no_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -844,7 +844,7 @@ mod tests {
     #[test]
     fn test_peek_import_with_correct_password_succeeds() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -857,7 +857,7 @@ mod tests {
     #[test]
     fn test_peek_import_with_wrong_password_returns_invalid_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "").unwrap();
+        let ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -869,7 +869,7 @@ mod tests {
     #[test]
     fn test_encrypted_round_trip_import() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "Encrypted Root".to_string()).unwrap();
 
@@ -883,7 +883,7 @@ mod tests {
         assert_eq!(result.note_count, 1);
 
         // Verify imported note title
-        let imported_ws = Workspace::open(temp_dst.path(), "").unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "", None).unwrap();
         let notes = imported_ws.list_all_notes().unwrap();
         assert!(notes.iter().any(|n| n.title == "Encrypted Root"));
     }
@@ -927,7 +927,7 @@ mod tests {
         let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
         assert_eq!(result.note_count, 1);
 
-        let imported_ws = Workspace::open(temp_dst.path(), "").unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "", None).unwrap();
         let notes = imported_ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 1);
         assert!(notes[0].tags.is_empty(), "imported note from old archive should have no tags");
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn test_workspace_metadata_roundtrip() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "").unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
 
         let meta = WorkspaceMetadata {
             version: 1,
@@ -997,7 +997,7 @@ mod tests {
         let temp_dst = NamedTempFile::new().unwrap();
         import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
 
-        let imported = Workspace::open(temp_dst.path(), "").unwrap();
+        let imported = Workspace::open(temp_dst.path(), "", None).unwrap();
         let restored = imported.get_workspace_metadata().unwrap();
 
         assert_eq!(restored.author_name.as_deref(), Some("Alice"));
@@ -1014,7 +1014,7 @@ mod tests {
     fn test_export_includes_attachments() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "").unwrap();
+        let mut ws = Workspace::create(&db_path, "", None).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         ws.attach_file(&root_id, "hello.txt", Some("text/plain"), b"hello world").unwrap();
@@ -1036,7 +1036,7 @@ mod tests {
     fn test_import_restores_attachments() {
         let dir_src = tempfile::tempdir().unwrap();
         let db_src = dir_src.path().join("notes.db");
-        let mut ws = Workspace::create(&db_src, "pass").unwrap();
+        let mut ws = Workspace::create(&db_src, "pass", None).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         ws.attach_file(&root_id, "data.txt", None, b"attachment content").unwrap();
@@ -1048,7 +1048,7 @@ mod tests {
         let db_dst = dir_dst.path().join("notes.db");
         import_workspace(Cursor::new(&buf), &db_dst, None, "newpass").unwrap();
 
-        let ws2 = Workspace::open(&db_dst, "newpass").unwrap();
+        let ws2 = Workspace::open(&db_dst, "newpass", None).unwrap();
         let notes = ws2.list_all_notes().unwrap();
         let root = notes.iter().find(|n| n.parent_id.is_none()).unwrap();
         let attachments = ws2.get_attachments(&root.id).unwrap();
@@ -1088,7 +1088,7 @@ mod tests {
         let temp_dst = NamedTempFile::new().unwrap();
         import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
 
-        let imported = Workspace::open(temp_dst.path(), "").unwrap();
+        let imported = Workspace::open(temp_dst.path(), "", None).unwrap();
         let meta = imported.get_workspace_metadata().unwrap();
         assert!(meta.author_name.is_none());
         assert!(meta.tags.is_empty());

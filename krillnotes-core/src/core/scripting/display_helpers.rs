@@ -15,7 +15,7 @@
 use pulldown_cmark::{html as md_html, Options, Parser};
 use rhai::{Array, Map};
 use std::sync::OnceLock;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use crate::{FieldValue, Note};
 use crate::core::attachment::AttachmentMeta;
 use super::schema::Schema;
@@ -40,7 +40,7 @@ fn html_escape(s: &str) -> String {
 ///                           then finds the attachment with that UUID
 pub fn resolve_attachment_source<'a>(
     source: &str,
-    fields: &HashMap<String, FieldValue>,
+    fields: &BTreeMap<String, FieldValue>,
     attachments: &'a [AttachmentMeta],
 ) -> Option<&'a AttachmentMeta> {
     if let Some(filename) = source.strip_prefix("attach:") {
@@ -72,7 +72,7 @@ static IMAGE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
 
 pub fn preprocess_image_blocks(
     text: &str,
-    fields: &HashMap<String, FieldValue>,
+    fields: &BTreeMap<String, FieldValue>,
     attachments: &[AttachmentMeta],
 ) -> String {
     let re = IMAGE_BLOCK_RE.get_or_init(|| {
@@ -459,7 +459,7 @@ fn format_field_value_html(
     field_type: &str,
     max: i64,
     resolved_titles: &HashMap<String, String>,
-    image_context: Option<(&HashMap<String, FieldValue>, &[AttachmentMeta])>,
+    image_context: Option<(&BTreeMap<String, FieldValue>, &[AttachmentMeta])>,
 ) -> String {
     match (value, field_type) {
         (FieldValue::Text(s), "textarea") => {
@@ -659,7 +659,7 @@ pub fn render_default_view(
     attachments: &[AttachmentMeta],
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
-    let image_ctx: Option<(&HashMap<String, FieldValue>, &[AttachmentMeta])> =
+    let image_ctx: Option<(&BTreeMap<String, FieldValue>, &[AttachmentMeta])> =
         Some((&note.fields, attachments));
 
     if let Some(schema) = schema {
@@ -831,14 +831,14 @@ mod tests {
     #[test]
     fn test_render_default_view_textarea_renders_markdown() {
         use crate::{FieldValue, FieldDefinition, Note, Schema};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("notes".into(), FieldValue::Text("**bold**".into()));
 
         let note = Note {
             id: "id1".into(), title: "Test".into(), node_type: "T".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
@@ -863,14 +863,14 @@ mod tests {
     #[test]
     fn test_render_default_view_text_field_html_escaped() {
         use crate::{FieldValue, FieldDefinition, Note, Schema};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("name".into(), FieldValue::Text("<script>alert(1)</script>".into()));
 
         let note = Note {
             id: "id2".into(), title: "T".into(), node_type: "T".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
@@ -895,14 +895,14 @@ mod tests {
     #[test]
     fn test_render_default_view_skips_can_view_false() {
         use crate::{FieldValue, FieldDefinition, Note, Schema};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("secret".into(), FieldValue::Text("hidden".into()));
 
         let note = Note {
             id: "id3".into(), title: "T".into(), node_type: "T".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
@@ -930,14 +930,14 @@ mod tests {
         // that contract so it is not accidentally "fixed" by escaping at this layer.
         use crate::{FieldValue, Note};
         use crate::{FieldDefinition, Schema};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("body".into(), FieldValue::Text("<em>italic</em> and **bold**".into()));
 
         let note = Note {
             id: "sec1".into(), title: "T".into(), node_type: "T".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
@@ -988,15 +988,15 @@ mod tests {
     #[test]
     fn test_render_default_view_legacy_fields_shown() {
         use crate::{FieldValue, FieldDefinition, Note, Schema};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("known".into(), FieldValue::Text("hello".into()));
         fields.insert("old_field".into(), FieldValue::Text("legacy value".into()));
 
         let note = Note {
             id: "id4".into(), title: "T".into(), node_type: "T".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {
@@ -1070,7 +1070,7 @@ mod tests {
     #[test]
     fn test_resolve_by_filename() {
         let attachments = vec![make_meta("uuid-1", "photo.png")];
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         let result = resolve_attachment_source("attach:photo.png", &fields, &attachments);
         assert_eq!(result.map(|a| a.id.as_str()), Some("uuid-1"));
     }
@@ -1078,7 +1078,7 @@ mod tests {
     #[test]
     fn test_resolve_by_field() {
         let attachments = vec![make_meta("uuid-2", "cover.jpg")];
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("cover".to_string(), FieldValue::File(Some("uuid-2".to_string())));
         let result = resolve_attachment_source("field:cover", &fields, &attachments);
         assert_eq!(result.map(|a| a.id.as_str()), Some("uuid-2"));
@@ -1086,13 +1086,13 @@ mod tests {
 
     #[test]
     fn test_resolve_missing_returns_none() {
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         assert!(resolve_attachment_source("attach:missing.png", &fields, &[]).is_none());
     }
 
     #[test]
     fn test_resolve_field_not_set_returns_none() {
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("cover".to_string(), FieldValue::File(None));
         assert!(resolve_attachment_source("field:cover", &fields, &[]).is_none());
     }
@@ -1102,7 +1102,7 @@ mod tests {
     #[test]
     fn test_preprocess_basic_attach() {
         let attachments = vec![make_meta("uuid-1", "photo.png")];
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         let result = preprocess_image_blocks(
             "Before {{image: attach:photo.png}} After",
             &fields,
@@ -1116,7 +1116,7 @@ mod tests {
     #[test]
     fn test_preprocess_with_width_and_alt() {
         let attachments = vec![make_meta("uuid-2", "cover.jpg")];
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         let result = preprocess_image_blocks(
             "{{image: attach:cover.jpg, width: 300, alt: My cover}}",
             &fields,
@@ -1129,14 +1129,14 @@ mod tests {
 
     #[test]
     fn test_preprocess_unresolvable_shows_error() {
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         let result = preprocess_image_blocks("{{image: attach:missing.png}}", &fields, &[]);
         assert!(result.contains("kn-image-error"), "got: {result}");
     }
 
     #[test]
     fn test_preprocess_field_source() {
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("cover".to_string(), FieldValue::File(Some("uuid-3".to_string())));
         let attachments = vec![make_meta("uuid-3", "cover.jpg")];
         let result = preprocess_image_blocks("{{image: field:cover, width: 200}}", &fields, &attachments);
@@ -1324,16 +1324,16 @@ mod tests {
     #[test]
     fn test_render_default_view_textarea_bare_url_becomes_sentinel() {
         use crate::{FieldValue, FieldDefinition, Note, Schema};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert(
             "body".into(),
             FieldValue::Text("Watch this:\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nDone.".into()),
         );
         let note = Note {
             id: "id-embed".into(), title: "T".into(), node_type: "T".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
         let schema = Schema {

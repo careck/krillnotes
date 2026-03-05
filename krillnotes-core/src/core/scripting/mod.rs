@@ -25,7 +25,7 @@ use schema::HookEntry;
 use chrono::Local;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 /// Per-run context injected before executing a Rhai script so that
@@ -463,7 +463,7 @@ impl ScriptRegistry {
                         rhai::Position::NONE,
                     ))
                 })?;
-                let mut fields = std::collections::HashMap::new();
+                let mut fields = BTreeMap::new();
                 for field_def in &schema.fields {
                     let dyn_val = fields_dyn
                         .get(field_def.name.as_str())
@@ -650,8 +650,8 @@ impl ScriptRegistry {
         note_id: &str,
         node_type: &str,
         title: &str,
-        fields: &HashMap<String, FieldValue>,
-    ) -> Result<Option<(String, HashMap<String, FieldValue>)>> {
+        fields: &BTreeMap<String, FieldValue>,
+    ) -> Result<Option<(String, BTreeMap<String, FieldValue>)>> {
         let schema = self.schema_registry.get(schema_name)?;
         self.schema_registry
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
@@ -672,11 +672,11 @@ impl ScriptRegistry {
         parent_id: &str,
         parent_type: &str,
         parent_title: &str,
-        parent_fields: &HashMap<String, FieldValue>,
+        parent_fields: &BTreeMap<String, FieldValue>,
         child_id: &str,
         child_type: &str,
         child_title: &str,
-        child_fields: &HashMap<String, FieldValue>,
+        child_fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<AddChildResult>> {
         let parent_schema = self.schema_registry.get(parent_schema_name)?;
         let child_schema  = self.schema_registry.get(child_type)?;
@@ -908,7 +908,7 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut fields = std::collections::HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
         fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
 
@@ -936,9 +936,9 @@ mod tests {
         use crate::Note;
         let note = Note {
             id: "n1".to_string(), node_type: "Folder".to_string(),
-            title: "F".to_string(), parent_id: None, position: 0,
+            title: "F".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: std::collections::HashMap::new(), is_expanded: false, tags: vec![],
+            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: std::collections::HashMap::new(),
@@ -1219,7 +1219,7 @@ mod tests {
             "test")
             .unwrap();
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
         fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
 
@@ -1237,7 +1237,7 @@ mod tests {
     fn test_run_on_save_hook_no_hook_returns_none() {
         let mut registry = ScriptRegistry::new().unwrap();
         load_text_note(&mut registry);
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         let result = registry
             .run_on_save_hook("TextNote", "id-1", "TextNote", "title", &fields)
             .unwrap();
@@ -1253,7 +1253,7 @@ mod tests {
         )), "Contact").unwrap();
         assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("first_name".to_string(), FieldValue::Text("Jane".to_string()));
         fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
         fields.insert("last_name".to_string(), FieldValue::Text("Smith".to_string()));
@@ -1440,7 +1440,7 @@ mod tests {
             .unwrap();
 
         // Do NOT include "flag" in the submitted fields — it must default to false.
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
 
         let result = registry
             .run_on_save_hook("FlagNote", "id-1", "FlagNote", "title", &fields)
@@ -1665,7 +1665,7 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("status".to_string(), FieldValue::Text("A".to_string()));
 
         let result = registry
@@ -1688,7 +1688,7 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("stars".to_string(), FieldValue::Number(0.0));
 
         let result = registry
@@ -1711,7 +1711,7 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let fields = HashMap::new(); // no status field
+        let fields = BTreeMap::new(); // no status field
         let result = registry
             .run_on_save_hook("S2", "id1", "S2", "title", &fields)
             .unwrap()
@@ -1732,7 +1732,7 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let fields = HashMap::new(); // no stars field
+        let fields = BTreeMap::new(); // no stars field
         let result = registry
             .run_on_save_hook("R2", "id1", "R2", "title", &fields)
             .unwrap()
@@ -1790,7 +1790,7 @@ mod tests {
             "/../templates/book_collection.rhai"
         )), "book_collection").expect("book_collection.rhai should load");
 
-        let mut fields = std::collections::HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("book_title".to_string(), crate::FieldValue::Text("Dune".to_string()));
         fields.insert("author".to_string(), crate::FieldValue::Text("Herbert".to_string()));
         fields.insert("genre".to_string(), crate::FieldValue::Text(String::new()));
@@ -1813,7 +1813,7 @@ mod tests {
     #[test]
     fn test_script_registry_render_default_view_textarea_markdown() {
         use crate::{FieldValue, Note};
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
@@ -1824,11 +1824,11 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("body".into(), FieldValue::Text("**important**".into()));
         let note = Note {
             id: "n1".into(), title: "Test".into(), node_type: "Memo".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
         };
 
@@ -1869,12 +1869,12 @@ mod tests {
             node_type: "LinkTest".to_string(),
             title: "Test".to_string(),
             parent_id: None,
-            position: 0,
+            position: 0.0,
             created_at: 0,
             modified_at: 0,
             created_by: 0,
             modified_by: 0,
-            fields: HashMap::new(),
+            fields: BTreeMap::new(),
             is_expanded: false, tags: vec![],
         };
 
@@ -1912,7 +1912,7 @@ mod tests {
             "My Exploding Script",
         ).unwrap();
 
-        let fields = HashMap::new();
+        let fields = BTreeMap::new();
         let err = registry
             .run_on_save_hook("Boom", "id-1", "Boom", "title", &fields)
             .unwrap_err();
@@ -1947,10 +1947,10 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut parent_fields = std::collections::HashMap::new();
+        let mut parent_fields = BTreeMap::new();
         parent_fields.insert("count".to_string(), FieldValue::Number(0.0));
 
-        let mut child_fields = std::collections::HashMap::new();
+        let mut child_fields = BTreeMap::new();
         child_fields.insert("name".to_string(), FieldValue::Text("".to_string()));
 
         let result = registry
@@ -1982,8 +1982,8 @@ mod tests {
         let result = registry
             .run_on_add_child_hook(
                 "Plain",
-                "p-id", "Plain", "Title", &std::collections::HashMap::new(),
-                "c-id", "Plain", "Child", &std::collections::HashMap::new(),
+                "p-id", "Plain", "Title", &std::collections::BTreeMap::new(),
+                "c-id", "Plain", "Child", &std::collections::BTreeMap::new(),
             )
             .unwrap();
 
@@ -2008,8 +2008,8 @@ mod tests {
         let result = registry
             .run_on_add_child_hook(
                 "Folder",
-                "p-id", "Folder", "Title", &std::collections::HashMap::new(),
-                "c-id", "Item",   "Child", &std::collections::HashMap::new(),
+                "p-id", "Folder", "Title", &std::collections::BTreeMap::new(),
+                "c-id", "Item",   "Child", &std::collections::BTreeMap::new(),
             )
             .unwrap();
 
@@ -2037,14 +2037,14 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut parent_fields = std::collections::HashMap::new();
+        let mut parent_fields = BTreeMap::new();
         parent_fields.insert("count".to_string(), FieldValue::Number(0.0));
 
         let result = registry
             .run_on_add_child_hook(
                 "Folder",
                 "p-id", "Folder", "Folder", &parent_fields,
-                "c-id", "Item",   "Untitled", &std::collections::HashMap::new(),
+                "c-id", "Item",   "Untitled", &std::collections::BTreeMap::new(),
             )
             .unwrap();
 
@@ -2073,8 +2073,8 @@ mod tests {
         let result = registry
             .run_on_add_child_hook(
                 "Folder",
-                "p-id", "Folder", "Folder", &std::collections::HashMap::new(),
-                "c-id", "Item",   "Untitled", &std::collections::HashMap::new(),
+                "p-id", "Folder", "Folder", &std::collections::BTreeMap::new(),
+                "c-id", "Item",   "Untitled", &std::collections::BTreeMap::new(),
             )
             .unwrap();
 
@@ -2102,8 +2102,8 @@ mod tests {
         let err = registry
             .run_on_add_child_hook(
                 "Folder",
-                "p-id", "Folder", "Title", &std::collections::HashMap::new(),
-                "c-id", "Item",   "Child", &std::collections::HashMap::new(),
+                "p-id", "Folder", "Title", &std::collections::BTreeMap::new(),
+                "c-id", "Item",   "Child", &std::collections::BTreeMap::new(),
             )
             .unwrap_err();
 
@@ -2131,9 +2131,9 @@ mod tests {
         use crate::Note;
         let note = Note {
             id: "n1".to_string(), node_type: "BoomView".to_string(),
-            title: "T".to_string(), parent_id: None, position: 0,
+            title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: HashMap::new(), is_expanded: false, tags: vec![],
+            fields: BTreeMap::new(), is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: HashMap::new(),
@@ -2189,7 +2189,7 @@ mod tests {
         let note = crate::Note {
             id: "n1".into(), title: "Hello".into(),
             node_type: "TextNote".into(), parent_id: None,
-            fields: std::collections::HashMap::new(), position: 0,
+            fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
             is_expanded: false, tags: vec![],
         };
@@ -2215,7 +2215,7 @@ mod tests {
         let note = crate::Note {
             id: "p1".into(), title: "Parent".into(),
             node_type: "TextNote".into(), parent_id: None,
-            fields: std::collections::HashMap::new(), position: 0,
+            fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
             is_expanded: false, tags: vec![],
         };
@@ -2237,7 +2237,7 @@ mod tests {
         let note = crate::Note {
             id: "n1".into(), title: "T".into(),
             node_type: "TextNote".into(), parent_id: None,
-            fields: std::collections::HashMap::new(), position: 0,
+            fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
             is_expanded: false, tags: vec![],
         };
@@ -2263,7 +2263,7 @@ mod tests {
         let note = crate::Note {
             id: "n1".into(), title: "T".into(),
             node_type: "TextNote".into(), parent_id: None,
-            fields: std::collections::HashMap::new(), position: 0,
+            fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
             is_expanded: false, tags: vec![],
         };
@@ -2285,7 +2285,7 @@ mod tests {
         crate::Note {
             id: id.into(), title: "Test".into(),
             node_type: node_type.into(), parent_id: None,
-            fields: Default::default(), position: 0,
+            fields: Default::default(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
             is_expanded: false, tags: vec![],
         }
@@ -2432,9 +2432,9 @@ mod tests {
 
         let note = Note {
             id: "n1".to_string(), node_type: "Tagged".to_string(),
-            title: "T".to_string(), parent_id: None, position: 0,
+            title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: std::collections::HashMap::new(), is_expanded: false,
+            fields: std::collections::BTreeMap::new(), is_expanded: false,
             tags: vec!["rust".to_string(), "notes".to_string()],
         };
         let ctx = QueryContext {
@@ -2464,7 +2464,7 @@ mod tests {
         "#, "test").unwrap();
 
         let result = registry
-            .run_on_save_hook("DateTest", "id1", "DateTest", "", &HashMap::new())
+            .run_on_save_hook("DateTest", "id1", "DateTest", "", &BTreeMap::new())
             .unwrap()
             .unwrap();
         let (title, _) = result;
@@ -2501,7 +2501,7 @@ mod tests {
             });
         "#, "test").unwrap();
 
-        let mut fields = std::collections::HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("body".to_string(),
             FieldValue::Text("Emergence is when simple rules produce complex behaviour".to_string()));
 
@@ -2545,7 +2545,7 @@ mod tests {
         "#, "test").unwrap();
 
         let (title, _) = registry
-            .run_on_save_hook("ZettelEmpty", "id2", "ZettelEmpty", "", &std::collections::HashMap::new())
+            .run_on_save_hook("ZettelEmpty", "id2", "ZettelEmpty", "", &std::collections::BTreeMap::new())
             .unwrap().unwrap();
         assert!(title.contains("Untitled"), "expected Untitled fallback: {title}");
         // Must still have the date prefix
@@ -2623,9 +2623,9 @@ mod tests {
         "#, "HoverRun").unwrap();
         let note = crate::Note {
             id: "id1".into(), title: "Test Note".into(), node_type: "HoverRun".into(),
-            parent_id: None, position: 0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0,
-            fields: std::collections::HashMap::new(), is_expanded: false, tags: vec![],
+            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![],
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(), children_by_id: Default::default(),
@@ -2709,12 +2709,12 @@ mod tests {
             });
         "#, "test_script").unwrap();
 
-        let mut fields = std::collections::HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("photo".to_string(), FieldValue::File(Some("abc-uuid-123".to_string())));
         let note = Note {
             id: "n1".to_string(), node_type: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![],
-            created_at: 0, modified_at: 0, position: 0,
+            created_at: 0, modified_at: 0, position: 0.0,
             created_by: 0, modified_by: 0, is_expanded: false,
         };
 
@@ -2737,12 +2737,12 @@ mod tests {
             });
         "#, "test_script").unwrap();
 
-        let mut fields = std::collections::HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("photo".to_string(), FieldValue::File(None));
         let note = Note {
             id: "n2".to_string(), node_type: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![],
-            created_at: 0, modified_at: 0, position: 0,
+            created_at: 0, modified_at: 0, position: 0.0,
             created_by: 0, modified_by: 0, is_expanded: false,
         };
 

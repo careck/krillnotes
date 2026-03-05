@@ -109,7 +109,7 @@ fn build_tools_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<T
 
     Ok(ToolsMenuResult {
         submenu,
-        workspace_items: vec![manage_scripts],
+        workspace_items: vec![manage_scripts, operations_log],
     })
 }
 

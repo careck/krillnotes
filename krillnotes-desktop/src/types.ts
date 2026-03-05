@@ -111,10 +111,11 @@ export interface DropIndicator {
 
 export interface OperationSummary {
   operationId: string;
-  timestamp: number;
+  timestampWallMs: number;  // milliseconds
   deviceId: string;
   operationType: string;
   targetName: string;
+  authorKey: string;        // first 8 chars of base64 key, or ""
 }
 
 export interface AppSettings {
