@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS notes (
     title TEXT NOT NULL,
     node_type TEXT NOT NULL,
     parent_id TEXT,
-    position INTEGER NOT NULL,
+    position REAL NOT NULL DEFAULT 0.0,
     created_at INTEGER NOT NULL,
     modified_at INTEGER NOT NULL,
     created_by INTEGER NOT NULL DEFAULT 0,
@@ -16,19 +16,28 @@ CREATE TABLE IF NOT EXISTS notes (
 
 CREATE INDEX IF NOT EXISTS idx_notes_parent ON notes(parent_id, position);
 
--- Operations log
+-- Operations log (HLC timestamps: wall clock ms + logical counter + node id)
 CREATE TABLE IF NOT EXISTS operations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    operation_id TEXT UNIQUE NOT NULL,
-    timestamp INTEGER NOT NULL,
+    operation_id TEXT NOT NULL PRIMARY KEY,
+    timestamp_wall_ms INTEGER NOT NULL DEFAULT 0,
+    timestamp_counter INTEGER NOT NULL DEFAULT 0,
+    timestamp_node_id INTEGER NOT NULL DEFAULT 0,
     device_id TEXT NOT NULL,
     operation_type TEXT NOT NULL,
     operation_data TEXT NOT NULL,
-    synced INTEGER DEFAULT 0
+    synced INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_operations_timestamp ON operations(timestamp);
+CREATE INDEX IF NOT EXISTS idx_operations_timestamp_wall_ms ON operations(timestamp_wall_ms);
 CREATE INDEX IF NOT EXISTS idx_operations_synced ON operations(synced);
+
+-- HLC (Hybrid Logical Clock) state — single row, id=1 always
+CREATE TABLE IF NOT EXISTS hlc_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    wall_ms INTEGER NOT NULL,
+    counter INTEGER NOT NULL,
+    node_id INTEGER NOT NULL
+);
 
 -- Workspace metadata
 CREATE TABLE IF NOT EXISTS workspace_meta (

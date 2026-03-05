@@ -55,13 +55,15 @@ impl OperationLog {
     /// [`crate::KrillnotesError::Json`] if `op` cannot be serialised.
     pub fn log(&self, tx: &Transaction, op: &Operation) -> Result<()> {
         let op_json = serde_json::to_string(op)?;
+        // Convert Unix seconds to milliseconds for the HLC wall_ms column.
+        let wall_ms = op.timestamp() * 1000;
 
         tx.execute(
-            "INSERT INTO operations (operation_id, timestamp, device_id, operation_type, operation_data, synced)
-             VALUES (?, ?, ?, ?, ?, 0)",
+            "INSERT INTO operations (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, device_id, operation_type, operation_data, synced)
+             VALUES (?, ?, 0, 0, ?, ?, ?, 0)",
             rusqlite::params![
                 op.operation_id(),
-                op.timestamp(),
+                wall_ms,
                 op.device_id(),
                 self.operation_type_name(op),
                 op_json,
@@ -82,18 +84,21 @@ impl OperationLog {
         match self.strategy {
             PurgeStrategy::LocalOnly { keep_last } => {
                 tx.execute(
-                    "DELETE FROM operations WHERE id NOT IN (
-                        SELECT id FROM operations ORDER BY id DESC LIMIT ?
+                    "DELETE FROM operations WHERE operation_id NOT IN (
+                        SELECT operation_id FROM operations
+                        ORDER BY timestamp_wall_ms DESC, timestamp_counter DESC LIMIT ?
                     )",
                     [keep_last as i64],
                 )?;
             }
             PurgeStrategy::WithSync { retention_days } => {
-                let cutoff = chrono::Utc::now().timestamp()
-                    - (retention_days as i64 * SECONDS_PER_DAY);
+                // Convert retention cutoff from Unix seconds to wall_ms (milliseconds).
+                let cutoff_ms = (chrono::Utc::now().timestamp()
+                    - (retention_days as i64 * SECONDS_PER_DAY))
+                    * 1000;
                 tx.execute(
-                    "DELETE FROM operations WHERE synced = 1 AND timestamp < ?",
-                    [cutoff],
+                    "DELETE FROM operations WHERE synced = 1 AND timestamp_wall_ms < ?",
+                    [cutoff_ms],
                 )?;
             }
         }
@@ -116,7 +121,7 @@ impl OperationLog {
         until: Option<i64>,
     ) -> Result<Vec<OperationSummary>> {
         let mut sql = String::from(
-            "SELECT operation_id, timestamp, device_id, operation_type, operation_data FROM operations",
+            "SELECT operation_id, timestamp_wall_ms, device_id, operation_type, operation_data FROM operations",
         );
         let mut conditions: Vec<String> = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -126,11 +131,13 @@ impl OperationLog {
             params.push(Box::new(t.to_string()));
         }
         if let Some(s) = since {
-            conditions.push("timestamp >= ?".to_string());
+            // `since` is in milliseconds (HLC wall_ms scale).
+            conditions.push("timestamp_wall_ms >= ?".to_string());
             params.push(Box::new(s));
         }
         if let Some(u) = until {
-            conditions.push("timestamp <= ?".to_string());
+            // `until` is in milliseconds (HLC wall_ms scale).
+            conditions.push("timestamp_wall_ms <= ?".to_string());
             params.push(Box::new(u));
         }
 
@@ -139,7 +146,7 @@ impl OperationLog {
             sql.push_str(&conditions.join(" AND "));
         }
 
-        sql.push_str(" ORDER BY timestamp DESC, id DESC");
+        sql.push_str(" ORDER BY timestamp_wall_ms DESC, timestamp_counter DESC");
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
@@ -316,9 +323,10 @@ mod tests {
         assert_eq!(notes_only.len(), 1);
         assert_eq!(notes_only[0].operation_id, "op-1");
 
-        // Filter by since.
+        // Filter by since (timestamp_wall_ms is in milliseconds).
+        // op1 stored as 1000 * 1000 = 1_000_000 ms, op2 as 2000 * 1000 = 2_000_000 ms.
         let recent = log
-            .list(storage.connection(), None, Some(1500), None)
+            .list(storage.connection(), None, Some(1_500_000), None)
             .unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].operation_id, "op-2");

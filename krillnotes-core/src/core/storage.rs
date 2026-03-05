@@ -187,6 +187,115 @@ impl Storage {
                 CREATE INDEX IF NOT EXISTS idx_attachments_note_id ON attachments(note_id);",
             )?;
         }
+
+        // Migration: add hlc_state table, replace operations.timestamp with HLC columns,
+        // and change notes.position from INTEGER to REAL.
+        let hlc_state_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='hlc_state'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !hlc_state_exists {
+            // Step 1: Create hlc_state table.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS hlc_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    wall_ms INTEGER NOT NULL,
+                    counter INTEGER NOT NULL,
+                    node_id INTEGER NOT NULL
+                );",
+            )?;
+
+            // Step 2: Recreate operations table with HLC timestamp columns.
+            // Check whether the old operations table has the standard `operation_id` column
+            // before migrating data (very old test-schema tables may only have `id`).
+            let ops_has_operation_id: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='operation_id'",
+                [],
+                |row| row.get::<_, i64>(0).map(|c| c > 0),
+            )?;
+
+            conn.execute_batch(
+                "CREATE TABLE operations_new (
+                    operation_id TEXT NOT NULL PRIMARY KEY,
+                    timestamp_wall_ms INTEGER NOT NULL DEFAULT 0,
+                    timestamp_counter INTEGER NOT NULL DEFAULT 0,
+                    timestamp_node_id INTEGER NOT NULL DEFAULT 0,
+                    device_id TEXT NOT NULL,
+                    operation_type TEXT NOT NULL,
+                    operation_data TEXT NOT NULL,
+                    synced INTEGER NOT NULL DEFAULT 0
+                );",
+            )?;
+
+            if ops_has_operation_id {
+                // Standard schema: copy data, converting Unix seconds → milliseconds.
+                conn.execute_batch(
+                    "INSERT INTO operations_new
+                        SELECT operation_id,
+                               COALESCE(timestamp, 0) * 1000,
+                               0,
+                               0,
+                               device_id,
+                               operation_type,
+                               operation_data,
+                               synced
+                        FROM operations;",
+                )?;
+            }
+            // If old table had no operation_id, it held no real data — skip data migration.
+
+            conn.execute_batch(
+                "DROP TABLE operations;
+                ALTER TABLE operations_new RENAME TO operations;
+                CREATE INDEX IF NOT EXISTS idx_operations_timestamp_wall_ms ON operations(timestamp_wall_ms);
+                CREATE INDEX IF NOT EXISTS idx_operations_synced ON operations(synced);",
+            )?;
+
+            // Step 3: Recreate notes table with position REAL.
+            // Check whether the notes table has the standard columns (test helpers may be minimal).
+            let notes_has_created_at: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='created_at'",
+                [],
+                |row| row.get::<_, i64>(0).map(|c| c > 0),
+            )?;
+
+            conn.execute_batch(
+                "CREATE TABLE notes_new (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    node_type TEXT NOT NULL,
+                    parent_id TEXT,
+                    position REAL NOT NULL DEFAULT 0.0,
+                    created_at INTEGER NOT NULL,
+                    modified_at INTEGER NOT NULL,
+                    created_by INTEGER NOT NULL DEFAULT 0,
+                    modified_by INTEGER NOT NULL DEFAULT 0,
+                    fields_json TEXT NOT NULL DEFAULT '{}',
+                    is_expanded INTEGER DEFAULT 1,
+                    FOREIGN KEY (parent_id) REFERENCES notes(id) ON DELETE CASCADE
+                );",
+            )?;
+
+            if notes_has_created_at {
+                // Full-schema notes table: copy all rows.
+                conn.execute_batch("INSERT INTO notes_new SELECT * FROM notes;")?;
+            }
+            // Minimal test notes tables (no created_at) have no data worth migrating.
+
+            conn.execute_batch(
+                "DROP TABLE notes;
+                ALTER TABLE notes_new RENAME TO notes;
+                CREATE INDEX IF NOT EXISTS idx_notes_parent ON notes(parent_id, position);",
+            )?;
+
+            // Step 4: Seed hlc_state from existing max timestamp.
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO hlc_state (id, wall_ms, counter, node_id)
+                    SELECT 1, COALESCE(MAX(timestamp_wall_ms), 0), 0, 0 FROM operations;",
+            )?;
+        }
+
         Ok(())
     }
 

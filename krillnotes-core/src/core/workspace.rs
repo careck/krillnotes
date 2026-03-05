@@ -3600,7 +3600,10 @@ fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &HashMap<S
 }
 
 /// Raw 12-column tuple extracted from a `notes` + `note_tags` SQLite row.
-type NoteRow = (String, String, String, Option<String>, i64, i64, i64, i64, i64, String, i64, Option<String>);
+///
+/// `position` is stored as REAL in the DB (to support fractional positions for future
+/// CRDT ordering) but the Rust API still uses `i32`; we read it as `f64` and truncate.
+type NoteRow = (String, String, String, Option<String>, f64, i64, i64, i64, i64, String, i64, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
@@ -3612,7 +3615,7 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
         row.get::<_, String>(1)?,
         row.get::<_, String>(2)?,
         row.get::<_, Option<String>>(3)?,
-        row.get::<_, i64>(4)?,
+        row.get::<_, f64>(4)?,
         row.get::<_, i64>(5)?,
         row.get::<_, i64>(6)?,
         row.get::<_, i64>(7)?,
