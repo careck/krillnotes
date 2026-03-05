@@ -1360,7 +1360,7 @@ impl Workspace {
         Ok(new_note.id)
     }
 
-    /// Updates the title of `note_id` and logs an `UpdateField` operation.
+    /// Updates the title of `note_id` and logs an `UpdateNote` operation.
     ///
     /// # Errors
     ///
@@ -1379,13 +1379,12 @@ impl Workspace {
 
         // Log operation
         Self::save_hlc(&ts, &tx)?;
-        let mut op = Operation::UpdateField {
+        let mut op = Operation::UpdateNote {
             operation_id: Uuid::new_v4().to_string(),
             timestamp: ts,
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
-            field: "title".to_string(),
-            value: crate::FieldValue::Text(new_title),
+            title: new_title,
             modified_by: String::new(),
             signature: String::new(),
         };
@@ -1912,13 +1911,12 @@ impl Workspace {
 
                 // Log title update
                 Self::save_hlc(title_ts, &tx)?;
-                let mut title_op = Operation::UpdateField {
+                let mut title_op = Operation::UpdateNote {
                     operation_id: Uuid::new_v4().to_string(),
                     timestamp: *title_ts,
                     device_id: self.device_id.clone(),
                     note_id: update.note_id.clone(),
-                    field: "title".to_string(),
-                    value: crate::FieldValue::Text(update.title.clone()),
+                    title: update.title.clone(),
                     modified_by: String::new(),
                     signature: String::new(),
                 };
@@ -2704,18 +2702,17 @@ impl Workspace {
             return Err(KrillnotesError::NoteNotFound(note_id.to_string()));
         }
 
-        // Log an UpdateField operation for the title, consistent with
+        // Log an UpdateNote operation for the title, consistent with
         // update_note_title.
         Self::save_hlc(&title_ts, &tx)?;
         let title_op_id = Uuid::new_v4().to_string();
         emitted_op_ids.push(title_op_id.clone());
-        let mut title_op = Operation::UpdateField {
+        let mut title_op = Operation::UpdateNote {
             operation_id: title_op_id,
             timestamp: title_ts,
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
-            field: "title".to_string(),
-            value: crate::FieldValue::Text(title.clone()),
+            title: title.clone(),
             modified_by: String::new(),
             signature: String::new(),
         };
@@ -6180,12 +6177,12 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
 
         ws.update_note_title(&root.id, "HLC Title".to_string()).unwrap();
 
-        // update_note_title logs an UpdateField operation with field == "title".
+        // update_note_title logs an UpdateNote operation (not UpdateField).
         let ops = ws.list_operations(None, None, None).unwrap();
-        let has_title_update = ops.iter().any(|o| o.operation_type == "UpdateField");
+        let has_title_update = ops.iter().any(|o| o.operation_type == "UpdateNote");
         assert!(
             has_title_update,
-            "UpdateField operation must appear in the log after update_note_title"
+            "UpdateNote operation must appear in the log after update_note_title"
         );
     }
 }
