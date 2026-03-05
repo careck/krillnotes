@@ -432,6 +432,26 @@ impl IdentityManager {
         Ok(())
     }
 
+    /// Verifies the passphrase, then returns a `SwarmIdFile` ready to be serialised
+    /// and written to disk by the caller. Does NOT write any file itself.
+    pub fn export_swarmid(&self, identity_uuid: &Uuid, passphrase: &str) -> Result<SwarmIdFile> {
+        // Verify passphrase by attempting an unlock (propagates IdentityWrongPassphrase on mismatch)
+        self.unlock_identity(identity_uuid, passphrase)?;
+
+        // Read the raw IdentityFile from disk
+        let file_path = self.identities_dir().join(format!("{identity_uuid}.json"));
+        let data = std::fs::read_to_string(&file_path)
+            .map_err(|_| crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()))?;
+        let identity: IdentityFile = serde_json::from_str(&data)
+            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("JSON parse: {e}")))?;
+
+        Ok(SwarmIdFile {
+            format: SwarmIdFile::FORMAT.to_string(),
+            version: SwarmIdFile::VERSION,
+            identity,
+        })
+    }
+
     /// Bind a workspace to an identity, encrypting the DB password with a key
     /// derived from the Ed25519 seed.
     pub fn bind_workspace(
@@ -951,5 +971,27 @@ mod tests {
         assert!(json.contains("\"version\":1"));
         let parsed: SwarmIdFile = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.identity.display_name, "Test");
+    }
+
+    #[test]
+    fn export_swarmid_wrong_passphrase() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
+        let identity = mgr.create_identity("Alice", "correct-passphrase").unwrap();
+        let result = mgr.export_swarmid(&identity.identity_uuid, "wrong-passphrase");
+        assert!(matches!(result, Err(crate::KrillnotesError::IdentityWrongPassphrase)));
+    }
+
+    #[test]
+    fn export_swarmid_correct_passphrase() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
+        let identity = mgr.create_identity("Bob", "my-passphrase").unwrap();
+        let swarmid = mgr.export_swarmid(&identity.identity_uuid, "my-passphrase").unwrap();
+        assert_eq!(swarmid.format, "swarmid");
+        assert_eq!(swarmid.version, 1);
+        assert_eq!(swarmid.identity.display_name, "Bob");
+        assert_eq!(swarmid.identity.identity_uuid, identity.identity_uuid);
+        assert_eq!(swarmid.identity.public_key, identity.public_key);
     }
 }
