@@ -113,7 +113,6 @@ export interface OperationSummary {
 
 export interface AppSettings {
   workspaceDirectory: string;
-  cacheWorkspacePasswords: boolean;
   activeThemeMode?: string;
   lightTheme?: string;
   darkTheme?: string;
