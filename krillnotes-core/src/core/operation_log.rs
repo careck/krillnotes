@@ -232,7 +232,7 @@ mod tests {
     use super::*;
     use crate::core::hlc::HlcTimestamp;
     use crate::Storage;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use tempfile::NamedTempFile;
 
     fn ts(wall_ms: u64) -> HlcTimestamp {
@@ -257,7 +257,7 @@ mod tests {
                 position: i as f64,
                 node_type: "TextNote".to_string(),
                 title: format!("Note {}", i),
-                fields: HashMap::new(),
+                fields: BTreeMap::new(),
                 created_by: String::new(),
                 signature: String::new(),
             };
@@ -294,7 +294,7 @@ mod tests {
                 position: 0.0,
                 node_type: "TextNote".to_string(),
                 title: "My Note".to_string(),
-                fields: HashMap::new(),
+                fields: BTreeMap::new(),
                 created_by: String::new(),
                 signature: String::new(),
             };
@@ -362,7 +362,7 @@ mod tests {
                     position: i as f64,
                     node_type: "TextNote".to_string(),
                     title: format!("Note {}", i),
-                    fields: HashMap::new(),
+                    fields: BTreeMap::new(),
                     created_by: String::new(),
                     signature: String::new(),
                 };

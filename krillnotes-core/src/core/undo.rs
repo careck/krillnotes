@@ -12,7 +12,7 @@
 
 use crate::{AttachmentMeta, FieldValue, Note};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The inverse data needed to reverse one or more workspace mutations.
 ///
@@ -37,7 +37,7 @@ pub enum RetractInverse {
     NoteRestore {
         note_id: String,
         old_title: String,
-        old_fields: HashMap<String, FieldValue>,
+        old_fields: BTreeMap<String, FieldValue>,
         old_tags: Vec<String>,
     },
 
@@ -94,7 +94,7 @@ pub struct UndoResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     #[test]
     fn test_retract_inverse_batch_serializes() {

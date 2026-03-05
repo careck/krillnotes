@@ -8,7 +8,7 @@
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// A typed value stored in a note's schema-defined fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,7 +58,7 @@ pub struct Note {
     /// Device ID that last modified this note.
     pub modified_by: i64,
     /// Schema-defined field values keyed by field name.
-    pub fields: HashMap<String, FieldValue>,
+    pub fields: BTreeMap<String, FieldValue>,
     /// Whether this node is currently expanded in the tree UI.
     pub is_expanded: bool,
     /// Sorted, lowercase tags attached to this note.
@@ -83,7 +83,7 @@ mod tests {
             modified_at: 1234567890,
             created_by: 0,
             modified_by: 0,
-            fields: HashMap::new(),
+            fields: BTreeMap::new(),
             is_expanded: true,
             tags: vec![],
         };

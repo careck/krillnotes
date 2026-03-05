@@ -11,7 +11,7 @@
 //! `schema()` Rhai host function.
 
 use rhai::{FnPtr, AST};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 /// A user-registered tree context-menu action.
@@ -39,7 +39,7 @@ pub struct ActionCreate {
     pub parent_id: String,
     pub node_type: String,
     pub title:     String,
-    pub fields:    std::collections::HashMap<String, crate::core::note::FieldValue>,
+    pub fields:    BTreeMap<String, crate::core::note::FieldValue>,
 }
 
 /// Spec for a note to be updated by a tree action.
@@ -47,7 +47,7 @@ pub struct ActionCreate {
 pub struct ActionUpdate {
     pub note_id: String,
     pub title:   String,
-    pub fields:  std::collections::HashMap<String, crate::core::note::FieldValue>,
+    pub fields:  BTreeMap<String, crate::core::note::FieldValue>,
 }
 
 /// Shared mutable context active during a tree action closure.

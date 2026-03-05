@@ -22,7 +22,7 @@ use rhai::Dynamic;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -2468,7 +2468,7 @@ impl Workspace {
         &mut self,
         note_id: &str,
         title: String,
-        fields: HashMap<String, FieldValue>,
+        fields: BTreeMap<String, FieldValue>,
     ) -> Result<Note> {
         // Capture before-state for undo.
         // Map Database errors (e.g. QueryReturnedNoRows) to NoteNotFound so that
@@ -2523,7 +2523,7 @@ impl Workspace {
                     |row| row.get(0),
                 )
                 .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
-            let old_fields: HashMap<String, FieldValue> =
+            let old_fields: BTreeMap<String, FieldValue> =
                 serde_json::from_str(&old_fields_json).unwrap_or_default();
 
             for (key, old_val) in &old_fields {
@@ -3609,7 +3609,7 @@ impl Workspace {
 ///
 /// Must be called inside an open transaction so that the link update is
 /// atomic with the note write that precedes it.
-fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &HashMap<String, FieldValue>) -> Result<()> {
+fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<String, FieldValue>) -> Result<()> {
     // Clear all existing note_links rows for this source note (replace strategy).
     tx.execute("DELETE FROM note_links WHERE source_id = ?1", [note_id])?;
     // Re-insert for any non-null NoteLink fields. No duplicates possible after
@@ -3721,7 +3721,7 @@ fn humanize(filename: &str) -> String {
 mod tests {
     use super::*;
     use crate::FieldValue;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use tempfile::NamedTempFile;
 
     #[test]
@@ -4076,7 +4076,7 @@ mod tests {
 
         // Update the note
         let new_title = "Updated Title".to_string();
-        let mut new_fields = HashMap::new();
+        let mut new_fields = BTreeMap::new();
         new_fields.insert("body".to_string(), FieldValue::Text("Updated body".to_string()));
 
         let updated = ws.update_note(&note_id, new_title.clone(), new_fields.clone()).unwrap();
@@ -4092,7 +4092,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "").unwrap();
 
-        let result = ws.update_note("nonexistent-id", "Title".to_string(), HashMap::new());
+        let result = ws.update_note("nonexistent-id", "Title".to_string(), BTreeMap::new());
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
     }
 
@@ -4211,7 +4211,7 @@ mod tests {
             .unwrap();
 
         // first_name is required but empty — save must fail.
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("first_name".to_string(), FieldValue::Text("".to_string()));
         fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
         fields.insert("last_name".to_string(), FieldValue::Text("Smith".to_string()));
@@ -4309,7 +4309,7 @@ mod tests {
             .create_note(&folder_id, AddPosition::AsChild, "Contact")
             .unwrap();
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("first_name".to_string(), FieldValue::Text("Alice".to_string()));
         fields.insert("middle_name".to_string(), FieldValue::Text("".to_string()));
         fields.insert("last_name".to_string(), FieldValue::Text("Walker".to_string()));
@@ -4616,7 +4616,7 @@ schema("Memo", #{
             .unwrap();
 
         // Update the note's body field with Markdown content.
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("body".into(), FieldValue::Text("**hello**".into()));
         ws.update_note(&note_id, "My Memo".into(), fields).unwrap();
 
@@ -5151,7 +5151,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
         ws.update_note(&source.id, source.title.clone(), fields).unwrap();
 
@@ -5172,11 +5172,11 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
         ws.update_note(&source.id, source.title.clone(), fields).unwrap();
 
-        let mut fields2 = HashMap::new();
+        let mut fields2 = BTreeMap::new();
         fields2.insert("link".into(), FieldValue::NoteLink(None));
         ws.update_note(&source.id, source.title.clone(), fields2).unwrap();
 
@@ -5197,7 +5197,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
         ws.update_note(&source.id, source.title.clone(), fields).unwrap();
 
@@ -5226,7 +5226,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
         ws.update_note(&source.id, source.title.clone(), fields).unwrap();
 
@@ -5249,7 +5249,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let child = ws.get_note(&child_id).unwrap();
         let observer = create_note_with_type(&mut ws, "LinkTestType");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("link".into(), FieldValue::NoteLink(Some(child.id.clone())));
         ws.update_note(&observer.id, observer.title.clone(), fields).unwrap();
 
@@ -5274,7 +5274,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let source2 = create_note_with_type(&mut ws, "LinkTestType");
 
         for source in [&source1, &source2] {
-            let mut fields = HashMap::new();
+            let mut fields = BTreeMap::new();
             fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
             ws.update_note(&source.id, source.title.clone(), fields.clone()).unwrap();
         }
@@ -5304,7 +5304,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             r#"schema("LinkTestType", #{ fields: [] })"#
         );
         let note = create_note_with_type(&mut ws, "LinkTestType");
-        ws.update_note(&note.id, "Fix login bug".into(), HashMap::new()).unwrap();
+        ws.update_note(&note.id, "Fix login bug".into(), BTreeMap::new()).unwrap();
 
         let results = ws.search_notes("login", None).unwrap();
         assert_eq!(results.len(), 1);
@@ -5317,9 +5317,9 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             r#"schema("TaskNote", #{ fields: [] }); schema("OtherNote", #{ fields: [] })"#
         );
         let task = create_note_with_type(&mut ws, "TaskNote");
-        ws.update_note(&task.id, "login task".into(), HashMap::new()).unwrap();
+        ws.update_note(&task.id, "login task".into(), BTreeMap::new()).unwrap();
         let other = create_note_with_type(&mut ws, "OtherNote");
-        ws.update_note(&other.id, "login other".into(), HashMap::new()).unwrap();
+        ws.update_note(&other.id, "login other".into(), BTreeMap::new()).unwrap();
 
         let results = ws.search_notes("login", Some("TaskNote")).unwrap();
         assert_eq!(results.len(), 1);
@@ -5332,7 +5332,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
             r#"schema("ContactNote", #{ fields: [#{ name: "email", type: "email" }] })"#
         );
         let c = create_note_with_type(&mut ws, "ContactNote");
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("email".into(), FieldValue::Email("alice@example.com".into()));
         ws.update_note(&c.id, "Alice".into(), fields).unwrap();
 
@@ -5351,7 +5351,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
 
-        let mut fields = HashMap::new();
+        let mut fields = BTreeMap::new();
         fields.insert("link".into(), FieldValue::NoteLink(Some(target.id.clone())));
         ws.update_note(&source.id, source.title.clone(), fields).unwrap();
 
@@ -5682,7 +5682,7 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         let root_id = ws.create_note_root("TextNote").unwrap();
         ws.undo_stack.clear();
 
-        ws.update_note(&root_id, "New Title".into(), HashMap::new()).unwrap();
+        ws.update_note(&root_id, "New Title".into(), BTreeMap::new()).unwrap();
         assert!(ws.can_undo());
 
         // Check undo entry inverse

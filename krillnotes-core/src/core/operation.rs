@@ -9,7 +9,7 @@
 use crate::core::hlc::HlcTimestamp;
 use crate::FieldValue;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// A single document mutation recorded in the workspace operation log.
 ///
@@ -39,7 +39,7 @@ pub enum Operation {
         /// Initial title of the new note.
         title: String,
         /// Initial field values of the new note.
-        fields: HashMap<String, FieldValue>,
+        fields: BTreeMap<String, FieldValue>,
         /// Public key (base64) of the identity that created this note.
         created_by: String,
         /// Ed25519 signature over the canonical JSON payload (base64).
@@ -431,7 +431,7 @@ mod tests {
             position: 0.0,
             node_type: "TextNote".to_string(),
             title: "Test".to_string(),
-            fields: HashMap::new(),
+            fields: BTreeMap::new(),
             created_by: String::new(),
             signature: String::new(),
         };
@@ -475,6 +475,49 @@ mod tests {
             *field = "tampered".to_string();
         }
         assert!(!op.verify(&verifying_key), "tampered operation should not verify");
+    }
+
+    #[test]
+    fn test_create_note_sign_and_verify_multi_field() {
+        use ed25519_dalek::SigningKey;
+        use rand::rngs::OsRng;
+
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let verifying_key = signing_key.verifying_key();
+
+        // Build a CreateNote with multiple fields — order must be deterministic.
+        let mut fields = BTreeMap::new();
+        fields.insert("body".to_string(), crate::FieldValue::Text("hello world".to_string()));
+        fields.insert("rating".to_string(), crate::FieldValue::Text("5".to_string()));
+        fields.insert("author".to_string(), crate::FieldValue::Text("Alice".to_string()));
+
+        let mut op = Operation::CreateNote {
+            operation_id: "op-cn-sign-1".to_string(),
+            timestamp: dummy_timestamp(),
+            device_id: "dev-1".to_string(),
+            note_id: "note-multi-1".to_string(),
+            parent_id: None,
+            position: 0.0,
+            node_type: "TextNote".to_string(),
+            title: "Multi-field note".to_string(),
+            fields,
+            created_by: String::new(),
+            signature: String::new(),
+        };
+
+        op.sign(&signing_key);
+
+        assert!(!op.get_signature().is_empty());
+        assert!(!op.author_key().is_empty());
+
+        // Verification must succeed with the correct key.
+        assert!(op.verify(&verifying_key), "CreateNote multi-field signature should verify");
+
+        // Tamper with a field value — verification must fail.
+        if let Operation::CreateNote { ref mut title, .. } = op {
+            *title = "tampered".to_string();
+        }
+        assert!(!op.verify(&verifying_key), "tampered CreateNote should not verify");
     }
 
     #[test]
