@@ -30,10 +30,14 @@ pub enum PurgeStrategy {
 #[serde(rename_all = "camelCase")]
 pub struct OperationSummary {
     pub operation_id: String,
-    pub timestamp: i64,
+    /// HLC wall clock timestamp in Unix milliseconds.
+    pub timestamp_wall_ms: u64,
     pub device_id: String,
     pub operation_type: String,
     pub target_name: String,
+    /// First 8 characters of the base64 public key of the operation author,
+    /// or an empty string if the operation has no author (e.g. `RetractOperation`).
+    pub author_key: String,
 }
 
 /// Records document mutations to the `operations` table and purges stale entries.
@@ -147,21 +151,26 @@ impl OperationLog {
             sql.push_str(&conditions.join(" AND "));
         }
 
-        sql.push_str(" ORDER BY timestamp_wall_ms DESC, timestamp_counter DESC");
+        sql.push_str(
+            " ORDER BY timestamp_wall_ms DESC, timestamp_counter DESC, timestamp_node_id DESC, operation_id DESC",
+        );
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let wall_ms_raw: i64 = row.get(1)?;
             let operation_data: String = row.get(4)?;
             let target_name = Self::extract_target_name(&operation_data);
+            let author_key = Self::extract_author_key(&operation_data);
             Ok(OperationSummary {
                 operation_id: row.get(0)?,
-                timestamp: row.get(1)?,
+                timestamp_wall_ms: wall_ms_raw.max(0) as u64,
                 device_id: row.get(2)?,
                 operation_type: row.get(3)?,
                 target_name,
+                author_key,
             })
         })?;
 
@@ -221,6 +230,28 @@ impl OperationLog {
         // DeleteUserScript has "script_id"
         if let Some(script_id) = value.get("script_id").and_then(|v| v.as_str()) {
             return script_id.to_string();
+        }
+
+        String::new()
+    }
+
+    /// Extracts the first 8 characters of the base64 author public key from the
+    /// operation's JSON data.
+    ///
+    /// Checks fields in order: `created_by`, `modified_by`, `deleted_by`, `moved_by`.
+    /// Returns an empty string if none of these fields are present or non-empty
+    /// (e.g. `RetractOperation`).
+    fn extract_author_key(json: &str) -> String {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+            return String::new();
+        };
+
+        for field in &["created_by", "modified_by", "deleted_by", "moved_by"] {
+            if let Some(key) = value.get(field).and_then(|v| v.as_str()) {
+                if !key.is_empty() {
+                    return key.chars().take(8).collect();
+                }
+            }
         }
 
         String::new()
