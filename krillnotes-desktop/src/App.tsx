@@ -8,8 +8,9 @@ import StatusMessage from './components/StatusMessage';
 import NewWorkspaceDialog from './components/NewWorkspaceDialog';
 import WorkspaceManagerDialog from './components/WorkspaceManagerDialog';
 import SettingsDialog from './components/SettingsDialog';
-import SetPasswordDialog from './components/SetPasswordDialog';
-import type { WorkspaceInfo as WorkspaceInfoType, AppSettings } from './types';
+import type { WorkspaceInfo as WorkspaceInfoType, AppSettings, IdentityRef } from './types';
+import CreateIdentityDialog from './components/CreateIdentityDialog';
+import IdentityManagerDialog from './components/IdentityManagerDialog';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import i18n from './i18n';
@@ -34,6 +35,7 @@ const createMenuHandlers = (
   setShowOpenWorkspace: (show: boolean) => void,
   setShowSettings: (show: boolean) => void,
   setShowExportPasswordDialog: (show: boolean) => void,
+  setShowIdentityManager: (show: boolean) => void,
   doImport: (zipPath: string) => void,
 ) => ({
   'File > New Workspace clicked': () => {
@@ -41,6 +43,7 @@ const createMenuHandlers = (
   },
 
   'File > Open Workspace clicked': () => {
+    setShowIdentityManager(false);
     setShowOpenWorkspace(true);
   },
 
@@ -65,6 +68,11 @@ const createMenuHandlers = (
   'Edit > Settings clicked': () => {
     setShowSettings(true);
   },
+
+  'File > Manage Identities clicked': () => {
+    setShowOpenWorkspace(false);
+    setShowIdentityManager(true);
+  },
 });
 
 function App() {
@@ -87,8 +95,8 @@ function App() {
   const [showExportPasswordDialog, setShowExportPasswordDialog] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
-  const [showImportWorkspacePasswordDialog, setShowImportWorkspacePasswordDialog] = useState(false);
-  const [pendingImportArgs, setPendingImportArgs] = useState<{ zipPath: string; folderPath: string; zipPassword?: string } | null>(null);
+  const [showCreateFirstIdentity, setShowCreateFirstIdentity] = useState(false);
+  const [showIdentityManager, setShowIdentityManager] = useState(false);
 
   useEffect(() => {
     // If this is a workspace window (not "main"), fetch workspace info immediately
@@ -101,6 +109,15 @@ function App() {
           })
           .catch(err => console.error('Failed to fetch workspace info:', err));
       }
+    }
+
+    // First-launch identity check: only on main window
+    if (getCurrentWebviewWindow().label === 'main') {
+      invoke<IdentityRef[]>('list_identities').then(identities => {
+        if (identities.length === 0) {
+          setShowCreateFirstIdentity(true);
+        }
+      }).catch(err => console.error('Failed to check identities:', err));
     }
   }, []);
 
@@ -153,6 +170,7 @@ function App() {
       setShowOpenWorkspace,
       setShowSettings,
       setShowExportPasswordDialog,
+      setShowIdentityManager,
       (zipPath) => proceedWithImport(zipPath, null),
     );
 
@@ -194,36 +212,25 @@ function App() {
     try {
       const settings = await invoke<AppSettings>('get_settings');
       const folderPath = `${settings.workspaceDirectory}/${slug}`;
-      setPendingImportArgs({
+
+      // Get the first unlocked identity to own this imported workspace.
+      const unlockedIds = await invoke<string[]>('get_unlocked_identities');
+      if (unlockedIds.length === 0) {
+        setImportError(t('identity.noUnlockedIdentities'));
+        setImporting(false);
+        return;
+      }
+      const identityUuid = unlockedIds[0];
+
+      const prev = importState;
+      await invoke<WorkspaceInfoType>('execute_import', {
         zipPath: importState.zipPath,
         folderPath,
-        zipPassword: pendingImportPassword ?? undefined,
+        password: pendingImportPassword ?? null,
+        identityUuid,
       });
-      setImporting(false);
-      setImportState(null);
-      setShowImportWorkspacePasswordDialog(true);
-    } catch (error) {
-      setImportError(`${error}`);
-      setImporting(false);
-    }
-  };
-
-  const handleImportWorkspacePassword = async (wsPassword: string) => {
-    if (!pendingImportArgs) return;
-    setShowImportWorkspacePasswordDialog(false);
-    setImporting(true);
-    setImportError('');
-    try {
-      await invoke<WorkspaceInfoType>('execute_import', {
-        zipPath: pendingImportArgs.zipPath,
-        folderPath: pendingImportArgs.folderPath,
-        password: pendingImportArgs.zipPassword ?? null,
-        workspacePassword: wsPassword,
-      });
-      const prev = importState;
       setImportState(null);
       setPendingImportPassword(null);
-      setPendingImportArgs(null);
       setImporting(false);
       if (prev) {
         statusSetter(t('workspace.importSuccess', { noteCount: prev.noteCount, scriptCount: prev.scriptCount }));
@@ -231,7 +238,6 @@ function App() {
     } catch (error) {
       setImportError(`${error}`);
       setImporting(false);
-      setPendingImportArgs(null);
     }
   };
 
@@ -456,19 +462,6 @@ function App() {
         </div>
       )}
 
-      {/* Import workspace password dialog */}
-      <SetPasswordDialog
-        isOpen={showImportWorkspacePasswordDialog}
-        title={t('dialogs.password.importedWorkspaceTitle')}
-        onConfirm={handleImportWorkspacePassword}
-        onCancel={() => {
-          setShowImportWorkspacePasswordDialog(false);
-          setPendingImportArgs(null);
-          setImportState(null);
-          setPendingImportPassword(null);
-        }}
-      />
-
       {/* Import name dialog — inline since it's a lightweight prompt */}
       {importState && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -521,6 +514,16 @@ function App() {
           </div>
         </div>
       )}
+      <CreateIdentityDialog
+        isOpen={showCreateFirstIdentity}
+        isFirstLaunch={true}
+        onCreated={() => setShowCreateFirstIdentity(false)}
+        onCancel={() => setShowCreateFirstIdentity(false)}
+      />
+      <IdentityManagerDialog
+        isOpen={showIdentityManager}
+        onClose={() => setShowIdentityManager(false)}
+      />
     </div>
     </ThemeProvider>
   );

@@ -114,6 +114,11 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let open_item = MenuItemBuilder::with_id("file_open", s(strings, "openWorkspace", "Open Workspace..."))
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
+    let identities_item = MenuItemBuilder::with_id(
+        "file_identities",
+        s(strings, "manageIdentities", "Manage Identities\u{2026}"),
+    )
+    .build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let export_item = MenuItemBuilder::with_id("file_export", s(strings, "exportWorkspace", "Export Workspace..."))
         .enabled(false)
@@ -124,7 +129,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let close_item = PredefinedMenuItem::close_window(app, None)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "file", "File"))
-        .items(&[&new_item, &open_item, &sep1, &export_item, &import_item, &sep2, &close_item]);
+        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep2, &close_item]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {

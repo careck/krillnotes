@@ -113,7 +113,6 @@ export interface OperationSummary {
 
 export interface AppSettings {
   workspaceDirectory: string;
-  cacheWorkspacePasswords: boolean;
   activeThemeMode?: string;
   lightTheme?: string;
   darkTheme?: string;
@@ -129,6 +128,9 @@ export interface WorkspaceEntry {
   createdAt: number | null;
   noteCount: number | null;
   attachmentCount: number | null;
+  workspaceUuid: string | null;
+  identityUuid: string | null;
+  identityName: string | null;
 }
 
 export interface WorkspaceMetadata {
@@ -157,4 +159,16 @@ export interface AttachmentMeta {
 
 export interface UndoResult {
   affectedNoteId: string | null;
+}
+
+export interface IdentityRef {
+  uuid: string;
+  displayName: string;
+  file: string;
+  lastUsed: string;  // ISO 8601
+}
+
+export interface WorkspaceBindingInfo {
+  workspaceUuid: string;
+  dbPath: string;
 }

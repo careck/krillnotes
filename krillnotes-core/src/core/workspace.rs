@@ -59,6 +59,10 @@ pub struct Workspace {
     current_user_id: i64,
     /// Root directory for this workspace (parent of `notes.db`).
     workspace_root: PathBuf,
+    /// Stable UUID for this workspace, stored in `workspace_meta`.
+    /// Included in `info.json` so the workspace manager can resolve identity
+    /// bindings without opening the encrypted database.
+    workspace_id: String,
     /// ChaCha20-Poly1305 attachment key derived from password + workspace_id.
     /// `None` for unencrypted workspaces (empty password).
     attachment_key: Option<[u8; 32]>,
@@ -234,6 +238,7 @@ impl Workspace {
             device_id,
             current_user_id: 0,
             workspace_root,
+            workspace_id,
             attachment_key,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -328,6 +333,7 @@ impl Workspace {
             device_id,
             current_user_id,
             workspace_root,
+            workspace_id,
             attachment_key,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -364,6 +370,11 @@ impl Workspace {
         &self.workspace_root
     }
 
+    /// Returns the unique workspace UUID (stored in `workspace_meta`).
+    pub fn workspace_id(&self) -> &str {
+        &self.workspace_id
+    }
+
     /// Writes `info.json` to the workspace root with cached metadata.
     /// Called on open, create, and window close so the workspace manager
     /// can display counts without opening the encrypted database.
@@ -390,6 +401,7 @@ impl Workspace {
             .unwrap_or_else(|_| chrono::Utc::now().timestamp());
 
         let info = serde_json::json!({
+            "workspace_id": self.workspace_id,
             "created_at": created_at,
             "note_count": note_count,
             "attachment_count": attachment_count,

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { AppSettings, WorkspaceInfo } from '../types';
-import SetPasswordDialog from './SetPasswordDialog';
+import type { AppSettings, WorkspaceInfo, IdentityRef } from '../types';
 import { slugify } from '../utils/slugify';
 
 interface NewWorkspaceDialogProps {
@@ -12,70 +11,69 @@ interface NewWorkspaceDialogProps {
 
 function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
   const { t } = useTranslation();
-  const [step, setStep] = useState<'name' | 'password'>('name');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
   const [workspaceDir, setWorkspaceDir] = useState('');
+  const [identities, setIdentities] = useState<IdentityRef[]>([]);
+  const [selectedIdentity, setSelectedIdentity] = useState<string>('');
 
   useEffect(() => {
-    if (isOpen) {
-      setStep('name');
-      setName('');
-      setError('');
-      setCreating(false);
-      invoke<AppSettings>('get_settings')
-        .then(s => setWorkspaceDir(s.workspaceDirectory))
-        .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    setName('');
+    setError('');
+    setCreating(false);
+
+    Promise.all([
+      invoke<AppSettings>('get_settings'),
+      invoke<IdentityRef[]>('list_identities'),
+      invoke<string[]>('get_unlocked_identities'),
+    ]).then(([settings, ids, unlocked]) => {
+      setWorkspaceDir(settings.workspaceDirectory);
+      const unlockedIdentities = ids.filter(i => unlocked.includes(i.uuid));
+      setIdentities(unlockedIdentities);
+      if (unlockedIdentities.length > 0 && !selectedIdentity) {
+        setSelectedIdentity(unlockedIdentities[0].uuid);
+      } else if (unlockedIdentities.length === 0) {
+        setSelectedIdentity('');
+      }
+    }).catch(err => setError(t('settings.failedLoad', { error: String(err) })));
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !creating && step === 'name') onClose();
+      if (e.key === 'Escape' && !creating) onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, creating, step]);
+  }, [isOpen, onClose, creating]);
 
   if (!isOpen) return null;
 
-  const handleNameNext = () => {
+  const handleCreate = async () => {
     const trimmed = name.trim();
     if (!trimmed) { setError(t('workspace.nameRequired')); return; }
     const slug = slugify(trimmed);
     if (!slug) { setError(t('workspace.nameInvalid')); return; }
-    setError('');
-    setStep('password');
-  };
+    if (!selectedIdentity) { setError(t('identity.noUnlockedIdentities')); return; }
 
-  const handlePasswordConfirm = async (password: string) => {
-    const slug = slugify(name.trim());
     const path = `${workspaceDir}/${slug}`;
     setCreating(true);
+    setError('');
     try {
-      await invoke<WorkspaceInfo>('create_workspace', { path, password });
+      await invoke<WorkspaceInfo>('create_workspace', {
+        path,
+        identityUuid: selectedIdentity,
+      });
       onClose();
     } catch (err) {
       if (err !== 'focused_existing') {
         setError(`${err}`);
-        setStep('name');
       }
       setCreating(false);
     }
   };
-
-  if (step === 'password') {
-    return (
-      <SetPasswordDialog
-        isOpen={true}
-        title={t('dialogs.password.setWorkspaceTitle')}
-        onConfirm={handlePasswordConfirm}
-        onCancel={() => setStep('name')}
-      />
-    );
-  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -88,7 +86,7 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
             type="text"
             value={name}
             onChange={e => setName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !creating && handleNameNext()}
+            onKeyDown={e => e.key === 'Enter' && !creating && handleCreate()}
             placeholder={t('workspace.namePlaceholder')}
             className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             autoFocus
@@ -104,6 +102,26 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
           )}
         </div>
 
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2">{t('identity.selectIdentity')}</label>
+          {identities.length > 0 ? (
+            <select
+              value={selectedIdentity}
+              onChange={e => setSelectedIdentity(e.target.value)}
+              className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+              disabled={creating}
+            >
+              {identities.map(i => (
+                <option key={i.uuid} value={i.uuid}>{i.displayName}</option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm text-muted-foreground p-2 bg-secondary/30 rounded border border-secondary">
+              {t('identity.noUnlockedIdentities')}
+            </p>
+          )}
+        </div>
+
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
             {error}
@@ -111,15 +129,19 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
         )}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 border border-secondary rounded hover:bg-secondary" disabled={creating}>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-secondary rounded hover:bg-secondary"
+            disabled={creating}
+          >
             {t('common.cancel')}
           </button>
           <button
-            onClick={handleNameNext}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
-            disabled={creating || !name.trim()}
+            onClick={handleCreate}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={creating || !name.trim() || !selectedIdentity}
           >
-            {t('common.next')}
+            {creating ? t('common.creating') : t('common.create')}
           </button>
         </div>
       </div>

@@ -13,10 +13,6 @@ use std::path::PathBuf;
 pub struct AppSettings {
     /// Directory where new workspaces are created and listed from.
     pub workspace_directory: String,
-    /// When true, the app caches workspace passwords in memory for the
-    /// duration of the session so the user is not re-prompted on reopen.
-    #[serde(default = "default_cache_passwords")]
-    pub cache_workspace_passwords: bool,
     /// Current theme mode: "light", "dark", or "system".
     #[serde(default = "default_theme_mode")]
     pub active_theme_mode: String,
@@ -37,12 +33,27 @@ impl Default for AppSettings {
             workspace_directory: default_workspace_directory()
                 .to_string_lossy()
                 .to_string(),
-            cache_workspace_passwords: true,
             active_theme_mode: default_theme_mode(),
             light_theme: default_light_theme(),
             dark_theme: default_dark_theme(),
             language: default_language(),
         }
+    }
+}
+
+/// Returns the config directory for Krillnotes.
+/// - macOS / Linux: `~/.config/krillnotes/`
+/// - Windows: `%APPDATA%/Krillnotes/`
+pub fn config_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        base.join("Krillnotes")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        home.join(".config").join("krillnotes")
     }
 }
 
@@ -63,7 +74,6 @@ pub fn settings_file_path() -> PathBuf {
     }
 }
 
-fn default_cache_passwords() -> bool { true }
 fn default_theme_mode() -> String { "system".to_string() }
 fn default_light_theme() -> String { "light".to_string() }
 fn default_dark_theme() -> String { "dark".to_string() }
@@ -109,7 +119,7 @@ mod tests {
 
     #[test]
     fn deserializes_legacy_settings_without_theme_fields() {
-        let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
+        let json = r#"{"workspaceDirectory":"/tmp"}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.active_theme_mode, "system");
         assert_eq!(s.light_theme, "light");
@@ -118,15 +128,17 @@ mod tests {
 
     #[test]
     fn deserializes_legacy_settings_without_language_field() {
-        let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
+        let json = r#"{"workspaceDirectory":"/tmp"}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.language, "en");
     }
 
     #[test]
-    fn cache_passwords_defaults_to_true_when_field_absent() {
-        let json = r#"{"workspaceDirectory":"/tmp"}"#;
+    fn deserializes_legacy_settings_with_old_cache_passwords_field() {
+        // Old settings files may still have cacheWorkspacePasswords — they
+        // should be ignored rather than causing a parse error.
+        let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
-        assert!(s.cache_workspace_passwords, "password caching should default to on");
+        assert_eq!(s.workspace_directory, "/tmp");
     }
 }

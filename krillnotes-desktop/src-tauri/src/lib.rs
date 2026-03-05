@@ -15,6 +15,8 @@ use tauri::Emitter;
 #[doc(inline)]
 pub use krillnotes_core::*;
 
+use uuid::Uuid;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,9 +37,11 @@ pub struct AppState {
     /// native menu events to the correct window without relying on async
     /// focus checks in the frontend (which are unreliable on Windows).
     pub focused_window: Arc<Mutex<Option<String>>>,
-    /// In-memory password cache keyed by workspace file path.
-    /// Populated only when settings.cacheWorkspacePasswords is true.
-    pub workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>,
+    /// Identity manager — handles identity CRUD, unlock, and workspace bindings.
+    pub identity_manager: Arc<Mutex<IdentityManager>>,
+    /// In-memory map of currently unlocked identities (UUID → unlocked state).
+    /// Entries are removed when an identity is locked or the app exits.
+    pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
     /// Paste menu item handles for dynamic enable/disable.
     /// On macOS: one global pair keyed by "macos" (the menu bar is shared).
     /// On Windows: keyed by window label (each window owns its own menu bar).
@@ -68,6 +72,14 @@ pub struct WorkspaceInfo {
     pub note_count: usize,
     /// ID of the note selected when the workspace was last saved, if any.
     pub selected_note_id: Option<String>,
+}
+
+/// Information about a workspace bound to an identity, returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBindingInfo {
+    pub workspace_uuid: String,
+    pub db_path: String,
 }
 
 /// Derives a unique window label from the `path` filename stem.
@@ -373,7 +385,7 @@ async fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
-    password: String,
+    identity_uuid: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let folder = PathBuf::from(&path);
 
@@ -387,6 +399,17 @@ async fn create_workspace(
             Err("focused_existing".to_string())
         }
         None => {
+            let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+            // Generate random DB password (32 bytes, base64-encoded)
+            let password: String = {
+                use base64::Engine;
+                use rand::RngCore;
+                let mut bytes = [0u8; 32];
+                rand::thread_rng().fill_bytes(&mut bytes);
+                base64::engine::general_purpose::STANDARD.encode(&bytes)
+            };
+
             let label = generate_unique_label(&state, &folder);
             std::fs::create_dir_all(&folder)
                 .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
@@ -394,11 +417,23 @@ async fn create_workspace(
             let workspace = Workspace::create(&db_path, &password)
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
-            // Cache password if setting is enabled
-            let settings = settings::load_settings();
-            if settings.cache_workspace_passwords {
-                state.workspace_passwords.lock().expect("Mutex poisoned")
-                    .insert(folder.clone(), password);
+            // Read the workspace_id from the newly created workspace
+            let workspace_uuid = workspace.workspace_id().to_string();
+
+            // Bind workspace to identity (encrypt DB password with identity seed)
+            {
+                let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+                let unlocked = identities.get(&uuid)
+                    .ok_or_else(|| "Identity is not unlocked".to_string())?;
+                let seed = unlocked.signing_key.to_bytes();
+                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+                mgr.bind_workspace(
+                    &uuid,
+                    &workspace_uuid,
+                    &db_path.display().to_string(),
+                    &password,
+                    &seed,
+                ).map_err(|e| format!("Failed to bind workspace to identity: {e}"))?;
             }
 
             let new_window = create_workspace_window(&app, &label, &window)?;
@@ -426,7 +461,6 @@ async fn open_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
-    password: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let folder = PathBuf::from(&path);
 
@@ -442,19 +476,49 @@ async fn open_workspace(
         None => {
             let label = generate_unique_label(&state, &folder);
             let db_path = folder.join("notes.db");
-            let workspace = Workspace::open(&db_path, &password)
+
+            // Read workspace_id from info.json
+            let (ws_uuid_opt, _, _, _) = read_info_json_full(&folder);
+            let workspace_uuid = ws_uuid_opt
+                .ok_or_else(|| "IDENTITY_REQUIRED".to_string())?;
+
+            // Look up which identity this workspace is bound to and decrypt the DB password.
+            // Lock ordering: always acquire identity_manager before unlocked_identities,
+            // and drop identity_manager before re-acquiring it — avoids deadlock with
+            // create_workspace / execute_import which use the same ordering.
+
+            // Step 1: Get identity_uuid from identity_manager (drop lock after)
+            let identity_uuid = {
+                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+                let binding = mgr.get_workspace_binding(&workspace_uuid)
+                    .map_err(|e: KrillnotesError| e.to_string())?
+                    .ok_or_else(|| "IDENTITY_REQUIRED".to_string())?;
+                binding.identity_uuid
+                // mgr drops here
+            };
+
+            // Step 2: Get signing key from unlocked_identities (drop lock after)
+            let seed = {
+                let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+                let unlocked = identities.get(&identity_uuid)
+                    .ok_or_else(|| format!("IDENTITY_LOCKED:{}", identity_uuid))?;
+                unlocked.signing_key.to_bytes()
+                // identities drops here
+            };
+
+            // Step 3: Decrypt DB password (no other locks held)
+            let db_password = {
+                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+                mgr.decrypt_db_password(&workspace_uuid, &seed)
+                    .map_err(|e| format!("Failed to decrypt DB password: {e}"))?
+            };
+
+            let workspace = Workspace::open(&db_path, &db_password)
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
                     other => format!("Failed to open: {other}"),
                 })?;
-
-            // Cache password if setting is enabled
-            let settings = settings::load_settings();
-            if settings.cache_workspace_passwords {
-                state.workspace_passwords.lock().expect("Mutex poisoned")
-                    .insert(folder.clone(), password);
-            }
 
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone());
@@ -1237,6 +1301,11 @@ fn peek_import_cmd(
 /// `folder_path` is the destination workspace folder. A `notes.db` file is
 /// written inside it by the import, and an `attachments/` subdirectory is
 /// created alongside it.
+///
+/// `identity_uuid` is the UUID of the unlocked identity that will own the
+/// imported workspace. A random DB password is generated, used to re-encrypt
+/// the imported database, and then encrypted into the identity store so it can
+/// be recovered on future opens.
 #[tauri::command]
 async fn execute_import(
     window: tauri::Window,
@@ -1245,12 +1314,21 @@ async fn execute_import(
     zip_path: String,
     folder_path: String,
     password: Option<String>,
-    workspace_password: String,
+    identity_uuid: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
     let folder = PathBuf::from(&folder_path);
     std::fs::create_dir_all(&folder)
         .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
     let db_path_buf = folder.join("notes.db");
+
+    // Generate a random DB password for the imported workspace.
+    let workspace_password: String = {
+        use base64::Engine;
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    };
 
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
@@ -1262,6 +1340,25 @@ async fn execute_import(
 
     let workspace = Workspace::open(&db_path_buf, &workspace_password)
         .map_err(|e| e.to_string())?;
+
+    // Bind the imported workspace to the chosen identity so it can be opened later.
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let workspace_uuid = workspace.workspace_id().to_string();
+    {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities.get(&uuid)
+            .ok_or_else(|| "Identity is not unlocked".to_string())?;
+        let seed = unlocked.signing_key.to_bytes();
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.bind_workspace(
+            &uuid,
+            &workspace_uuid,
+            &db_path_buf.display().to_string(),
+            &workspace_password,
+            &seed,
+        ).map_err(|e| format!("Failed to bind workspace to identity: {e}"))?;
+    }
+
     let label = generate_unique_label(&state, &folder);
 
     let new_window = create_workspace_window(&app, &label, &window)?;
@@ -1300,25 +1397,184 @@ fn consume_pending_file_open(state: State<'_, AppState>) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-/// Returns the cached password for the workspace at `path`, if one is stored.
-///
-/// Returns `None` when the `cache_workspace_passwords` setting is disabled or
-/// when no password has been cached for this path yet.
+// ── Identity commands ─────────────────────────────────────────────
+
+/// Lists all registered identities.
 #[tauri::command]
-fn get_cached_password(
+fn list_identities(
     state: State<'_, AppState>,
-    path: String,
-) -> Option<String> {
-    let settings = settings::load_settings();
-    if !settings.cache_workspace_passwords {
-        return None;
+) -> std::result::Result<Vec<IdentityRef>, String> {
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    mgr.list_identities().map_err(|e| e.to_string())
+}
+
+/// Creates a new identity and auto-unlocks it in memory.
+#[tauri::command]
+fn create_identity(
+    state: State<'_, AppState>,
+    display_name: String,
+    passphrase: String,
+) -> std::result::Result<IdentityRef, String> {
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let file = mgr.create_identity(&display_name, &passphrase)
+        .map_err(|e| e.to_string())?;
+    let uuid = file.identity_uuid;
+
+    // Auto-unlock after creation
+    let unlocked = mgr.unlock_identity(&uuid, &passphrase)
+        .map_err(|e| e.to_string())?;
+    drop(mgr); // Release the lock before acquiring unlocked_identities
+    state.unlocked_identities.lock().expect("Mutex poisoned")
+        .insert(uuid, unlocked);
+
+    // Return the IdentityRef
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let identities = mgr.list_identities().map_err(|e| e.to_string())?;
+    identities.into_iter().find(|i| i.uuid == uuid)
+        .ok_or_else(|| "Identity created but not found in registry".to_string())
+}
+
+/// Unlocks an identity and stores the unlocked state in memory.
+#[tauri::command]
+fn unlock_identity(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    passphrase: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let unlocked = mgr.unlock_identity(&uuid, &passphrase)
+        .map_err(|e| match e {
+            KrillnotesError::IdentityWrongPassphrase => "WRONG_PASSPHRASE".to_string(),
+            other => other.to_string(),
+        })?;
+    drop(mgr);
+    state.unlocked_identities.lock().expect("Mutex poisoned")
+        .insert(uuid, unlocked);
+    Ok(())
+}
+
+/// Locks an identity: closes all its workspace windows and wipes it from memory.
+#[tauri::command]
+fn lock_identity(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Find and close all workspace windows belonging to this identity
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let bound_workspaces = mgr.get_workspaces_for_identity(&uuid)
+        .map_err(|e| e.to_string())?;
+    let bound_workspace_ids: std::collections::HashSet<String> = bound_workspaces.into_iter()
+        .map(|(ws_uuid, _)| ws_uuid)
+        .collect();
+    drop(mgr);
+
+    // Match workspace_ids against open workspaces using in-memory Workspace objects
+    // (avoids disk reads via info.json for each open workspace).
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let labels_to_close: Vec<String> = workspaces.iter()
+        .filter(|(_, ws)| bound_workspace_ids.contains(ws.workspace_id()))
+        .map(|(label, _)| label.clone())
+        .collect();
+    drop(workspaces);
+
+    for label in &labels_to_close {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.close();
+        }
     }
-    let path_buf = PathBuf::from(&path);
-    state.workspace_passwords
-        .lock()
-        .expect("Mutex poisoned")
-        .get(&path_buf)
-        .cloned()
+
+    // Wipe identity from memory
+    state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
+    Ok(())
+}
+
+/// Deletes an identity. The identity must be locked first.
+#[tauri::command]
+fn delete_identity(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Must be locked first
+    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    if is_unlocked {
+        return Err("Lock the identity before deleting it".to_string());
+    }
+
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    mgr.delete_identity(&uuid).map_err(|e| e.to_string())
+}
+
+/// Renames an identity.
+#[tauri::command]
+fn rename_identity(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    new_name: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    mgr.rename_identity(&uuid, &new_name).map_err(|e| e.to_string())
+}
+
+/// Changes an identity's passphrase.
+#[tauri::command]
+fn change_identity_passphrase(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    old_passphrase: String,
+    new_passphrase: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    mgr.change_passphrase(&uuid, &old_passphrase, &new_passphrase)
+        .map_err(|e| match e {
+            KrillnotesError::IdentityWrongPassphrase => "WRONG_PASSPHRASE".to_string(),
+            other => other.to_string(),
+        })
+}
+
+/// Returns the UUIDs of all currently unlocked identities.
+#[tauri::command]
+fn get_unlocked_identities(
+    state: State<'_, AppState>,
+) -> Vec<String> {
+    state.unlocked_identities.lock().expect("Mutex poisoned")
+        .keys()
+        .map(|uuid| uuid.to_string())
+        .collect()
+}
+
+/// Returns true if the given identity is currently unlocked.
+#[tauri::command]
+fn is_identity_unlocked(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> bool {
+    Uuid::parse_str(&identity_uuid)
+        .map(|uuid| state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid))
+        .unwrap_or(false)
+}
+
+/// Returns the workspaces bound to the given identity.
+#[tauri::command]
+fn get_workspaces_for_identity(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> std::result::Result<Vec<WorkspaceBindingInfo>, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let bindings = mgr.get_workspaces_for_identity(&uuid)
+        .map_err(|e| e.to_string())?;
+    Ok(bindings.into_iter().map(|(ws_uuid, binding)| WorkspaceBindingInfo {
+        workspace_uuid: ws_uuid,
+        db_path: binding.db_path,
+    }).collect())
 }
 
 // ── Theme commands ────────────────────────────────────────────────
@@ -1578,6 +1834,12 @@ struct WorkspaceEntry {
     note_count: Option<usize>,
     /// From info.json: number of attachments. None if info.json is missing.
     attachment_count: Option<usize>,
+    /// From info.json: stable UUID assigned to this workspace. None if info.json is missing.
+    workspace_uuid: Option<String>,
+    /// UUID of the identity this workspace is bound to, if any.
+    identity_uuid: Option<String>,
+    /// Display name of the bound identity, if any and if its file is readable.
+    identity_name: Option<String>,
 }
 
 /// Returns the total size in bytes of all files under `dir` (recursive).
@@ -1596,21 +1858,29 @@ fn dir_size_bytes(dir: &Path) -> u64 {
     total
 }
 
-/// Reads `info.json` from `workspace_dir` and returns `(created_at, note_count, attachment_count)`.
-/// Returns `(None, None, None)` if the file is missing or malformed.
-fn read_info_json(workspace_dir: &Path) -> (Option<i64>, Option<usize>, Option<usize>) {
+/// Reads `info.json` from `workspace_dir` and returns all stored fields.
+/// Returns `(None, None, None, None)` if the file is missing or malformed.
+fn read_info_json_full(workspace_dir: &Path) -> (Option<String>, Option<i64>, Option<usize>, Option<usize>) {
     let path = workspace_dir.join("info.json");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(_) => return (None, None, None),
+        Err(_) => return (None, None, None, None),
     };
     let v: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(_) => return (None, None, None),
+        Err(_) => return (None, None, None, None),
     };
+    let workspace_id = v["workspace_id"].as_str().map(|s| s.to_string());
     let created_at = v["created_at"].as_i64();
     let note_count = v["note_count"].as_u64().map(|n| n as usize);
     let attachment_count = v["attachment_count"].as_u64().map(|n| n as usize);
+    (workspace_id, created_at, note_count, attachment_count)
+}
+
+/// Reads `info.json` from `workspace_dir` and returns `(created_at, note_count, attachment_count)`.
+/// Returns `(None, None, None)` if the file is missing or malformed.
+fn read_info_json(workspace_dir: &Path) -> (Option<i64>, Option<usize>, Option<usize>) {
+    let (_, created_at, note_count, attachment_count) = read_info_json_full(workspace_dir);
     (created_at, note_count, attachment_count)
 }
 
@@ -1667,7 +1937,24 @@ fn list_workspace_files(
                 .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
                 .unwrap_or(0);
             let size_bytes = dir_size_bytes(&folder);
-            let (created_at, note_count, attachment_count) = read_info_json(&folder);
+            let (workspace_id, created_at, note_count, attachment_count) = read_info_json_full(&folder);
+
+            // Look up identity binding for this workspace
+            let (identity_uuid, identity_name) = if let Some(ref ws_id) = workspace_id {
+                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+                if let Ok(Some(binding)) = mgr.get_workspace_binding(ws_id) {
+                    let identities = mgr.list_identities().unwrap_or_default();
+                    let identity = identities.iter().find(|i| i.uuid == binding.identity_uuid);
+                    (
+                        Some(binding.identity_uuid.to_string()),
+                        identity.map(|i| i.display_name.clone()),
+                    )
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
 
             entries.push(WorkspaceEntry {
                 name: name.to_string(),
@@ -1678,6 +1965,9 @@ fn list_workspace_files(
                 created_at,
                 note_count,
                 attachment_count,
+                workspace_uuid: workspace_id,
+                identity_uuid,
+                identity_name,
             });
         }
     }
@@ -1712,13 +2002,15 @@ fn delete_workspace(
 
 /// Duplicates a workspace by exporting it to a temp file and importing it
 /// under a new name in the same workspace directory.
+/// Derives the source DB password from the identity binding and assigns a new
+/// random DB password to the duplicate, binding it to the same identity.
 /// Does NOT open the duplicated workspace in a window — just creates it on disk.
 #[tauri::command]
 fn duplicate_workspace(
+    state: State<'_, AppState>,
     source_path: String,
-    source_password: String,
+    identity_uuid: String,
     new_name: String,
-    new_password: String,
 ) -> std::result::Result<(), String> {
     let app_settings = settings::load_settings();
     let workspace_dir = PathBuf::from(&app_settings.workspace_directory);
@@ -1728,18 +2020,62 @@ fn duplicate_workspace(
         return Err(format!("A workspace named '{new_name}' already exists."));
     }
 
-    // Open the source workspace to validate password and export.
-    let source_db = PathBuf::from(&source_path).join("notes.db");
+    let source_folder = PathBuf::from(&source_path);
+    let source_db = source_folder.join("notes.db");
+
+    // Decrypt the source DB password via identity.
+    // Lock ordering: identity_manager then unlocked_identities, never both held simultaneously.
+    let source_password = {
+        let (ws_uuid_opt, _, _, _) = read_info_json_full(&source_folder);
+        let ws_uuid = ws_uuid_opt
+            .ok_or_else(|| "Source workspace has no UUID in info.json".to_string())?;
+
+        // Step 1: Get identity_uuid from identity_manager (drop lock after)
+        let identity_uuid = {
+            let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+            let binding = mgr
+                .get_workspace_binding(&ws_uuid)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "Source workspace is not bound to any identity".to_string())?;
+            binding.identity_uuid
+            // mgr drops here
+        };
+
+        // Step 2: Get signing key from unlocked_identities (drop lock after)
+        let seed = {
+            let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+            let unlocked = identities
+                .get(&identity_uuid)
+                .ok_or_else(|| format!("IDENTITY_LOCKED:{}", identity_uuid))?;
+            unlocked.signing_key.to_bytes()
+            // identities drops here
+        };
+
+        // Step 3: Decrypt DB password (no other locks held)
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.decrypt_db_password(&ws_uuid, &seed)
+            .map_err(|e| format!("Failed to decrypt source password: {e}"))?
+    };
+
+    // Generate a new random DB password for the duplicate
+    let new_password: String = {
+        use base64::Engine;
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    };
+
+    // Open the source workspace and export to a temp file
     let workspace = Workspace::open(&source_db, &source_password)
         .map_err(|e| e.to_string())?;
 
-    // Export to a temp file.
     let mut tmp_file = tempfile::tempfile()
         .map_err(|e| format!("Failed to create temp file: {e}"))?;
     export_workspace(&workspace, &mut tmp_file, Some(&source_password))
         .map_err(|e| e.to_string())?;
 
-    // Import from temp file into dest folder.
+    // Import from temp file into dest folder
     std::fs::create_dir_all(&dest_folder)
         .map_err(|e| format!("Failed to create destination: {e}"))?;
     let dest_db = dest_folder.join("notes.db");
@@ -1751,10 +2087,31 @@ fn duplicate_workspace(
     import_workspace(tmp_file, &dest_db, Some(&source_password), &new_password)
         .map_err(|e| e.to_string())?;
 
-    // Write info.json for the new workspace (best-effort).
-    if let Ok(new_ws) = Workspace::open(&dest_db, &new_password) {
-        let _ = new_ws.write_info_json();
-    }
+    // Write info.json for the new workspace so we can read its UUID
+    let new_ws = Workspace::open(&dest_db, &new_password)
+        .map_err(|e| format!("Failed to open new workspace: {e}"))?;
+    let _ = new_ws.write_info_json();
+    let new_ws_uuid = new_ws.workspace_id().to_string();
+    drop(new_ws);
+
+    // Bind the duplicate workspace to the same identity
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+    let unlocked = identities
+        .get(&uuid)
+        .ok_or_else(|| "Identity is not unlocked".to_string())?;
+    let seed = unlocked.signing_key.to_bytes();
+    drop(identities);
+
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    mgr.bind_workspace(
+        &uuid,
+        &new_ws_uuid,
+        &dest_db.display().to_string(),
+        &new_password,
+        &seed,
+    )
+    .map_err(|e| format!("Failed to bind new workspace to identity: {e}"))?;
 
     Ok(())
 }
@@ -1957,6 +2314,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
     ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
     ("workspace_properties",  "Edit > Workspace Properties clicked"),
+    ("file_identities",       "File > Manage Identities clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -2010,7 +2368,10 @@ pub fn run() {
             workspaces: Arc::new(Mutex::new(HashMap::new())),
             workspace_paths: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
-            workspace_passwords: Arc::new(Mutex::new(HashMap::new())),
+            identity_manager: Arc::new(Mutex::new(
+                IdentityManager::new(settings::config_dir()).expect("Failed to init IdentityManager")
+            )),
+            unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
             pending_file_open: Arc::new(Mutex::new(None)),
@@ -2173,7 +2534,16 @@ pub fn run() {
             list_workspace_files,
             delete_workspace,
             duplicate_workspace,
-            get_cached_password,
+            list_identities,
+            create_identity,
+            unlock_identity,
+            lock_identity,
+            delete_identity,
+            rename_identity,
+            change_identity_passphrase,
+            get_unlocked_identities,
+            is_identity_unlocked,
+            get_workspaces_for_identity,
             attach_file,
             attach_file_bytes,
             get_attachments,
