@@ -4152,7 +4152,7 @@ fn humanize(filename: &str) -> String {
 mod tests {
     use super::*;
     use crate::FieldValue;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use tempfile::NamedTempFile;
 
     #[test]

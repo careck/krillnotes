@@ -263,7 +263,7 @@ mod tests {
     use super::*;
     use crate::core::hlc::HlcTimestamp;
     use crate::Storage;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use tempfile::NamedTempFile;
 
     fn ts(wall_ms: u64) -> HlcTimestamp {

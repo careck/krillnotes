@@ -13,7 +13,6 @@ mod display_helpers;
 mod hooks;
 mod schema;
 
-pub use hooks::HookRegistry;
 pub(crate) use schema::field_value_to_dynamic;
 pub use schema::{AddChildResult, FieldDefinition, FieldGroup, Schema, ViewRegistration, ScriptWarning};
 use schema::{DeferredBinding, BindingKind};
@@ -2142,7 +2141,7 @@ mod tests {
     #[test]
     fn test_script_registry_render_default_view_textarea_markdown() {
         use crate::{FieldValue, Note};
-        use std::collections::{BTreeMap, HashMap};
+        use std::collections::BTreeMap;
 
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"

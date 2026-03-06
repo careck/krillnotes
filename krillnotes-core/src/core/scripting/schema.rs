@@ -8,7 +8,6 @@
 
 use crate::{FieldValue, KrillnotesError, Result};
 use crate::core::save_transaction::SaveTransaction;
-use chrono::NaiveDate;
 use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -474,14 +473,6 @@ impl SchemaRegistry {
         Arc::clone(&self.on_add_child_hooks)
     }
 
-    pub(super) fn view_registrations_arc(&self) -> Arc<Mutex<HashMap<String, Vec<ViewRegistration>>>> {
-        Arc::clone(&self.view_registrations)
-    }
-
-    pub(super) fn hover_registrations_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
-        Arc::clone(&self.hover_registrations)
-    }
-
     pub(super) fn menu_registrations_arc(&self) -> Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>> {
         Arc::clone(&self.menu_registrations)
     }
@@ -493,10 +484,6 @@ impl SchemaRegistry {
     pub fn get_views_for_type(&self, schema_name: &str) -> Vec<ViewRegistration> {
         self.view_registrations.lock().unwrap()
             .get(schema_name).cloned().unwrap_or_default()
-    }
-
-    pub fn has_hover_registration(&self, schema_name: &str) -> bool {
-        self.hover_registrations.lock().unwrap().contains_key(schema_name)
     }
 
     pub fn get_warnings(&self) -> Vec<ScriptWarning> {
@@ -989,103 +976,3 @@ pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
     }
 }
 
-/// Converts a Rhai [`Dynamic`] back to a [`FieldValue`] given the field's type string.
-///
-/// Returns [`KrillnotesError::Scripting`] if the Dynamic value cannot be
-/// converted to the expected Rust type.
-pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
-    match field_type {
-        "text" | "textarea" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Text(String::new()));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("text field must be a string".into()))?;
-            Ok(FieldValue::Text(s))
-        }
-        "number" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Number(0.0));
-            }
-            let n = d
-                .try_cast::<f64>()
-                .ok_or_else(|| KrillnotesError::Scripting("number field must be a float".into()))?;
-            Ok(FieldValue::Number(n))
-        }
-        "boolean" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Boolean(false));
-            }
-            let b = d
-                .try_cast::<bool>()
-                .ok_or_else(|| KrillnotesError::Scripting("boolean field must be a bool".into()))?;
-            Ok(FieldValue::Boolean(b))
-        }
-        "date" => {
-            if d.is_unit() {
-                Ok(FieldValue::Date(None))
-            } else {
-                let s = d.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("date field must be a string or ()".into())
-                })?;
-                let nd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
-                    KrillnotesError::Scripting(format!("invalid date '{s}': {e}"))
-                })?;
-                Ok(FieldValue::Date(Some(nd)))
-            }
-        }
-        "email" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Email(String::new()));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
-            Ok(FieldValue::Email(s))
-        }
-        "select" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Text(String::new()));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("select field must be a string".into()))?;
-            Ok(FieldValue::Text(s))
-        }
-        "rating" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Number(0.0));
-            }
-            let n = d
-                .try_cast::<f64>()
-                .ok_or_else(|| KrillnotesError::Scripting("rating field must be a float".into()))?;
-            Ok(FieldValue::Number(n))
-        }
-        "note_link" => {
-            if d.is_unit() {
-                return Ok(FieldValue::NoteLink(None));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("note_link field must be a string or ()".into()))?;
-            if s.is_empty() {
-                return Ok(FieldValue::NoteLink(None));
-            }
-            Ok(FieldValue::NoteLink(Some(s)))
-        }
-        "file" => {
-            if d.is_unit() {
-                return Ok(FieldValue::File(None));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("file field must be a string or ()".into()))?;
-            if s.is_empty() {
-                return Ok(FieldValue::File(None));
-            }
-            Ok(FieldValue::File(Some(s)))
-        }
-        _ => Ok(FieldValue::Text(String::new())),
-    }
-}
