@@ -10,7 +10,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
-import type { Note, FieldValue, SchemaInfo, FieldDefinition, AttachmentMeta, SaveResult } from '../types';
+import type { Note, FieldValue, SchemaInfo, FieldDefinition, AttachmentMeta, SaveResult, ViewInfo } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
 import TagPill from './TagPill';
@@ -60,13 +60,16 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     childrenSort: 'none',
     allowedParentTypes: [],
     allowedChildrenTypes: [],
-    hasViewHook: false,
-    hasHoverHook: false,
+    hasViews: false,
+    hasHover: false,
     allowAttachments: false,
     attachmentTypes: [],
     fieldGroups: [],
   });
-  const [customViewHtml, setCustomViewHtml] = useState<string | null>(null);
+  const [views, setViews] = useState<ViewInfo[]>([]);
+  const [activeTab, setActiveTab] = useState<string>("fields");
+  const [viewHtml, setViewHtml] = useState<Record<string, string>>({});
+  const [previousTab, setPreviousTab] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedFields, setEditedFields] = useState<Record<string, FieldValue>>({});
@@ -91,7 +94,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
   const emptySchemaInfo: SchemaInfo = {
     fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none',
-    allowedParentTypes: [], allowedChildrenTypes: [], hasViewHook: false, hasHoverHook: false,
+    allowedParentTypes: [], allowedChildrenTypes: [], hasViews: false, hasHover: false,
     allowAttachments: false, attachmentTypes: [], fieldGroups: [],
   };
 
@@ -99,7 +102,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     schemaLoadedRef.current = false;
     if (!selectedNote) {
       setSchemaInfo(emptySchemaInfo);
-      setCustomViewHtml(null);
+      setViews([]);
+      setViewHtml({});
+      setActiveTab("fields");
       setIsEditing(false);
       pendingEditModeRef.current = false;
       return;
@@ -122,16 +127,28 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           setIsEditing(true);
           pendingEditModeRef.current = false;
         }
-        // Always fetch the view HTML; the backend generates a default view
-        // for notes without an on_view hook (textarea fields render as markdown).
-        invoke<string>('get_note_view', { noteId: selectedNote.id })
-          .then(html => setCustomViewHtml(html))
-          .catch(err => { alert(String(err)); setCustomViewHtml(null); });
+        // Fetch registered views for this note type
+        invoke<ViewInfo[]>('get_views_for_type', { schemaName: selectedNote.nodeType })
+          .then(v => {
+            setViews(v);
+            setViewHtml({});
+            // Default tab: first displayFirst view, or first view, or "fields"
+            const sorted = [...v].sort((a, b) =>
+              (b.displayFirst ? 1 : 0) - (a.displayFirst ? 1 : 0)
+            );
+            setActiveTab(sorted.length > 0 ? sorted[0].label : "fields");
+          })
+          .catch(() => {
+            setViews([]);
+            setActiveTab("fields");
+          });
       })
       .catch(err => {
         console.error('Failed to fetch schema fields:', err);
         setSchemaInfo(emptySchemaInfo);
-        setCustomViewHtml(null);
+        setViews([]);
+        setViewHtml({});
+        setActiveTab("fields");
         schemaLoadedRef.current = true;
         if (pendingEditModeRef.current) {
           setIsEditing(true);
@@ -174,10 +191,26 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     }
   }, [requestEditMode]);
 
+  // Fetch HTML for the active custom view tab
+  const activeViewHtml = activeTab !== 'fields' ? viewHtml[activeTab] ?? null : null;
+
+  useEffect(() => {
+    if (activeTab !== 'fields' && selectedNote && !isEditing) {
+      invoke<string>('render_view', {
+        noteId: selectedNote.id,
+        viewLabel: activeTab,
+      }).then(html => {
+        setViewHtml(prev => ({ ...prev, [activeTab]: html }));
+      }).catch(err => {
+        console.error('Failed to render view:', err);
+      });
+    }
+  }, [activeTab, selectedNote?.id, isEditing]);
+
   // Hydrate img[data-kn-attach-id] placeholders with real base64 data after the view HTML renders
   useEffect(() => {
     const container = viewHtmlRef.current;
-    if (!container || !customViewHtml) return;
+    if (!container || !activeViewHtml) return;
 
     const imgs = Array.from(
       container.querySelectorAll<HTMLImageElement>('img[data-kn-attach-id]')
@@ -204,12 +237,12 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         }
       })
     ).catch(err => console.error('Image hydration error:', err));
-  }, [customViewHtml]);
+  }, [activeViewHtml]);
 
   // Hydrate [data-kn-embed-type] sentinels into click-to-play media cards
   useEffect(() => {
     const container = viewHtmlRef.current;
-    if (!container || !customViewHtml) return;
+    if (!container || !activeViewHtml) return;
 
     const sentinels = Array.from(
       container.querySelectorAll<HTMLElement>('[data-kn-embed-type]')
@@ -249,7 +282,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       });
       el.replaceWith(card);
     });
-  }, [customViewHtml]);
+  }, [activeViewHtml]);
 
   // Focus first editable field whenever edit mode activates
   useEffect(() => {
@@ -276,10 +309,9 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   };
 
   const handleEdit = () => {
-    // No need to clear customViewHtml — the HTML panel is hidden in edit mode
-    // by the !isEditing condition, so the old HTML stays ready for when the
-    // user cancels without saving.
     invoke<string[]>('get_all_tags').then(setAllTags).catch(console.error);
+    setPreviousTab(activeTab);
+    setActiveTab('fields');
     setIsEditing(true);
   };
 
@@ -347,6 +379,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       }
     }
     setIsEditing(false);
+    if (previousTab) {
+      setActiveTab(previousTab);
+      setPreviousTab(null);
+    }
     setEditedTitle(selectedNote!.title);
     setEditedFields({ ...selectedNote!.fields });
     setEditedTags(selectedNote!.tags ?? []);
@@ -387,12 +423,17 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       setEditedTags(editedTags);
       setIsEditing(false);
       setIsDirty(false);
+      // Restore the tab that was active before editing
+      const restoreTab = previousTab;
+      if (restoreTab) {
+        setActiveTab(restoreTab);
+        setPreviousTab(null);
+      }
       onNoteUpdated();
       onEditDone();
       // Re-fetch view HTML after save — on_save may have changed field values.
-      invoke<string>('get_note_view', { noteId: selectedNote.id })
-        .then(html => setCustomViewHtml(html))
-        .catch(err => { alert(String(err)); setCustomViewHtml(null); });
+      // Clear cached HTML so the render_view effect re-fetches.
+      setViewHtml({});
     } catch (err) {
       alert(t('notes.saveFailed', { error: String(err) }));
     }
@@ -495,13 +536,41 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         </div>
       )}
 
+      {/* Tab bar — only when registered views exist */}
+      {views.length > 0 && !isEditing && (
+        <div className="flex border-b border-border mb-4">
+          {[...views]
+            .sort((a, b) => (b.displayFirst ? 1 : 0) - (a.displayFirst ? 1 : 0))
+            .map(v => (
+              <button
+                key={v.label}
+                className={`px-3 py-1.5 text-sm ${activeTab === v.label
+                  ? 'border-b-2 border-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground'}`}
+                onClick={() => setActiveTab(v.label)}
+              >
+                {v.label}
+              </button>
+            ))
+          }
+          <button
+            className={`px-3 py-1.5 text-sm ${activeTab === 'fields'
+              ? 'border-b-2 border-primary font-medium'
+              : 'text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActiveTab('fields')}
+          >
+            {t('info_panel.fields', 'Fields')}
+          </button>
+        </div>
+      )}
+
       {/* Fields Section */}
       <div className="mb-6">
-        {/* Custom view rendered by an on_view hook — shown only in view mode */}
-        {!isEditing && customViewHtml && (
+        {/* Custom view HTML — shown only in view mode when a custom tab is active */}
+        {!isEditing && activeViewHtml && (
           <div
             ref={viewHtmlRef}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customViewHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id', 'data-kn-embed-type', 'data-kn-embed-id', 'data-kn-embed-url'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i }) }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(activeViewHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id', 'data-kn-embed-type', 'data-kn-embed-id', 'data-kn-embed-url'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i }) }}
             onClick={(e) => {
               const target = e.target as Element;
 
@@ -588,7 +657,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         )}
 
         {/* Default field rendering — shown in edit mode, or when no custom view exists */}
-        {(isEditing || !customViewHtml) && <h2 className="text-xl font-semibold mb-4">{t('notes.fields')}</h2>}
+        {(isEditing || activeTab === 'fields') && <h2 className="text-xl font-semibold mb-4">{t('notes.fields')}</h2>}
 
         {/* Note-level validation errors banner */}
         {isEditing && noteErrors.length > 0 && (
@@ -665,7 +734,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               );
             })}
           </>
-        ) : (!customViewHtml && (() => {
+        ) : (activeTab === 'fields' && (() => {
           const visibleTopFields = schemaInfo.fields
             .filter(field => field.canView)
             .filter(field => !isEmptyFieldValue(selectedNote.fields[field.name] ?? defaultValueForFieldType(field.fieldType)));
@@ -731,7 +800,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           );
         })())}
 
-        {(!customViewHtml || isEditing) && legacyFieldNames.length > 0 && (() => {
+        {(activeTab === 'fields' || isEditing) && legacyFieldNames.length > 0 && (() => {
           if (isEditing) {
             return (
               <>
@@ -777,7 +846,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           );
         })()}
 
-        {!isEditing && !customViewHtml &&
+        {!isEditing && activeTab === 'fields' &&
           schemaInfo.fields.filter(f =>
             f.canView && !isEmptyFieldValue(selectedNote.fields[f.name] ?? defaultValueForFieldType(f.fieldType))
           ).length === 0 &&
@@ -836,7 +905,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 // Prevent re-renders when WorkspaceView re-renders due to hover/drag/dialog state changes that
 // only produce new callback references. Without this guard, React re-processes the view HTML
 // prop on every re-render, which can reset the DOM and wipe the hydrated img.src values set
-// by the image hydration effect (which does not re-run because customViewHtml is unchanged).
+// by the image hydration effect (which does not re-run because activeViewHtml is unchanged).
 export default memo(InfoPanel, (prev, next) =>
   prev.selectedNote === next.selectedNote &&
   prev.requestEditMode === next.requestEditMode &&

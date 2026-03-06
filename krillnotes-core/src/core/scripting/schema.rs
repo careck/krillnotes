@@ -8,7 +8,6 @@
 
 use crate::{FieldValue, KrillnotesError, Result};
 use crate::core::save_transaction::SaveTransaction;
-use chrono::NaiveDate;
 use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -20,6 +19,53 @@ pub(super) struct HookEntry {
     pub(super) fn_ptr: FnPtr,
     pub(super) ast: AST,
     pub(super) script_name: String,
+}
+
+/// A registered custom view tab for a note type.
+#[derive(Debug, Clone)]
+pub struct ViewRegistration {
+    pub label: String,
+    pub display_first: bool,
+    pub fn_ptr: FnPtr,
+    pub ast: Arc<AST>,
+    pub script_name: String,
+}
+
+/// A registered context menu action for note types.
+#[derive(Debug, Clone)]
+pub struct MenuRegistration {
+    pub label: String,
+    pub fn_ptr: FnPtr,
+    pub ast: Arc<AST>,
+    pub script_name: String,
+}
+
+/// A deferred binding queued during script loading, resolved after all scripts load.
+#[derive(Debug, Clone)]
+pub struct DeferredBinding {
+    pub kind: BindingKind,
+    pub target_type: String,
+    pub fn_ptr: FnPtr,
+    pub ast: Arc<AST>,
+    pub script_name: String,
+    pub display_first: bool,
+    pub label: Option<String>,
+    pub applies_to: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum BindingKind {
+    View,
+    Hover,
+    Menu,
+}
+
+/// A warning about an unresolved deferred binding.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptWarning {
+    pub script_name: String,
+    pub message: String,
 }
 
 /// Result returned by [`SchemaRegistry::run_on_add_child_hook`].
@@ -390,21 +436,27 @@ impl Schema {
 /// Private store for registered schemas plus per-schema hook side-tables.
 #[derive(Debug, Clone)]
 pub(super) struct SchemaRegistry {
-    schemas:            Arc<Mutex<HashMap<String, Schema>>>,
-    on_save_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,
-    on_view_hooks:      Arc<Mutex<HashMap<String, HookEntry>>>,
-    on_add_child_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
-    on_hover_hooks:     Arc<Mutex<HashMap<String, HookEntry>>>,
+    schemas:              Arc<Mutex<HashMap<String, Schema>>>,
+    on_save_hooks:        Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_add_child_hooks:   Arc<Mutex<HashMap<String, HookEntry>>>,
+    view_registrations:   Arc<Mutex<HashMap<String, Vec<ViewRegistration>>>>,
+    hover_registrations:  Arc<Mutex<HashMap<String, HookEntry>>>,
+    menu_registrations:   Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>>,
+    deferred_bindings:    Arc<Mutex<Vec<DeferredBinding>>>,
+    warnings:             Arc<Mutex<Vec<ScriptWarning>>>,
 }
 
 impl SchemaRegistry {
     pub(super) fn new() -> Self {
         Self {
-            schemas:            Arc::new(Mutex::new(HashMap::new())),
-            on_save_hooks:      Arc::new(Mutex::new(HashMap::new())),
-            on_view_hooks:      Arc::new(Mutex::new(HashMap::new())),
-            on_add_child_hooks: Arc::new(Mutex::new(HashMap::new())),
-            on_hover_hooks:     Arc::new(Mutex::new(HashMap::new())),
+            schemas:              Arc::new(Mutex::new(HashMap::new())),
+            on_save_hooks:        Arc::new(Mutex::new(HashMap::new())),
+            on_add_child_hooks:   Arc::new(Mutex::new(HashMap::new())),
+            view_registrations:   Arc::new(Mutex::new(HashMap::new())),
+            hover_registrations:  Arc::new(Mutex::new(HashMap::new())),
+            menu_registrations:   Arc::new(Mutex::new(HashMap::new())),
+            deferred_bindings:    Arc::new(Mutex::new(Vec::new())),
+            warnings:             Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -417,16 +469,33 @@ impl SchemaRegistry {
         Arc::clone(&self.on_save_hooks)
     }
 
-    pub(super) fn on_view_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
-        Arc::clone(&self.on_view_hooks)
-    }
-
     pub(super) fn on_add_child_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
         Arc::clone(&self.on_add_child_hooks)
     }
 
-    pub(super) fn on_hover_hooks_arc(&self) -> Arc<Mutex<HashMap<String, HookEntry>>> {
-        Arc::clone(&self.on_hover_hooks)
+    pub(super) fn menu_registrations_arc(&self) -> Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>> {
+        Arc::clone(&self.menu_registrations)
+    }
+
+    pub(super) fn deferred_bindings_arc(&self) -> Arc<Mutex<Vec<DeferredBinding>>> {
+        Arc::clone(&self.deferred_bindings)
+    }
+
+    pub fn get_views_for_type(&self, schema_name: &str) -> Vec<ViewRegistration> {
+        self.view_registrations.lock().unwrap()
+            .get(schema_name).cloned().unwrap_or_default()
+    }
+
+    pub fn get_warnings(&self) -> Vec<ScriptWarning> {
+        self.warnings.lock().unwrap().clone()
+    }
+
+    /// Returns a map of note_type -> [menu_label, ...] for all registered menu actions.
+    pub fn menu_action_map(&self) -> HashMap<String, Vec<String>> {
+        let regs = self.menu_registrations.lock().unwrap();
+        regs.iter()
+            .map(|(k, v)| (k.clone(), v.iter().map(|r| r.label.clone()).collect()))
+            .collect()
     }
 
     pub(super) fn get(&self, name: &str) -> Result<Schema> {
@@ -439,52 +508,118 @@ impl SchemaRegistry {
     }
 
     pub(super) fn exists(&self, name: &str) -> bool {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().contains_key(name)
     }
 
     pub(super) fn list(&self) -> Vec<String> {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().keys().cloned().collect()
     }
 
     pub(super) fn all(&self) -> HashMap<String, Schema> {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().clone()
     }
 
     pub(super) fn clear(&self) {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
         self.schemas.lock().unwrap().clear();
         self.on_save_hooks.lock().unwrap().clear();
-        self.on_view_hooks.lock().unwrap().clear();
         self.on_add_child_hooks.lock().unwrap().clear();
-        self.on_hover_hooks.lock().unwrap().clear();
+        self.view_registrations.lock().unwrap().clear();
+        self.hover_registrations.lock().unwrap().clear();
+        self.menu_registrations.lock().unwrap().clear();
+        self.deferred_bindings.lock().unwrap().clear();
+        self.warnings.lock().unwrap().clear();
     }
 
     /// Returns `true` if an on_save hook is registered for `schema_name`.
     pub(super) fn has_hook(&self, schema_name: &str) -> bool {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
         self.on_save_hooks.lock().unwrap().contains_key(schema_name)
     }
 
-    /// Returns `true` if an on_view hook is registered for `schema_name`.
-    pub(super) fn has_view_hook(&self, schema_name: &str) -> bool {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
-        self.on_view_hooks.lock().unwrap().contains_key(schema_name)
+    /// Returns `true` if any view registrations exist for `schema_name`.
+    pub(super) fn has_views(&self, schema_name: &str) -> bool {
+        self.view_registrations.lock().unwrap()
+            .get(schema_name).is_some_and(|v| !v.is_empty())
     }
 
-    /// Returns `true` if an on_hover hook is registered for `schema_name`.
-    pub(super) fn has_hover_hook(&self, schema_name: &str) -> bool {
-        // SAFETY: mutex poisoning would require a panic while the lock is held,
-        // which cannot happen in this codebase's single-threaded usage.
-        self.on_hover_hooks.lock().unwrap().contains_key(schema_name)
+    /// Returns `true` if a hover registration exists for `schema_name`.
+    pub(super) fn has_hover(&self, schema_name: &str) -> bool {
+        self.hover_registrations.lock().unwrap().contains_key(schema_name)
+    }
+
+    /// Resolves deferred bindings against currently registered schemas.
+    pub fn resolve_bindings(&self) {
+        let mut bindings = self.deferred_bindings.lock().unwrap();
+        let schemas = self.schemas.lock().unwrap();
+        let mut views = self.view_registrations.lock().unwrap();
+        let mut hovers = self.hover_registrations.lock().unwrap();
+        let mut menus = self.menu_registrations.lock().unwrap();
+        let mut warnings = self.warnings.lock().unwrap();
+
+        for binding in bindings.drain(..) {
+            match binding.kind {
+                BindingKind::View => {
+                    if schemas.contains_key(&binding.target_type) {
+                        let entry = ViewRegistration {
+                            label: binding.label.unwrap_or_else(|| binding.target_type.clone()),
+                            display_first: binding.display_first,
+                            fn_ptr: binding.fn_ptr,
+                            ast: binding.ast,
+                            script_name: binding.script_name,
+                        };
+                        views.entry(binding.target_type).or_default().push(entry);
+                    } else {
+                        warnings.push(ScriptWarning {
+                            script_name: binding.script_name,
+                            message: format!(
+                                "register_view('{}', '{}') -- type not found",
+                                binding.target_type,
+                                binding.label.unwrap_or_default()
+                            ),
+                        });
+                    }
+                }
+                BindingKind::Hover => {
+                    if schemas.contains_key(&binding.target_type) {
+                        let entry = HookEntry {
+                            fn_ptr: binding.fn_ptr,
+                            ast: binding.ast.as_ref().clone(),
+                            script_name: binding.script_name,
+                        };
+                        hovers.insert(binding.target_type, entry);
+                    } else {
+                        warnings.push(ScriptWarning {
+                            script_name: binding.script_name,
+                            message: format!(
+                                "register_hover('{}') -- type not found",
+                                binding.target_type
+                            ),
+                        });
+                    }
+                }
+                BindingKind::Menu => {
+                    for target_type in &binding.applies_to {
+                        if schemas.contains_key(target_type) {
+                            let entry = MenuRegistration {
+                                label: binding.label.clone().unwrap_or_default(),
+                                fn_ptr: binding.fn_ptr.clone(),
+                                ast: Arc::clone(&binding.ast),
+                                script_name: binding.script_name.clone(),
+                            };
+                            menus.entry(target_type.clone()).or_default().push(entry);
+                        } else {
+                            warnings.push(ScriptWarning {
+                                script_name: binding.script_name.clone(),
+                                message: format!(
+                                    "register_menu('{}', ['{}']) -- type not found",
+                                    binding.label.as_deref().unwrap_or(""),
+                                    target_type
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Runs the on_save hook for `schema_name`, if registered.
@@ -579,10 +714,10 @@ impl SchemaRegistry {
         Ok(Some(tx))
     }
 
-    /// Runs the on_view hook for `schema_name`, if registered.
+    /// Renders the default view for a note type (first display_first, or first registered).
     ///
-    /// Called from [`ScriptRegistry::run_on_view_hook`](super::ScriptRegistry::run_on_view_hook).
-    pub(super) fn run_on_view_hook(
+    /// Returns `Ok(None)` when no views are registered for the type.
+    pub(super) fn run_default_view(
         &self,
         engine: &Engine,
         note_map: Map,
@@ -592,33 +727,60 @@ impl SchemaRegistry {
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_default();
 
-        let entry = {
-            let hooks = self.on_view_hooks
-                .lock()
-                .map_err(|_| KrillnotesError::Scripting("on_view hook lock poisoned".to_string()))?;
-            hooks.get(&schema_name).cloned()
-        };
-        let entry = match entry {
-            Some(e) => e,
-            None => return Ok(None),
+        let views = self.view_registrations.lock().unwrap();
+        let view_list = match views.get(&schema_name) {
+            Some(v) if !v.is_empty() => v,
+            _ => return Ok(None),
         };
 
-        let result = entry
+        // Pick the first display_first view, or just the first one
+        let view = view_list.iter().find(|v| v.display_first).unwrap_or(&view_list[0]);
+        let result = view
             .fn_ptr
-            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("on_view hook error in '{}': {e}", entry.script_name)))?;
+            .call::<Dynamic>(engine, &view.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("view '{}' error in '{}': {e}", view.label, view.script_name)))?;
 
         let html = result.try_cast::<String>().ok_or_else(|| {
-            KrillnotesError::Scripting("on_view hook must return a string".to_string())
+            KrillnotesError::Scripting("view must return a string".to_string())
         })?;
 
         Ok(Some(html))
     }
 
-    /// Runs the on_hover hook for `schema_name`, if registered.
+    /// Renders a specific named view for a note type.
+    pub(super) fn run_view(
+        &self,
+        engine: &Engine,
+        note_map: Map,
+        view_label: &str,
+    ) -> Result<String> {
+        let schema_name = note_map
+            .get("node_type")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_default();
+
+        let views = self.view_registrations.lock().unwrap();
+        let view_list = views.get(&schema_name).ok_or_else(|| {
+            KrillnotesError::Scripting(format!("No views registered for type '{schema_name}'"))
+        })?;
+
+        let view = view_list.iter().find(|v| v.label == view_label).ok_or_else(|| {
+            KrillnotesError::Scripting(format!("View '{view_label}' not found for type '{schema_name}'"))
+        })?;
+
+        let result = view
+            .fn_ptr
+            .call::<Dynamic>(engine, &view.ast, (Dynamic::from(note_map),))
+            .map_err(|e| KrillnotesError::Scripting(format!("view '{}' error in '{}': {e}", view.label, view.script_name)))?;
+
+        result.try_cast::<String>().ok_or_else(|| {
+            KrillnotesError::Scripting("view must return a string".to_string())
+        })
+    }
+
+    /// Runs the hover registration for `schema_name`, if registered.
     ///
-    /// Called from [`ScriptRegistry::run_on_hover_hook`](super::ScriptRegistry::run_on_hover_hook).
-    /// Returns `Ok(None)` when no hook is registered.
+    /// Returns `Ok(None)` when no hover is registered.
     pub(super) fn run_on_hover_hook(
         &self,
         engine: &Engine,
@@ -630,10 +792,10 @@ impl SchemaRegistry {
             .unwrap_or_default();
 
         let entry = {
-            let hooks = self.on_hover_hooks
+            let hovers = self.hover_registrations
                 .lock()
-                .map_err(|_| KrillnotesError::Scripting("on_hover hook lock poisoned".to_string()))?;
-            hooks.get(&schema_name).cloned()
+                .map_err(|_| KrillnotesError::Scripting("hover registration lock poisoned".to_string()))?;
+            hovers.get(&schema_name).cloned()
         };
         let entry = match entry {
             Some(e) => e,
@@ -643,10 +805,10 @@ impl SchemaRegistry {
         let result = entry
             .fn_ptr
             .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("on_hover hook error in '{}': {e}", entry.script_name)))?;
+            .map_err(|e| KrillnotesError::Scripting(format!("hover error in '{}': {e}", entry.script_name)))?;
 
         let html = result.try_cast::<String>().ok_or_else(|| {
-            KrillnotesError::Scripting("on_hover hook must return a string".to_string())
+            KrillnotesError::Scripting("hover must return a string".to_string())
         })?;
 
         Ok(Some(html))
@@ -814,103 +976,3 @@ pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
     }
 }
 
-/// Converts a Rhai [`Dynamic`] back to a [`FieldValue`] given the field's type string.
-///
-/// Returns [`KrillnotesError::Scripting`] if the Dynamic value cannot be
-/// converted to the expected Rust type.
-pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> Result<FieldValue> {
-    match field_type {
-        "text" | "textarea" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Text(String::new()));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("text field must be a string".into()))?;
-            Ok(FieldValue::Text(s))
-        }
-        "number" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Number(0.0));
-            }
-            let n = d
-                .try_cast::<f64>()
-                .ok_or_else(|| KrillnotesError::Scripting("number field must be a float".into()))?;
-            Ok(FieldValue::Number(n))
-        }
-        "boolean" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Boolean(false));
-            }
-            let b = d
-                .try_cast::<bool>()
-                .ok_or_else(|| KrillnotesError::Scripting("boolean field must be a bool".into()))?;
-            Ok(FieldValue::Boolean(b))
-        }
-        "date" => {
-            if d.is_unit() {
-                Ok(FieldValue::Date(None))
-            } else {
-                let s = d.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("date field must be a string or ()".into())
-                })?;
-                let nd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
-                    KrillnotesError::Scripting(format!("invalid date '{s}': {e}"))
-                })?;
-                Ok(FieldValue::Date(Some(nd)))
-            }
-        }
-        "email" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Email(String::new()));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("email field must be a string".into()))?;
-            Ok(FieldValue::Email(s))
-        }
-        "select" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Text(String::new()));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("select field must be a string".into()))?;
-            Ok(FieldValue::Text(s))
-        }
-        "rating" => {
-            if d.is_unit() {
-                return Ok(FieldValue::Number(0.0));
-            }
-            let n = d
-                .try_cast::<f64>()
-                .ok_or_else(|| KrillnotesError::Scripting("rating field must be a float".into()))?;
-            Ok(FieldValue::Number(n))
-        }
-        "note_link" => {
-            if d.is_unit() {
-                return Ok(FieldValue::NoteLink(None));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("note_link field must be a string or ()".into()))?;
-            if s.is_empty() {
-                return Ok(FieldValue::NoteLink(None));
-            }
-            Ok(FieldValue::NoteLink(Some(s)))
-        }
-        "file" => {
-            if d.is_unit() {
-                return Ok(FieldValue::File(None));
-            }
-            let s = d
-                .try_cast::<String>()
-                .ok_or_else(|| KrillnotesError::Scripting("file field must be a string or ()".into()))?;
-            if s.is_empty() {
-                return Ok(FieldValue::File(None));
-            }
-            Ok(FieldValue::File(Some(s)))
-        }
-        _ => Ok(FieldValue::Text(String::new())),
-    }
-}
