@@ -21,12 +21,50 @@ pub use schema::{AddChildResult, FieldDefinition, FieldGroup, Schema};
 
 use crate::{FieldValue, KrillnotesError, Note, Result};
 use crate::core::attachment::AttachmentMeta;
+use crate::core::save_transaction::SaveTransaction;
 use schema::HookEntry;
 use chrono::Local;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
+
+// ── Thread-local SaveTransaction for Rhai write-path hooks ────────────────────
+
+thread_local! {
+    static SAVE_TX: RefCell<Option<SaveTransaction>> = RefCell::new(None);
+}
+
+/// Sets the active [`SaveTransaction`] for the current thread.
+///
+/// Called by hook runners before invoking any Rhai write-path closure.
+pub(crate) fn set_save_tx(tx: SaveTransaction) {
+    SAVE_TX.with(|cell| *cell.borrow_mut() = Some(tx));
+}
+
+/// Takes the active [`SaveTransaction`] from the current thread.
+///
+/// Called by hook runners after the Rhai closure returns, to retrieve results.
+pub(crate) fn take_save_tx() -> Option<SaveTransaction> {
+    SAVE_TX.with(|cell| cell.borrow_mut().take())
+}
+
+/// Accesses the active [`SaveTransaction`] for the current thread.
+///
+/// Used internally by the registered Rhai native functions (`set_field`, etc.).
+fn with_save_tx<F, R>(f: F) -> std::result::Result<R, Box<EvalAltResult>>
+where
+    F: FnOnce(&mut SaveTransaction) -> std::result::Result<R, String>,
+{
+    SAVE_TX.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let tx = borrow.as_mut().ok_or_else(|| -> Box<EvalAltResult> {
+            "set_field/set_title/reject/commit called outside a write context".to_string().into()
+        })?;
+        f(tx).map_err(|e| -> Box<EvalAltResult> { e.into() })
+    })
+}
 
 /// Per-run context injected before executing a Rhai script so that
 /// context-aware Rhai helpers (markdown, display_image, etc.) can resolve
@@ -552,6 +590,74 @@ impl ScriptRegistry {
 
         // ── Date helpers ──────────────────────────────────────────────────────
         engine.register_fn("today", || Local::now().format("%Y-%m-%d").to_string());
+
+        // ── Gated operations API (set_field / set_title / reject / commit) ────
+        // These functions write into the thread-local SaveTransaction set by the
+        // hook runner before calling the Rhai closure.
+        engine.register_fn("set_field",
+            |note_id: String, field_name: String, value: Dynamic|
+            -> std::result::Result<Dynamic, Box<EvalAltResult>>
+            {
+                // Infer FieldValue from the Dynamic type.
+                let fv = if value.is::<f64>() {
+                    FieldValue::Number(value.cast::<f64>())
+                } else if value.is::<bool>() {
+                    FieldValue::Boolean(value.cast::<bool>())
+                } else if value.is_unit() {
+                    // Use Text empty as a sensible default for unit/nil.
+                    FieldValue::Text(String::new())
+                } else {
+                    let s = value.into_string().map_err(|e| -> Box<EvalAltResult> {
+                        format!("set_field: cannot convert value to string: {e}").into()
+                    })?;
+                    FieldValue::Text(s)
+                };
+                with_save_tx(|tx| tx.set_field(&note_id, field_name, fv))?;
+                Ok(Dynamic::UNIT)
+            }
+        );
+
+        engine.register_fn("set_title",
+            |note_id: String, title: String|
+            -> std::result::Result<Dynamic, Box<EvalAltResult>>
+            {
+                with_save_tx(|tx| tx.set_title(&note_id, title))?;
+                Ok(Dynamic::UNIT)
+            }
+        );
+
+        // reject(message) — note-level soft error
+        engine.register_fn("reject",
+            |message: String| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+                with_save_tx(|tx| { tx.reject_note(message); Ok(()) })?;
+                Ok(Dynamic::UNIT)
+            }
+        );
+
+        // reject(field, message) — field-pinned soft error
+        engine.register_fn("reject",
+            |field: String, message: String| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+                with_save_tx(|tx| { tx.reject_field(field, message); Ok(()) })?;
+                Ok(Dynamic::UNIT)
+            }
+        );
+
+        engine.register_fn("commit",
+            || -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+                with_save_tx(|tx| {
+                    tx.commit().map_err(|errors| {
+                        let msgs: Vec<String> = errors.iter().map(|e| {
+                            match &e.field {
+                                Some(f) => format!("{}: {}", f, e.message),
+                                None => e.message.clone(),
+                            }
+                        }).collect();
+                        format!("Validation failed: {}", msgs.join("; "))
+                    })
+                })?;
+                Ok(Dynamic::UNIT)
+            }
+        );
 
         Ok(Self {
             engine,
