@@ -53,6 +53,14 @@ export interface FieldDefinition {
   targetType?: string;     // only meaningful for note_link fields
   showOnHover: boolean;
   allowedTypes: string[];  // MIME types; empty = all allowed; only meaningful for 'file' fields
+  hasValidate: boolean;    // true if a validate closure is registered for this field
+}
+
+export interface FieldGroup {
+  name: string;
+  fields: FieldDefinition[];
+  collapsed: boolean;
+  hasVisibleClosure: boolean;
 }
 
 export interface NoteSearchResult {
@@ -71,6 +79,7 @@ export interface SchemaInfo {
   hasHoverHook: boolean;
   allowAttachments: boolean;
   attachmentTypes: string[];
+  fieldGroups: FieldGroup[];
 }
 
 export enum DeleteStrategy {
