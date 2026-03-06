@@ -19,7 +19,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, UndoResult } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, UndoResult, SchemaMigratedEvent } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -67,6 +67,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Workspace properties dialog state
   const [showWorkspaceProperties, setShowWorkspaceProperties] = useState(false);
+
+  // Schema migration toast state
+  const [migrationToasts, setMigrationToasts] = useState<SchemaMigratedEvent[]>([]);
 
   // Drag and drop state
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
@@ -202,6 +205,18 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   // Load notes on mount
   useEffect(() => {
     loadNotes();
+  }, []);
+
+  // Listen for schema migration events emitted on workspace open.
+  useEffect(() => {
+    const unlisten = getCurrentWebviewWindow().listen<SchemaMigratedEvent>('schema-migrated', (event) => {
+      const toast = event.payload;
+      setMigrationToasts(prev => [...prev, toast]);
+      setTimeout(() => {
+        setMigrationToasts(prev => prev.filter(t => t !== toast));
+      }, 6000);
+    });
+    return () => { unlisten.then(f => f()); };
   }, []);
 
   // Set up menu listener
@@ -884,6 +899,17 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
         isOpen={showWorkspaceProperties}
         onClose={() => setShowWorkspaceProperties(false)}
       />
+
+      {/* Schema migration toasts */}
+      {migrationToasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
+          {migrationToasts.map((t, i) => (
+            <div key={i} className="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
+              <strong>"{t.schemaName}" schema updated</strong> — {t.notesMigrated} note{t.notesMigrated !== 1 ? 's' : ''} migrated to version {t.toVersion}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Hover Tooltip */}
       {hoveredNoteId && (() => {

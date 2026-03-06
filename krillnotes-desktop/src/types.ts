@@ -32,6 +32,13 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
+export interface SchemaMigratedEvent {
+  schemaName: string;
+  fromVersion: number;
+  toVersion: number;
+  notesMigrated: number;
+}
+
 export type FieldValue =
   | { Text: string }
   | { Number: number }
