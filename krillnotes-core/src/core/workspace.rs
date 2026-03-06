@@ -2624,14 +2624,34 @@ impl Workspace {
             )
             .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
 
-        // Run the pre-save hook. If a hook is registered it may modify title and fields.
+        // Run the pre-save hook via the gated SaveTransaction model.
+        // - hook not registered         → no-op (keep passed-in title/fields)
+        // - hook called commit()        → apply effective_title / effective_fields
+        // - hook called reject(…)       → return ValidationFailed error
+        // - hook returned Map (old API) → hard Scripting error with migration message
         let (title, fields) =
             match self
                 .script_registry
                 .run_on_save_hook(&node_type, note_id, &node_type, &title, &fields)?
             {
-                Some((new_title, new_fields)) => (new_title, new_fields),
                 None => (title, fields),
+                Some(tx) if tx.committed => {
+                    let pn = tx.pending_notes.get(note_id)
+                        .ok_or_else(|| KrillnotesError::Scripting(
+                            format!("on_save hook committed but pending note '{}' not found", note_id)
+                        ))?;
+                    (pn.effective_title().to_string(), pn.effective_fields())
+                }
+                Some(tx) if tx.has_errors() => {
+                    let msgs: Vec<String> = tx.soft_errors.iter().map(|e| {
+                        match &e.field {
+                            Some(f) => format!("{}: {}", f, e.message),
+                            None => e.message.clone(),
+                        }
+                    }).collect();
+                    return Err(KrillnotesError::ValidationFailed(msgs.join("; ")));
+                }
+                Some(_) => (title, fields),  // hook ran but didn't commit → no-op
             };
 
         // Enforce required-field constraints defined in the schema.
@@ -6183,6 +6203,51 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         assert!(
             has_title_update,
             "UpdateNote operation must appear in the log after update_note_title"
+        );
+    }
+
+    #[test]
+    fn test_on_save_gated_model() {
+        let mut ws = create_test_workspace_with_schema(r#"
+            schema("GatedTest", #{
+                fields: [
+                    #{ name: "body", type: "text", required: false },
+                ],
+                on_save: |note| {
+                    set_title(note.id, "Computed: " + note.fields["body"]);
+                    commit();
+                },
+            });
+        "#);
+
+        let note_id = ws.create_note_root("GatedTest").unwrap();
+        let mut fields = BTreeMap::new();
+        fields.insert("body".to_string(), FieldValue::Text("hello".to_string()));
+        let updated = ws.update_note(&note_id, "ignored".to_string(), fields).unwrap();
+        assert_eq!(updated.title, "Computed: hello");
+    }
+
+    #[test]
+    fn test_old_style_on_save_raises_error() {
+        let mut ws = create_test_workspace_with_schema(r#"
+            schema("OldStyle", #{
+                fields: [
+                    #{ name: "body", type: "text", required: false },
+                ],
+                on_save: |note| {
+                    note.title = "Old Style";
+                    note
+                },
+            });
+        "#);
+
+        let note_id = ws.create_note_root("OldStyle").unwrap();
+        let result = ws.update_note(&note_id, "test".to_string(), BTreeMap::new());
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("set_field") || err_msg.contains("gated") || err_msg.contains("old"),
+            "Expected migration error, got: {err_msg}"
         );
     }
 }

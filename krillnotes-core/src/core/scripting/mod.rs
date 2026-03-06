@@ -757,7 +757,7 @@ impl ScriptRegistry {
         node_type: &str,
         title: &str,
         fields: &BTreeMap<String, FieldValue>,
-    ) -> Result<Option<(String, BTreeMap<String, FieldValue>)>> {
+    ) -> Result<Option<SaveTransaction>> {
         let schema = self.schema_registry.get(schema_name)?;
         self.schema_registry
             .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
@@ -1008,8 +1008,8 @@ mod tests {
                     #{ name: "last",  type: "text", required: false },
                 ],
                 on_save: |note| {
-                    note.title = note.fields["last"] + ", " + note.fields["first"];
-                    note
+                    set_title(note.id, note.fields["last"] + ", " + note.fields["first"]);
+                    commit();
                 }
             });
         "#, "test").unwrap();
@@ -1018,13 +1018,14 @@ mod tests {
         fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
         fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("Person", "id-1", "Person", "old title", &fields)
+            .unwrap()
             .unwrap();
 
-        assert!(result.is_some());
-        let (new_title, _) = result.unwrap();
-        assert_eq!(new_title, "Doe, John");
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id-1").unwrap();
+        assert_eq!(pn.effective_title(), "Doe, John");
     }
 
     #[test]
@@ -1317,8 +1318,8 @@ mod tests {
                         #{ name: "last",  type: "text", required: false },
                     ],
                     on_save: |note| {
-                        note.title = note.fields["last"] + ", " + note.fields["first"];
-                        note
+                        set_title(note.id, note.fields["last"] + ", " + note.fields["first"]);
+                        commit();
                     }
                 });
             "#,
@@ -1329,14 +1330,15 @@ mod tests {
         fields.insert("first".to_string(), FieldValue::Text("John".to_string()));
         fields.insert("last".to_string(), FieldValue::Text("Doe".to_string()));
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("Person", "id-1", "Person", "old title", &fields)
+            .unwrap()
             .unwrap();
 
-        assert!(result.is_some());
-        let (new_title, new_fields) = result.unwrap();
-        assert_eq!(new_title, "Doe, John");
-        assert_eq!(new_fields.get("first"), Some(&FieldValue::Text("John".to_string())));
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id-1").unwrap();
+        assert_eq!(pn.effective_title(), "Doe, John");
+        assert_eq!(pn.effective_fields().get("first"), Some(&FieldValue::Text("John".to_string())));
     }
 
     #[test]
@@ -1373,12 +1375,14 @@ mod tests {
         fields.insert("address_country".to_string(), FieldValue::Text("".to_string()));
         fields.insert("is_family".to_string(), FieldValue::Boolean(false));
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("Contact", "id-1", "Contact", "", &fields)
             .unwrap()
             .unwrap();
 
-        assert_eq!(result.0, "Smith, Jane");
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id-1").unwrap();
+        assert_eq!(pn.effective_title(), "Smith, Jane");
     }
 
     // ── Field flags ─────────────────────────────────────────────────────────
@@ -1527,7 +1531,7 @@ mod tests {
     // ── Boolean / default value edge cases ──────────────────────────────────
 
     #[test]
-    fn test_boolean_field_defaults_to_false_when_absent_from_hook_result() {
+    fn test_boolean_field_not_set_by_hook_is_absent_from_effective_fields() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry
             .load_script(
@@ -1537,26 +1541,31 @@ mod tests {
                         #{ name: "flag", type: "boolean", required: false },
                     ],
                     on_save: |note| {
-                        // intentionally does NOT touch note.fields["flag"]
-                        note
+                        // intentionally does NOT set flag
+                        commit();
                     }
                 });
             "#,
             "test")
             .unwrap();
 
-        // Do NOT include "flag" in the submitted fields — it must default to false.
+        // Do NOT include "flag" in the submitted fields.
+        // In the gated model, effective_fields() = original_fields merged with pending_fields.
+        // Since neither contain "flag", it is absent from the output.
         let fields = BTreeMap::new();
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("FlagNote", "id-1", "FlagNote", "title", &fields)
             .unwrap()
             .unwrap();
 
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id-1").unwrap();
+        // Field was not in submitted fields and hook did not set it — absent from output.
         assert_eq!(
-            result.1.get("flag"),
-            Some(&FieldValue::Boolean(false)),
-            "boolean field absent from hook result should default to false"
+            pn.effective_fields().get("flag"),
+            None,
+            "boolean field absent from input and not set by hook should be absent from effective_fields"
         );
     }
 
@@ -1765,8 +1774,8 @@ mod tests {
             schema("S", #{
                 fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ],
                 on_save: |note| {
-                    note.fields.status = "B";
-                    note
+                    set_field(note.id, "status", "B");
+                    commit();
                 }
             });
         "#, "test").unwrap();
@@ -1774,11 +1783,13 @@ mod tests {
         let mut fields = BTreeMap::new();
         fields.insert("status".to_string(), FieldValue::Text("A".to_string()));
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("S", "id1", "S", "title", &fields)
             .unwrap()
             .unwrap();
-        assert_eq!(result.1["status"], FieldValue::Text("B".to_string()));
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id1").unwrap();
+        assert_eq!(pn.effective_fields()["status"], FieldValue::Text("B".to_string()));
     }
 
     #[test]
@@ -1788,8 +1799,8 @@ mod tests {
             schema("R", #{
                 fields: [ #{ name: "stars", type: "rating", max: 5 } ],
                 on_save: |note| {
-                    note.fields.stars = 4.0;
-                    note
+                    set_field(note.id, "stars", 4.0);
+                    commit();
                 }
             });
         "#, "test").unwrap();
@@ -1797,53 +1808,65 @@ mod tests {
         let mut fields = BTreeMap::new();
         fields.insert("stars".to_string(), FieldValue::Number(0.0));
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("R", "id1", "R", "title", &fields)
             .unwrap()
             .unwrap();
-        assert_eq!(result.1["stars"], FieldValue::Number(4.0));
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id1").unwrap();
+        assert_eq!(pn.effective_fields()["stars"], FieldValue::Number(4.0));
     }
 
     #[test]
-    fn test_select_field_defaults_to_empty_text_when_absent_from_hook_result() {
+    fn test_select_field_not_set_by_hook_is_absent_from_effective_fields() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("S2", #{
                 fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ],
                 on_save: |note| {
-                    // deliberately do NOT set note.fields.status
-                    note
+                    // deliberately do NOT set status
+                    commit();
                 }
             });
         "#, "test").unwrap();
 
+        // In the gated model, effective_fields() = original_fields merged with pending_fields.
+        // Since neither contain "status", it is absent from the output.
         let fields = BTreeMap::new(); // no status field
-        let result = registry
+        let tx = registry
             .run_on_save_hook("S2", "id1", "S2", "title", &fields)
             .unwrap()
             .unwrap();
-        assert_eq!(result.1["status"], FieldValue::Text(String::new()));
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id1").unwrap();
+        // Field was not in submitted fields and hook did not set it — absent from output.
+        assert_eq!(pn.effective_fields().get("status"), None);
     }
 
     #[test]
-    fn test_rating_field_defaults_to_zero_when_absent_from_hook_result() {
+    fn test_rating_field_not_set_by_hook_is_absent_from_effective_fields() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("R2", #{
                 fields: [ #{ name: "stars", type: "rating", max: 5 } ],
                 on_save: |note| {
-                    // deliberately do NOT set note.fields.stars
-                    note
+                    // deliberately do NOT set stars
+                    commit();
                 }
             });
         "#, "test").unwrap();
 
+        // In the gated model, effective_fields() = original_fields merged with pending_fields.
+        // Since neither contain "stars", it is absent from the output.
         let fields = BTreeMap::new(); // no stars field
-        let result = registry
+        let tx = registry
             .run_on_save_hook("R2", "id1", "R2", "title", &fields)
             .unwrap()
             .unwrap();
-        assert_eq!(result.1["stars"], FieldValue::Number(0.0));
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id1").unwrap();
+        // Field was not in submitted fields and hook did not set it — absent from output.
+        assert_eq!(pn.effective_fields().get("stars"), None);
     }
 
     // ── children_sort ───────────────────────────────────────────────────────
@@ -1909,9 +1932,11 @@ mod tests {
 
         let result = registry.run_on_save_hook("Book", "id1", "Book", "Dune", &fields);
         assert!(result.is_ok(), "book hook should not error with unset dates: {:?}", result);
-        let (title, out_fields) = result.unwrap().unwrap();
-        assert_eq!(title, "Herbert: Dune");
-        assert_eq!(out_fields["read_duration"], crate::FieldValue::Text(String::new()));
+        let tx = result.unwrap().unwrap();
+        assert!(tx.committed);
+        let pn = tx.pending_notes.get("id1").unwrap();
+        assert_eq!(pn.effective_title(), "Herbert: Dune");
+        assert_eq!(pn.effective_fields()["read_duration"], crate::FieldValue::Text(String::new()));
     }
 
     // ── render_default_view on ScriptRegistry ───────────────────────────────
@@ -2563,17 +2588,18 @@ mod tests {
             schema("DateTest", #{
                 fields: [#{ name: "dummy", type: "text", required: false }],
                 on_save: |note| {
-                    note.title = today();
-                    note
+                    set_title(note.id, today());
+                    commit();
                 }
             });
         "#, "test").unwrap();
 
-        let result = registry
+        let tx = registry
             .run_on_save_hook("DateTest", "id1", "DateTest", "", &BTreeMap::new())
             .unwrap()
             .unwrap();
-        let (title, _) = result;
+        assert!(tx.committed);
+        let title = tx.pending_notes.get("id1").unwrap().effective_title().to_string();
         // Must be exactly 10 chars: YYYY-MM-DD
         assert_eq!(title.len(), 10, "expected YYYY-MM-DD (10 chars), got: {title}");
         assert_eq!(&title[4..5], "-", "missing year-month separator: {title}");
@@ -2601,8 +2627,8 @@ mod tests {
                         s.trim();
                         if words.len() > 6 { s + " …" } else { s }
                     };
-                    note.title = today() + " — " + snippet;
-                    note
+                    set_title(note.id, today() + " — " + snippet);
+                    commit();
                 }
             });
         "#, "test").unwrap();
@@ -2611,9 +2637,11 @@ mod tests {
         fields.insert("body".to_string(),
             FieldValue::Text("Emergence is when simple rules produce complex behaviour".to_string()));
 
-        let (title, _) = registry
+        let tx = registry
             .run_on_save_hook("ZettelTest", "id1", "ZettelTest", "", &fields)
             .unwrap().unwrap();
+        assert!(tx.committed);
+        let title = tx.pending_notes.get("id1").unwrap().effective_title().to_string();
 
         // Title must start with YYYY-MM-DD (10 chars, dashes at [4] and [7])
         assert_eq!(&title[4..5], "-", "missing year-month separator: {title}");
@@ -2644,15 +2672,17 @@ mod tests {
                         s.trim();
                         if words.len() > 6 { s + " …" } else { s }
                     };
-                    note.title = today() + " — " + snippet;
-                    note
+                    set_title(note.id, today() + " — " + snippet);
+                    commit();
                 }
             });
         "#, "test").unwrap();
 
-        let (title, _) = registry
+        let tx = registry
             .run_on_save_hook("ZettelEmpty", "id2", "ZettelEmpty", "", &std::collections::BTreeMap::new())
             .unwrap().unwrap();
+        assert!(tx.committed);
+        let title = tx.pending_notes.get("id2").unwrap().effective_title().to_string();
         assert!(title.contains("Untitled"), "expected Untitled fallback: {title}");
         // Must still have the date prefix
         assert_eq!(&title[4..5], "-", "missing date separator in untitled title: {title}");

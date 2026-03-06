@@ -29,19 +29,20 @@ schema("Book", #{
         let title  = note.fields["book_title"];
         let author = note.fields["author"];
 
-        note.title = if author != "" && title != "" {
+        let new_title = if author != "" && title != "" {
             author + ": " + title
         } else if title != "" {
             title
         } else {
             "Untitled Book"
         };
+        set_title(note.id, new_title);
 
         let started  = note.fields["started"];
         let finished = note.fields["finished"];
         // Date fields are () (unit/null) when unset — type_of check is needed
         // because the ?? operator only handles unit, not an absent string.
-        note.fields["read_duration"] = if type_of(started) == "string" && started != ""
+        let duration = if type_of(started) == "string" && started != ""
             && type_of(finished) == "string" && finished != "" {
             let s_parts = started.split("-");
             let f_parts = finished.split("-");
@@ -57,8 +58,9 @@ schema("Book", #{
         } else {
             ""
         };
+        set_field(note.id, "read_duration", duration);
 
-        note
+        commit();
     }
 });
 

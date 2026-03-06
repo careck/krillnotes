@@ -7,6 +7,7 @@
 //! Schema definitions and the private schema store for Krillnotes note types.
 
 use crate::{FieldValue, KrillnotesError, Result};
+use crate::core::save_transaction::SaveTransaction;
 use chrono::NaiveDate;
 use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
@@ -485,6 +486,15 @@ impl SchemaRegistry {
 
     /// Runs the on_save hook for `schema_name`, if registered.
     ///
+    /// Returns `Ok(None)` when no hook is registered.
+    /// Returns `Ok(Some(tx))` with the populated [`SaveTransaction`] on success.
+    /// The transaction's `committed` flag indicates whether `commit()` was called.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error, or if
+    /// the hook returns a Map (old-style mutation) instead of using `set_field`/`commit`.
+    ///
     /// Called from [`ScriptRegistry::run_on_save_hook`](super::ScriptRegistry::run_on_save_hook).
     pub(super) fn run_on_save_hook(
         &self,
@@ -494,7 +504,7 @@ impl SchemaRegistry {
         node_type: &str,
         title: &str,
         fields: &BTreeMap<String, FieldValue>,
-    ) -> Result<Option<(String, BTreeMap<String, FieldValue>)>> {
+    ) -> Result<Option<SaveTransaction>> {
         let entry = {
             let hooks = self.on_save_hooks
                 .lock()
@@ -516,38 +526,39 @@ impl SchemaRegistry {
         note_map.insert("title".into(),     Dynamic::from(title.to_string()));
         note_map.insert("fields".into(),    Dynamic::from(fields_map));
 
+        // Populate the thread-local SaveTransaction before calling the hook.
+        let tx = SaveTransaction::for_existing_note(
+            note_id.to_string(),
+            node_type.to_string(),
+            title.to_string(),
+            fields.clone(),
+        );
+        super::set_save_tx(tx);
+
         let result = entry
             .fn_ptr
-            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("on_save hook error in '{}': {e}", entry.script_name)))?;
+            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),));
 
-        let result_map = result.try_cast::<Map>().ok_or_else(|| {
-            KrillnotesError::Scripting("on_save hook must return the note map".to_string())
+        // Always take the SaveTransaction back before checking errors.
+        let tx = super::take_save_tx().unwrap_or_default();
+
+        let result = result.map_err(|e| {
+            KrillnotesError::Scripting(format!("on_save hook error in '{}': {e}", entry.script_name))
         })?;
 
-        let new_title = result_map
-            .get("title")
-            .and_then(|v| v.clone().try_cast::<String>())
-            .ok_or_else(|| KrillnotesError::Scripting("hook result 'title' must be a string".to_string()))?;
-
-        let new_fields_dyn = result_map
-            .get("fields")
-            .and_then(|v| v.clone().try_cast::<Map>())
-            .ok_or_else(|| KrillnotesError::Scripting("hook result 'fields' must be a map".to_string()))?;
-
-        let mut new_fields = BTreeMap::new();
-        for field_def in &schema.fields {
-            let dyn_val = new_fields_dyn
-                .get(field_def.name.as_str())
-                .cloned()
-                .unwrap_or(Dynamic::UNIT);
-            let fv = dynamic_to_field_value(dyn_val, &field_def.field_type).map_err(|e| {
-                KrillnotesError::Scripting(format!("field '{}': {}", field_def.name, e))
-            })?;
-            new_fields.insert(field_def.name.clone(), fv);
+        // Old-style hooks return the note map. Detect and reject with a clear migration message.
+        if result.is::<Map>() {
+            return Err(KrillnotesError::Scripting(
+                format!(
+                    "on_save hook in '{}' uses the old direct-mutation style (returns the note map). \
+                     Migrate to the gated model: use set_field(note.id, \"field\", value), \
+                     set_title(note.id, \"title\"), and commit() instead.",
+                    entry.script_name
+                )
+            ));
         }
 
-        Ok(Some((new_title, new_fields)))
+        Ok(Some(tx))
     }
 
     /// Runs the on_view hook for `schema_name`, if registered.

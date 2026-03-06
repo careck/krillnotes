@@ -58,8 +58,8 @@ schema("Contact", #{
         let last  = note.fields["last_name"];
         let first = note.fields["first_name"];
         if last != "" || first != "" {
-            note.title = last + ", " + first;
+            set_title(note.id, last + ", " + first);
         }
-        note
+        commit();
     }
 });
