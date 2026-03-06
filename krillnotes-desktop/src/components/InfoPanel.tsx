@@ -419,7 +419,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     return new Date(timestamp * 1000).toLocaleString();
   };
 
-  const schemaFieldNames = new Set(schemaInfo.fields.map(f => f.name));
+  const schemaFieldNames = new Set([
+    ...schemaInfo.fields.map(f => f.name),
+    ...schemaInfo.fieldGroups.flatMap(g => g.fields.map(f => f.name)),
+  ]);
   const allFieldNames = Object.keys(selectedNote.fields);
   const legacyFieldNames = allFieldNames.filter(name => !schemaFieldNames.has(name));
 
