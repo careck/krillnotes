@@ -801,6 +801,11 @@ impl ScriptRegistry {
         self.schema_registry.get(name)
     }
 
+    /// Exposes the Rhai engine for direct `FnPtr::call` use (e.g. migration closures).
+    pub(crate) fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
     /// Returns the names of all currently registered schemas.
     pub fn list_types(&self) -> Result<Vec<String>> {
         Ok(self.schema_registry.list())
@@ -890,6 +895,38 @@ impl ScriptRegistry {
     /// Returns warnings from unresolved deferred bindings.
     pub fn get_script_warnings(&self) -> Vec<ScriptWarning> {
         self.schema_registry.get_warnings()
+    }
+
+    /// Adds a warning to the script warning list.
+    pub fn add_warning(&self, script_name: &str, message: &str) {
+        self.schema_registry.add_warning(script_name, message);
+    }
+
+    /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
+    pub fn get_versioned_schemas(&self) -> Vec<(String, u32, std::collections::BTreeMap<u32, FnPtr>, Option<AST>)> {
+        self.schema_registry.get_versioned_schemas()
+    }
+
+    /// Converts a Rhai map (returned by a migration closure) into typed [`FieldValue`]s,
+    /// using the schema's field type definitions to guide the conversion.
+    pub fn rhai_map_to_fields(
+        &self,
+        map: &Map,
+        schema_name: &str,
+    ) -> Result<BTreeMap<String, FieldValue>> {
+        let schema = self.schema_registry.get(schema_name)?;
+        let mut result = BTreeMap::new();
+        for (key, val) in map {
+            let field_type = schema.fields.iter()
+                .find(|f| f.name == key.as_str())
+                .map(|f| f.field_type.as_str())
+                .unwrap_or("text");
+            result.insert(
+                key.to_string(),
+                schema::dynamic_to_field_value(val.clone(), field_type),
+            );
+        }
+        Ok(result)
     }
 
     /// Resolves deferred bindings against registered schemas.

@@ -91,6 +91,9 @@ pub struct Workspace {
     /// Optional Ed25519 signing key bound to the active identity.
     /// When `Some`, every logged operation is signed before being written.
     signing_key: Option<ed25519_dalek::SigningKey>,
+    /// Migration results from Phase D (run on workspace open).
+    /// Drained by Tauri after the workspace is stored in AppState, to emit events.
+    pub pending_migration_results: Vec<(String, u32, u32, u32)>,
 }
 
 impl Workspace {
@@ -279,6 +282,7 @@ impl Workspace {
             inside_undo: false,
             hlc,
             signing_key,
+            pending_migration_results: Vec::new(),
         };
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
@@ -383,6 +387,7 @@ impl Workspace {
             inside_undo: false,
             hlc,
             signing_key,
+            pending_migration_results: Vec::new(),
         };
 
         // Two-phase script loading: presentation first, then schema, then resolve.
@@ -400,6 +405,9 @@ impl Workspace {
             }
         }
         ws.script_registry.resolve_bindings();
+
+        // Phase D: batch-migrate notes whose schema_version is behind current schema.
+        ws.pending_migration_results = ws.run_schema_migrations()?;
 
         // Clean up any .enc.trash files left from a previous session.
         // Undo stacks are in-session only, so prior-session trash is always safe to remove.
@@ -519,6 +527,159 @@ impl Workspace {
         if let Some(key) = signing_key {
             op.sign(key);
         }
+    }
+
+    /// Phase D: batch-migrate notes whose `schema_version` is behind the current schema version.
+    ///
+    /// For each schema that has `migrations` defined, queries all notes of that type with a
+    /// stale `schema_version`, chains the migration closures in order, and commits the results
+    /// in a single transaction. Logs one `UpdateSchema` operation per migrated schema type.
+    ///
+    /// Returns `(schema_name, min_from_version, to_version, notes_migrated)` for each schema
+    /// type that had migrations to run.
+    fn run_schema_migrations(&mut self) -> Result<Vec<(String, u32, u32, u32)>> {
+        let versioned_schemas = self.script_registry.get_versioned_schemas();
+        let mut results = Vec::new();
+
+        for (schema_name, schema_version, migrations, ast) in versioned_schemas {
+            if migrations.is_empty() {
+                continue;
+            }
+
+            // Query notes that are behind the current schema version.
+            let stale_notes: Vec<(String, String, String, u32)> = {
+                let conn = self.storage.connection();
+                let mut stmt = conn.prepare(
+                    "SELECT id, title, fields_json, schema_version \
+                     FROM notes WHERE node_type = ?1 AND schema_version < ?2",
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![&schema_name, schema_version],
+                    |row| Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, u32>(3)?,
+                    )),
+                )?.collect::<rusqlite::Result<Vec<_>>>()?;
+                rows
+            };
+
+            if stale_notes.is_empty() {
+                continue;
+            }
+
+            let min_version = stale_notes.iter().map(|n| n.3).min().unwrap_or(1);
+            let notes_count = stale_notes.len() as u32;
+
+            let ast = match ast {
+                Some(a) => a,
+                None => {
+                    self.script_registry.add_warning(
+                        &schema_name,
+                        &format!("Schema '{}' has migrations but no AST — skipping Phase D", schema_name),
+                    );
+                    continue;
+                }
+            };
+
+            let tx = self.storage.connection_mut().transaction()?;
+            let mut any_failed = false;
+
+            for (note_id, title, fields_json, note_version) in &stale_notes {
+                let fields: std::collections::BTreeMap<String, crate::FieldValue> =
+                    serde_json::from_str(fields_json).unwrap_or_default();
+
+                // Build note map for the migration closure.
+                let mut fields_map = rhai::Map::new();
+                for (k, v) in &fields {
+                    fields_map.insert(k.as_str().into(), crate::core::scripting::field_value_to_dynamic(v));
+                }
+                let mut note_map = rhai::Map::new();
+                note_map.insert("title".into(),  rhai::Dynamic::from(title.clone()));
+                note_map.insert("fields".into(), rhai::Dynamic::from(fields_map));
+
+                // Chain migration closures from note_version+1 to schema_version.
+                let mut migration_error = false;
+                for target_ver in (*note_version + 1)..=schema_version {
+                    if let Some(fn_ptr) = migrations.get(&target_ver) {
+                        match fn_ptr.call::<rhai::Dynamic>(
+                            self.script_registry.engine(),
+                            &ast,
+                            (rhai::Dynamic::from(note_map.clone()),),
+                        ) {
+                            Ok(returned) => {
+                                if let Some(m) = returned.try_cast::<rhai::Map>() {
+                                    note_map = m;
+                                }
+                            }
+                            Err(e) => {
+                                self.script_registry.add_warning(
+                                    &schema_name,
+                                    &format!(
+                                        "Migration to v{} failed for note '{}': {}",
+                                        target_ver, note_id, e
+                                    ),
+                                );
+                                migration_error = true;
+                                break;
+                            }
+                        }
+                    }
+                    // No closure for this version → pass-through (schema-compatible gap).
+                }
+
+                if migration_error {
+                    any_failed = true;
+                    break;
+                }
+
+                // Extract new title and fields from the migrated map.
+                let new_title = note_map.get("title")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .unwrap_or_else(|| title.clone());
+                let new_fields_json = if let Some(fm) = note_map.get("fields")
+                    .and_then(|v| v.clone().try_cast::<rhai::Map>())
+                {
+                    let converted = self.script_registry.rhai_map_to_fields(&fm, &schema_name)?;
+                    serde_json::to_string(&converted)?
+                } else {
+                    fields_json.clone()
+                };
+
+                tx.execute(
+                    "UPDATE notes SET title = ?1, fields_json = ?2, schema_version = ?3 WHERE id = ?4",
+                    rusqlite::params![new_title, new_fields_json, schema_version, note_id],
+                )?;
+            }
+
+            if any_failed {
+                // tx is dropped without commit → automatic rollback.
+                continue;
+            }
+
+            // Log the UpdateSchema operation.
+            let ts = self.hlc.now();
+            Self::save_hlc(&ts, &tx)?;
+            let mut op = Operation::UpdateSchema {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                timestamp: ts,
+                device_id: self.device_id.clone(),
+                signature: String::new(),
+                updated_by: String::new(),
+                schema_name: schema_name.clone(),
+                from_version: min_version,
+                to_version: schema_version,
+                notes_migrated: notes_count,
+            };
+            Self::sign_op_with(&self.signing_key, &mut op);
+            Self::log_op(&self.operation_log, &tx, &op)?;
+
+            tx.commit()?;
+            results.push((schema_name, min_version, schema_version, notes_count));
+        }
+
+        Ok(results)
     }
 
     /// Returns `true` if there is at least one action to undo.
@@ -6742,5 +6903,224 @@ schema("RequiredItem", #{ version: 1,
             }
             other => panic!("expected ValidationErrors for missing required field, got: {:?}", other),
         }
+    }
+
+    // ── Migration pipeline tests ──────────────────────────────────────────────
+
+    /// Create a workspace, seed it with a schema v1 note, then manually lower the note's
+    /// `schema_version` in the DB (simulating stale state after a schema bump), load the
+    /// v2 schema with a field-rename migration, call `run_schema_migrations()`, and assert
+    /// the field was renamed and `schema_version` updated.
+    #[test]
+    fn migration_renames_field_on_version_bump() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        // Register a v1 schema with a "phone" field.
+        ws.create_user_script(
+            r#"// @name: MigTest
+// @description: migration test type
+schema("MigType", #{
+    version: 1,
+    fields: [
+        #{ name: "phone", type: "text", required: false },
+    ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        let note_id = ws.create_note(&root_id, AddPosition::AsChild, "MigType").unwrap();
+
+        // Write "phone" field.
+        let mut fields = BTreeMap::new();
+        fields.insert("phone".to_string(), FieldValue::Text("555-1234".to_string()));
+        ws.update_note(&note_id, "Contact".to_string(), fields).unwrap();
+
+        // Manually set schema_version = 0 to simulate a stale note.
+        ws.connection().execute(
+            "UPDATE notes SET schema_version = 0 WHERE id = ?1",
+            rusqlite::params![&note_id],
+        ).unwrap();
+
+        // Update the script to v2 with a migration that renames phone → mobile.
+        let scripts = ws.list_user_scripts().unwrap();
+        let script_id = scripts.iter().find(|s| s.name == "MigTest").unwrap().id.clone();
+        ws.update_user_script(
+            &script_id,
+            r#"// @name: MigTest
+// @description: migration test type
+schema("MigType", #{
+    version: 2,
+    fields: [
+        #{ name: "mobile", type: "text", required: false },
+    ],
+    migrate: #{
+        "2": |note| {
+            note.fields["mobile"] = note.fields["phone"];
+            note.fields.remove("phone");
+            note
+        }
+    }
+});"#,
+        ).unwrap();
+
+        // Reload and run migrations.
+        ws.reload_scripts().unwrap();
+        let results = ws.run_schema_migrations().unwrap();
+
+        assert_eq!(results.len(), 1, "expected 1 migration result, got: {:?}", results);
+        assert_eq!(results[0].0, "MigType");
+        assert_eq!(results[0].3, 1, "should have migrated 1 note");
+
+        let note = ws.get_note(&note_id).unwrap();
+        assert_eq!(note.schema_version, 2);
+        assert_eq!(note.fields.get("mobile"), Some(&FieldValue::Text("555-1234".to_string())));
+        assert!(!note.fields.contains_key("phone"), "old field should be removed");
+    }
+
+    /// Notes that are already at the current schema version must not be re-migrated.
+    #[test]
+    fn migration_skips_up_to_date_notes() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        ws.create_user_script(
+            r#"// @name: UpToDate
+schema("UpToDateType", #{
+    version: 1,
+    fields: [ #{ name: "val", type: "text", required: false } ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        ws.create_note(&root_id, AddPosition::AsChild, "UpToDateType").unwrap();
+
+        // No stale notes → results should be empty.
+        let results = ws.run_schema_migrations().unwrap();
+        assert!(results.is_empty(), "expected no migrations, got: {:?}", results);
+    }
+
+    /// Migration closures must chain: a note at v1 with a schema at v3 should pass through
+    /// closures for v2 and v3 in order.
+    #[test]
+    fn migration_chains_across_multiple_versions() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        ws.create_user_script(
+            r#"// @name: ChainTest
+schema("ChainType", #{
+    version: 1,
+    fields: [ #{ name: "val", type: "text", required: false } ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        let note_id = ws.create_note(&root_id, AddPosition::AsChild, "ChainType").unwrap();
+        let mut fields = BTreeMap::new();
+        fields.insert("val".to_string(), FieldValue::Text("original".to_string()));
+        ws.update_note(&note_id, "N".to_string(), fields).unwrap();
+
+        // Force note to schema_version = 0.
+        ws.connection().execute(
+            "UPDATE notes SET schema_version = 0 WHERE id = ?1",
+            rusqlite::params![&note_id],
+        ).unwrap();
+
+        let scripts = ws.list_user_scripts().unwrap();
+        let sid = scripts.iter().find(|s| s.name == "ChainTest").unwrap().id.clone();
+        ws.update_user_script(
+            &sid,
+            r#"// @name: ChainTest
+schema("ChainType", #{
+    version: 3,
+    fields: [ #{ name: "val", type: "text", required: false } ],
+    migrate: #{
+        "2": |note| { note.fields["val"] = note.fields["val"] + "_v2"; note },
+        "3": |note| { note.fields["val"] = note.fields["val"] + "_v3"; note }
+    }
+});"#,
+        ).unwrap();
+
+        ws.reload_scripts().unwrap();
+        ws.run_schema_migrations().unwrap();
+
+        let note = ws.get_note(&note_id).unwrap();
+        assert_eq!(note.schema_version, 3);
+        assert_eq!(note.fields.get("val"), Some(&FieldValue::Text("original_v2_v3".to_string())));
+    }
+
+    /// Version downgrade must be rejected when a higher-version schema is already registered.
+    #[test]
+    fn schema_version_downgrade_rejected() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        // Register v2.
+        ws.create_user_script(
+            r#"// @name: DowngradeTest
+schema("DowngradeType", #{
+    version: 2,
+    fields: []
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+        assert!(ws.script_registry.schema_exists("DowngradeType"));
+
+        // Try to update to v1 — update_user_script pre-validates and must reject downgrade.
+        let scripts = ws.list_user_scripts().unwrap();
+        let sid = scripts.iter().find(|s| s.name == "DowngradeTest").unwrap().id.clone();
+        let result = ws.update_user_script(
+            &sid,
+            r#"// @name: DowngradeTest
+schema("DowngradeType", #{
+    version: 1,
+    fields: []
+});"#,
+        );
+        assert!(result.is_err(), "downgrade should be rejected");
+
+        // The schema must still be at v2 after the failed update.
+        let schema = ws.script_registry.get_schema("DowngradeType").unwrap();
+        assert_eq!(schema.version, 2, "schema must not have been downgraded");
+    }
+
+    /// Re-registering a schema with the same version number must succeed without error.
+    #[test]
+    fn schema_same_version_reregistration_allowed() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        ws.create_user_script(
+            r#"// @name: SameVerTest
+schema("SameVerType", #{
+    version: 1,
+    fields: [ #{ name: "alpha", type: "text", required: false } ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let scripts = ws.list_user_scripts().unwrap();
+        let sid = scripts.iter().find(|s| s.name == "SameVerTest").unwrap().id.clone();
+        ws.update_user_script(
+            &sid,
+            r#"// @name: SameVerTest
+schema("SameVerType", #{
+    version: 1,
+    fields: [
+        #{ name: "alpha", type: "text", required: false },
+        #{ name: "beta",  type: "text", required: false },
+    ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        // Should now have 2 fields, no error.
+        let schema = ws.script_registry.get_schema("SameVerType").unwrap();
+        assert_eq!(schema.version, 1);
+        assert_eq!(schema.fields.len(), 2, "expected 2 fields after same-version re-registration");
     }
 }

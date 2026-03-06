@@ -538,6 +538,22 @@ impl SchemaRegistry {
         self.warnings.lock().unwrap().clone()
     }
 
+    pub(super) fn add_warning(&self, script_name: &str, message: &str) {
+        self.warnings.lock().unwrap().push(ScriptWarning {
+            script_name: script_name.to_string(),
+            message: message.to_string(),
+        });
+    }
+
+    /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
+    /// Used by the Phase D migration pipeline to detect and migrate stale notes.
+    pub(super) fn get_versioned_schemas(&self) -> Vec<(String, u32, std::collections::BTreeMap<u32, FnPtr>, Option<rhai::AST>)> {
+        self.schemas.lock().unwrap()
+            .values()
+            .map(|s| (s.name.clone(), s.version, s.migrations.clone(), s.ast.clone()))
+            .collect()
+    }
+
     /// Returns a map of note_type -> [menu_label, ...] for all registered menu actions.
     pub fn menu_action_map(&self) -> HashMap<String, Vec<String>> {
         let regs = self.menu_registrations.lock().unwrap();
@@ -1021,6 +1037,33 @@ pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
         FieldValue::NoteLink(Some(id)) => Dynamic::from(id.clone()),
         FieldValue::File(None) => Dynamic::UNIT,
         FieldValue::File(Some(id)) => Dynamic::from(id.clone()),
+    }
+}
+
+/// Converts a Rhai [`Dynamic`] value back to a [`FieldValue`] using the field type hint
+/// from the schema definition.  Used by the Phase D migration pipeline after closures run.
+pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> FieldValue {
+    use chrono::NaiveDate;
+    match field_type {
+        "number" | "rating" => {
+            let n = d.clone().try_cast::<f64>()
+                .or_else(|| d.clone().try_cast::<i64>().map(|i| i as f64))
+                .unwrap_or(0.0);
+            FieldValue::Number(n)
+        }
+        "boolean" => FieldValue::Boolean(d.try_cast::<bool>().unwrap_or(false)),
+        "date" => {
+            let s = d.try_cast::<String>().unwrap_or_default();
+            FieldValue::Date(NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
+        }
+        "email" => FieldValue::Email(d.try_cast::<String>().unwrap_or_default()),
+        "note_link" => FieldValue::NoteLink(
+            d.try_cast::<String>().filter(|s| !s.is_empty())
+        ),
+        "file" => FieldValue::File(
+            d.try_cast::<String>().filter(|s| !s.is_empty())
+        ),
+        _ => FieldValue::Text(d.try_cast::<String>().unwrap_or_default()),
     }
 }
 
