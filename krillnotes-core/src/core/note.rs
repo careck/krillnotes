@@ -65,7 +65,12 @@ pub struct Note {
     /// `#[serde(default)]` allows importing archives from before the tags feature.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Schema version this note was created/migrated with.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
 }
+
+fn default_schema_version() -> u32 { 1 }
 
 #[cfg(test)]
 mod tests {
@@ -85,7 +90,7 @@ mod tests {
             modified_by: 0,
             fields: BTreeMap::new(),
             is_expanded: true,
-            tags: vec![],
+            tags: vec![], schema_version: 1,
         };
 
         assert_eq!(note.title, "Test Note");

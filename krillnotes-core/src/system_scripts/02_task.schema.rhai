@@ -8,6 +8,7 @@
 // @description: A trackable to-do item with status, priority, and due date.
 
 schema("Task", #{
+    version: 1,
     title_can_edit: false,
     fields: [
         #{ name: "name",           type: "text",     required: true                     },

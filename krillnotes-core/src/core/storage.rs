@@ -309,6 +309,19 @@ impl Storage {
             )?;
         }
 
+        // Migration: add schema_version column to notes if absent.
+        let schema_version_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='schema_version'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !schema_version_exists {
+            conn.execute(
+                "ALTER TABLE notes ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

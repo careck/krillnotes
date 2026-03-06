@@ -8,6 +8,7 @@
 // @description: A piece of work with status, priority, and optional dates.
 
 schema("Project", #{
+    version: 1,
     title_can_edit: true,
     fields: [
         #{ name: "status",      type: "select",   required: true,

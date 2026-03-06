@@ -24,11 +24,19 @@ export interface Note {
   fields: Record<string, FieldValue>;
   isExpanded: boolean;
   tags: string[];
+  schemaVersion: number;
 }
 
 export interface TreeNode {
   note: Note;
   children: TreeNode[];
+}
+
+export interface SchemaMigratedEvent {
+  schemaName: string;
+  fromVersion: number;
+  toVersion: number;
+  notesMigrated: number;
 }
 
 export type FieldValue =

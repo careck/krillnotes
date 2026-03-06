@@ -8,6 +8,7 @@
 // @description: A contact folder and contact card with name, address, and communication details.
 
 schema("ContactsFolder", #{
+    version: 1,
     children_sort: "asc",
     allowed_children_types: ["Contact"],
     fields: [
@@ -16,6 +17,7 @@ schema("ContactsFolder", #{
 });
 
 schema("Contact", #{
+    version: 1,
     title_can_edit: false,
     allowed_parent_types: ["ContactsFolder"],
     fields: [

@@ -528,15 +528,26 @@ async fn open_workspace(
             };
 
             let signing_key = Ed25519SigningKey::from_bytes(&seed);
-            let workspace = Workspace::open(&db_path, &db_password, Some(signing_key))
+            let mut workspace = Workspace::open(&db_path, &db_password, Some(signing_key))
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
                     other => format!("Failed to open: {other}"),
                 })?;
 
+            let migration_results = std::mem::take(&mut workspace.pending_migration_results);
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone());
+
+            // Emit one event per migrated schema type so the frontend can show a toast.
+            for (schema_name, from_version, to_version, notes_migrated) in &migration_results {
+                let _ = new_window.emit("schema-migrated", serde_json::json!({
+                    "schemaName": schema_name,
+                    "fromVersion": from_version,
+                    "toVersion": to_version,
+                    "notesMigrated": notes_migrated,
+                }));
+            }
 
             new_window.set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;

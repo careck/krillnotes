@@ -197,6 +197,27 @@ pub enum Operation {
         /// Ed25519 signature over the canonical JSON payload (base64).
         signature: String,
     },
+    /// A schema was updated and notes were migrated to the new version.
+    UpdateSchema {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// HLC timestamp when the migration ran.
+        timestamp: HlcTimestamp,
+        /// ID of the device that performed the migration.
+        device_id: String,
+        /// The schema that was updated.
+        schema_name: String,
+        /// The minimum note version before migration.
+        from_version: u32,
+        /// The schema version notes were migrated to.
+        to_version: u32,
+        /// Number of notes that were migrated.
+        notes_migrated: u32,
+        /// Public key (base64) of the identity that ran the migration.
+        updated_by: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
     /// Reverses one or more previously logged operations (undo).
     ///
     /// `retracted_ids` lists all operation IDs this retract covers.
@@ -231,6 +252,7 @@ impl Operation {
             | Self::CreateUserScript { operation_id, .. }
             | Self::UpdateUserScript { operation_id, .. }
             | Self::DeleteUserScript { operation_id, .. }
+            | Self::UpdateSchema { operation_id, .. }
             | Self::RetractOperation { operation_id, .. } => operation_id,
         }
     }
@@ -248,6 +270,7 @@ impl Operation {
             | Self::CreateUserScript { timestamp, .. }
             | Self::UpdateUserScript { timestamp, .. }
             | Self::DeleteUserScript { timestamp, .. }
+            | Self::UpdateSchema { timestamp, .. }
             | Self::RetractOperation { timestamp, .. } => *timestamp,
         }
     }
@@ -265,6 +288,7 @@ impl Operation {
             | Self::CreateUserScript { device_id, .. }
             | Self::UpdateUserScript { device_id, .. }
             | Self::DeleteUserScript { device_id, .. }
+            | Self::UpdateSchema { device_id, .. }
             | Self::RetractOperation { device_id, .. } => device_id,
         }
     }
@@ -284,6 +308,7 @@ impl Operation {
             Self::CreateUserScript { created_by, .. } => created_by,
             Self::UpdateUserScript { modified_by, .. } => modified_by,
             Self::DeleteUserScript { deleted_by, .. } => deleted_by,
+            Self::UpdateSchema { updated_by, .. } => updated_by,
             Self::RetractOperation { .. } => "",
         }
     }
@@ -301,6 +326,7 @@ impl Operation {
             Self::CreateUserScript { created_by, .. } => *created_by = key,
             Self::UpdateUserScript { modified_by, .. } => *modified_by = key,
             Self::DeleteUserScript { deleted_by, .. } => *deleted_by = key,
+            Self::UpdateSchema { updated_by, .. } => *updated_by = key,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -315,7 +341,8 @@ impl Operation {
             | Self::SetTags { signature, .. }
             | Self::CreateUserScript { signature, .. }
             | Self::UpdateUserScript { signature, .. }
-            | Self::DeleteUserScript { signature, .. } => *signature = sig,
+            | Self::DeleteUserScript { signature, .. }
+            | Self::UpdateSchema { signature, .. } => *signature = sig,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -330,7 +357,8 @@ impl Operation {
             | Self::SetTags { signature, .. }
             | Self::CreateUserScript { signature, .. }
             | Self::UpdateUserScript { signature, .. }
-            | Self::DeleteUserScript { signature, .. } => signature,
+            | Self::DeleteUserScript { signature, .. }
+            | Self::UpdateSchema { signature, .. } => signature,
             Self::RetractOperation { .. } => "",
         }
     }

@@ -202,6 +202,7 @@ impl OperationLog {
             Operation::CreateUserScript { .. } => "CreateUserScript",
             Operation::UpdateUserScript { .. } => "UpdateUserScript",
             Operation::DeleteUserScript { .. } => "DeleteUserScript",
+            Operation::UpdateSchema { .. } => "UpdateSchema",
             Operation::RetractOperation { .. } => "RetractOperation",
         }
     }
@@ -230,6 +231,10 @@ impl OperationLog {
         // DeleteUserScript has "script_id"
         if let Some(script_id) = value.get("script_id").and_then(|v| v.as_str()) {
             return script_id.to_string();
+        }
+        // UpdateSchema has "schema_name"
+        if let Some(schema_name) = value.get("schema_name").and_then(|v| v.as_str()) {
+            return schema_name.to_string();
         }
 
         String::new()

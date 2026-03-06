@@ -599,7 +599,7 @@ mod tests {
 
         // Add a user script (unique name to avoid collision with starters)
         let script_source =
-            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ fields: [] });";
+            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ version: 1, fields: [] });";
         ws.create_user_script(script_source).unwrap();
 
         // Export to a buffer
@@ -639,7 +639,7 @@ mod tests {
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
 
         let script_source =
-            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ fields: [] });";
+            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ version: 1, fields: [] });";
         ws.create_user_script(script_source).unwrap();
 
         // Export to a buffer
@@ -679,7 +679,7 @@ mod tests {
             .unwrap();
 
         let script_source =
-            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ fields: [] });";
+            "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ version: 1, fields: [] });";
         ws.create_user_script(script_source).unwrap();
 
         // Export

@@ -317,6 +317,20 @@ impl ScriptRegistry {
 
             let mut s = Schema::parse_from_rhai(&name, &def)
                 .map_err(|e| -> Box<EvalAltResult> { e.to_string().into() })?;
+
+            // Version guard: prevent downgrades
+            {
+                let schemas = schemas_arc.lock().unwrap();
+                if let Some(existing) = schemas.get(&name) {
+                    if s.version < existing.version {
+                        return Err(format!(
+                            "Schema '{}' version {} cannot replace existing version {} — downgrade not allowed",
+                            name, s.version, existing.version
+                        ).into());
+                    }
+                }
+            }
+
             // Store the script AST so validate/visible closures can be called later.
             s.ast = schema_ast_arc.lock().unwrap().clone();
             schemas_arc.lock().unwrap().insert(name.clone(), s);
@@ -787,6 +801,11 @@ impl ScriptRegistry {
         self.schema_registry.get(name)
     }
 
+    /// Exposes the Rhai engine for direct `FnPtr::call` use (e.g. migration closures).
+    pub(crate) fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
     /// Returns the names of all currently registered schemas.
     pub fn list_types(&self) -> Result<Vec<String>> {
         Ok(self.schema_registry.list())
@@ -876,6 +895,38 @@ impl ScriptRegistry {
     /// Returns warnings from unresolved deferred bindings.
     pub fn get_script_warnings(&self) -> Vec<ScriptWarning> {
         self.schema_registry.get_warnings()
+    }
+
+    /// Adds a warning to the script warning list.
+    pub fn add_warning(&self, script_name: &str, message: &str) {
+        self.schema_registry.add_warning(script_name, message);
+    }
+
+    /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
+    pub fn get_versioned_schemas(&self) -> Vec<(String, u32, std::collections::BTreeMap<u32, FnPtr>, Option<AST>)> {
+        self.schema_registry.get_versioned_schemas()
+    }
+
+    /// Converts a Rhai map (returned by a migration closure) into typed [`FieldValue`]s,
+    /// using the schema's field type definitions to guide the conversion.
+    pub fn rhai_map_to_fields(
+        &self,
+        map: &Map,
+        schema_name: &str,
+    ) -> Result<BTreeMap<String, FieldValue>> {
+        let schema = self.schema_registry.get(schema_name)?;
+        let mut result = BTreeMap::new();
+        for (key, val) in map {
+            let field_type = schema.fields.iter()
+                .find(|f| f.name == key.as_str())
+                .map(|f| f.field_type.as_str())
+                .unwrap_or("text");
+            result.insert(
+                key.to_string(),
+                schema::dynamic_to_field_value(val.clone(), field_type),
+            );
+        }
+        Ok(result)
     }
 
     /// Resolves deferred bindings against registered schemas.
@@ -1176,7 +1227,7 @@ mod tests {
     fn test_on_save_inside_schema_sets_title() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Person", #{
+            schema("Person", #{ version: 1,
                 fields: [
                     #{ name: "first", type: "text", required: false },
                     #{ name: "last",  type: "text", required: false },
@@ -1211,7 +1262,7 @@ mod tests {
             });
         "#, "test_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [],
             });
         "#, "test.schema.rhai").unwrap();
@@ -1222,7 +1273,7 @@ mod tests {
             id: "n1".to_string(), node_type: "Folder".to_string(),
             title: "F".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![],
+            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: std::collections::HashMap::new(),
@@ -1245,7 +1296,7 @@ mod tests {
         registry
             .load_script(
                 r#"
-                schema("Widget", #{
+                schema("Widget", #{ version: 1,
                     fields: [ #{ name: "label", type: "text", required: false } ],
                     on_save: |note| { note }
                 });
@@ -1264,7 +1315,7 @@ mod tests {
         registry
             .load_script(
                 r#"
-                schema("TestNote", #{
+                schema("TestNote", #{ version: 1,
                     fields: [
                         #{ name: "body", type: "text", required: false },
                         #{ name: "count", type: "number", required: false },
@@ -1288,12 +1339,12 @@ mod tests {
 
         // First script registers "Contact" — should succeed.
         registry.load_script(r#"
-            schema("Contact", #{ fields: [] });
+            schema("Contact", #{ version: 1, fields: [] });
         "#, "script_a").expect("first registration should succeed");
 
         // Second script tries to register "Contact" — should fail.
         let err = registry.load_script(r#"
-            schema("Contact", #{ fields: [] });
+            schema("Contact", #{ version: 1, fields: [] });
         "#, "script_b").expect_err("second registration should fail");
 
         let msg = err.to_string();
@@ -1306,14 +1357,14 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
 
         registry.load_script(r#"
-            schema("Widget", #{
+            schema("Widget", #{ version: 1,
                 fields: [ #{ name: "color", type: "text", required: false } ],
             });
         "#, "owner_script").unwrap();
 
         // Collision attempt — should fail.
         let _ = registry.load_script(r#"
-            schema("Widget", #{
+            schema("Widget", #{ version: 1,
                 fields: [ #{ name: "size", type: "number", required: false } ],
             });
         "#, "intruder_script");
@@ -1329,14 +1380,14 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
 
         registry.load_script(r#"
-            schema("Reloadable", #{ fields: [] });
+            schema("Reloadable", #{ version: 1, fields: [] });
         "#, "script_one").unwrap();
 
         // After clear_all, the owner record is gone — so the same name can be registered again.
         registry.clear_all();
 
         registry.load_script(r#"
-            schema("Reloadable", #{ fields: [] });
+            schema("Reloadable", #{ version: 1, fields: [] });
         "#, "script_one").expect("re-registration after clear_all should succeed");
     }
 
@@ -1376,7 +1427,7 @@ mod tests {
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -1424,7 +1475,7 @@ mod tests {
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -1452,7 +1503,7 @@ mod tests {
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -1494,7 +1545,7 @@ mod tests {
         registry
             .load_script(
                 r#"
-                schema("Person", #{
+                schema("Person", #{ version: 1,
                     fields: [
                         #{ name: "first", type: "text", required: false },
                         #{ name: "last",  type: "text", required: false },
@@ -1578,7 +1629,7 @@ mod tests {
     fn test_field_can_view_can_edit_defaults_to_true() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TestVis", #{
+            schema("TestVis", #{ version: 1,
                 fields: [
                     #{ name: "f1", type: "text" },
                 ]
@@ -1593,7 +1644,7 @@ mod tests {
     fn test_field_can_view_can_edit_explicit_false() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TestVis2", #{
+            schema("TestVis2", #{ version: 1,
                 fields: [
                     #{ name: "view_only", type: "text", can_edit: false },
                     #{ name: "edit_only", type: "text", can_view: false },
@@ -1611,7 +1662,7 @@ mod tests {
     fn test_field_can_view_can_edit_explicit_true() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TestVisExplicit", #{
+            schema("TestVisExplicit", #{ version: 1,
                 fields: [
                     #{ name: "both_true",  type: "text", can_view: true,  can_edit: true  },
                     #{ name: "both_false", type: "text", can_view: false, can_edit: false },
@@ -1631,7 +1682,7 @@ mod tests {
     fn test_schema_title_flags_default_to_true() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TitleTest", #{
+            schema("TitleTest", #{ version: 1,
                 fields: [
                     #{ name: "name", type: "text" },
                 ]
@@ -1646,7 +1697,7 @@ mod tests {
     fn test_schema_title_can_edit_false() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TitleHidden", #{
+            schema("TitleHidden", #{ version: 1,
                 title_can_edit: false,
                 fields: [
                     #{ name: "name", type: "text" },
@@ -1662,7 +1713,7 @@ mod tests {
     fn test_schema_title_flags_explicit_true() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TitleExplicit", #{
+            schema("TitleExplicit", #{ version: 1,
                 title_can_view: true,
                 title_can_edit: true,
                 fields: [
@@ -1679,7 +1730,7 @@ mod tests {
     fn test_schema_allow_attachments_defaults_to_false() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("AttachTest", #{
+            schema("AttachTest", #{ version: 1,
                 fields: [#{ name: "name", type: "text" }]
             });
         "#, "test").unwrap();
@@ -1692,7 +1743,7 @@ mod tests {
     fn test_schema_allow_attachments_explicit_with_types() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("PhotoNote", #{
+            schema("PhotoNote", #{ version: 1,
                 allow_attachments: true,
                 attachment_types: ["image/jpeg", "image/png"],
                 fields: [#{ name: "caption", type: "text" }]
@@ -1728,7 +1779,7 @@ mod tests {
         registry
             .load_script(
                 r#"
-                schema("FlagNote", #{
+                schema("FlagNote", #{ version: 1,
                     fields: [
                         #{ name: "flag", type: "boolean", required: false },
                     ],
@@ -1767,7 +1818,7 @@ mod tests {
     fn test_load_script_and_clear_all() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("MyType", #{ fields: [#{ name: "x", type: "text" }] });
+            schema("MyType", #{ version: 1, fields: [#{ name: "x", type: "text" }] });
         "#, "test").unwrap();
 
         assert!(registry.get_schema("MyType").is_ok());
@@ -1782,7 +1833,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         load_text_note(&mut registry);
         registry.load_script(r#"
-            schema("Custom", #{ fields: [#{ name: "a", type: "text" }] });
+            schema("Custom", #{ version: 1, fields: [#{ name: "a", type: "text" }] });
         "#, "test").unwrap();
 
         registry.clear_all();
@@ -1827,7 +1878,7 @@ mod tests {
     fn test_hooks_cleared_on_clear_all() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Hooked", #{
+            schema("Hooked", #{ version: 1,
                 fields: [#{ name: "x", type: "text" }],
                 on_save: |note| { note }
             });
@@ -1844,7 +1895,7 @@ mod tests {
     fn test_select_field_parses_options() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Ticket", #{
+            schema("Ticket", #{ version: 1,
                 fields: [
                     #{ name: "status", type: "select", options: ["TODO", "WIP", "DONE"], required: true }
                 ]
@@ -1858,7 +1909,7 @@ mod tests {
     fn test_rating_field_parses_max() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Review", #{
+            schema("Review", #{ version: 1,
                 fields: [
                     #{ name: "stars", type: "rating", max: 5 }
                 ]
@@ -1885,7 +1936,7 @@ mod tests {
     fn test_options_with_non_string_item_returns_error() {
         let mut registry = ScriptRegistry::new().unwrap();
         let result = registry.load_script(r#"
-            schema("Bad", #{
+            schema("Bad", #{ version: 1,
                 fields: [
                     #{ name: "status", type: "select", options: ["OK", 42] }
                 ]
@@ -1931,7 +1982,7 @@ mod tests {
     fn test_negative_max_returns_error() {
         let mut registry = ScriptRegistry::new().unwrap();
         let result = registry.load_script(r#"
-            schema("Bad", #{
+            schema("Bad", #{ version: 1,
                 fields: [
                     #{ name: "stars", type: "rating", max: -1 }
                 ]
@@ -1946,7 +1997,7 @@ mod tests {
     fn test_select_and_rating_default_fields() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Widget", #{
+            schema("Widget", #{ version: 1,
                 fields: [
                     #{ name: "status", type: "select", options: ["A", "B"] },
                     #{ name: "stars",  type: "rating",  max: 5 }
@@ -1963,7 +2014,7 @@ mod tests {
     fn test_select_field_round_trips_through_hook() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("S", #{
+            schema("S", #{ version: 1,
                 fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ],
                 on_save: |note| {
                     set_field(note.id, "status", "B");
@@ -1988,7 +2039,7 @@ mod tests {
     fn test_rating_field_round_trips_through_hook() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("R", #{
+            schema("R", #{ version: 1,
                 fields: [ #{ name: "stars", type: "rating", max: 5 } ],
                 on_save: |note| {
                     set_field(note.id, "stars", 4.0);
@@ -2013,7 +2064,7 @@ mod tests {
     fn test_select_field_not_set_by_hook_is_absent_from_effective_fields() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("S2", #{
+            schema("S2", #{ version: 1,
                 fields: [ #{ name: "status", type: "select", options: ["A", "B"] } ],
                 on_save: |note| {
                     // deliberately do NOT set status
@@ -2039,7 +2090,7 @@ mod tests {
     fn test_rating_field_not_set_by_hook_is_absent_from_effective_fields() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("R2", #{
+            schema("R2", #{ version: 1,
                 fields: [ #{ name: "stars", type: "rating", max: 5 } ],
                 on_save: |note| {
                     // deliberately do NOT set stars
@@ -2067,7 +2118,7 @@ mod tests {
     fn test_children_sort_defaults_to_none() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("SortTest", #{
+            schema("SortTest", #{ version: 1,
                 fields: [#{ name: "x", type: "text" }]
             });
         "#, "test").unwrap();
@@ -2079,7 +2130,7 @@ mod tests {
     fn test_children_sort_explicit_asc() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("SortAsc", #{
+            schema("SortAsc", #{ version: 1,
                 children_sort: "asc",
                 fields: [#{ name: "x", type: "text" }]
             });
@@ -2092,7 +2143,7 @@ mod tests {
     fn test_children_sort_explicit_desc() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("SortDesc", #{
+            schema("SortDesc", #{ version: 1,
                 children_sort: "desc",
                 fields: [#{ name: "x", type: "text" }]
             });
@@ -2145,7 +2196,7 @@ mod tests {
 
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Memo", #{
+            schema("Memo", #{ version: 1,
                 fields: [
                     #{ name: "body", type: "textarea", required: false }
                 ]
@@ -2157,7 +2208,7 @@ mod tests {
         let note = Note {
             id: "n1".into(), title: "Test".into(), node_type: "Memo".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![],
+            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
 
         let html = registry.render_default_view(&note, &Default::default(), &[]);
@@ -2189,7 +2240,7 @@ mod tests {
             });
         "#, "test_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("LinkTest", #{
+            schema("LinkTest", #{ version: 1,
                 fields: [#{ name: "ref_id", type: "text" }],
             });
         "#, "test.schema.rhai").unwrap();
@@ -2206,7 +2257,7 @@ mod tests {
             created_by: 0,
             modified_by: 0,
             fields: BTreeMap::new(),
-            is_expanded: false, tags: vec![],
+            is_expanded: false, tags: vec![], schema_version: 1,
         };
 
         let context = QueryContext {
@@ -2232,7 +2283,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(
             r#"
-            schema("Boom", #{
+            schema("Boom", #{ version: 1,
                 fields: [ #{ name: "x", type: "text" } ],
                 on_save: |note| {
                     throw "intentional runtime error";
@@ -2260,7 +2311,7 @@ mod tests {
     fn test_on_add_child_hook_modifies_parent_and_child() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [
                     #{ name: "count", type: "number", required: false },
                 ],
@@ -2272,7 +2323,7 @@ mod tests {
                     commit();
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [
                     #{ name: "name", type: "text", required: false },
                 ],
@@ -2306,7 +2357,7 @@ mod tests {
     fn test_on_add_child_hook_absent_returns_none() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Plain", #{
+            schema("Plain", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -2326,13 +2377,13 @@ mod tests {
     fn test_on_add_child_hook_returns_unit_gives_no_modifications() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [],
                 on_add_child: |parent_note, child_note| {
                     ()
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -2355,7 +2406,7 @@ mod tests {
     fn test_on_add_child_hook_parent_only_modification() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [
                     #{ name: "count", type: "number", required: false },
                 ],
@@ -2364,7 +2415,7 @@ mod tests {
                     commit();
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -2390,14 +2441,14 @@ mod tests {
     fn test_on_add_child_hook_child_only_modification() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [],
                 on_add_child: |parent_note, child_note| {
                     set_title(child_note.id, "Initialized by hook");
                     commit();
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -2420,13 +2471,13 @@ mod tests {
     fn test_on_add_child_hook_runtime_error_includes_script_name() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [],
                 on_add_child: |parent_note, child_note| {
                     throw "deliberate error";
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "my_test_script").unwrap();
@@ -2449,7 +2500,7 @@ mod tests {
         // A hook that returns a map (old-style) should be rejected with a migration message.
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [
                     #{ name: "count", type: "number", required: false },
                 ],
@@ -2458,7 +2509,7 @@ mod tests {
                     #{ parent: parent_note, child: child_note }
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "my_script").unwrap();
@@ -2493,7 +2544,7 @@ mod tests {
         ).unwrap();
         registry.load_script(
             r#"
-            schema("BoomView", #{
+            schema("BoomView", #{ version: 1,
                 fields: [],
             });
             "#,
@@ -2506,7 +2557,7 @@ mod tests {
             id: "n1".to_string(), node_type: "BoomView".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            fields: BTreeMap::new(), is_expanded: false, tags: vec![],
+            fields: BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: HashMap::new(),
@@ -2530,7 +2581,7 @@ mod tests {
     fn test_add_tree_action_registers_entry() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TextNote", #{ fields: [] });
+            schema("TextNote", #{ version: 1, fields: [] });
             register_menu("Sort Children", ["TextNote"], |note| { () });
         "#, "test_script").unwrap();
         registry.resolve_bindings();
@@ -2548,7 +2599,7 @@ mod tests {
     fn test_clear_all_removes_tree_actions() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TextNote", #{ fields: [] });
+            schema("TextNote", #{ version: 1, fields: [] });
             register_menu("Do Thing", ["TextNote"], |note| { () });
         "#, "test_script").unwrap();
         registry.resolve_bindings();
@@ -2560,7 +2611,7 @@ mod tests {
     fn test_invoke_tree_action_hook_calls_callback() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TextNote", #{ fields: [] });
+            schema("TextNote", #{ version: 1, fields: [] });
             register_menu("Noop", ["TextNote"], |note| { () });
         "#, "test_script").unwrap();
         registry.resolve_bindings();
@@ -2569,7 +2620,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false, tags: vec![],
+            is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -2587,7 +2638,7 @@ mod tests {
     fn test_invoke_tree_action_returns_id_vec_when_callback_returns_array() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TextNote", #{ fields: [] });
+            schema("TextNote", #{ version: 1, fields: [] });
             register_menu("Sort", ["TextNote"], |note| { ["id-b", "id-a"] });
         "#, "test_script").unwrap();
         registry.resolve_bindings();
@@ -2596,7 +2647,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false, tags: vec![],
+            is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -2618,7 +2669,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false, tags: vec![],
+            is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -2636,7 +2687,7 @@ mod tests {
     fn test_invoke_tree_action_runtime_error_includes_script_name() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("TextNote", #{ fields: [] });
+            schema("TextNote", #{ version: 1, fields: [] });
             register_menu("Boom", ["TextNote"], |note| { throw "intentional"; });
         "#, "my_script").unwrap();
         registry.resolve_bindings();
@@ -2645,7 +2696,7 @@ mod tests {
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false, tags: vec![],
+            is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -2667,7 +2718,7 @@ mod tests {
             node_type: node_type.into(), parent_id: None,
             fields: Default::default(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
-            is_expanded: false, tags: vec![],
+            is_expanded: false, tags: vec![], schema_version: 1,
         }
     }
 
@@ -2686,7 +2737,7 @@ mod tests {
     fn test_create_note_returns_note_map_with_defaults() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Task", #{
+            schema("Task", #{ version: 1,
                 fields: [
                     #{ name: "status", type: "text", required: false },
                 ]
@@ -2717,7 +2768,7 @@ mod tests {
     fn test_update_note_queues_update_for_existing_note() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Task", #{
+            schema("Task", #{ version: 1,
                 fields: [
                     #{ name: "status", type: "text", required: false },
                 ]
@@ -2749,7 +2800,7 @@ mod tests {
     fn test_update_note_on_inflight_note_updates_create_spec() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Task", #{
+            schema("Task", #{ version: 1,
                 fields: [#{ name: "status", type: "text", required: false }]
             });
             register_menu("New Task", ["Task"], |note| {
@@ -2781,7 +2832,7 @@ mod tests {
     fn test_get_children_sees_inflight_creates() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Task", #{ fields: [] });
+            schema("Task", #{ version: 1, fields: [] });
             register_menu("Verify Children", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
                 let children = get_children(note.id);
@@ -2800,7 +2851,7 @@ mod tests {
     fn test_get_note_sees_inflight_create() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Task", #{ fields: [] });
+            schema("Task", #{ version: 1, fields: [] });
             register_menu("Verify get_note", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
                 let fetched = get_note(t.id);
@@ -2825,7 +2876,7 @@ mod tests {
             });
         "#, "test_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("Tagged", #{
+            schema("Tagged", #{ version: 1,
                 fields: [],
             });
         "#, "test.schema.rhai").unwrap();
@@ -2836,7 +2887,7 @@ mod tests {
             title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
             fields: std::collections::BTreeMap::new(), is_expanded: false,
-            tags: vec!["rust".to_string(), "notes".to_string()],
+            tags: vec!["rust".to_string(), "notes".to_string()], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: std::collections::HashMap::new(),
@@ -2855,7 +2906,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         // Wrap today() in an on_save hook so we test it through the normal hook path
         registry.load_script(r#"
-            schema("DateTest", #{
+            schema("DateTest", #{ version: 1,
                 fields: [#{ name: "dummy", type: "text", required: false }],
                 on_save: |note| {
                     set_title(note.id, today());
@@ -2882,7 +2933,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         // Inline the exact on_save logic from templates/zettelkasten.rhai
         registry.load_script(r#"
-            schema("ZettelTest", #{
+            schema("ZettelTest", #{ version: 1,
                 title_can_edit: false,
                 fields: [#{ name: "body", type: "textarea", required: false }],
                 on_save: |note| {
@@ -2927,7 +2978,7 @@ mod tests {
     fn test_zettel_on_save_empty_body_uses_untitled() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("ZettelEmpty", #{
+            schema("ZettelEmpty", #{ version: 1,
                 title_can_edit: false,
                 fields: [#{ name: "body", type: "textarea", required: false }],
                 on_save: |note| {
@@ -2980,7 +3031,7 @@ mod tests {
             allowed_parent_types: vec![],
             allowed_children_types: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));
@@ -2990,7 +3041,7 @@ mod tests {
     fn test_parse_note_link_target_type() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Task", #{
+            schema("Task", #{ version: 1,
                 fields: [
                     #{ name: "project", type: "note_link", target_type: "Project" }
                 ]
@@ -3010,7 +3061,7 @@ mod tests {
             register_hover("WithHover", |note| { "hover: " + note.title });
         "#, "HoverHook_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("WithHover", #{
+            schema("WithHover", #{ version: 1,
                 fields: [#{ name: "body", type: "text" }],
             });
         "#, "HoverHook.schema.rhai").unwrap();
@@ -3026,7 +3077,7 @@ mod tests {
             register_hover("HoverRun", |note| { "HOVER:" + note.title });
         "#, "HoverRun_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("HoverRun", #{
+            schema("HoverRun", #{ version: 1,
                 fields: [#{ name: "body", type: "text" }],
             });
         "#, "HoverRun.schema.rhai").unwrap();
@@ -3035,7 +3086,7 @@ mod tests {
             id: "id1".into(), title: "Test Note".into(), node_type: "HoverRun".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: 0, modified_by: 0,
-            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![],
+            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(), children_by_id: Default::default(),
@@ -3054,7 +3105,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             // @name: HoverTest
-            schema("HoverTest", #{
+            schema("HoverTest", #{ version: 1,
                 fields: [
                     #{ name: "summary", type: "text", show_on_hover: true },
                     #{ name: "internal", type: "text" },
@@ -3080,7 +3131,7 @@ mod tests {
             });
         "#, "test_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("PhotoNote", #{
+            schema("PhotoNote", #{ version: 1,
                 fields: [],
             });
         "#, "test.schema.rhai").unwrap();
@@ -3119,7 +3170,7 @@ mod tests {
             });
         "#, "test_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("PhotoNote", #{
+            schema("PhotoNote", #{ version: 1,
                 fields: [#{ name: "photo", type: "file", required: false }],
             });
         "#, "test.schema.rhai").unwrap();
@@ -3129,7 +3180,7 @@ mod tests {
         fields.insert("photo".to_string(), FieldValue::File(Some("abc-uuid-123".to_string())));
         let note = Note {
             id: "n1".to_string(), node_type: "PhotoNote".to_string(),
-            title: "T".to_string(), parent_id: None, fields, tags: vec![],
+            title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
             created_by: 0, modified_by: 0, is_expanded: false,
         };
@@ -3150,7 +3201,7 @@ mod tests {
             });
         "#, "test_views.rhai").unwrap();
         registry.load_script(r#"
-            schema("PhotoNote", #{
+            schema("PhotoNote", #{ version: 1,
                 fields: [#{ name: "photo", type: "file", required: false }],
             });
         "#, "test.schema.rhai").unwrap();
@@ -3160,7 +3211,7 @@ mod tests {
         fields.insert("photo".to_string(), FieldValue::File(None));
         let note = Note {
             id: "n2".to_string(), node_type: "PhotoNote".to_string(),
-            title: "T".to_string(), parent_id: None, fields, tags: vec![],
+            title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
             created_by: 0, modified_by: 0, is_expanded: false,
         };
@@ -3200,7 +3251,7 @@ mod tests {
     fn test_validate_field_returns_error_on_invalid() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Rated", #{
+            schema("Rated", #{ version: 1,
                 fields: [
                     #{
                         name: "score", type: "number", required: false,
@@ -3221,7 +3272,7 @@ mod tests {
     fn test_validate_field_returns_none_on_valid() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Rated", #{
+            schema("Rated", #{ version: 1,
                 fields: [
                     #{
                         name: "score", type: "number", required: false,
@@ -3242,7 +3293,7 @@ mod tests {
     fn test_validate_field_no_closure_returns_none() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Plain", #{
+            schema("Plain", #{ version: 1,
                 fields: [ #{ name: "title", type: "text", required: false } ]
             });
         "#, "validate_test").unwrap();
@@ -3260,7 +3311,7 @@ mod tests {
     fn test_evaluate_group_visibility_with_closure() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Typed", #{
+            schema("Typed", #{ version: 1,
                 fields: [],
                 field_groups: [
                     #{
@@ -3287,7 +3338,7 @@ mod tests {
     fn test_evaluate_group_visibility_no_closure_always_true() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Simple", #{
+            schema("Simple", #{ version: 1,
                 fields: [],
                 field_groups: [
                     #{ name: "Always Visible", fields: [] }
@@ -3308,7 +3359,7 @@ mod tests {
         // that contains the validation message.
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Validated", #{
+            schema("Validated", #{ version: 1,
                 fields: [
                     #{
                         name: "score", type: "number", required: false,
@@ -3344,7 +3395,7 @@ mod tests {
         // should succeed normally.
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            schema("Validated", #{
+            schema("Validated", #{ version: 1,
                 fields: [
                     #{
                         name: "score", type: "number", required: false,

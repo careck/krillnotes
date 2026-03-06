@@ -8,6 +8,7 @@
 // @description: A note type with a photo field.
 
 schema("PhotoNote", #{
+    version: 1,
     fields: [
         #{ name: "photo",   type: "file",     required: false },
         #{ name: "caption", type: "text",     required: false },

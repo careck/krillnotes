@@ -91,6 +91,9 @@ pub struct Workspace {
     /// Optional Ed25519 signing key bound to the active identity.
     /// When `Some`, every logged operation is signed before being written.
     signing_key: Option<ed25519_dalek::SigningKey>,
+    /// Migration results from Phase D (run on workspace open).
+    /// Drained by Tauri after the workspace is stored in AppState, to emit events.
+    pub pending_migration_results: Vec<(String, u32, u32, u32)>,
 }
 
 impl Workspace {
@@ -225,13 +228,13 @@ impl Workspace {
             modified_by: 0,
             fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
-            tags: vec![],
+            tags: vec![], schema_version: 1,
         };
 
         let tx = storage.connection_mut().transaction()?;
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 root.id,
                 root.title,
@@ -244,6 +247,7 @@ impl Workspace {
                 root.modified_by,
                 serde_json::to_string(&root.fields)?,
                 true,
+                root.schema_version,
             ],
         )?;
         tx.commit()?;
@@ -278,6 +282,7 @@ impl Workspace {
             inside_undo: false,
             hlc,
             signing_key,
+            pending_migration_results: Vec::new(),
         };
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
@@ -382,6 +387,7 @@ impl Workspace {
             inside_undo: false,
             hlc,
             signing_key,
+            pending_migration_results: Vec::new(),
         };
 
         // Two-phase script loading: presentation first, then schema, then resolve.
@@ -399,6 +405,9 @@ impl Workspace {
             }
         }
         ws.script_registry.resolve_bindings();
+
+        // Phase D: batch-migrate notes whose schema_version is behind current schema.
+        ws.pending_migration_results = ws.run_schema_migrations()?;
 
         // Clean up any .enc.trash files left from a previous session.
         // Undo stacks are in-session only, so prior-session trash is always safe to remove.
@@ -518,6 +527,159 @@ impl Workspace {
         if let Some(key) = signing_key {
             op.sign(key);
         }
+    }
+
+    /// Phase D: batch-migrate notes whose `schema_version` is behind the current schema version.
+    ///
+    /// For each schema that has `migrations` defined, queries all notes of that type with a
+    /// stale `schema_version`, chains the migration closures in order, and commits the results
+    /// in a single transaction. Logs one `UpdateSchema` operation per migrated schema type.
+    ///
+    /// Returns `(schema_name, min_from_version, to_version, notes_migrated)` for each schema
+    /// type that had migrations to run.
+    fn run_schema_migrations(&mut self) -> Result<Vec<(String, u32, u32, u32)>> {
+        let versioned_schemas = self.script_registry.get_versioned_schemas();
+        let mut results = Vec::new();
+
+        for (schema_name, schema_version, migrations, ast) in versioned_schemas {
+            if migrations.is_empty() {
+                continue;
+            }
+
+            // Query notes that are behind the current schema version.
+            let stale_notes: Vec<(String, String, String, u32)> = {
+                let conn = self.storage.connection();
+                let mut stmt = conn.prepare(
+                    "SELECT id, title, fields_json, schema_version \
+                     FROM notes WHERE node_type = ?1 AND schema_version < ?2",
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![&schema_name, schema_version],
+                    |row| Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, u32>(3)?,
+                    )),
+                )?.collect::<rusqlite::Result<Vec<_>>>()?;
+                rows
+            };
+
+            if stale_notes.is_empty() {
+                continue;
+            }
+
+            let min_version = stale_notes.iter().map(|n| n.3).min().unwrap_or(1);
+            let notes_count = stale_notes.len() as u32;
+
+            let ast = match ast {
+                Some(a) => a,
+                None => {
+                    self.script_registry.add_warning(
+                        &schema_name,
+                        &format!("Schema '{}' has migrations but no AST — skipping Phase D", schema_name),
+                    );
+                    continue;
+                }
+            };
+
+            let tx = self.storage.connection_mut().transaction()?;
+            let mut any_failed = false;
+
+            for (note_id, title, fields_json, note_version) in &stale_notes {
+                let fields: std::collections::BTreeMap<String, crate::FieldValue> =
+                    serde_json::from_str(fields_json).unwrap_or_default();
+
+                // Build note map for the migration closure.
+                let mut fields_map = rhai::Map::new();
+                for (k, v) in &fields {
+                    fields_map.insert(k.as_str().into(), crate::core::scripting::field_value_to_dynamic(v));
+                }
+                let mut note_map = rhai::Map::new();
+                note_map.insert("title".into(),  rhai::Dynamic::from(title.clone()));
+                note_map.insert("fields".into(), rhai::Dynamic::from(fields_map));
+
+                // Chain migration closures from note_version+1 to schema_version.
+                let mut migration_error = false;
+                for target_ver in (*note_version + 1)..=schema_version {
+                    if let Some(fn_ptr) = migrations.get(&target_ver) {
+                        match fn_ptr.call::<rhai::Dynamic>(
+                            self.script_registry.engine(),
+                            &ast,
+                            (rhai::Dynamic::from(note_map.clone()),),
+                        ) {
+                            Ok(returned) => {
+                                if let Some(m) = returned.try_cast::<rhai::Map>() {
+                                    note_map = m;
+                                }
+                            }
+                            Err(e) => {
+                                self.script_registry.add_warning(
+                                    &schema_name,
+                                    &format!(
+                                        "Migration to v{} failed for note '{}': {}",
+                                        target_ver, note_id, e
+                                    ),
+                                );
+                                migration_error = true;
+                                break;
+                            }
+                        }
+                    }
+                    // No closure for this version → pass-through (schema-compatible gap).
+                }
+
+                if migration_error {
+                    any_failed = true;
+                    break;
+                }
+
+                // Extract new title and fields from the migrated map.
+                let new_title = note_map.get("title")
+                    .and_then(|v| v.clone().try_cast::<String>())
+                    .unwrap_or_else(|| title.clone());
+                let new_fields_json = if let Some(fm) = note_map.get("fields")
+                    .and_then(|v| v.clone().try_cast::<rhai::Map>())
+                {
+                    let converted = self.script_registry.rhai_map_to_fields(&fm, &schema_name)?;
+                    serde_json::to_string(&converted)?
+                } else {
+                    fields_json.clone()
+                };
+
+                tx.execute(
+                    "UPDATE notes SET title = ?1, fields_json = ?2, schema_version = ?3 WHERE id = ?4",
+                    rusqlite::params![new_title, new_fields_json, schema_version, note_id],
+                )?;
+            }
+
+            if any_failed {
+                // tx is dropped without commit → automatic rollback.
+                continue;
+            }
+
+            // Log the UpdateSchema operation.
+            let ts = self.hlc.now();
+            Self::save_hlc(&ts, &tx)?;
+            let mut op = Operation::UpdateSchema {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                timestamp: ts,
+                device_id: self.device_id.clone(),
+                signature: String::new(),
+                updated_by: String::new(),
+                schema_name: schema_name.clone(),
+                from_version: min_version,
+                to_version: schema_version,
+                notes_migrated: notes_count,
+            };
+            Self::sign_op_with(&self.signing_key, &mut op);
+            Self::log_op(&self.operation_log, &tx, &op)?;
+
+            tx.commit()?;
+            results.push((schema_name, min_version, schema_version, notes_count));
+        }
+
+        Ok(results)
     }
 
     /// Returns `true` if there is at least one action to undo.
@@ -926,7 +1088,7 @@ impl Workspace {
         let row = self.connection().query_row(
             "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded,
+                    n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -1017,6 +1179,7 @@ impl Workspace {
             fields: schema.default_fields(),
             is_expanded: true,
             tags: vec![],
+            schema_version: schema.version,
         };
 
         // Advance HLC and capture signing key before the transaction borrows self.storage.
@@ -1035,8 +1198,8 @@ impl Workspace {
 
         // Insert note
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 note.id,
                 note.title,
@@ -1049,6 +1212,7 @@ impl Workspace {
                 note.modified_by,
                 serde_json::to_string(&note.fields)?,
                 true,
+                note.schema_version,
             ],
         )?;
 
@@ -1238,8 +1402,8 @@ impl Workspace {
             let this_position = if note.id == source_id { new_position } else { note.position };
 
             tx.execute(
-                "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rusqlite::params![
                     new_id,
                     note.title,
@@ -1252,6 +1416,7 @@ impl Workspace {
                     self.current_user_id,
                     serde_json::to_string(&note.fields)?,
                     note.is_expanded,
+                    note.schema_version,
                 ],
             )?;
 
@@ -1317,7 +1482,7 @@ impl Workspace {
             modified_by: self.current_user_id,
             fields: schema.default_fields(),
             is_expanded: true,
-            tags: vec![],
+            tags: vec![], schema_version: 1,
         };
 
         let ts = self.advance_hlc();
@@ -1325,8 +1490,8 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 new_note.id,
                 new_note.title,
@@ -1339,6 +1504,7 @@ impl Workspace {
                 new_note.modified_by,
                 serde_json::to_string(&new_note.fields)?,
                 true,
+                new_note.schema_version,
             ],
         )?;
 
@@ -1480,7 +1646,7 @@ impl Workspace {
         let sql = format!(
             "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded,
+                    n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt2.tag, ',') AS tags_csv
              FROM notes n
              JOIN note_tags nt ON nt.note_id = n.id AND nt.tag IN ({placeholders})
@@ -1622,7 +1788,7 @@ impl Workspace {
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded,
+                    n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -1954,15 +2120,18 @@ impl Workspace {
                     let fields_json = serde_json::to_string(&effective_fields)?;
                     let effective_title = pending.effective_title();
 
+                    let schema_ver = self.script_registry.get_schema(&pending.node_type)
+                        .map(|s| s.version).unwrap_or(1);
                     tx_db.execute(
                         "INSERT INTO notes (id, title, node_type, parent_id, position, \
                                             created_at, modified_at, created_by, modified_by, \
-                                            fields_json, is_expanded) \
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                            fields_json, is_expanded, schema_version) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         rusqlite::params![
                             pending.note_id, effective_title, pending.node_type,
                             parent_id, position, now, now,
                             self.current_user_id, self.current_user_id, fields_json, true,
+                            schema_ver,
                         ],
                     )?;
 
@@ -2383,7 +2552,7 @@ impl Workspace {
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded,
+                    n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -2918,9 +3087,13 @@ impl Workspace {
 
         let tx = self.storage.connection_mut().transaction()?;
 
+        let current_schema_version = self.script_registry
+            .get_schema(&node_type)
+            .map(|s| s.version)
+            .unwrap_or(1);
         tx.execute(
-            "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3, modified_by = ?4 WHERE id = ?5",
-            rusqlite::params![title, fields_json, now, self.current_user_id, note_id],
+            "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3, modified_by = ?4, schema_version = ?5 WHERE id = ?6",
+            rusqlite::params![title, fields_json, now, self.current_user_id, current_schema_version, note_id],
         )?;
 
         // Detect nonexistent IDs: SQLite UPDATE on a missing row succeeds but
@@ -3853,7 +4026,7 @@ impl Workspace {
             )
             SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
                    n.created_at, n.modified_at, n.created_by, n.modified_by,
-                   n.fields_json, n.is_expanded,
+                   n.fields_json, n.is_expanded, n.schema_version,
                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
             FROM notes n
             JOIN subtree s ON n.id = s.id
@@ -3898,13 +4071,13 @@ impl Workspace {
                         "INSERT OR IGNORE INTO notes
                          (id, title, node_type, parent_id, position,
                           created_at, modified_at, created_by, modified_by,
-                          fields_json, is_expanded)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                          fields_json, is_expanded, schema_version)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         rusqlite::params![
                             note.id, note.title, note.node_type, note.parent_id,
                             note.position, note.created_at, note.modified_at,
                             note.created_by, note.modified_by, fields_json,
-                            note.is_expanded as i32,
+                            note.is_expanded as i32, note.schema_version,
                         ],
                     )?;
                     for tag in &note.tags {
@@ -4060,32 +4233,33 @@ fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<
 ///
 /// `position` is stored as REAL in the DB (to support fractional positions for future
 /// CRDT ordering) but the Rust API still uses `i32`; we read it as `f64` and truncate.
-type NoteRow = (String, String, String, Option<String>, f64, i64, i64, i64, i64, String, i64, Option<String>);
+type NoteRow = (String, String, String, Option<String>, f64, i64, i64, i64, i64, String, i64, u32, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
-/// Returns the 12-column tuple that `note_from_row_tuple` converts into a `Note`.
+/// Returns the 13-column tuple that `note_from_row_tuple` converts into a `Note`.
 /// Extracted to avoid duplicating column-index logic across every query.
 fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
     Ok((
-        row.get::<_, String>(0)?,
-        row.get::<_, String>(1)?,
-        row.get::<_, String>(2)?,
-        row.get::<_, Option<String>>(3)?,
-        row.get::<_, f64>(4)?,
-        row.get::<_, i64>(5)?,
-        row.get::<_, i64>(6)?,
-        row.get::<_, i64>(7)?,
-        row.get::<_, i64>(8)?,
-        row.get::<_, String>(9)?,
-        row.get::<_, i64>(10)?,
-        row.get::<_, Option<String>>(11)?,
+        row.get::<_, String>(0)?,           // id
+        row.get::<_, String>(1)?,           // title
+        row.get::<_, String>(2)?,           // node_type
+        row.get::<_, Option<String>>(3)?,   // parent_id
+        row.get::<_, f64>(4)?,              // position
+        row.get::<_, i64>(5)?,              // created_at
+        row.get::<_, i64>(6)?,              // modified_at
+        row.get::<_, i64>(7)?,              // created_by
+        row.get::<_, i64>(8)?,              // modified_by
+        row.get::<_, String>(9)?,           // fields_json
+        row.get::<_, i64>(10)?,             // is_expanded
+        row.get::<_, u32>(11)?,             // schema_version
+        row.get::<_, Option<String>>(12)?,  // tags_csv
     ))
 }
 
-/// Converts a raw 12-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
+/// Converts a raw 13-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
 fn note_from_row_tuple(
-    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, tags_csv): NoteRow,
+    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, schema_version, tags_csv): NoteRow,
 ) -> Result<Note> {
     let mut tags: Vec<String> = tags_csv
         .unwrap_or_default()
@@ -4107,6 +4281,7 @@ fn note_from_row_tuple(
         fields: serde_json::from_str(&fields_json)?,
         is_expanded: is_expanded_int == 1,
         tags,
+        schema_version,
     })
 }
 
@@ -4785,7 +4960,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
-        let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ fields: [] });";
+        let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ version: 1, fields: [] });";
         let (script, errors) = workspace.create_user_script(source).unwrap();
         assert!(errors.is_empty());
         assert_eq!(script.name, "Test Script");
@@ -4798,7 +4973,7 @@ mod tests {
     fn test_create_user_script_missing_name_fails() {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
-        let source = "// no name here\nschema(\"X\", #{ fields: [] });";
+        let source = "// no name here\nschema(\"X\", #{ version: 1, fields: [] });";
         let result = workspace.create_user_script(source);
         assert!(result.is_err());
     }
@@ -4807,10 +4982,10 @@ mod tests {
     fn test_update_user_script() {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
-        let source = "// @name: Original\nschema(\"Orig\", #{ fields: [] });";
+        let source = "// @name: Original\nschema(\"Orig\", #{ version: 1, fields: [] });";
         let (script, _) = workspace.create_user_script(source).unwrap();
 
-        let new_source = "// @name: Updated\nschema(\"Updated\", #{ fields: [] });";
+        let new_source = "// @name: Updated\nschema(\"Updated\", #{ version: 1, fields: [] });";
         let (updated, errors) = workspace.update_user_script(&script.id, new_source).unwrap();
         assert!(errors.is_empty());
         assert_eq!(updated.name, "Updated");
@@ -4821,7 +4996,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
         let initial_count = workspace.list_user_scripts().unwrap().len();
-        let source = "// @name: ToDelete\nschema(\"Del\", #{ fields: [] });";
+        let source = "// @name: ToDelete\nschema(\"Del\", #{ version: 1, fields: [] });";
         let (script, _) = workspace.create_user_script(source).unwrap();
         assert_eq!(workspace.list_user_scripts().unwrap().len(), initial_count + 1);
 
@@ -4833,7 +5008,7 @@ mod tests {
     fn test_toggle_user_script() {
         let temp = NamedTempFile::new().unwrap();
         let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
-        let source = "// @name: Toggle\nschema(\"Tog\", #{ fields: [] });";
+        let source = "// @name: Toggle\nschema(\"Tog\", #{ version: 1, fields: [] });";
         let (script, _) = workspace.create_user_script(source).unwrap();
         assert!(script.enabled);
 
@@ -4848,8 +5023,8 @@ mod tests {
         let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
 
-        let s1 = "// @name: Second\nschema(\"S2\", #{ fields: [] });";
-        let s2 = "// @name: First\nschema(\"S1\", #{ fields: [] });";
+        let s1 = "// @name: Second\nschema(\"S2\", #{ version: 1, fields: [] });";
+        let s2 = "// @name: First\nschema(\"S1\", #{ version: 1, fields: [] });";
         workspace.create_user_script(s1).unwrap();
         let (second, _) = workspace.create_user_script(s2).unwrap();
         // Move "First" before all starters
@@ -4868,7 +5043,7 @@ mod tests {
         {
             let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
             workspace.create_user_script(
-                "// @name: TestOpen\nschema(\"OpenType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
+                "// @name: TestOpen\nschema(\"OpenType\", #{ version: 1, fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap(); // (UserScript, Vec<ScriptError>) — result not inspected here
         }
 
@@ -4883,7 +5058,7 @@ mod tests {
         {
             let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
             let (script, _) = workspace.create_user_script(
-                "// @name: Disabled\nschema(\"DisType\", #{ fields: [#{ name: \"x\", type: \"text\" }] });"
+                "// @name: Disabled\nschema(\"DisType\", #{ version: 1, fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap();
             workspace.toggle_user_script(&script.id, false).unwrap();
         }
@@ -5031,7 +5206,7 @@ mod tests {
         // Load a schema with a textarea field but no on_view hook.
         ws.create_user_script(
             r#"// @name: Memo
-schema("Memo", #{
+schema("Memo", #{ version: 1,
     fields: [
         #{ name: "body", type: "textarea", required: false }
     ]
@@ -5210,7 +5385,7 @@ schema("Memo", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
 
         ws.script_registry_mut().load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [
                     #{ name: "count", type: "number", required: false },
                 ],
@@ -5221,7 +5396,7 @@ schema("Memo", #{
                     commit();
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -5243,7 +5418,7 @@ schema("Memo", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
 
         ws.script_registry_mut().load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [
                     #{ name: "count", type: "number", required: false },
                 ],
@@ -5253,7 +5428,7 @@ schema("Memo", #{
                     commit();
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -5287,7 +5462,7 @@ schema("Memo", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
 
         ws.script_registry_mut().load_script(r#"
-            schema("Folder", #{
+            schema("Folder", #{ version: 1,
                 fields: [
                     #{ name: "count", type: "number", required: false },
                 ],
@@ -5298,7 +5473,7 @@ schema("Memo", #{
                     commit();
                 }
             });
-            schema("Item", #{
+            schema("Item", #{ version: 1,
                 fields: [],
             });
         "#, "test").unwrap();
@@ -5365,8 +5540,8 @@ register_menu("Sort A→Z", ["TextNote"], |note| {
 
         ws.create_user_script(r#"
 // @name: CreateAction
-schema("TaFolder", #{ fields: [] });
-schema("TaItem", #{ fields: [#{ name: "tag", type: "text", required: false }] });
+schema("TaFolder", #{ version: 1, fields: [] });
+schema("TaItem", #{ version: 1, fields: [#{ name: "tag", type: "text", required: false }] });
 register_menu("Add Item", ["TaFolder"], |folder| {
     let item = create_child(folder.id, "TaItem");
     set_title(item.id, "My Item");
@@ -5396,7 +5571,7 @@ register_menu("Add Item", ["TaFolder"], |folder| {
 
         ws.create_user_script(r#"
 // @name: UpdateAction
-schema("TaTask", #{ fields: [#{ name: "status", type: "text", required: false }] });
+schema("TaTask", #{ version: 1, fields: [#{ name: "status", type: "text", required: false }] });
 register_menu("Mark Done", ["TaTask"], |note| {
     set_title(note.id, "Done Task");
     set_field(note.id, "status", "done");
@@ -5424,8 +5599,8 @@ register_menu("Mark Done", ["TaTask"], |note| {
 
         ws.create_user_script(r#"
 // @name: NestedCreate
-schema("TaSprint", #{ fields: [] });
-schema("TaSubTask", #{ fields: [] });
+schema("TaSprint", #{ version: 1, fields: [] });
+schema("TaSubTask", #{ version: 1, fields: [] });
 register_menu("Add Sprint With Task", ["TaSprint"], |sprint| {
     let child_sprint = create_child(sprint.id, "TaSprint");
     set_title(child_sprint.id, "Child Sprint");
@@ -5458,8 +5633,8 @@ register_menu("Add Sprint With Task", ["TaSprint"], |sprint| {
 
         ws.create_user_script(r#"
 // @name: ErrorAction
-schema("TaErrFolder", #{ fields: [] });
-schema("TaErrItem", #{ fields: [] });
+schema("TaErrFolder", #{ version: 1, fields: [] });
+schema("TaErrItem", #{ version: 1, fields: [] });
 register_menu("Create Then Fail", ["TaErrFolder"], |folder| {
     let item = create_child(folder.id, "TaErrItem");
     set_title(item.id, "Orphan");
@@ -5484,8 +5659,8 @@ register_menu("Create Then Fail", ["TaErrFolder"], |folder| {
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
         ws.create_user_script(r#"
 // @name: TAGated
-schema("TAFolder", #{ fields: [] });
-schema("TAItem", #{
+schema("TAFolder", #{ version: 1, fields: [] });
+schema("TAItem", #{ version: 1,
     fields: [
         #{ name: "value", type: "text", required: false },
     ],
@@ -5610,7 +5785,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_sync_note_links_inserts_row() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
@@ -5631,7 +5806,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_sync_note_links_removes_row_when_cleared() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
@@ -5656,7 +5831,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_clear_links_to_nulls_field_in_source_note() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
@@ -5685,7 +5860,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_delete_note_nulls_links_in_other_notes() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
@@ -5706,7 +5881,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_delete_note_recursive_clears_links_for_entire_subtree() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let parent = create_note_with_type(&mut ws, "LinkTestType");
         let child_id = ws.create_note(&parent.id, AddPosition::AsChild, "LinkTestType").unwrap();
@@ -5731,7 +5906,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_get_notes_with_link_returns_linking_notes() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source1 = create_note_with_type(&mut ws, "LinkTestType");
@@ -5753,7 +5928,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_get_notes_with_link_returns_empty_for_unlinked_note() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let note = create_note_with_type(&mut ws, "LinkTestType");
         let results = ws.get_notes_with_link(&note.id).unwrap();
@@ -5765,7 +5940,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_search_notes_matches_title() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [] })"#
         );
         let note = create_note_with_type(&mut ws, "LinkTestType");
         ws.update_note(&note.id, "Fix login bug".into(), BTreeMap::new()).unwrap();
@@ -5778,7 +5953,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_search_notes_filters_by_target_type() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("TaskNote", #{ fields: [] }); schema("OtherNote", #{ fields: [] })"#
+            r#"schema("TaskNote", #{ version: 1, fields: [] }); schema("OtherNote", #{ version: 1, fields: [] })"#
         );
         let task = create_note_with_type(&mut ws, "TaskNote");
         ws.update_note(&task.id, "login task".into(), BTreeMap::new()).unwrap();
@@ -5793,7 +5968,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_search_notes_matches_text_fields() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("ContactNote", #{ fields: [#{ name: "email", type: "email" }] })"#
+            r#"schema("ContactNote", #{ version: 1, fields: [#{ name: "email", type: "email" }] })"#
         );
         let c = create_note_with_type(&mut ws, "ContactNote");
         let mut fields = BTreeMap::new();
@@ -5810,7 +5985,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_rebuild_note_links_index_repopulates_from_fields_json() {
         let mut ws = create_test_workspace_with_schema(
-            r#"schema("LinkTestType", #{ fields: [#{ name: "link", type: "note_link" }] })"#
+            r#"schema("LinkTestType", #{ version: 1, fields: [#{ name: "link", type: "note_link" }] })"#
         );
         let target = create_note_with_type(&mut ws, "LinkTestType");
         let source = create_note_with_type(&mut ws, "LinkTestType");
@@ -6485,7 +6660,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_on_save_gated_model() {
         let mut ws = create_test_workspace_with_schema(r#"
-            schema("GatedTest", #{
+            schema("GatedTest", #{ version: 1,
                 fields: [
                     #{ name: "body", type: "text", required: false },
                 ],
@@ -6506,7 +6681,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_old_style_on_save_raises_error() {
         let mut ws = create_test_workspace_with_schema(r#"
-            schema("OldStyle", #{
+            schema("OldStyle", #{ version: 1,
                 fields: [
                     #{ name: "body", type: "text", required: false },
                 ],
@@ -6535,7 +6710,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineOk
-schema("PipeItem", #{
+schema("PipeItem", #{ version: 1,
     fields: [
         #{ name: "value", type: "text", required: false },
     ],
@@ -6556,7 +6731,7 @@ schema("PipeItem", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineValidate
-schema("RatedItem", #{
+schema("RatedItem", #{ version: 1,
     fields: [
         #{
             name: "score", type: "number", required: false,
@@ -6584,7 +6759,7 @@ schema("RatedItem", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineReject
-schema("RejectItem", #{
+schema("RejectItem", #{ version: 1,
     fields: [],
     on_save: |note| {
         reject("Always rejected");
@@ -6623,7 +6798,7 @@ schema("RejectItem", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineGrouped
-schema("Grouped", #{
+schema("Grouped", #{ version: 1,
     fields: [
         #{ name: "category", type: "select", options: ["A", "B"] }
     ],
@@ -6705,7 +6880,7 @@ schema("Grouped", #{
         let mut ws = Workspace::create(temp.path(), "", None).unwrap();
         ws.create_user_script(r#"
 // @name: RequiredField
-schema("RequiredItem", #{
+schema("RequiredItem", #{ version: 1,
     fields: [
         #{ name: "sku", type: "text", required: true }
     ],
@@ -6728,5 +6903,224 @@ schema("RequiredItem", #{
             }
             other => panic!("expected ValidationErrors for missing required field, got: {:?}", other),
         }
+    }
+
+    // ── Migration pipeline tests ──────────────────────────────────────────────
+
+    /// Create a workspace, seed it with a schema v1 note, then manually lower the note's
+    /// `schema_version` in the DB (simulating stale state after a schema bump), load the
+    /// v2 schema with a field-rename migration, call `run_schema_migrations()`, and assert
+    /// the field was renamed and `schema_version` updated.
+    #[test]
+    fn migration_renames_field_on_version_bump() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        // Register a v1 schema with a "phone" field.
+        ws.create_user_script(
+            r#"// @name: MigTest
+// @description: migration test type
+schema("MigType", #{
+    version: 1,
+    fields: [
+        #{ name: "phone", type: "text", required: false },
+    ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        let note_id = ws.create_note(&root_id, AddPosition::AsChild, "MigType").unwrap();
+
+        // Write "phone" field.
+        let mut fields = BTreeMap::new();
+        fields.insert("phone".to_string(), FieldValue::Text("555-1234".to_string()));
+        ws.update_note(&note_id, "Contact".to_string(), fields).unwrap();
+
+        // Manually set schema_version = 0 to simulate a stale note.
+        ws.connection().execute(
+            "UPDATE notes SET schema_version = 0 WHERE id = ?1",
+            rusqlite::params![&note_id],
+        ).unwrap();
+
+        // Update the script to v2 with a migration that renames phone → mobile.
+        let scripts = ws.list_user_scripts().unwrap();
+        let script_id = scripts.iter().find(|s| s.name == "MigTest").unwrap().id.clone();
+        ws.update_user_script(
+            &script_id,
+            r#"// @name: MigTest
+// @description: migration test type
+schema("MigType", #{
+    version: 2,
+    fields: [
+        #{ name: "mobile", type: "text", required: false },
+    ],
+    migrate: #{
+        "2": |note| {
+            note.fields["mobile"] = note.fields["phone"];
+            note.fields.remove("phone");
+            note
+        }
+    }
+});"#,
+        ).unwrap();
+
+        // Reload and run migrations.
+        ws.reload_scripts().unwrap();
+        let results = ws.run_schema_migrations().unwrap();
+
+        assert_eq!(results.len(), 1, "expected 1 migration result, got: {:?}", results);
+        assert_eq!(results[0].0, "MigType");
+        assert_eq!(results[0].3, 1, "should have migrated 1 note");
+
+        let note = ws.get_note(&note_id).unwrap();
+        assert_eq!(note.schema_version, 2);
+        assert_eq!(note.fields.get("mobile"), Some(&FieldValue::Text("555-1234".to_string())));
+        assert!(!note.fields.contains_key("phone"), "old field should be removed");
+    }
+
+    /// Notes that are already at the current schema version must not be re-migrated.
+    #[test]
+    fn migration_skips_up_to_date_notes() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        ws.create_user_script(
+            r#"// @name: UpToDate
+schema("UpToDateType", #{
+    version: 1,
+    fields: [ #{ name: "val", type: "text", required: false } ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        ws.create_note(&root_id, AddPosition::AsChild, "UpToDateType").unwrap();
+
+        // No stale notes → results should be empty.
+        let results = ws.run_schema_migrations().unwrap();
+        assert!(results.is_empty(), "expected no migrations, got: {:?}", results);
+    }
+
+    /// Migration closures must chain: a note at v1 with a schema at v3 should pass through
+    /// closures for v2 and v3 in order.
+    #[test]
+    fn migration_chains_across_multiple_versions() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        ws.create_user_script(
+            r#"// @name: ChainTest
+schema("ChainType", #{
+    version: 1,
+    fields: [ #{ name: "val", type: "text", required: false } ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        let note_id = ws.create_note(&root_id, AddPosition::AsChild, "ChainType").unwrap();
+        let mut fields = BTreeMap::new();
+        fields.insert("val".to_string(), FieldValue::Text("original".to_string()));
+        ws.update_note(&note_id, "N".to_string(), fields).unwrap();
+
+        // Force note to schema_version = 0.
+        ws.connection().execute(
+            "UPDATE notes SET schema_version = 0 WHERE id = ?1",
+            rusqlite::params![&note_id],
+        ).unwrap();
+
+        let scripts = ws.list_user_scripts().unwrap();
+        let sid = scripts.iter().find(|s| s.name == "ChainTest").unwrap().id.clone();
+        ws.update_user_script(
+            &sid,
+            r#"// @name: ChainTest
+schema("ChainType", #{
+    version: 3,
+    fields: [ #{ name: "val", type: "text", required: false } ],
+    migrate: #{
+        "2": |note| { note.fields["val"] = note.fields["val"] + "_v2"; note },
+        "3": |note| { note.fields["val"] = note.fields["val"] + "_v3"; note }
+    }
+});"#,
+        ).unwrap();
+
+        ws.reload_scripts().unwrap();
+        ws.run_schema_migrations().unwrap();
+
+        let note = ws.get_note(&note_id).unwrap();
+        assert_eq!(note.schema_version, 3);
+        assert_eq!(note.fields.get("val"), Some(&FieldValue::Text("original_v2_v3".to_string())));
+    }
+
+    /// Version downgrade must be rejected when a higher-version schema is already registered.
+    #[test]
+    fn schema_version_downgrade_rejected() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        // Register v2.
+        ws.create_user_script(
+            r#"// @name: DowngradeTest
+schema("DowngradeType", #{
+    version: 2,
+    fields: []
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+        assert!(ws.script_registry.schema_exists("DowngradeType"));
+
+        // Try to update to v1 — update_user_script pre-validates and must reject downgrade.
+        let scripts = ws.list_user_scripts().unwrap();
+        let sid = scripts.iter().find(|s| s.name == "DowngradeTest").unwrap().id.clone();
+        let result = ws.update_user_script(
+            &sid,
+            r#"// @name: DowngradeTest
+schema("DowngradeType", #{
+    version: 1,
+    fields: []
+});"#,
+        );
+        assert!(result.is_err(), "downgrade should be rejected");
+
+        // The schema must still be at v2 after the failed update.
+        let schema = ws.script_registry.get_schema("DowngradeType").unwrap();
+        assert_eq!(schema.version, 2, "schema must not have been downgraded");
+    }
+
+    /// Re-registering a schema with the same version number must succeed without error.
+    #[test]
+    fn schema_same_version_reregistration_allowed() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+
+        ws.create_user_script(
+            r#"// @name: SameVerTest
+schema("SameVerType", #{
+    version: 1,
+    fields: [ #{ name: "alpha", type: "text", required: false } ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        let scripts = ws.list_user_scripts().unwrap();
+        let sid = scripts.iter().find(|s| s.name == "SameVerTest").unwrap().id.clone();
+        ws.update_user_script(
+            &sid,
+            r#"// @name: SameVerTest
+schema("SameVerType", #{
+    version: 1,
+    fields: [
+        #{ name: "alpha", type: "text", required: false },
+        #{ name: "beta",  type: "text", required: false },
+    ]
+});"#,
+        ).unwrap();
+        ws.reload_scripts().unwrap();
+
+        // Should now have 2 fields, no error.
+        let schema = ws.script_registry.get_schema("SameVerType").unwrap();
+        assert_eq!(schema.version, 1);
+        assert_eq!(schema.fields.len(), 2, "expected 2 fields after same-version re-registration");
     }
 }

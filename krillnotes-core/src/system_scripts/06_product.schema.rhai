@@ -8,6 +8,7 @@
 // @description: An inventory item with auto-formatted title and stock status.
 
 schema("Product", #{
+    version: 1,
     title_can_edit: false,
     fields: [
         #{ name: "product_name", type: "text",     required: true                   },

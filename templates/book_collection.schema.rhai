@@ -10,6 +10,7 @@
 // Usage: Create a Library note, then add Book notes as children.
 
 schema("Book", #{
+    version: 1,
     title_can_edit: false,
     allowed_parent_types: ["Library"],
     fields: [
@@ -61,6 +62,7 @@ schema("Book", #{
 });
 
 schema("Library", #{
+    version: 1,
     allowed_children_types: ["Book"],
     fields: [],
 });

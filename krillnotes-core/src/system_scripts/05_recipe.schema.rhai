@@ -8,6 +8,7 @@
 // @description: A cooking recipe with ingredients, steps, and derived total time.
 
 schema("Recipe", #{
+    version: 1,
     title_can_edit: true,
     fields: [
         #{ name: "servings",    type: "number",   required: false                  },

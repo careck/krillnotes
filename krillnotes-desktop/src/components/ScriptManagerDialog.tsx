@@ -22,6 +22,7 @@ const SCHEMA_TEMPLATE = `// @name: MyType
 // @description: Describe your note type here
 
 schema("MyType", #{
+    version: 1,
     fields: [
         #{ name: "body", type: "textarea" },
     ],
