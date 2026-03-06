@@ -93,9 +93,9 @@ export interface DeleteResult {
 }
 
 export type SaveResult =
-  | { Ok: Note }
+  | { ok: Note }
   | {
-      ValidationErrors: {
+      validationErrors: {
         fieldErrors: Record<string, string>;
         noteErrors: string[];
         previewTitle: string | null;

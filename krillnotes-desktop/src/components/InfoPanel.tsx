@@ -370,17 +370,17 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         fields: editedFields,
       });
 
-      if ('ValidationErrors' in result) {
-        setFieldErrors(result.ValidationErrors.fieldErrors);
-        setNoteErrors(result.ValidationErrors.noteErrors);
-        if (result.ValidationErrors.previewTitle !== null) {
-          setEditedTitle(result.ValidationErrors.previewTitle);
+      if ('validationErrors' in result) {
+        setFieldErrors(result.validationErrors.fieldErrors);
+        setNoteErrors(result.validationErrors.noteErrors);
+        if (result.validationErrors.previewTitle !== null) {
+          setEditedTitle(result.validationErrors.previewTitle);
         }
-        setEditedFields(prev => ({ ...prev, ...result.ValidationErrors.previewFields }));
+        setEditedFields(prev => ({ ...prev, ...result.validationErrors.previewFields }));
         return;
       }
 
-      const updatedNote = result.Ok;
+      const updatedNote = result.ok;
       await invoke('update_note_tags', { noteId: selectedNote.id, tags: editedTags });
       setEditedTitle(updatedNote.title);
       setEditedFields({ ...updatedNote.fields });
