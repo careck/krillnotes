@@ -92,7 +92,9 @@
     "failedReorder": "Failed to reorder scripts: {{error}}",
     "reloadErrors": "Script reload errors:\n{{errors}}",
     "undoLastSave": "Undo last script save",
-    "redoLastSave": "Redo last script save"
+    "redoLastSave": "Redo last script save",
+    "schema": "Schema",
+    "library": "Library"
   },
   "workspace": {
     "openTitle": "Open Workspace",

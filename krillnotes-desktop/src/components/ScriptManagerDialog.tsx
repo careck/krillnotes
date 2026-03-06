@@ -9,7 +9,7 @@ import { GripVertical } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, confirm } from '@tauri-apps/plugin-dialog';
 import ScriptEditor from './ScriptEditor';
-import type { UserScript, ScriptError, ScriptMutationResult } from '../types';
+import type { UserScript, ScriptError, ScriptMutationResult, ScriptWarning } from '../types';
 import { useTranslation } from 'react-i18next';
 
 interface ScriptManagerDialogProps {
@@ -18,13 +18,24 @@ interface ScriptManagerDialogProps {
   onScriptsChanged?: () => void;
 }
 
-const NEW_SCRIPT_TEMPLATE = `// @name: New Script
-// @description:
+const SCHEMA_TEMPLATE = `// @name: MyType
+// @description: Describe your note type here
 
-schema("NewType", #{
+schema("MyType", #{
     fields: [
         #{ name: "body", type: "textarea" },
-    ]
+    ],
+    on_save: |note| {
+        commit();
+    }
+});
+`;
+
+const PRESENTATION_TEMPLATE = `// @name: MyType Views
+// @description: Views and actions for MyType
+
+register_view("MyType", "Summary", |note| {
+    text("Custom view for " + note.title)
 });
 `;
 
@@ -58,6 +69,8 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [canScriptUndo, setCanScriptUndo] = useState(false);
   const [canScriptRedo, setCanScriptRedo] = useState(false);
+  const [newScriptCategory, setNewScriptCategory] = useState<string>('schema');
+  const [warnings, setWarnings] = useState<ScriptWarning[]>([]);
 
   const loadScripts = useCallback(async () => {
     try {
@@ -81,6 +94,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
     if (isOpen) {
       loadScripts();
       refreshScriptUndoState();
+      invoke<ScriptWarning[]>('get_script_warnings').then(setWarnings).catch(() => setWarnings([]));
       setView('list');
       setError('');
       setImportConflict(null);
@@ -109,7 +123,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
   const handleAdd = () => {
     setImportConflict(null);
     setEditingScript(null);
-    setEditorContent(NEW_SCRIPT_TEMPLATE);
+    setEditorContent(newScriptCategory === 'schema' ? SCHEMA_TEMPLATE : PRESENTATION_TEMPLATE);
     setError('');
     setView('editor');
   };
@@ -155,6 +169,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       } else {
         const result = await invoke<ScriptMutationResult<UserScript>>('create_user_script', {
           sourceCode: editorContent,
+          category: newScriptCategory,
         });
         loadErrors = result.loadErrors;
       }
@@ -203,6 +218,8 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
       setScripts(freshScripts);
       const name = parseFrontMatterName(content);
       const conflict = name ? (freshScripts.find(s => s.name === name) ?? null) : null;
+      const isSchema = typeof path === 'string' && path.endsWith('.schema.rhai');
+      setNewScriptCategory(isSchema ? 'schema' : 'presentation');
       setImportConflict(conflict);
       setEditingScript(conflict ?? null);
       setEditorContent(content);
@@ -294,6 +311,26 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 className="text-xl font-bold">{t('scripts.title')}</h2>
               <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 text-sm mr-1">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="newCategory"
+                      checked={newScriptCategory === 'schema'}
+                      onChange={() => setNewScriptCategory('schema')}
+                    />
+                    {t('scripts.schema')}
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="newCategory"
+                      checked={newScriptCategory === 'presentation'}
+                      onChange={() => setNewScriptCategory('presentation')}
+                    />
+                    {t('scripts.library')}
+                  </label>
+                </div>
                 <button
                   onClick={handleAdd}
                   className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm"
@@ -343,8 +380,23 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
                         title={script.enabled ? t('scripts.disableScript') : t('scripts.enableScript')}
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
+                        <div className="font-medium truncate flex items-center gap-2">
                           {script.name || t('scripts.unnamed')}
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            script.category === 'schema'
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+                          }`}>
+                            {script.category === 'schema' ? t('scripts.schema') : t('scripts.library')}
+                          </span>
+                          {warnings.filter(w => w.scriptName === script.name).length > 0 && (
+                            <span
+                              title={warnings.filter(w => w.scriptName === script.name).map(w => w.message).join('\n')}
+                              className="text-amber-500 cursor-help font-bold text-xs"
+                            >
+                              ⚠
+                            </span>
+                          )}
                         </div>
                         {script.description && (
                           <div className="text-sm text-muted-foreground truncate">
