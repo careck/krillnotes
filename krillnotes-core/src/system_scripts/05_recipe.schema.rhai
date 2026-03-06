@@ -6,10 +6,6 @@
 
 // @name: Recipe
 // @description: A cooking recipe with ingredients, steps, and derived total time.
-//
-// on_save hook:
-//   - Derives `total_time` (view-only) from prep_time + cook_time
-//     (formatted as "45 min" or "1h 15min")
 
 schema("Recipe", #{
     title_can_edit: true,

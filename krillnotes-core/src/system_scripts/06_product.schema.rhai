@@ -6,10 +6,6 @@
 
 // @name: Product
 // @description: An inventory item with auto-formatted title and stock status.
-//
-// on_save hook:
-//   - Computes title as "Product Name (SKU)" (or just name if SKU is blank)
-//   - Derives `stock_status` (view-only) from the stock count
 
 schema("Product", #{
     title_can_edit: false,
@@ -33,9 +29,6 @@ schema("Product", #{
         });
 
         let stock = note.fields["stock"];
-        // Note: stock defaults to 0.0 when not set. We treat 0.0 as "not entered"
-        // and only show a status badge when stock has been explicitly recorded.
-        // If you always want to show "Out of Stock" for zero stock, remove this guard.
         set_field(note.id, "stock_status",
             if stock < 0.0         { "❌ Out of Stock" }
             else if stock == 0.0   { "" }

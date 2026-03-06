@@ -28,7 +28,7 @@ pub use core::{
     note::{FieldValue, Note},
     operation::Operation,
     operation_log::{OperationLog, OperationSummary, PurgeStrategy},
-    scripting::{FieldDefinition, FieldGroup, HookRegistry, QueryContext, Schema, ScriptError, ScriptRegistry, StarterScript},
+    scripting::{FieldDefinition, FieldGroup, HookRegistry, QueryContext, Schema, ScriptError, ScriptRegistry, ScriptWarning, StarterScript, ViewRegistration},
     hlc::{HlcClock, HlcTimestamp},
     identity::{IdentityFile, IdentityManager, IdentitySettings, IdentityRef, WorkspaceBinding, UnlockedIdentity, SwarmIdFile},
     save_transaction::{SaveResult, SaveTransaction, SoftError},

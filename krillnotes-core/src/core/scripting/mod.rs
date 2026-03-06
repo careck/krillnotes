@@ -139,6 +139,7 @@ pub struct ScriptRegistry {
     engine: Engine,
     current_loading_ast: Arc<Mutex<Option<AST>>>,
     current_loading_script_name: Arc<Mutex<Option<String>>>,
+    current_loading_category: Arc<Mutex<Option<String>>>,
     /// Tracks which script name registered each schema name, for collision detection.
     schema_owners: Arc<Mutex<HashMap<String, String>>>,
     schema_registry: schema::SchemaRegistry,
@@ -157,6 +158,7 @@ impl ScriptRegistry {
         let schema_registry = schema::SchemaRegistry::new();
         let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
         let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let current_loading_category: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let schema_owners: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
         // Register register_view/hover/menu — deferred binding functions
@@ -284,8 +286,16 @@ impl ScriptRegistry {
         let on_add_child_arc  = schema_registry.on_add_child_hooks_arc();
         let schema_ast_arc    = Arc::clone(&current_loading_ast);
         let schema_name_arc   = Arc::clone(&current_loading_script_name);
+        let schema_cat_arc    = Arc::clone(&current_loading_category);
         let schema_owners_arc = Arc::clone(&schema_owners);
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
+            // Gate: schema() can only be called from schema-category scripts.
+            let cat = schema_cat_arc.lock().unwrap();
+            if cat.as_deref() == Some("presentation") {
+                return Err("schema() can only be called from schema-category scripts, not presentation/library scripts".into());
+            }
+            drop(cat);
+
             let script_name = schema_name_arc.lock().unwrap()
                 .clone()
                 .unwrap_or_else(|| "<unknown>".to_string());
@@ -706,6 +716,7 @@ impl ScriptRegistry {
             engine,
             current_loading_ast,
             current_loading_script_name,
+            current_loading_category,
             schema_owners,
             schema_registry,
             query_context,
@@ -736,6 +747,12 @@ impl ScriptRegistry {
     /// # Errors
     ///
     /// Returns [`KrillnotesError::Scripting`] if the script fails to evaluate.
+    /// Sets the category for the next `load_script()` call.
+    /// Used by two-phase loading to gate `schema()` to schema-category scripts.
+    pub fn set_loading_category(&mut self, category: Option<String>) {
+        *self.current_loading_category.lock().unwrap() = category;
+    }
+
     pub fn load_script(&mut self, script: &str, name: &str) -> Result<()> {
         let ast = self
             .engine
@@ -756,6 +773,7 @@ impl ScriptRegistry {
         // leave no stale AST for the next load.
         *self.current_loading_ast.lock().unwrap() = None;
         *self.current_loading_script_name.lock().unwrap() = None;
+        *self.current_loading_category.lock().unwrap() = None;
 
         result
     }
@@ -1145,7 +1163,12 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/00_text_note.rhai"
-        )), "TextNote").expect("TextNote starter script should load");
+        )), "Text Note Actions").expect("TextNote presentation script should load");
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/system_scripts/00_text_note.schema.rhai"
+        )), "Text Note").expect("TextNote schema script should load");
+        registry.resolve_bindings();
     }
 
     // ── hooks-inside-schema (new style) ─────────────────────────────────────
@@ -1184,13 +1207,16 @@ mod tests {
     fn test_on_view_inside_schema_returns_html() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
+            register_view("Folder", "Default", |note| {
+                text("hello from view")
+            });
+        "#, "test_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("Folder", #{
                 fields: [],
-                on_view: |note| {
-                    text("hello from view")
-                }
             });
-        "#, "test").unwrap();
+        "#, "test.schema.rhai").unwrap();
+        registry.resolve_bindings();
 
         use crate::Note;
         let note = Note {
@@ -1439,7 +1465,12 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
-        )), "Contact").unwrap();
+        )), "Contacts View").unwrap();
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/system_scripts/01_contact.schema.rhai"
+        )), "Contacts").unwrap();
+        registry.resolve_bindings();
         let schema = registry.get_schema("Contact").unwrap();
         assert_eq!(schema.name, "Contact");
         assert_eq!(schema.fields.len(), 12);
@@ -1510,7 +1541,12 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
-        )), "Contact").unwrap();
+        )), "Contacts View").unwrap();
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/system_scripts/01_contact.schema.rhai"
+        )), "Contacts").unwrap();
+        registry.resolve_bindings();
         assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
 
         let mut fields = BTreeMap::new();
@@ -1674,7 +1710,12 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/01_contact.rhai"
-        )), "Contact").unwrap();
+        )), "Contacts View").unwrap();
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/system_scripts/01_contact.schema.rhai"
+        )), "Contacts").unwrap();
+        registry.resolve_bindings();
         let schema = registry.get_schema("Contact").unwrap();
         assert!(!schema.title_can_edit, "Contact title_can_edit should be false");
         assert!(schema.title_can_view, "Contact title_can_view should still be true");
@@ -2069,7 +2110,12 @@ mod tests {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../templates/book_collection.rhai"
-        )), "book_collection").expect("book_collection.rhai should load");
+        )), "Book Collection Views").expect("Book presentation script should load");
+        registry.load_script(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../templates/book_collection.schema.rhai"
+        )), "Book Collection").expect("Book schema script should load");
+        registry.resolve_bindings();
 
         let mut fields = BTreeMap::new();
         fields.insert("book_title".to_string(), crate::FieldValue::Text("Dune".to_string()));
@@ -2138,14 +2184,17 @@ mod tests {
     fn test_link_to_is_callable_from_on_view_script() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
+            register_view("LinkTest", "Default", |note| {
+                let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, node_type: "TextNote" };
+                link_to(target)
+            });
+        "#, "test_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("LinkTest", #{
                 fields: [#{ name: "ref_id", type: "text" }],
-                on_view: |note| {
-                    let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, node_type: "TextNote" };
-                    link_to(target)
-                }
             });
-        "#, "test").unwrap();
+        "#, "test.schema.rhai").unwrap();
+        registry.resolve_bindings();
 
         let note = Note {
             id: "note-1".to_string(),
@@ -2436,16 +2485,22 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(
             r#"
-            schema("BoomView", #{
-                fields: [],
-                on_view: |note| {
-                    throw "intentional runtime error";
-                    text("x")
-                }
+            register_view("BoomView", "Default", |note| {
+                throw "intentional runtime error";
+                text("x")
             });
             "#,
             "My View Script",
         ).unwrap();
+        registry.load_script(
+            r#"
+            schema("BoomView", #{
+                fields: [],
+            });
+            "#,
+            "BoomView Schema",
+        ).unwrap();
+        registry.resolve_bindings();
 
         use crate::Note;
         let note = Note {
@@ -2476,8 +2531,10 @@ mod tests {
     fn test_add_tree_action_registers_entry() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            add_tree_action("Sort Children", ["TextNote"], |note| { () });
+            schema("TextNote", #{ fields: [] });
+            register_menu("Sort Children", ["TextNote"], |note| { () });
         "#, "test_script").unwrap();
+        registry.resolve_bindings();
         let map = registry.tree_action_map();
         assert_eq!(map.get("TextNote"), Some(&vec!["Sort Children".to_string()]));
     }
@@ -2492,8 +2549,10 @@ mod tests {
     fn test_clear_all_removes_tree_actions() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            add_tree_action("Do Thing", ["TextNote"], |note| { () });
+            schema("TextNote", #{ fields: [] });
+            register_menu("Do Thing", ["TextNote"], |note| { () });
         "#, "test_script").unwrap();
+        registry.resolve_bindings();
         registry.clear_all();
         assert!(registry.tree_action_map().is_empty());
     }
@@ -2503,8 +2562,9 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("TextNote", #{ fields: [] });
-            add_tree_action("Noop", ["TextNote"], |note| { () });
+            register_menu("Noop", ["TextNote"], |note| { () });
         "#, "test_script").unwrap();
+        registry.resolve_bindings();
         let note = crate::Note {
             id: "n1".into(), title: "Hello".into(),
             node_type: "TextNote".into(), parent_id: None,
@@ -2529,8 +2589,9 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("TextNote", #{ fields: [] });
-            add_tree_action("Sort", ["TextNote"], |note| { ["id-b", "id-a"] });
+            register_menu("Sort", ["TextNote"], |note| { ["id-b", "id-a"] });
         "#, "test_script").unwrap();
+        registry.resolve_bindings();
         let note = crate::Note {
             id: "p1".into(), title: "Parent".into(),
             node_type: "TextNote".into(), parent_id: None,
@@ -2577,8 +2638,9 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("TextNote", #{ fields: [] });
-            add_tree_action("Boom", ["TextNote"], |note| { throw "intentional"; });
+            register_menu("Boom", ["TextNote"], |note| { throw "intentional"; });
         "#, "my_script").unwrap();
+        registry.resolve_bindings();
         let note = crate::Note {
             id: "n1".into(), title: "T".into(),
             node_type: "TextNote".into(), parent_id: None,
@@ -2630,7 +2692,7 @@ mod tests {
                     #{ name: "status", type: "text", required: false },
                 ]
             });
-            add_tree_action("Make Task", ["Task"], |note| {
+            register_menu("Make Task", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
                 if t.node_type != "Task" { throw "node_type must be Task"; }
                 if t.id == ""           { throw "id must not be empty"; }
@@ -2638,6 +2700,7 @@ mod tests {
                 commit();
             });
         "#, "test").unwrap();
+        registry.resolve_bindings();
 
         let note = make_test_note("parent1", "Task");
         let ctx  = make_empty_ctx();
@@ -2660,12 +2723,13 @@ mod tests {
                     #{ name: "status", type: "text", required: false },
                 ]
             });
-            add_tree_action("Mark Done", ["Task"], |note| {
+            register_menu("Mark Done", ["Task"], |note| {
                 set_title(note.id, "Completed");
                 set_field(note.id, "status", "Done");
                 commit();
             });
         "#, "test").unwrap();
+        registry.resolve_bindings();
 
         let mut fields = BTreeMap::new();
         fields.insert("status".to_string(), FieldValue::Text("Open".to_string()));
@@ -2689,13 +2753,14 @@ mod tests {
             schema("Task", #{
                 fields: [#{ name: "status", type: "text", required: false }]
             });
-            add_tree_action("New Task", ["Task"], |note| {
+            register_menu("New Task", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
                 set_title(t.id, "My Task");
                 set_field(t.id, "status", "Open");
                 commit();
             });
         "#, "test").unwrap();
+        registry.resolve_bindings();
 
         let note = make_test_note("parent1", "Task");
         let result = registry.invoke_tree_action_hook("New Task", &note, make_empty_ctx()).unwrap();
@@ -2718,7 +2783,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("Task", #{ fields: [] });
-            add_tree_action("Verify Children", ["Task"], |note| {
+            register_menu("Verify Children", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
                 let children = get_children(note.id);
                 let found = children.filter(|c| c.id == t.id);
@@ -2726,6 +2791,7 @@ mod tests {
                 commit();
             });
         "#, "test").unwrap();
+        registry.resolve_bindings();
 
         let note = make_test_note("parent1", "Task");
         registry.invoke_tree_action_hook("Verify Children", &note, make_empty_ctx()).unwrap();
@@ -2736,7 +2802,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("Task", #{ fields: [] });
-            add_tree_action("Verify get_note", ["Task"], |note| {
+            register_menu("Verify get_note", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
                 let fetched = get_note(t.id);
                 if fetched == () { throw "inflight note not visible via get_note"; }
@@ -2744,6 +2810,7 @@ mod tests {
                 commit();
             });
         "#, "test").unwrap();
+        registry.resolve_bindings();
 
         let note = make_test_note("parent1", "Task");
         registry.invoke_tree_action_hook("Verify get_note", &note, make_empty_ctx()).unwrap();
@@ -2753,14 +2820,17 @@ mod tests {
     fn test_on_view_note_has_tags() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
+            register_view("Tagged", "Default", |note| {
+                let t = note.tags;
+                text(t.len().to_string() + ":" + t[0])
+            });
+        "#, "test_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("Tagged", #{
                 fields: [],
-                on_view: |note| {
-                    let t = note.tags;
-                    text(t.len().to_string() + ":" + t[0])
-                }
             });
-        "#, "test").unwrap();
+        "#, "test.schema.rhai").unwrap();
+        registry.resolve_bindings();
 
         let note = Note {
             id: "n1".to_string(), node_type: "Tagged".to_string(),
@@ -2938,12 +3008,14 @@ mod tests {
     fn test_has_hover_hook_registered() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            // @name: HoverHook
+            register_hover("WithHover", |note| { "hover: " + note.title });
+        "#, "HoverHook_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("WithHover", #{
                 fields: [#{ name: "body", type: "text" }],
-                on_hover: |note| { "hover: " + note.title },
             });
-        "#, "HoverHook").unwrap();
+        "#, "HoverHook.schema.rhai").unwrap();
+        registry.resolve_bindings();
         assert!(registry.has_hover("WithHover"));
         assert!(!registry.has_hover("Nonexistent"));
     }
@@ -2952,12 +3024,14 @@ mod tests {
     fn test_run_on_hover_hook_returns_html() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
-            // @name: HoverRun
+            register_hover("HoverRun", |note| { "HOVER:" + note.title });
+        "#, "HoverRun_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("HoverRun", #{
                 fields: [#{ name: "body", type: "text" }],
-                on_hover: |note| { "HOVER:" + note.title },
             });
-        "#, "HoverRun").unwrap();
+        "#, "HoverRun.schema.rhai").unwrap();
+        registry.resolve_bindings();
         let note = crate::Note {
             id: "id1".into(), title: "Test Note".into(), node_type: "HoverRun".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
@@ -2999,16 +3073,19 @@ mod tests {
 
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
+            register_view("PhotoNote", "Default", |note| {
+                let atts = get_attachments(note.id);
+                if atts.len() == 0 { return text("none"); }
+                let first = atts[0];
+                text(first.id + "|" + first.filename)
+            });
+        "#, "test_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("PhotoNote", #{
                 fields: [],
-                on_view: |note| {
-                    let atts = get_attachments(note.id);
-                    if atts.len() == 0 { return text("none"); }
-                    let first = atts[0];
-                    text(first.id + "|" + first.filename)
-                }
             });
-        "#, "test_script").unwrap();
+        "#, "test.schema.rhai").unwrap();
+        registry.resolve_bindings();
 
         let note = make_test_note("note-1", "PhotoNote");
 
@@ -3038,13 +3115,16 @@ mod tests {
 
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
+            register_view("PhotoNote", "Default", |note| {
+                display_image(note.fields["photo"], 300, "My alt")
+            });
+        "#, "test_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("PhotoNote", #{
                 fields: [#{ name: "photo", type: "file", required: false }],
-                on_view: |note| {
-                    display_image(note.fields["photo"], 300, "My alt")
-                }
             });
-        "#, "test_script").unwrap();
+        "#, "test.schema.rhai").unwrap();
+        registry.resolve_bindings();
 
         let mut fields = BTreeMap::new();
         fields.insert("photo".to_string(), FieldValue::File(Some("abc-uuid-123".to_string())));
@@ -3066,13 +3146,16 @@ mod tests {
 
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
+            register_view("PhotoNote", "Default", |note| {
+                display_image(note.fields["photo"], 0, "")
+            });
+        "#, "test_views.rhai").unwrap();
+        registry.load_script(r#"
             schema("PhotoNote", #{
                 fields: [#{ name: "photo", type: "file", required: false }],
-                on_view: |note| {
-                    display_image(note.fields["photo"], 0, "")
-                }
             });
-        "#, "test_script").unwrap();
+        "#, "test.schema.rhai").unwrap();
+        registry.resolve_bindings();
 
         let mut fields = BTreeMap::new();
         fields.insert("photo".to_string(), FieldValue::File(None));

@@ -181,11 +181,20 @@ impl Workspace {
             .collect::<std::result::Result<Vec<_>, _>>()?;
             results
         };
-        for script in scripts.iter().filter(|s| s.enabled) {
+        // Two-phase loading: presentation first, then schema, then resolve.
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
+            script_registry.set_loading_category(Some("presentation".to_string()));
             if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
                 eprintln!("Failed to load starter script '{}': {}", script.name, e);
             }
         }
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
+            script_registry.set_loading_category(Some("schema".to_string()));
+            if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
+                eprintln!("Failed to load starter script '{}': {}", script.name, e);
+            }
+        }
+        script_registry.resolve_bindings();
 
         // Derive root note title from workspace folder name (parent of notes.db), not the db filename
         let filename = {
@@ -375,13 +384,21 @@ impl Workspace {
             signing_key,
         };
 
-        // Load enabled scripts from the workspace DB.
+        // Two-phase script loading: presentation first, then schema, then resolve.
         let scripts = ws.list_user_scripts()?;
-        for script in scripts.iter().filter(|s| s.enabled) {
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
+            ws.script_registry.set_loading_category(Some("presentation".to_string()));
             if let Err(e) = ws.script_registry.load_script(&script.source_code, &script.name) {
                 eprintln!("Failed to load script '{}': {}", script.name, e);
             }
         }
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
+            ws.script_registry.set_loading_category(Some("schema".to_string()));
+            if let Err(e) = ws.script_registry.load_script(&script.source_code, &script.name) {
+                eprintln!("Failed to load script '{}': {}", script.name, e);
+            }
+        }
+        ws.script_registry.resolve_bindings();
 
         // Clean up any .enc.trash files left from a previous session.
         // Undo stacks are in-session only, so prior-session trash is always safe to remove.
@@ -1625,6 +1642,40 @@ impl Workspace {
     ///
     /// The default view auto-renders `textarea` fields as CommonMark markdown.
     ///
+    /// Builds a `QueryContext` from all notes and attachments in the workspace.
+    fn build_query_context(&self) -> Result<QueryContext> {
+        let all_notes = self.list_all_notes()?;
+        let mut notes_by_id: HashMap<String, Dynamic> = HashMap::new();
+        let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_type: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_tag: HashMap<String, Vec<Dynamic>> = HashMap::new();
+        let mut notes_by_link_target: HashMap<String, Vec<Dynamic>> = HashMap::new();
+
+        for n in &all_notes {
+            let dyn_map = note_to_rhai_dynamic(n);
+            notes_by_id.insert(n.id.clone(), dyn_map.clone());
+            if let Some(pid) = &n.parent_id {
+                children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
+            }
+            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            for tag in &n.tags {
+                notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
+            }
+            for value in n.fields.values() {
+                if let FieldValue::NoteLink(Some(target_id)) = value {
+                    notes_by_link_target.entry(target_id.clone()).or_default().push(dyn_map.clone());
+                }
+            }
+        }
+
+        let mut attachments_by_note_id: HashMap<String, Vec<AttachmentMeta>> = HashMap::new();
+        for att in self.list_all_attachments().unwrap_or_default() {
+            attachments_by_note_id.entry(att.note_id.clone()).or_default().push(att);
+        }
+
+        Ok(QueryContext { notes_by_id, children_by_id, notes_by_type, notes_by_tag, notes_by_link_target, attachments_by_note_id })
+    }
+
     /// # Errors
     ///
     /// Returns [`KrillnotesError::Database`] if the note or any workspace note
@@ -1994,7 +2045,33 @@ impl Workspace {
 
     /// Returns a map of `note_type → [action_label, …]` from the script registry.
     pub fn tree_action_map(&self) -> HashMap<String, Vec<String>> {
-        self.script_registry.tree_action_map()
+        self.script_registry.menu_action_map()
+    }
+
+    pub fn get_views_for_type(&self, schema_name: &str) -> Vec<crate::core::scripting::ViewRegistration> {
+        self.script_registry.get_views_for_type(schema_name)
+    }
+
+    pub fn get_script_warnings(&self) -> Vec<crate::core::scripting::ScriptWarning> {
+        self.script_registry.get_script_warnings()
+    }
+
+    /// Renders a specific registered view tab for a note.
+    pub fn render_view(&self, note_id: &str, view_label: &str) -> Result<String> {
+        let note = self.get_note(note_id)?;
+        let context = self.build_query_context()?;
+
+        let attachments = self.get_attachments(&note.id).unwrap_or_default();
+        self.script_registry.set_run_context(note.clone(), attachments);
+        struct RunContextGuard<'a>(&'a crate::core::scripting::ScriptRegistry);
+        impl Drop for RunContextGuard<'_> {
+            fn drop(&mut self) { self.0.clear_run_context(); }
+        }
+        let _guard = RunContextGuard(&self.script_registry);
+
+        self.script_registry
+            .run_view(&note, view_label, context)
+            .map(|html| self.embed_attachment_images(html))
     }
 
     // Note: toggle_note_expansion and set_selected_note intentionally do NOT write to the
@@ -2970,6 +3047,17 @@ impl Workspace {
     /// Returns an error if `@name` is missing from the front matter, or if Rhai
     /// compilation fails. On failure nothing is written to the database.
     pub fn create_user_script(&mut self, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
+        // Auto-detect category: if the source calls schema(), it's a schema script.
+        let category = if source_code.contains("schema(") { "schema" } else { "presentation" };
+        self.create_user_script_with_category(source_code, category)
+    }
+
+    /// Creates a user script with an explicit category ("schema" or "presentation").
+    pub fn create_user_script_with_category(
+        &mut self,
+        source_code: &str,
+        category: &str,
+    ) -> Result<(UserScript, Vec<ScriptError>)> {
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -2980,21 +3068,18 @@ impl Workspace {
         let now = chrono::Utc::now().timestamp();
         let id = Uuid::new_v4().to_string();
 
-        // Pre-validation: try to load the script against the live registry.
-        // Catches syntax errors and schema collisions before writing to the DB.
+        // Pre-validation
+        self.script_registry.set_loading_category(Some(category.to_string()));
         if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
-            // Restore the registry to its pre-validation state; ignore restoration errors.
             let _ = self.reload_scripts();
             return Err(e);
         }
 
-        // Advance HLC and capture signing key before the transaction borrows self.storage.
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
 
         let tx = self.storage.connection_mut().transaction()?;
 
-        // Determine next load_order
         let max_order: i32 = tx
             .query_row("SELECT COALESCE(MAX(load_order), -1) FROM user_scripts", [], |row| row.get(0))
             .unwrap_or(-1);
@@ -3003,10 +3088,9 @@ impl Workspace {
         tx.execute(
             "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            rusqlite::params![id, fm.name, fm.description, source_code, load_order, true, now, now, "presentation"],
+            rusqlite::params![id, fm.name, fm.description, source_code, load_order, true, now, now, category],
         )?;
 
-        // Log operation
         Self::save_hlc(&ts, &tx)?;
         let mut op = Operation::CreateUserScript {
             operation_id: Uuid::new_v4().to_string(),
@@ -3027,7 +3111,6 @@ impl Workspace {
 
         tx.commit()?;
 
-        // Push onto the script-specific undo stack (isolated from note undo).
         let op_id = op.operation_id().to_string();
         self.push_script_undo(UndoEntry {
             retracted_ids: vec![op_id],
@@ -3035,7 +3118,6 @@ impl Workspace {
             propagate: true,
         });
 
-        // Full reload to ensure deterministic ordering and collect any load errors.
         let errors = self.reload_scripts()?;
         let script = self.get_user_script(&id)?;
         Ok((script, errors))
@@ -3297,8 +3379,16 @@ impl Workspace {
     fn reload_scripts(&mut self) -> Result<Vec<ScriptError>> {
         self.script_registry.clear_all();
         let scripts = self.list_user_scripts()?;
+        Ok(self.load_scripts_two_phase(&scripts))
+    }
+
+    /// Two-phase script loading: presentation/library first, then schema, then resolve bindings.
+    fn load_scripts_two_phase(&mut self, scripts: &[UserScript]) -> Vec<ScriptError> {
         let mut errors = Vec::new();
-        for script in scripts.iter().filter(|s| s.enabled) {
+
+        // Phase A: load presentation/library scripts first
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
+            self.script_registry.set_loading_category(Some("presentation".to_string()));
             if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
                 errors.push(ScriptError {
                     script_name: script.name.clone(),
@@ -3306,7 +3396,27 @@ impl Workspace {
                 });
             }
         }
-        Ok(errors)
+
+        // Phase B: load schema scripts
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
+            self.script_registry.set_loading_category(Some("schema".to_string()));
+            if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
+                errors.push(ScriptError {
+                    script_name: script.name.clone(),
+                    message: e.to_string(),
+                });
+            }
+        }
+
+        // Phase C: resolve deferred bindings (views, hovers, menus)
+        self.script_registry.resolve_bindings();
+
+        errors
+    }
+
+    /// Public wrapper for reloading all scripts (e.g. from tests).
+    pub fn reload_all_scripts(&mut self) -> Result<Vec<ScriptError>> {
+        self.reload_scripts()
     }
 
     /// Collects the IDs of `note_id` and every descendant using a recursive CTE.
@@ -4664,10 +4774,10 @@ mod tests {
         let workspace = Workspace::create(temp.path(), "", None).unwrap();
         let scripts = workspace.list_user_scripts().unwrap();
         assert!(!scripts.is_empty(), "New workspace should have starter scripts");
-        // Verify first starter script is TextNote
-        assert_eq!(scripts[0].name, "Text Note");
-        assert!(scripts[0].enabled);
-        assert_eq!(scripts[0].load_order, 0);
+        // Verify starter scripts include both presentation and schema scripts
+        let names: Vec<&str> = scripts.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Text Note"), "Should have Text Note schema");
+        assert!(names.contains(&"Text Note Actions"), "Should have Text Note Actions");
     }
 
     #[test]
@@ -5232,7 +5342,7 @@ schema("Memo", #{
         // Load a script that sorts children alphabetically
         ws.create_user_script(r#"
 // @name: SortTest
-add_tree_action("Sort A→Z", ["TextNote"], |note| {
+register_menu("Sort A→Z", ["TextNote"], |note| {
     let children = get_children(note.id);
     children.sort_by(|a, b| a.title <= b.title);
     children.map(|c| c.id)
@@ -5257,7 +5367,7 @@ add_tree_action("Sort A→Z", ["TextNote"], |note| {
 // @name: CreateAction
 schema("TaFolder", #{ fields: [] });
 schema("TaItem", #{ fields: [#{ name: "tag", type: "text", required: false }] });
-add_tree_action("Add Item", ["TaFolder"], |folder| {
+register_menu("Add Item", ["TaFolder"], |folder| {
     let item = create_child(folder.id, "TaItem");
     set_title(item.id, "My Item");
     set_field(item.id, "tag", "hello");
@@ -5287,7 +5397,7 @@ add_tree_action("Add Item", ["TaFolder"], |folder| {
         ws.create_user_script(r#"
 // @name: UpdateAction
 schema("TaTask", #{ fields: [#{ name: "status", type: "text", required: false }] });
-add_tree_action("Mark Done", ["TaTask"], |note| {
+register_menu("Mark Done", ["TaTask"], |note| {
     set_title(note.id, "Done Task");
     set_field(note.id, "status", "done");
     commit();
@@ -5316,7 +5426,7 @@ add_tree_action("Mark Done", ["TaTask"], |note| {
 // @name: NestedCreate
 schema("TaSprint", #{ fields: [] });
 schema("TaSubTask", #{ fields: [] });
-add_tree_action("Add Sprint With Task", ["TaSprint"], |sprint| {
+register_menu("Add Sprint With Task", ["TaSprint"], |sprint| {
     let child_sprint = create_child(sprint.id, "TaSprint");
     set_title(child_sprint.id, "Child Sprint");
     let task = create_child(child_sprint.id, "TaSubTask");
@@ -5350,7 +5460,7 @@ add_tree_action("Add Sprint With Task", ["TaSprint"], |sprint| {
 // @name: ErrorAction
 schema("TaErrFolder", #{ fields: [] });
 schema("TaErrItem", #{ fields: [] });
-add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
+register_menu("Create Then Fail", ["TaErrFolder"], |folder| {
     let item = create_child(folder.id, "TaErrItem");
     set_title(item.id, "Orphan");
     throw "deliberate error";
@@ -5380,7 +5490,7 @@ schema("TAItem", #{
         #{ name: "value", type: "text", required: false },
     ],
 });
-add_tree_action("Add Item", ["TAFolder"], |note| {
+register_menu("Add Item", ["TAFolder"], |note| {
     let child = create_child(note.id, "TAItem");
     set_title(child.id, "New Item");
     set_field(child.id, "value", "default");
