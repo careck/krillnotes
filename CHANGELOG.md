@@ -5,6 +5,31 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **HLC timestamps on operations** — Every mutation is now timestamped with a Hybrid Logical Clock (`wall_ms`, `counter`, `node_id`) instead of a plain Unix integer. HLC timestamps provide causal ordering guarantees even when clocks skew across devices, which is a prerequisite for CRDT merge.
+- **Ed25519-signed operations** — Each mutation carries an Ed25519 signature produced by the unlocked identity's signing key. Operations can be verified against the author's public key, laying the foundation for trustless multi-device sync.
+- **`UpdateNote` and `SetTags` operation variants** — Title changes now emit a dedicated `UpdateNote` operation (separate from field-level `UpdateField`) to enable last-write-wins conflict resolution on note titles. Tag assignments now emit `SetTags` and are recorded in the operations log for the first time.
+- **Author display in Operations Log** — Each row in the Operations Log now shows a short author identifier (first 8 characters of the base64-encoded public key), resolved to the identity's display name when the identity is loaded.
+- **Gated operations model (`SaveTransaction`)** — Replaces direct-mutation `on_save` hooks with a transactional API. Scripts now use `set_field()`, `set_title()`, `reject()`, and `commit()` to express mutations declaratively. A 7-step save pipeline (`save_note_with_pipeline`) runs visibility → validate → required → update, ensuring hooks cannot leave a note in an inconsistent state.
+- **Field groups** — Schemas can define `field_groups` in `schema()` to visually organise related fields under collapsible sections. Each group supports an optional `visible` closure that dynamically shows or hides the section based on the current field values (e.g. show "Completion details" only when status is "done").
+- **Field-level `validate` closures** — Individual field definitions accept a `validate: |v| ...` closure that returns an error string or `()`. Validation runs on-blur in the frontend (inline error under the field) and as a hard gate inside `set_field()` during saves.
+- **Note-level `reject()`** — `on_save` hooks can call `reject("message")` to abort a save with a structured error. The frontend displays rejected messages in a note-level error banner above the fields.
+
+### Changed
+- **Note positions changed from integer to float** — `notes.position` in the database is now a `REAL` (f64) column. This enables future fractional mid-point insertion for CRDT reordering without rewriting sibling positions. Existing positions are migrated automatically.
+- **Operations table schema updated** — The `timestamp` column is replaced by three HLC columns (`timestamp_wall_ms`, `timestamp_counter`, `timestamp_node_id`). A new `hlc_state` table persists the HLC clock state across sessions. Existing workspaces are migrated automatically on first open.
+- **`HashMap` → `BTreeMap` for note fields** — `Note.fields`, `CreateNote.fields`, and related action types now use `BTreeMap` to guarantee deterministic serialization order. This is required for reproducible Ed25519 signatures across processes.
+- **`on_save` hook API** — All `on_save` hooks (system scripts and templates) have been migrated from direct note mutation to the new `SaveTransaction` gated model. The `on_add_child` hook is also migrated, with both parent and child pre-seeded into the transaction.
+- **`save_note` replaces `update_note` IPC** — The frontend now calls `save_note` instead of `update_note`, which runs the full save pipeline including validation and hooks. The old `update_note` command is removed.
+
+### Fixed
+- **Serde camelCase on `SaveResult::ValidationErrors`** — Added explicit `#[serde(rename)]` attributes for `fieldErrors`, `noteErrors`, `previewTitle`, and `previewFields` fields. Enum-level `rename_all` only renames variant tags, not struct variant fields.
+- **`evaluate_group_visibility` and `validate_field` invoke parameters** — Fixed frontend invoke calls to pass `schemaName` instead of `noteId`, matching the Tauri command signatures.
+
+---
+
 ## [0.3.0] — 2026-03-05
 
 > **Breaking change:** This release replaces per-workspace passwords with an identity-based authentication system. Workspaces created with v0.2.x that used a password cannot be opened directly — export them from v0.2.x via **File → Export Workspace** and re-import into v0.3.0. Additionally, the project is now licensed under MPL-2.0 (previously MIT).
@@ -214,6 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
+[Unreleased]: https://github.com/careck/krillnotes/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/careck/krillnotes/compare/v0.2.6...v0.3.0
 [0.2.6]: https://github.com/careck/krillnotes/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/careck/krillnotes/compare/v0.2.4...v0.2.5

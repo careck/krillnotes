@@ -63,36 +63,13 @@ Krillnotes/
     └── zettelkasten.rhai
 ```
 
-## Key Workspace Dependencies
+## Architecture
 
-```toml
-rusqlite = { version = "0.38", features = ["bundled-sqlcipher-vendored-openssl"] }
-rhai = { version = "1.24", features = ["sync"] }    # Arc/Mutex, Send+Sync Engine
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-uuid = { version = "1.7", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-thiserror = "2"
-```
+**Data flow:** React component → `invoke("tauri_command")` → `lib.rs` → `workspace.rs` method (BEGIN TX → mutate → log_op → COMMIT) → return to frontend
 
-## Architecture — How Things Connect
+**Key deps:** `rusqlite` (SQLCipher), `rhai` (sync feature), `serde`/`serde_json`, `uuid`, `chrono`, `thiserror`
 
-```
-User action → React component → invoke("tauri_command", {...})
-                                        ↓
-                              lib.rs: Tauri command
-                              window.label() → lookup Workspace in AppState
-                                        ↓
-                              workspace.rs method (BEGIN TX → mutate → log_op → COMMIT)
-                                        ↓
-                              Return result → frontend updates state
-```
-
-**AppState** (in `krillnotes-desktop/src-tauri/src/lib.rs`):
-- `workspaces: Arc<Mutex<HashMap<String, Workspace>>>` — label → Workspace
-- `workspace_paths: Arc<Mutex<HashMap<String, PathBuf>>>` — label → file path
-- `workspace_passwords: Arc<Mutex<HashMap<PathBuf, String>>>` — session-only cache
-- `paste_menu_items` / `workspace_menu_items` — per-window native menu handles
+**AppState** (in `lib.rs`): `workspaces: Arc<Mutex<HashMap<String, Workspace>>>` keyed by window label, plus `workspace_paths` and `workspace_passwords` maps
 
 ## Note Fields and actions (hooks) are defined in scripts
 - see `SCRIPTING.md` for how to define schemas and hooks
@@ -100,89 +77,76 @@ User action → React component → invoke("tauri_command", {...})
 ## Coding Conventions
 
 ### Rust
-- All errors use `KrillnotesError` (thiserror) in core; Tauri commands map to `Result<T, String>`
+- `KrillnotesError` (thiserror) in core; Tauri commands return `Result<T, String>`
 - Workspace methods wrap mutations in SQL transactions
-- The Rhai `Engine` is long-lived (not recreated per request) — `rhai/sync` feature makes it `Send + Sync`
-- Schema + hooks are defined together inside `schema()` calls in Rhai scripts
+- Rhai Engine is long-lived (`sync` feature = `Send + Sync`); schemas + hooks in `schema()` calls
 - `include_dir!` embeds system scripts at compile time
-- Tests use `#[cfg(test)]` modules with temp in-memory workspaces
-- UUIDs for all IDs (`uuid::Uuid`), `chrono::DateTime<Utc>` for timestamps
-- **Any struct returned from a Tauri command to the frontend MUST have `#[serde(rename_all = "camelCase")]`** — without it, Rust's snake_case fields (`display_name`, `last_used`) arrive as `undefined` in TypeScript which expects camelCase (`displayName`, `lastUsed`). Structs defined in `krillnotes-core` that are re-exported via Tauri commands are especially prone to this — the core crate has no knowledge of the frontend convention. When adding `rename_all = "camelCase"` to an existing struct that is also persisted to disk (e.g. stored in JSON settings files), add `#[serde(alias = "snake_case_name")]` to each renamed field so old files can still be read.
+- Tests: `#[cfg(test)]` with in-memory workspaces. UUIDs for IDs, `chrono::DateTime<Utc>` for timestamps
+- **Serde boundary rules** — structs crossing Rust→TS MUST have `#[serde(rename_all = "camelCase")]`. Enum `rename_all` only renames variants, NOT struct variant fields. Always verify JSON keys match TS interfaces. See `gotchas.md` in memory for full details.
 
 ### TypeScript / React
-- React 19 with functional components + hooks
-- Tailwind CSS v4 for styling
-- i18next for internationalisation (7 languages)
+- React 19 + Tailwind v4 + i18next (7 languages) + CodeMirror for script editor
 - All Tauri IPC via `@tauri-apps/api` `invoke()`
-- CodeMirror for the script editor
 
-## Navigation Tips for Claude Code
+## Context Management (MANDATORY)
 
-**Before reading full source files, prefer these approaches:**
-1. Use `grep -rn "symbol_name" krillnotes-core/src/` to locate symbols
-2. Use `grep -rn "fn method_name" krillnotes-core/src/core/workspace.rs` for API methods
-3. Read specific line ranges: `sed -n '100,150p' path/to/file.rs`
-4. For TypeScript types: `grep -rn "interface\|type " krillnotes-desktop/src/types.ts`
-5. For Tauri commands: `grep -n "pub async fn" krillnotes-desktop/src-tauri/src/lib.rs`
-6. For component props/state: `grep -n "useState\|useEffect\|Props" krillnotes-desktop/src/components/ComponentName.tsx`
+**Context is a scarce resource. Every file read, every test output, every error trace consumes it. Follow these rules strictly to preserve context for actual implementation work.**
 
-**Do NOT read these directories — they are large and not useful:**
-- `node_modules/`
-- `target/`
-- `krillnotes-desktop/dist/`
+### Use LSP Instead of Reading Files
+
+The VSCode LSP tool is available and MUST be the first choice for code navigation in Rust files. It returns only the information you need, not entire files.
+
+| Need | LSP operation | Instead of |
+|------|--------------|------------|
+| What type is this? | `hover` on the symbol | Reading the file to find the definition |
+| Where is this defined? | `goToDefinition` | `grep -rn "fn name\|struct name"` |
+| Who calls this? | `findReferences` or `incomingCalls` | `grep -rn "method_name"` across the project |
+| What's in this file? | `documentSymbol` | Reading the entire file |
+| Find a type across crates | `workspaceSymbol` | Grepping multiple directories |
+| What implements this trait? | `goToImplementation` | Manual search |
+
+**Rules:**
+1. **NEVER read an entire Rust file just to check a type signature or find a function** — use `hover` or `documentSymbol` instead
+2. **NEVER grep the whole project to find references** — use `findReferences` instead
+3. **Only read full files when you are about to make edits across the whole file** (refactor, review)
+4. When you need to read code you're about to edit, use `Read` with `offset`/`limit` to read just that section — find the line number with LSP or grep first
+
+### Fallback Navigation (when LSP isn't applicable)
+
+- For quick string searches: `Grep` tool (not bash grep)
+- For file discovery: `Glob` tool (not bash find)
+- For TypeScript types: `Grep` in `types.ts` or `documentSymbol` via LSP if TS server is available
+- Read specific line ranges with `Read` offset/limit, not full files
+
+### Do NOT read these directories — they are large and not useful:
+- `node_modules/`, `target/`, `krillnotes-desktop/dist/`
 - `docs/plans/` (design docs for completed features — only read if asked)
 
-## Using rust-analyzer for Code Navigation
+## Parallelise with Subagents (MANDATORY for cross-cutting features)
 
-rust-analyzer is installed and available. **Use it instead of reading entire files** when you need
-to understand types, find definitions, or trace references. This saves significant context.
+**When a task has 2+ independent subtasks, use the Agent tool to run them in parallel.** This is not optional for features that touch multiple layers (Rust core, Tauri commands, frontend). Subagents protect the main context window from bloat and allow parallel execution.
 
-### Preferred Navigation Strategy (in order of preference)
+### When to use subagents
 
-1. **Structural search** — find patterns in the codebase:
-```bash
-   # Find all calls matching a pattern (e.g. all .lock().unwrap() calls)
-   rust-analyzer search '$a.lock().unwrap()'
-   
-   # Find specific patterns
-   rust-analyzer search 'Workspace::$fn_name($args)'
-```
+- **Always** when implementing independent modules (e.g., "add Rust methods" + "update TypeScript types" + "write tests" can each be a subagent)
+- **Always** when updating multiple scripts/templates with similar changes
+- **Always** for research tasks (exploring existing code) before writing implementation plans
+- **Never** for sequential work where step 2 depends on step 1's output
 
-2. **Diagnostics** — check for errors without reading files:
-```bash
-   rust-analyzer diagnostics .
-```
+### Subagent patterns for this codebase
 
-3. **Symbols from a file** — get function/struct/enum signatures without reading the whole file:
-```bash
-   cat krillnotes-core/src/core/workspace.rs | rust-analyzer symbols
-```
+| Task pattern | Subagent split |
+|-------------|---------------|
+| New feature across Rust + Tauri + React | Agent 1: Rust core methods + tests. Agent 2: Tauri commands. Agent 3: React components + types |
+| Update all .rhai scripts | One agent per script (or batch related scripts) |
+| Bug investigation | Agent 1: check Rust side. Agent 2: check TypeScript side. Compare results |
+| Add new Operation variant | Agent 1: operation.rs + workspace.rs. Agent 2: export/import. Agent 3: frontend |
 
-4. **cargo doc output** — understand public API and types:
-```bash
-   # Generate docs, then read specific type docs
-   cargo doc --no-deps -p krillnotes-core --document-private-items 2>/dev/null
-   # Then check target/doc/krillnotes_core/
-```
-
-5. **grep + line ranges** — when you know what you're looking for:
-```bash
-   grep -rn "fn create_note" krillnotes-core/src/
-   sed -n '100,130p' krillnotes-core/src/core/workspace.rs
-```
-
-### When NOT to use rust-analyzer
-
-- For quick string/symbol searches, `grep -rn` is faster
-- For understanding file structure, `cat file | rust-analyzer symbols` or `grep -n "^pub\|^impl\|^fn\|^struct\|^enum\|^trait" file` is enough
-- Don't run `rust-analyzer analysis-stats` — it analyses the whole project and is slow
-
-### Rule: Never Read a Full File to Find One Thing
-
-If you need to understand a single function, type, or trait:
-1. First `grep -n` to find the line number
-2. Then `sed -n 'START,ENDp'` to read just that section
-3. Only read full files if you're doing a comprehensive review or refactor of that file
+### Rules:
+1. **Plan first, then dispatch** — write a clear plan, then farm out independent tasks to subagents
+2. **Give subagents precise scope** — file paths, function names, expected inputs/outputs
+3. **Don't duplicate work** — if a subagent is researching something, don't also do the same search yourself
+4. **Collect and integrate** — after subagents complete, integrate their work in the main context
 
 
 ## Key Types Quick Reference
@@ -242,21 +206,15 @@ cd krillnotes-desktop && npm update && npm run tauri build
 
 ## Database Schema (5 tables)
 
-- `notes` — id, title, node_type, parent_id, position, fields (JSON), is_expanded, created/modified timestamps
-- `note_tags` — note_id, tag (junction table, no master tag list)
-- `operations` — Append-only mutation log (operation_id, type, data JSON, device_id, timestamp, synced flag)
-- `workspace_meta` — Per-device state (device_id, selected_note_id)
-- `user_scripts` — id, name, description (Rhai source), load_order, enabled flag
+`notes`, `note_tags`, `operations` (append-only mutation log), `workspace_meta` (per-device state), `user_scripts`
 
 ## Things to Know
 
-- **Encryption is mandatory** — `PRAGMA key` is first SQL after open. Empty password only in tests.
-- **Rhai `sync` feature** — Engine uses `Arc`/`Mutex` internally, no `unsafe` needed.
-- **Multi-window** — Each Tauri window = one workspace. `window.label()` routes commands.
-- **`is_expanded` / `selected_note_id`** — View state only, not logged, not synced.
-- **Tree positions** are gapless zero-based integers; inserts shift siblings in the same transaction.
-- **The application is CROSS Platform** - all features work on Windows, Linux and MacOs.
-- **krillnotes-core (in Rust) should be reusable for future applications** - that could include, mobile, web and even headless applications
+- **Encryption mandatory** — `PRAGMA key` first after open; empty password only in tests
+- **Multi-window** — each Tauri window = one workspace, routed by `window.label()`
+- **Tree positions** — gapless zero-based integers; inserts shift siblings in same transaction
+- **Cross-platform** — all features must work on Windows, Linux, macOS
+- **krillnotes-core must be reusable** — no Tauri deps; future targets include mobile, web, headless
 
 ## How to work
 - Always start each implementation in a new worktree
