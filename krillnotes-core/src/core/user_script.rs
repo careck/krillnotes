@@ -20,6 +20,7 @@ pub struct UserScript {
     pub enabled: bool,
     pub created_at: i64,
     pub modified_at: i64,
+    pub category: String, // "schema" or "presentation"
 }
 
 /// Parsed front-matter metadata from a script's leading comments.
@@ -98,6 +99,22 @@ schema("Test", #{ fields: [] });
         let source = "// This is a regular comment\n// @name: After Comment\nschema(\"X\", #{ fields: [] });";
         let fm = parse_front_matter(source);
         assert_eq!(fm.name, "After Comment");
+    }
+
+    #[test]
+    fn test_user_script_has_category_field() {
+        let script = UserScript {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: "".to_string(),
+            source_code: "".to_string(),
+            load_order: 0,
+            enabled: true,
+            created_at: 0,
+            modified_at: 0,
+            category: "schema".to_string(),
+        };
+        assert_eq!(script.category, "schema");
     }
 
     #[test]

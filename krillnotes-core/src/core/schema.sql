@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS user_scripts (
     load_order INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
-    modified_at INTEGER NOT NULL
+    modified_at INTEGER NOT NULL,
+    category TEXT NOT NULL DEFAULT 'presentation'
 );
 
 -- Note tags (first-class, not schema-defined)

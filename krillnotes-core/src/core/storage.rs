@@ -296,6 +296,19 @@ impl Storage {
             )?;
         }
 
+        // Migration: add category column to user_scripts if absent.
+        let category_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('user_scripts') WHERE name='category'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !category_exists {
+            conn.execute(
+                "ALTER TABLE user_scripts ADD COLUMN category TEXT NOT NULL DEFAULT 'presentation'",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

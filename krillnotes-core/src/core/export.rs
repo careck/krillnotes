@@ -481,9 +481,9 @@ pub fn import_workspace<R: Read + Seek>(
             let id = uuid::Uuid::new_v4().to_string();
             let fm = user_script::parse_front_matter(source_code);
             tx.execute(
-                "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                rusqlite::params![id, fm.name, fm.description, source_code, load_order, enabled, now, now],
+                "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rusqlite::params![id, fm.name, fm.description, source_code, load_order, enabled, now, now, "presentation"],
             )
             .map_err(|e| ExportError::Database(e.to_string()))?;
         }

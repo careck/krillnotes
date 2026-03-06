@@ -149,10 +149,11 @@ impl Workspace {
             for (load_order, starter) in starters.iter().enumerate() {
                 let fm = user_script::parse_front_matter(&starter.source_code);
                 let id = Uuid::new_v4().to_string();
+                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "presentation" };
                 tx.execute(
-                    "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    rusqlite::params![id, fm.name, fm.description, &starter.source_code, load_order as i32, true, now, now],
+                    "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rusqlite::params![id, fm.name, fm.description, &starter.source_code, load_order as i32, true, now, now, category],
                 )?;
             }
             tx.commit()?;
@@ -161,7 +162,7 @@ impl Workspace {
         // Load all scripts from the DB into the registry.
         let scripts = {
             let mut stmt = storage.connection().prepare(
-                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at
+                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at, category
                  FROM user_scripts ORDER BY load_order ASC, created_at ASC",
             )?;
             let results: Vec<UserScript> = stmt.query_map([], |row| {
@@ -174,6 +175,7 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -2918,7 +2920,7 @@ impl Workspace {
     /// Returns all user scripts, ordered by `load_order` ascending.
     pub fn list_user_scripts(&self) -> Result<Vec<UserScript>> {
         let mut stmt = self.connection().prepare(
-            "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at
+            "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at, category
              FROM user_scripts ORDER BY load_order ASC, created_at ASC",
         )?;
         let scripts = stmt
@@ -2932,6 +2934,7 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -2942,7 +2945,7 @@ impl Workspace {
     pub fn get_user_script(&self, script_id: &str) -> Result<UserScript> {
         self.connection()
             .query_row(
-                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at
+                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at, category
                  FROM user_scripts WHERE id = ?",
                 [script_id],
                 |row| {
@@ -2955,6 +2958,7 @@ impl Workspace {
                         enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                         created_at: row.get(6)?,
                         modified_at: row.get(7)?,
+                        category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
                     })
                 },
             )
@@ -2997,9 +3001,9 @@ impl Workspace {
         let load_order = max_order + 1;
 
         tx.execute(
-            "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            rusqlite::params![id, fm.name, fm.description, source_code, load_order, true, now, now],
+            "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![id, fm.name, fm.description, source_code, load_order, true, now, now, "presentation"],
         )?;
 
         // Log operation
@@ -3863,11 +3867,11 @@ impl Workspace {
                 self.storage.connection().execute(
                     "INSERT OR REPLACE INTO user_scripts
                      (id, name, description, source_code, load_order, enabled,
-                      created_at, modified_at)
-                     VALUES (?,?,?,?,?,?,?,?)",
+                      created_at, modified_at, category)
+                     VALUES (?,?,?,?,?,?,?,?,?)",
                     rusqlite::params![
                         script_id, name, description, source_code,
-                        load_order, enabled, now, now,
+                        load_order, enabled, now, now, "presentation",
                     ],
                 )?;
                 self.reload_scripts()?;
