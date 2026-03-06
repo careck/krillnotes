@@ -1820,129 +1820,164 @@ impl Workspace {
         // we propagate the error without touching the DB (implicit rollback).
         let result = self.script_registry.invoke_tree_action_hook(label, &note, context)?;
 
-        // Apply creates and updates atomically if any were queued.
-        if !result.creates.is_empty() || !result.updates.is_empty() {
+        // Apply pending notes from the SaveTransaction atomically, if any were queued.
+        let tx_pending = result.transaction;
+        // Separate the acted-upon note (is_new == false) from new child notes.
+        // New notes are sorted topologically so parents are inserted before children —
+        // this is required to satisfy the FK constraint when the parent itself is a new note.
+        let all_pending: Vec<_> = tx_pending.pending_notes.into_values().collect();
+        let (existing_updates, mut new_creates): (Vec<_>, Vec<_>) =
+            all_pending.into_iter().partition(|p| !p.is_new);
+        // Topological sort for new creates: a note whose parent_id is also a new note must
+        // come after its parent. IDs of new notes collected for quick look-up.
+        let new_ids: std::collections::HashSet<String> =
+            new_creates.iter().map(|p| p.note_id.clone()).collect();
+        let mut ordered_creates: Vec<_> = Vec::with_capacity(new_creates.len());
+        let mut remaining = new_creates.len();
+        let mut iters = 0usize;
+        while !new_creates.is_empty() {
+            iters += 1;
+            if iters > new_creates.len() * new_creates.len() + 1 {
+                // Cycle guard — should never happen in practice; break to avoid infinite loop.
+                ordered_creates.extend(new_creates.drain(..));
+                break;
+            }
+            let mut next = Vec::with_capacity(new_creates.len());
+            for pending in new_creates.drain(..) {
+                let parent_is_new = pending.parent_id.as_ref()
+                    .map(|pid| new_ids.contains(pid.as_str()))
+                    .unwrap_or(false);
+                let parent_already_emitted = pending.parent_id.as_ref()
+                    .map(|pid| ordered_creates.iter().any(|e: &crate::core::save_transaction::PendingNote| &e.note_id == pid))
+                    .unwrap_or(true);
+                if !parent_is_new || parent_already_emitted {
+                    ordered_creates.push(pending);
+                } else {
+                    next.push(pending);
+                }
+            }
+            new_creates = next;
+            if new_creates.len() == remaining {
+                // No progress — break to avoid infinite loop.
+                ordered_creates.extend(new_creates.drain(..));
+                break;
+            }
+            remaining = new_creates.len();
+        }
+        // Combine: existing updates first (or last — order doesn't matter between them and creates)
+        // then topologically sorted creates.
+        let pending_notes: Vec<_> = existing_updates.into_iter().chain(ordered_creates).collect();
+
+        if !pending_notes.is_empty() {
             let now = chrono::Utc::now().timestamp();
 
-            // Pre-advance HLC once per create, plus once per update (title) and once
-            // per field within each update, before the transaction borrows self.storage.
-            let create_timestamps: Vec<HlcTimestamp> = result.creates.iter()
-                .map(|_| self.advance_hlc())
-                .collect();
-            // For updates: title + each field
-            let update_timestamps: Vec<(HlcTimestamp, Vec<HlcTimestamp>)> = result.updates.iter()
-                .map(|update| {
-                    let title_ts = self.advance_hlc();
-                    let field_tss: Vec<HlcTimestamp> = update.fields.keys()
-                        .map(|_| self.advance_hlc())
-                        .collect();
-                    (title_ts, field_tss)
+            // Pre-advance HLC for each pending note before borrowing self.storage.
+            // Creates need one timestamp; updates need one for title + one per field.
+            let timestamps: Vec<(HlcTimestamp, Vec<HlcTimestamp>)> = pending_notes.iter()
+                .map(|p| {
+                    let main_ts = self.advance_hlc();
+                    let field_tss: Vec<HlcTimestamp> = if p.is_new {
+                        vec![]
+                    } else {
+                        p.effective_fields().keys().map(|_| self.advance_hlc()).collect()
+                    };
+                    (main_ts, field_tss)
                 })
                 .collect();
             let signing_key = self.signing_key.clone();
 
-            let tx = self.storage.connection_mut().transaction()?;
+            let tx_db = self.storage.connection_mut().transaction()?;
 
-            // ── creates ────────────────────────────────────────────────────────
-            for (create, ts) in result.creates.iter().zip(create_timestamps.iter()) {
-                // Compute the next available position under the parent.
-                let position: i32 = tx.query_row(
-                    "SELECT COALESCE(MAX(position), -1) + 1 FROM notes WHERE parent_id = ?1",
-                    rusqlite::params![create.parent_id],
-                    |row| row.get(0),
-                )?;
+            for (pending, (main_ts, field_tss)) in pending_notes.iter().zip(timestamps.iter()) {
+                if pending.is_new {
+                    // ── INSERT new note ──────────────────────────────────────────
+                    let parent_id = pending.parent_id.as_deref().unwrap_or("");
+                    let position: i32 = tx_db.query_row(
+                        "SELECT COALESCE(MAX(position), -1) + 1 FROM notes WHERE parent_id = ?1",
+                        rusqlite::params![parent_id],
+                        |row| row.get(0),
+                    )?;
+                    let effective_fields = pending.effective_fields();
+                    let fields_json = serde_json::to_string(&effective_fields)?;
+                    let effective_title = pending.effective_title();
 
-                let fields_json = serde_json::to_string(&create.fields)?;
+                    tx_db.execute(
+                        "INSERT INTO notes (id, title, node_type, parent_id, position, \
+                                            created_at, modified_at, created_by, modified_by, \
+                                            fields_json, is_expanded) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                        rusqlite::params![
+                            pending.note_id, effective_title, pending.node_type,
+                            parent_id, position, now, now,
+                            self.current_user_id, self.current_user_id, fields_json, true,
+                        ],
+                    )?;
 
-                tx.execute(
-                    "INSERT INTO notes (id, title, node_type, parent_id, position, \
-                                        created_at, modified_at, created_by, modified_by, \
-                                        fields_json, is_expanded) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                    rusqlite::params![
-                        create.id,
-                        create.title,
-                        create.node_type,
-                        create.parent_id,
-                        position,
-                        now,
-                        now,
-                        self.current_user_id,
-                        self.current_user_id,
-                        fields_json,
-                        true,
-                    ],
-                )?;
-
-                Self::save_hlc(ts, &tx)?;
-                let mut op = Operation::CreateNote {
-                    operation_id: Uuid::new_v4().to_string(),
-                    timestamp: *ts,
-                    device_id: self.device_id.clone(),
-                    note_id: create.id.clone(),
-                    parent_id: Some(create.parent_id.clone()),
-                    position: position as f64,
-                    node_type: create.node_type.clone(),
-                    title: create.title.clone(),
-                    fields: create.fields.clone(),
-                    created_by: String::new(),
-                    signature: String::new(),
-                };
-                Self::sign_op_with(&signing_key, &mut op);
-                Self::log_op(&self.operation_log, &tx, &op)?;
-            }
-
-            // ── updates ────────────────────────────────────────────────────────
-            for (update, (title_ts, field_tss)) in result.updates.iter().zip(update_timestamps.iter()) {
-                let fields_json = serde_json::to_string(&update.fields)?;
-
-                tx.execute(
-                    "UPDATE notes SET title = ?1, fields_json = ?2, \
-                                      modified_at = ?3, modified_by = ?4 \
-                     WHERE id = ?5",
-                    rusqlite::params![
-                        update.title,
-                        fields_json,
-                        now,
-                        self.current_user_id,
-                        update.note_id,
-                    ],
-                )?;
-
-                // Log title update
-                Self::save_hlc(title_ts, &tx)?;
-                let mut title_op = Operation::UpdateNote {
-                    operation_id: Uuid::new_v4().to_string(),
-                    timestamp: *title_ts,
-                    device_id: self.device_id.clone(),
-                    note_id: update.note_id.clone(),
-                    title: update.title.clone(),
-                    modified_by: String::new(),
-                    signature: String::new(),
-                };
-                Self::sign_op_with(&signing_key, &mut title_op);
-                Self::log_op(&self.operation_log, &tx, &title_op)?;
-
-                // Log one UpdateField per field value
-                for ((field_key, field_value), field_ts) in update.fields.iter().zip(field_tss.iter()) {
-                    Self::save_hlc(field_ts, &tx)?;
-                    let mut field_op = Operation::UpdateField {
+                    Self::save_hlc(main_ts, &tx_db)?;
+                    let mut op = Operation::CreateNote {
                         operation_id: Uuid::new_v4().to_string(),
-                        timestamp: *field_ts,
+                        timestamp: *main_ts,
                         device_id: self.device_id.clone(),
-                        note_id: update.note_id.clone(),
-                        field: field_key.clone(),
-                        value: field_value.clone(),
+                        note_id: pending.note_id.clone(),
+                        parent_id: Some(parent_id.to_string()),
+                        position: position as f64,
+                        node_type: pending.node_type.clone(),
+                        title: effective_title.to_string(),
+                        fields: effective_fields,
+                        created_by: String::new(),
+                        signature: String::new(),
+                    };
+                    Self::sign_op_with(&signing_key, &mut op);
+                    Self::log_op(&self.operation_log, &tx_db, &op)?;
+                } else {
+                    // ── UPDATE existing note ─────────────────────────────────────
+                    let effective_fields = pending.effective_fields();
+                    let fields_json = serde_json::to_string(&effective_fields)?;
+                    let effective_title = pending.effective_title();
+
+                    tx_db.execute(
+                        "UPDATE notes SET title = ?1, fields_json = ?2, \
+                                          modified_at = ?3, modified_by = ?4 \
+                         WHERE id = ?5",
+                        rusqlite::params![
+                            effective_title, fields_json, now,
+                            self.current_user_id, pending.note_id,
+                        ],
+                    )?;
+
+                    Self::save_hlc(main_ts, &tx_db)?;
+                    let mut title_op = Operation::UpdateNote {
+                        operation_id: Uuid::new_v4().to_string(),
+                        timestamp: *main_ts,
+                        device_id: self.device_id.clone(),
+                        note_id: pending.note_id.clone(),
+                        title: effective_title.to_string(),
                         modified_by: String::new(),
                         signature: String::new(),
                     };
-                    Self::sign_op_with(&signing_key, &mut field_op);
-                    Self::log_op(&self.operation_log, &tx, &field_op)?;
+                    Self::sign_op_with(&signing_key, &mut title_op);
+                    Self::log_op(&self.operation_log, &tx_db, &title_op)?;
+
+                    for ((field_key, field_value), field_ts) in effective_fields.iter().zip(field_tss.iter()) {
+                        Self::save_hlc(field_ts, &tx_db)?;
+                        let mut field_op = Operation::UpdateField {
+                            operation_id: Uuid::new_v4().to_string(),
+                            timestamp: *field_ts,
+                            device_id: self.device_id.clone(),
+                            note_id: pending.note_id.clone(),
+                            field: field_key.clone(),
+                            value: field_value.clone(),
+                            modified_by: String::new(),
+                            signature: String::new(),
+                        };
+                        Self::sign_op_with(&signing_key, &mut field_op);
+                        Self::log_op(&self.operation_log, &tx_db, &field_op)?;
+                    }
                 }
             }
 
-            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
-            tx.commit()?;
+            Self::purge_ops_if_needed(&self.operation_log, &tx_db)?;
+            tx_db.commit()?;
         }
 
         // ── reorder path (unchanged) ───────────────────────────────────────────
@@ -5122,10 +5157,10 @@ add_tree_action("Sort A→Z", ["TextNote"], |note| {
 schema("TaFolder", #{ fields: [] });
 schema("TaItem", #{ fields: [#{ name: "tag", type: "text", required: false }] });
 add_tree_action("Add Item", ["TaFolder"], |folder| {
-    let item = create_note(folder.id, "TaItem");
-    item.title = "My Item";
-    item.fields.tag = "hello";
-    update_note(item);
+    let item = create_child(folder.id, "TaItem");
+    set_title(item.id, "My Item");
+    set_field(item.id, "tag", "hello");
+    commit();
 });
         "#).unwrap();
 
@@ -5152,9 +5187,9 @@ add_tree_action("Add Item", ["TaFolder"], |folder| {
 // @name: UpdateAction
 schema("TaTask", #{ fields: [#{ name: "status", type: "text", required: false }] });
 add_tree_action("Mark Done", ["TaTask"], |note| {
-    note.title = "Done Task";
-    note.fields.status = "done";
-    update_note(note);
+    set_title(note.id, "Done Task");
+    set_field(note.id, "status", "done");
+    commit();
 });
         "#).unwrap();
 
@@ -5181,12 +5216,11 @@ add_tree_action("Mark Done", ["TaTask"], |note| {
 schema("TaSprint", #{ fields: [] });
 schema("TaSubTask", #{ fields: [] });
 add_tree_action("Add Sprint With Task", ["TaSprint"], |sprint| {
-    let child_sprint = create_note(sprint.id, "TaSprint");
-    child_sprint.title = "Child Sprint";
-    update_note(child_sprint);
-    let task = create_note(child_sprint.id, "TaSubTask");
-    task.title = "Sprint Task";
-    update_note(task);
+    let child_sprint = create_child(sprint.id, "TaSprint");
+    set_title(child_sprint.id, "Child Sprint");
+    let task = create_child(child_sprint.id, "TaSubTask");
+    set_title(task.id, "Sprint Task");
+    commit();
 });
         "#).unwrap();
 
@@ -5216,9 +5250,8 @@ add_tree_action("Add Sprint With Task", ["TaSprint"], |sprint| {
 schema("TaErrFolder", #{ fields: [] });
 schema("TaErrItem", #{ fields: [] });
 add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
-    let item = create_note(folder.id, "TaErrItem");
-    item.title = "Orphan";
-    update_note(item);
+    let item = create_child(folder.id, "TaErrItem");
+    set_title(item.id, "Orphan");
     throw "deliberate error";
 });
         "#).unwrap();
@@ -5232,6 +5265,38 @@ add_tree_action("Create Then Fail", ["TaErrFolder"], |folder| {
         // No note should have been created — the creates are not applied when the action errors
         let children = ws.get_children(&folder_id).unwrap();
         assert_eq!(children.len(), 0, "rollback: no child note should exist");
+    }
+
+    #[test]
+    fn test_tree_action_create_child_gated() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        ws.create_user_script(r#"
+// @name: TAGated
+schema("TAFolder", #{ fields: [] });
+schema("TAItem", #{
+    fields: [
+        #{ name: "value", type: "text", required: false },
+    ],
+});
+add_tree_action("Add Item", ["TAFolder"], |note| {
+    let child = create_child(note.id, "TAItem");
+    set_title(child.id, "New Item");
+    set_field(child.id, "value", "default");
+    commit();
+});
+        "#).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let folder_id = ws.create_note(&root.id, AddPosition::AsChild, "TAFolder").unwrap();
+        ws.run_tree_action(&folder_id, "Add Item").unwrap();
+        let children = ws.get_children(&folder_id).unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].title, "New Item");
+        assert_eq!(
+            children[0].fields.get("value"),
+            Some(&FieldValue::Text("default".into()))
+        );
     }
 
     #[test]

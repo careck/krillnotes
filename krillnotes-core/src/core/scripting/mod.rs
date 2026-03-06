@@ -50,6 +50,24 @@ pub(crate) fn take_save_tx() -> Option<SaveTransaction> {
     SAVE_TX.with(|cell| cell.borrow_mut().take())
 }
 
+/// Converts a [`PendingNote`](crate::core::save_transaction::PendingNote) to a Rhai map
+/// with the same shape as the note maps passed to hook callbacks.
+///
+/// Used by `get_children` and `get_note` to expose in-flight new notes to scripts.
+fn pending_note_to_dynamic(pending: &crate::core::save_transaction::PendingNote) -> Dynamic {
+    let mut fields_map = rhai::Map::new();
+    for (k, v) in pending.effective_fields() {
+        fields_map.insert(k.as_str().into(), schema::field_value_to_dynamic(&v));
+    }
+    let mut note_map = rhai::Map::new();
+    note_map.insert("id".into(),        Dynamic::from(pending.note_id.clone()));
+    note_map.insert("node_type".into(), Dynamic::from(pending.node_type.clone()));
+    note_map.insert("title".into(),     Dynamic::from(pending.effective_title().to_string()));
+    note_map.insert("fields".into(),    Dynamic::from(fields_map));
+    note_map.insert("tags".into(),      Dynamic::from(rhai::Array::new()));
+    Dynamic::from_map(note_map)
+}
+
 /// Accesses the active [`SaveTransaction`] for the current thread.
 ///
 /// Used internally by the registered Rhai native functions (`set_field`, etc.).
@@ -127,8 +145,6 @@ pub struct ScriptRegistry {
     schema_registry: schema::SchemaRegistry,
     hook_registry: hooks::HookRegistry,
     query_context: Arc<Mutex<Option<QueryContext>>>,
-    /// Active transaction context for a running tree action; `None` outside a hook call.
-    action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>>,
     /// Per-run note + attachment context set before a hook call and cleared after.
     pub run_context: Arc<Mutex<Option<NoteRunContext>>>,
 }
@@ -284,15 +300,11 @@ impl ScriptRegistry {
         // ── Query context for on_view hooks ──────────────────────────────────
         let query_context: Arc<Mutex<Option<QueryContext>>> = Arc::new(Mutex::new(None));
 
-        // ── Action transaction context for tree action hooks ─────────────────
-        let action_ctx: Arc<Mutex<Option<hooks::ActionTxContext>>> = Arc::new(Mutex::new(None));
-
         // ── Per-run note + attachment context ─────────────────────────────────
         let run_context: Arc<Mutex<Option<NoteRunContext>>> = Arc::new(Mutex::new(None));
 
         // Register get_children() — returns direct children of a note by ID.
-        let qc1           = Arc::clone(&query_context);
-        let action_ctx_gc = Arc::clone(&action_ctx);
+        let qc1 = Arc::clone(&query_context);
         engine.register_fn("get_children", move |id: String| -> rhai::Array {
             // Collect pre-existing children from the snapshot.
             let mut result: rhai::Array = {
@@ -302,29 +314,31 @@ impl ScriptRegistry {
                     .unwrap_or_default()
             };
 
-            // Also include any in-flight creates with matching parent_id.
-            if let Some(ctx) = action_ctx_gc.lock().unwrap().as_ref() {
-                for create in &ctx.creates {
-                    if create.parent_id == id {
-                        if let Some(dyn_note) = ctx.note_cache.get(&create.id) {
-                            result.push(dyn_note.clone());
+            // Also include any in-flight new pending notes from the thread-local SAVE_TX.
+            SAVE_TX.with(|cell| {
+                if let Some(tx) = cell.borrow().as_ref() {
+                    for pending in tx.pending_notes.values() {
+                        if pending.is_new && pending.parent_id.as_deref() == Some(&id) {
+                            result.push(pending_note_to_dynamic(pending));
                         }
                     }
                 }
-            }
+            });
 
             result
         });
 
         // Register get_note() — returns any note by ID.
-        let qc2           = Arc::clone(&query_context);
-        let action_ctx_gn = Arc::clone(&action_ctx);
+        let qc2 = Arc::clone(&query_context);
         engine.register_fn("get_note", move |id: String| -> Dynamic {
-            // Check action cache first (in-flight notes).
-            if let Some(ctx) = action_ctx_gn.lock().unwrap().as_ref() {
-                if let Some(dyn_note) = ctx.note_cache.get(&id) {
-                    return dyn_note.clone();
-                }
+            // Check thread-local SAVE_TX first (in-flight pending notes).
+            let found = SAVE_TX.with(|cell| {
+                cell.borrow().as_ref().and_then(|tx| {
+                    tx.pending_notes.get(&id).filter(|p| p.is_new).map(pending_note_to_dynamic)
+                })
+            });
+            if let Some(dyn_note) = found {
+                return dyn_note;
             }
             // Fall back to snapshot.
             let guard = qc2.lock().unwrap();
@@ -397,147 +411,48 @@ impl ScriptRegistry {
                 .collect()
         });
 
-        // create_note(parent_id, node_type) — available inside add_tree_action closures only.
-        let action_ctx_create = Arc::clone(&action_ctx);
-        let schema_reg_create = schema_registry.clone();
-        engine.register_fn(
-            "create_note",
+        // create_child(parent_id, node_type) — available inside add_tree_action closures.
+        // Queues a new pending note into the thread-local SaveTransaction and returns a note map.
+        let create_child_schemas = schema_registry.clone();
+        engine.register_fn("create_child",
             move |parent_id: String, node_type: String|
-                -> std::result::Result<rhai::Dynamic, Box<rhai::EvalAltResult>>
+            -> std::result::Result<Dynamic, Box<EvalAltResult>>
             {
-                let mut ctx_guard = action_ctx_create.lock().unwrap();
-                let ctx = ctx_guard.as_mut().ok_or_else(|| {
-                    Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        "create_note() called outside a tree action".into(),
-                        rhai::Position::NONE,
-                    ))
-                })?;
+                let default_fields = {
+                    let schemas_arc = create_child_schemas.schemas_arc();
+                    let registry = schemas_arc.lock().unwrap();
+                    let schema = registry.get(&node_type).ok_or_else(|| -> Box<EvalAltResult> {
+                        format!("create_child: unknown schema {:?}", node_type).into()
+                    })?;
+                    schema.default_fields()
+                };
+                let note_id = uuid::Uuid::new_v4().to_string();
 
-                let schema = schema_reg_create
-                    .get(&node_type)
-                    .map_err(|e| Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        format!("create_note: unknown schema {:?}: {e}", node_type).into(),
-                        rhai::Position::NONE,
-                    )))?;
-
-                let id = uuid::Uuid::new_v4().to_string();
-
-                let fields = schema.default_fields();
-                let mut fields_map = rhai::Map::new();
-                for (k, v) in &fields {
-                    fields_map.insert(
-                        k.as_str().into(),
-                        schema::field_value_to_dynamic(v),
+                with_save_tx(|tx| {
+                    tx.add_new_note(
+                        note_id.clone(),
+                        parent_id.clone(),
+                        node_type.clone(),
+                        String::new(),
+                        default_fields.clone(),
                     );
-                }
-                let mut note_map = rhai::Map::new();
-                note_map.insert("id".into(),        rhai::Dynamic::from(id.clone()));
-                note_map.insert("node_type".into(), rhai::Dynamic::from(node_type.clone()));
-                note_map.insert("title".into(),     rhai::Dynamic::from(String::new()));
-                note_map.insert("fields".into(),    rhai::Dynamic::from(fields_map));
-                let dyn_note = rhai::Dynamic::from_map(note_map);
-
-                ctx.note_cache.insert(id.clone(), dyn_note.clone());
-                ctx.creates.push(hooks::ActionCreate {
-                    id,
-                    parent_id,
-                    node_type,
-                    title: String::new(),
-                    fields,
-                });
-
-                Ok(dyn_note)
-            },
-        );
-
-        // update_note(note) — persists title/field changes; only in tree action closures.
-        let action_ctx_update = Arc::clone(&action_ctx);
-        let schema_reg_update = schema_registry.clone();
-        engine.register_fn(
-            "update_note",
-            move |note_map: rhai::Dynamic|
-                -> std::result::Result<(), Box<rhai::EvalAltResult>>
-            {
-                let map = note_map.clone().try_cast::<rhai::Map>().ok_or_else(|| {
-                    Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        "update_note: argument must be a note map".into(),
-                        rhai::Position::NONE,
-                    ))
+                    Ok(())
                 })?;
 
-                let note_id = map.get("id")
-                    .and_then(|v| v.clone().try_cast::<String>())
-                    .ok_or_else(|| Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        "update_note: note map must have an `id` field".into(),
-                        rhai::Position::NONE,
-                    )))?;
-
-                // Guard: must be called inside a tree action closure.
-                let mut ctx_guard = action_ctx_update.lock().unwrap();
-                let ctx = ctx_guard.as_mut().ok_or_else(|| {
-                    Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        "update_note() called outside a tree action".into(),
-                        rhai::Position::NONE,
-                    ))
-                })?;
-
-                let node_type = map.get("node_type")
-                    .and_then(|v| v.clone().try_cast::<String>())
-                    .ok_or_else(|| Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        "update_note: note map must have a `node_type` field".into(),
-                        rhai::Position::NONE,
-                    )))?;
-                let title = map.get("title")
-                    .and_then(|v| v.clone().try_cast::<String>())
-                    .unwrap_or_default();
-                let fields_dyn = map.get("fields")
-                    .and_then(|v| v.clone().try_cast::<rhai::Map>())
-                    .unwrap_or_default();
-
-                // Convert Dynamic fields → FieldValue using schema.
-                let schema = schema_reg_update.get(&node_type).map_err(|e| {
-                    Box::new(rhai::EvalAltResult::ErrorRuntime(
-                        format!("update_note: unknown schema {:?}: {e}", node_type).into(),
-                        rhai::Position::NONE,
-                    ))
-                })?;
-                let mut fields = BTreeMap::new();
-                for field_def in &schema.fields {
-                    let dyn_val = fields_dyn
-                        .get(field_def.name.as_str())
-                        .cloned()
-                        .unwrap_or(rhai::Dynamic::UNIT);
-                    let fv = schema::dynamic_to_field_value(dyn_val, &field_def.field_type)
-                        .map_err(|e| Box::new(rhai::EvalAltResult::ErrorRuntime(
-                            format!("update_note field {:?}: {e}", field_def.name).into(),
-                            rhai::Position::NONE,
-                        )))?;
-                    fields.insert(field_def.name.clone(), fv);
+                // Return a note map to the Rhai script.
+                let mut fields_map = rhai::Map::new();
+                for (k, v) in &default_fields {
+                    fields_map.insert(k.as_str().into(), schema::field_value_to_dynamic(v));
                 }
-
-                // Update the note_cache so get_children/get_note sees the new values.
-                // `note_map` is still intact here — the `.clone()` calls above operated on
-                // copies of individual values, not on `note_map` itself.
-                ctx.note_cache.insert(note_id.clone(), note_map);
-
-                // If the note is an in-flight create, update the create spec directly.
-                if let Some(create) = ctx.creates.iter_mut().find(|c| c.id == note_id) {
-                    create.title  = title;
-                    create.fields = fields;
-                    return Ok(());
-                }
-
-                // Otherwise queue an update for a pre-existing DB note.
-                // Replace any prior update for the same note (idempotent per note).
-                if let Some(existing) = ctx.updates.iter_mut().find(|u| u.note_id == note_id) {
-                    existing.title  = title;
-                    existing.fields = fields;
-                } else {
-                    ctx.updates.push(hooks::ActionUpdate { note_id, title, fields });
-                }
-
-                Ok(())
-            },
+                let mut map = rhai::Map::new();
+                map.insert("id".into(),        Dynamic::from(note_id));
+                map.insert("parent_id".into(), Dynamic::from(parent_id));
+                map.insert("node_type".into(), Dynamic::from(node_type));
+                map.insert("title".into(),     Dynamic::from(String::new()));
+                map.insert("fields".into(),    Dynamic::from(fields_map));
+                map.insert("tags".into(),      Dynamic::from(rhai::Array::new()));
+                Ok(Dynamic::from_map(map))
+            }
         );
 
         // ── Display helpers for on_view hooks ─────────────────────────────────
@@ -667,7 +582,6 @@ impl ScriptRegistry {
             schema_registry,
             hook_registry,
             query_context,
-            action_ctx,
             run_context,
         })
     }
@@ -909,8 +823,8 @@ impl ScriptRegistry {
     ///
     /// Returns a [`hooks::TreeActionResult`] containing:
     /// - `reorder`: `Some(ids)` if the callback returned an array of strings.
-    /// - `creates`: notes queued via `create_note()` during the action.
-    /// - `updates`: notes queued via `update_note()` during the action.
+    /// - `transaction`: a [`SaveTransaction`] with pending notes queued via
+    ///   `create_child()` / `set_title()` / `set_field()` / `commit()`.
     ///
     /// Returns `Err(...)` if the callback throws a Rhai error.
     pub fn invoke_tree_action_hook(
@@ -936,22 +850,24 @@ impl ScriptRegistry {
         note_map.insert("title".into(),     Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(),    Dynamic::from(fields_map));
 
-        // Install query context and action context, run, then clear both.
+        // Install query context and a SaveTransaction pre-seeded with the acted-upon note,
+        // so that set_title() / set_field() can reference it immediately.
         *self.query_context.lock().unwrap() = Some(context);
-        *self.action_ctx.lock().unwrap() = Some(hooks::ActionTxContext::default());
+        let initial_tx = SaveTransaction::for_existing_note(
+            note.id.clone(),
+            note.node_type.clone(),
+            note.title.clone(),
+            note.fields.clone(),
+        );
+        set_save_tx(initial_tx);
         let raw = fn_ptr
             .call::<Dynamic>(&self.engine, &ast, (Dynamic::from_map(note_map),))
             .map_err(|e| KrillnotesError::Scripting(
                 format!("[{script_name}] tree action {label:?}: {e}")
             ));
         *self.query_context.lock().unwrap() = None;
-        let tx_ctx = self.action_ctx.lock().unwrap().take();
+        let transaction = take_save_tx().unwrap_or_default();
         let raw = raw?;
-
-        // Extract creates and updates from the completed action context.
-        let (creates, updates) = tx_ctx
-            .map(|c| (c.creates, c.updates))
-            .unwrap_or_default();
 
         // If callback returns an Array of Strings, treat as reorder request.
         let reorder = if let Some(arr) = raw.try_cast::<rhai::Array>() {
@@ -963,7 +879,7 @@ impl ScriptRegistry {
             None
         };
 
-        Ok(hooks::TreeActionResult { reorder, creates, updates })
+        Ok(hooks::TreeActionResult { reorder, transaction })
     }
 
     /// Returns `true` if a schema with `name` is registered.
@@ -2410,7 +2326,7 @@ mod tests {
         assert!(err.to_string().contains("my_script"), "error should include script name, got: {err}");
     }
 
-    // ── create_note host function ────────────────────────────────────────────
+    // ── create_child host function ────────────────────────────────────────────
 
     fn make_test_note(id: &str, node_type: &str) -> crate::Note {
         crate::Note {
@@ -2443,22 +2359,25 @@ mod tests {
                 ]
             });
             add_tree_action("Make Task", ["Task"], |note| {
-                let t = create_note(note.id, "Task");
+                let t = create_child(note.id, "Task");
                 if t.node_type != "Task" { throw "node_type must be Task"; }
                 if t.id == ""           { throw "id must not be empty"; }
                 if t.fields.status != "" { throw "status must default to empty string"; }
+                commit();
             });
         "#, "test").unwrap();
 
         let note = make_test_note("parent1", "Task");
         let ctx  = make_empty_ctx();
         let result = registry.invoke_tree_action_hook("Make Task", &note, ctx).unwrap();
-        assert_eq!(result.creates.len(), 1, "one pending create expected");
-        assert_eq!(result.creates[0].node_type, "Task");
-        assert_eq!(result.creates[0].parent_id, "parent1");
+        let new_notes: Vec<_> = result.transaction.pending_notes.values()
+            .filter(|p| p.is_new).collect();
+        assert_eq!(new_notes.len(), 1, "one new pending note expected");
+        assert_eq!(new_notes[0].node_type, "Task");
+        assert_eq!(new_notes[0].parent_id.as_deref(), Some("parent1"));
     }
 
-    // ── update_note host function ────────────────────────────────────────────
+    // ── set_title / set_field on existing notes ──────────────────────────────
 
     #[test]
     fn test_update_note_queues_update_for_existing_note() {
@@ -2470,19 +2389,23 @@ mod tests {
                 ]
             });
             add_tree_action("Mark Done", ["Task"], |note| {
-                note.fields.status = "Done";
-                note.title = "Completed";
-                update_note(note);
+                set_title(note.id, "Completed");
+                set_field(note.id, "status", "Done");
+                commit();
             });
         "#, "test").unwrap();
 
-        let note = make_test_note("n1", "Task");
+        let mut fields = BTreeMap::new();
+        fields.insert("status".to_string(), FieldValue::Text("Open".to_string()));
+        let mut note = make_test_note("n1", "Task");
+        note.fields = fields;
         let result = registry.invoke_tree_action_hook("Mark Done", &note, make_empty_ctx()).unwrap();
-        assert_eq!(result.updates.len(), 1);
-        assert_eq!(result.updates[0].note_id, "n1");
-        assert_eq!(result.updates[0].title, "Completed");
+        assert!(result.transaction.committed, "transaction should be committed");
+        let pending = result.transaction.pending_notes.get("n1").expect("n1 should have a pending note");
+        assert!(!pending.is_new, "should be an update to an existing note");
+        assert_eq!(pending.effective_title(), "Completed");
         assert_eq!(
-            result.updates[0].fields.get("status"),
+            pending.effective_fields().get("status"),
             Some(&crate::core::note::FieldValue::Text("Done".into())),
         );
     }
@@ -2495,21 +2418,25 @@ mod tests {
                 fields: [#{ name: "status", type: "text", required: false }]
             });
             add_tree_action("New Task", ["Task"], |note| {
-                let t = create_note(note.id, "Task");
-                t.title = "My Task";
-                t.fields.status = "Open";
-                update_note(t);
+                let t = create_child(note.id, "Task");
+                set_title(t.id, "My Task");
+                set_field(t.id, "status", "Open");
+                commit();
             });
         "#, "test").unwrap();
 
         let note = make_test_note("parent1", "Task");
         let result = registry.invoke_tree_action_hook("New Task", &note, make_empty_ctx()).unwrap();
 
-        assert_eq!(result.creates.len(), 1, "one create, not a separate update");
-        assert_eq!(result.updates.len(), 0, "no separate update for inflight note");
-        assert_eq!(result.creates[0].title, "My Task");
+        let new_notes: Vec<_> = result.transaction.pending_notes.values()
+            .filter(|p| p.is_new).collect();
+        assert_eq!(new_notes.len(), 1, "one new pending note expected");
+        assert!(result.transaction.committed, "transaction should be committed");
+        let pending = new_notes[0];
+        assert!(pending.is_new, "should be a new note create");
+        assert_eq!(pending.effective_title(), "My Task");
         assert_eq!(
-            result.creates[0].fields.get("status"),
+            pending.effective_fields().get("status"),
             Some(&crate::core::note::FieldValue::Text("Open".into())),
         );
     }
@@ -2520,10 +2447,11 @@ mod tests {
         registry.load_script(r#"
             schema("Task", #{ fields: [] });
             add_tree_action("Verify Children", ["Task"], |note| {
-                let t = create_note(note.id, "Task");
+                let t = create_child(note.id, "Task");
                 let children = get_children(note.id);
                 let found = children.filter(|c| c.id == t.id);
                 if found.len() != 1 { throw "inflight note not visible in get_children"; }
+                commit();
             });
         "#, "test").unwrap();
 
@@ -2537,10 +2465,11 @@ mod tests {
         registry.load_script(r#"
             schema("Task", #{ fields: [] });
             add_tree_action("Verify get_note", ["Task"], |note| {
-                let t = create_note(note.id, "Task");
+                let t = create_child(note.id, "Task");
                 let fetched = get_note(t.id);
                 if fetched == () { throw "inflight note not visible via get_note"; }
                 if fetched.id != t.id { throw "wrong note returned"; }
+                commit();
             });
         "#, "test").unwrap();
 

@@ -10,8 +10,9 @@
 //! [`SchemaRegistry`](super::schema::SchemaRegistry) and registered via the
 //! `schema()` Rhai host function.
 
+use crate::core::save_transaction::SaveTransaction;
 use rhai::{FnPtr, AST};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// A user-registered tree context-menu action.
@@ -32,43 +33,13 @@ impl std::fmt::Debug for TreeActionEntry {
     }
 }
 
-/// Spec for a note to be created by a tree action.
-#[derive(Debug, Clone)]
-pub struct ActionCreate {
-    pub id:        String,
-    pub parent_id: String,
-    pub node_type: String,
-    pub title:     String,
-    pub fields:    BTreeMap<String, crate::core::note::FieldValue>,
-}
-
-/// Spec for a note to be updated by a tree action.
-#[derive(Debug, Clone)]
-pub struct ActionUpdate {
-    pub note_id: String,
-    pub title:   String,
-    pub fields:  BTreeMap<String, crate::core::note::FieldValue>,
-}
-
-/// Shared mutable context active during a tree action closure.
-/// Host functions (`create_note`, `update_note`) queue operations here.
-/// `get_children` / `get_note` also read from `note_cache` to see in-flight notes.
-#[derive(Debug, Default)]
-pub struct ActionTxContext {
-    pub creates:    Vec<ActionCreate>,
-    pub updates:    Vec<ActionUpdate>,
-    /// Note maps (same Dynamic shape as `note_to_rhai_dynamic`) keyed by note ID.
-    /// Populated by `create_note`; kept up-to-date by `update_note`.
-    pub note_cache: std::collections::HashMap<String, rhai::Dynamic>,
-}
-
 /// Return value from `invoke_tree_action_hook`.
 #[derive(Debug, Default)]
 pub struct TreeActionResult {
     /// If the closure returned an array of IDs, they are placed here (reorder path).
-    pub reorder:  Option<Vec<String>>,
-    pub creates:  Vec<ActionCreate>,
-    pub updates:  Vec<ActionUpdate>,
+    pub reorder:     Option<Vec<String>>,
+    /// Gated notes queued via `create_child` / `set_title` / `set_field` / `commit()`.
+    pub transaction: SaveTransaction,
 }
 
 /// Registry for global event hooks not tied to a specific schema.
