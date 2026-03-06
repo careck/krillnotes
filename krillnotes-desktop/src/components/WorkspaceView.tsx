@@ -393,7 +393,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     hoverTimer.current = setTimeout(async () => {
       const nodeType = notes.find(n => n.id === noteId)?.nodeType ?? '';
       const schema = schemas[nodeType] ?? null;
-      if (schema?.hasHoverHook) {
+      if (schema?.hasHover) {
         try {
           const html = await invoke<string | null>('get_note_hover', { noteId });
           setHoverHtml(html);

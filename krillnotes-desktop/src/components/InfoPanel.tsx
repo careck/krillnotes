@@ -60,8 +60,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     childrenSort: 'none',
     allowedParentTypes: [],
     allowedChildrenTypes: [],
-    hasViewHook: false,
-    hasHoverHook: false,
+    hasViews: false,
+    hasHover: false,
     allowAttachments: false,
     attachmentTypes: [],
     fieldGroups: [],
@@ -91,7 +91,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
   const emptySchemaInfo: SchemaInfo = {
     fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none',
-    allowedParentTypes: [], allowedChildrenTypes: [], hasViewHook: false, hasHoverHook: false,
+    allowedParentTypes: [], allowedChildrenTypes: [], hasViews: false, hasHover: false,
     allowAttachments: false, attachmentTypes: [], fieldGroups: [],
   };
 

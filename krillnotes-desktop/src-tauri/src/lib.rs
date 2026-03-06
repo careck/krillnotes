@@ -736,15 +736,15 @@ struct SchemaInfo {
     allowed_children_types: Vec<String>,
     allow_attachments: bool,
     attachment_types: Vec<String>,
-    has_view_hook: bool,
-    has_hover_hook: bool,
+    has_views: bool,
+    has_hover: bool,
     field_groups: Vec<FieldGroupInfo>,
 }
 
-fn schema_to_info(schema: &Schema, has_view_hook: bool, has_hover_hook: bool) -> SchemaInfo {
+fn schema_to_info(schema: &Schema, has_views: bool, has_hover: bool) -> SchemaInfo {
     SchemaInfo {
-        has_view_hook,
-        has_hover_hook,
+        has_views,
+        has_hover,
         fields: schema.fields.iter().map(FieldDefInfo::from).collect(),
         title_can_view: schema.title_can_view,
         title_can_edit: schema.title_can_edit,
@@ -787,8 +787,8 @@ fn get_schema_fields(
 
     Ok(schema_to_info(
         &schema,
-        workspace.script_registry().has_view_hook(&node_type),
-        workspace.script_registry().has_hover_hook(&node_type),
+        workspace.script_registry().has_views(&node_type),
+        workspace.script_registry().has_hover(&node_type),
     ))
 }
 
@@ -805,8 +805,8 @@ fn get_all_schemas(
     let schemas = workspace.script_registry().all_schemas();
     let mut result = HashMap::new();
     for (name, schema) in schemas {
-        let has_view_hook = workspace.script_registry().has_view_hook(&name);
-        let has_hover_hook = workspace.script_registry().has_hover_hook(&name);
+        let has_view_hook = workspace.script_registry().has_views(&name);
+        let has_hover_hook = workspace.script_registry().has_hover(&name);
         result.insert(name, schema_to_info(&schema, has_view_hook, has_hover_hook));
     }
     Ok(result)
@@ -872,6 +872,56 @@ fn get_note_hover(
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
     workspace.run_hover_hook(&note_id).map_err(|e| e.to_string())
+}
+
+/// Returns the list of registered views for a note type.
+#[tauri::command]
+fn get_views_for_type(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    schema_name: String,
+) -> std::result::Result<Vec<ViewInfo>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    let views = workspace.get_views_for_type(&schema_name);
+    Ok(views.iter().map(|v| ViewInfo {
+        label: v.label.clone(),
+        display_first: v.display_first,
+    }).collect())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewInfo {
+    label: String,
+    display_first: bool,
+}
+
+/// Renders a specific named view tab for a note.
+#[tauri::command]
+fn render_view(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    view_label: String,
+) -> std::result::Result<String, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.render_view(&note_id, &view_label).map_err(|e| e.to_string())
+}
+
+/// Returns script warnings (unresolved bindings).
+#[tauri::command]
+fn get_script_warnings(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<krillnotes_core::ScriptWarning>, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    Ok(workspace.get_script_warnings())
 }
 
 /// Updates the title and fields of an existing note, returning the updated note.
@@ -1287,14 +1337,17 @@ fn create_user_script(
     window: tauri::Window,
     state: State<'_, AppState>,
     source_code: String,
+    category: Option<String>,
 ) -> std::result::Result<ScriptMutationResult<UserScript>, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label)
         .ok_or("No workspace open")?;
-    let (data, load_errors) = workspace.create_user_script(&source_code)
-        .map_err(|e| e.to_string())?;
+    let (data, load_errors) = match category {
+        Some(cat) => workspace.create_user_script_with_category(&source_code, &cat),
+        None => workspace.create_user_script(&source_code),
+    }.map_err(|e| e.to_string())?;
     Ok(ScriptMutationResult { data, load_errors })
 }
 
@@ -2731,6 +2784,9 @@ pub fn run() {
             invoke_tree_action,
             get_note_view,
             get_note_hover,
+            get_views_for_type,
+            render_view,
+            get_script_warnings,
             update_note,
             save_note,
             validate_field,

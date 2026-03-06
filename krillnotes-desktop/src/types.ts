@@ -75,11 +75,21 @@ export interface SchemaInfo {
   childrenSort: 'asc' | 'desc' | 'none';
   allowedParentTypes: string[];
   allowedChildrenTypes: string[];
-  hasViewHook: boolean;
-  hasHoverHook: boolean;
+  hasViews: boolean;
+  hasHover: boolean;
   allowAttachments: boolean;
   attachmentTypes: string[];
   fieldGroups: FieldGroup[];
+}
+
+export interface ViewInfo {
+  label: string;
+  displayFirst: boolean;
+}
+
+export interface ScriptWarning {
+  scriptName: string;
+  message: string;
 }
 
 export enum DeleteStrategy {
@@ -112,6 +122,7 @@ export interface UserScript {
   enabled: boolean;
   createdAt: number;
   modifiedAt: number;
+  category: string;
 }
 
 export interface ScriptError {
