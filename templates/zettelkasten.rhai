@@ -50,8 +50,8 @@ schema("Zettel", #{
             s.trim();
             if words.len() > 6 { s + " …" } else { s }
         };
-        note.title = today() + " — " + snippet;
-        note
+        set_title(note.id, today() + " — " + snippet);
+        commit();
     },
     on_view: |note| {
         let body = note.fields["body"] ?? "";

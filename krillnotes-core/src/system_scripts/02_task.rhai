@@ -36,15 +36,15 @@ schema("Task", #{
                      else if status == "WIP" { "→" }
                      else { " " };
 
-        note.title = "[" + symbol + "] " + name;
+        set_title(note.id, "[" + symbol + "] " + name);
 
         let priority = note.fields["priority"];
-        note.fields["priority_label"] =
+        set_field(note.id, "priority_label",
             if priority == "high"        { "🔴 High" }
             else if priority == "medium" { "🟡 Medium" }
             else if priority == "low"    { "🟢 Low" }
-            else                         { "" };
+            else                         { "" });
 
-        note
+        commit();
     }
 });

@@ -26,12 +26,12 @@ schema("Project", #{
     on_save: |note| {
         let status = note.fields["status"];
 
-        note.fields["health"] =
+        set_field(note.id, "health",
             if status == "Done"          { "✅ Done" }
             else if status == "Active"   { "🚧 Active" }
             else if status == "On Hold"  { "⏸ On Hold" }
-            else                         { "📋 Planning" };
+            else                         { "📋 Planning" });
 
-        note
+        commit();
     }
 });
