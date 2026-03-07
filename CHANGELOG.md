@@ -7,14 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Operation detail panel** — Clicking any row in the Operations Log now opens a side panel showing all fields stored for that operation. The dialog expands from 700 px to 1080 px; clicking the selected row or the ✕ button closes the panel. Author-key fields (`created_by`, `modified_by`, etc.) display the resolved identity display name below the raw public-key hash.
-
 ## [0.3.0] — 2026-03-07
 
 > **Breaking changes:** This release introduces an identity-based authentication system (workspaces from v0.2.x must be exported and re-imported), a new scripting API (`save_note` replaces `update_note`, `register_view`/`register_hover`/`register_menu` replace inline hooks, schema versioning is now required), and HLC-based operation timestamps that update the database schema. Additionally, the project is now licensed under MPL-2.0 (previously MIT).
 
 ### Added
+- **Operation detail panel** — Clicking any row in the Operations Log now opens a side panel showing all fields stored for that operation. The dialog expands from 700 px to 1080 px; clicking the selected row or the ✕ button closes the panel. Author-key fields (`created_by`, `modified_by`, etc.) display the resolved identity display name below the raw public-key hash.
 - **Identity system** — A cryptographic identity (an Ed25519 keypair protected by an Argon2id-derived passphrase) now manages workspace access. Each workspace is bound to an identity; the workspace's randomly-generated database password is stored encrypted under the identity key. You unlock your identity once per session with your passphrase, and all bound workspaces open without any additional password prompts.
 - **Identity Manager** — A new Identity Manager dialog (accessible from Settings) lets you create, rename, unlock, lock, and delete identities. Each identity shows its UUID and the list of workspaces bound to it.
 - **`.swarmid` export/import** — Identities can be exported as a portable `.swarmid` file (encrypted JSON containing your key material). Import a `.swarmid` file on another device to access the same workspaces. On import, an existing identity with the same UUID can be overwritten while preserving all workspace bindings.
