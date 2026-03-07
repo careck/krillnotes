@@ -428,7 +428,7 @@ async fn create_workspace(
             std::fs::create_dir_all(&folder)
                 .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
             let db_path = folder.join("notes.db");
-            let workspace = Workspace::create(&db_path, &password, Some(signing_key))
+            let workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key)
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
             // Read the workspace_id from the newly created workspace
@@ -528,7 +528,7 @@ async fn open_workspace(
             };
 
             let signing_key = Ed25519SigningKey::from_bytes(&seed);
-            let mut workspace = Workspace::open(&db_path, &db_password, Some(signing_key))
+            let mut workspace = Workspace::open(&db_path, &db_password, &identity_uuid.to_string(), signing_key)
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
@@ -1590,14 +1590,14 @@ async fn execute_import(
 
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
-    import_workspace(reader, &db_path_buf, password.as_deref(), &workspace_password)
+    import_workspace(reader, &db_path_buf, password.as_deref(), &workspace_password, &uuid.to_string(), Ed25519SigningKey::from_bytes(&import_seed))
         .map_err(|e| e.to_string())?;
 
     // Ensure the attachments directory exists after import
     let _ = std::fs::create_dir_all(folder.join("attachments"));
 
     let import_signing_key = Ed25519SigningKey::from_bytes(&import_seed);
-    let workspace = Workspace::open(&db_path_buf, &workspace_password, Some(import_signing_key))
+    let workspace = Workspace::open(&db_path_buf, &workspace_password, &uuid.to_string(), import_signing_key)
         .map_err(|e| e.to_string())?;
 
     // Bind the imported workspace to the chosen identity so it can be opened later.
@@ -2381,8 +2381,18 @@ fn duplicate_workspace(
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     };
 
-    // Open the source workspace and export to a temp file (no signing key needed for export)
-    let workspace = Workspace::open(&source_db, &source_password, None)
+    // Derive the signing key for the copy operation (identity_uuid is the function parameter).
+    let copy_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let copy_seed = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities
+            .get(&copy_uuid)
+            .ok_or_else(|| format!("IDENTITY_LOCKED:{}", identity_uuid))?;
+        unlocked.signing_key.to_bytes()
+    };
+
+    // Open the source workspace and export to a temp file.
+    let workspace = Workspace::open(&source_db, &source_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed))
         .map_err(|e| e.to_string())?;
 
     let mut tmp_file = tempfile::tempfile()
@@ -2399,11 +2409,11 @@ fn duplicate_workspace(
     tmp_file
         .seek(std::io::SeekFrom::Start(0))
         .map_err(|e| format!("Seek failed: {e}"))?;
-    import_workspace(tmp_file, &dest_db, Some(&source_password), &new_password)
+    import_workspace(tmp_file, &dest_db, Some(&source_password), &new_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed))
         .map_err(|e| e.to_string())?;
 
-    // Write info.json for the new workspace so we can read its UUID (no signing key needed here)
-    let new_ws = Workspace::open(&dest_db, &new_password, None)
+    // Write info.json for the new workspace so we can read its UUID.
+    let new_ws = Workspace::open(&dest_db, &new_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed))
         .map_err(|e| format!("Failed to open new workspace: {e}"))?;
     let _ = new_ws.write_info_json();
     let new_ws_uuid = new_ws.workspace_id().to_string();

@@ -322,6 +322,44 @@ impl Storage {
             )?;
         }
 
+        // Migration: change created_by/modified_by columns from INTEGER to TEXT.
+        // SQLite requires a full table rebuild to change column types.
+        let created_by_type: String = conn
+            .query_row(
+                "SELECT type FROM pragma_table_info('notes') WHERE name='created_by'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "TEXT".to_string());
+        if created_by_type.to_uppercase() == "INTEGER" {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS notes_identity_migration (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    node_type TEXT NOT NULL,
+                    parent_id TEXT,
+                    position REAL NOT NULL DEFAULT 0.0,
+                    created_at INTEGER NOT NULL,
+                    modified_at INTEGER NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT '',
+                    modified_by TEXT NOT NULL DEFAULT '',
+                    fields_json TEXT NOT NULL DEFAULT '{}',
+                    is_expanded INTEGER DEFAULT 1,
+                    schema_version INTEGER NOT NULL DEFAULT 1,
+                    FOREIGN KEY (parent_id) REFERENCES notes(id) ON DELETE CASCADE
+                );
+                INSERT INTO notes_identity_migration
+                    SELECT id, title, node_type, parent_id, position,
+                           created_at, modified_at,
+                           CAST(created_by AS TEXT), CAST(modified_by AS TEXT),
+                           fields_json, is_expanded, schema_version
+                    FROM notes;
+                DROP TABLE notes;
+                ALTER TABLE notes_identity_migration RENAME TO notes;
+                CREATE INDEX IF NOT EXISTS idx_notes_parent ON notes(parent_id, position);",
+            )?;
+        }
+
         Ok(())
     }
 

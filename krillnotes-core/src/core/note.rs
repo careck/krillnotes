@@ -10,6 +10,27 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Custom deserializer for `created_by` / `modified_by` that accepts both
+/// the legacy integer format (always `0`) and the new base64 string format.
+fn deserialize_author_field<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = String;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a string or integer author field")
+        }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<String, E> { Ok(v.to_string()) }
+        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<String, E> { Ok(v) }
+        // Legacy: old archives serialized created_by/modified_by as integer 0.
+        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<String, E> { Ok(String::new()) }
+        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<String, E> { Ok(String::new()) }
+    }
+    deserializer.deserialize_any(Visitor)
+}
+
 /// A typed value stored in a note's schema-defined fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FieldValue {
@@ -53,10 +74,14 @@ pub struct Note {
     pub created_at: i64,
     /// Unix timestamp (seconds) of the most recent modification.
     pub modified_at: i64,
-    /// Device ID that created this note.
-    pub created_by: i64,
-    /// Device ID that last modified this note.
-    pub modified_by: i64,
+    /// Base64-encoded Ed25519 public key of the identity that created this note.
+    /// Empty string for notes created before identity enforcement was added.
+    #[serde(default, deserialize_with = "deserialize_author_field")]
+    pub created_by: String,
+    /// Base64-encoded Ed25519 public key of the identity that last modified this note.
+    /// Empty string for notes modified before identity enforcement was added.
+    #[serde(default, deserialize_with = "deserialize_author_field")]
+    pub modified_by: String,
     /// Schema-defined field values keyed by field name.
     pub fields: BTreeMap<String, FieldValue>,
     /// Whether this node is currently expanded in the tree UI.
@@ -86,8 +111,8 @@ mod tests {
             position: 0.0,
             created_at: 1234567890,
             modified_at: 1234567890,
-            created_by: 0,
-            modified_by: 0,
+            created_by: String::new(),
+            modified_by: String::new(),
             fields: BTreeMap::new(),
             is_expanded: true,
             tags: vec![], schema_version: 1,

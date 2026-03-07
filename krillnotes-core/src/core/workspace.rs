@@ -63,7 +63,11 @@ pub struct Workspace {
     script_registry: ScriptRegistry,
     operation_log: OperationLog,
     device_id: String,
-    current_user_id: i64,
+    /// UUID of the identity bound to this workspace (stored in workspace_meta).
+    identity_uuid: String,
+    /// Base64-encoded Ed25519 public key of the bound identity.
+    /// Stamped onto every note as `created_by` / `modified_by`.
+    current_identity_pubkey: String,
     /// Root directory for this workspace (parent of `notes.db`).
     workspace_root: PathBuf,
     /// Stable UUID for this workspace, stored in `workspace_meta`.
@@ -88,9 +92,9 @@ pub struct Workspace {
     inside_undo: bool,
     /// Hybrid Logical Clock for monotonically-ordered operation timestamps.
     hlc: HlcClock,
-    /// Optional Ed25519 signing key bound to the active identity.
-    /// When `Some`, every logged operation is signed before being written.
-    signing_key: Option<ed25519_dalek::SigningKey>,
+    /// Ed25519 signing key bound to the active identity.
+    /// Every logged operation is signed with this key.
+    signing_key: ed25519_dalek::SigningKey,
     /// Migration results from Phase D (run on workspace open).
     /// Drained by Tauri after the workspace is stored in AppState, to emit events.
     pub pending_migration_results: Vec<(String, u32, u32, u32)>,
@@ -104,7 +108,7 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
-    pub fn create<P: AsRef<Path>>(path: P, password: &str, signing_key: Option<ed25519_dalek::SigningKey>) -> Result<Self> {
+    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -119,7 +123,7 @@ impl Workspace {
         )?;
         storage.connection().execute(
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
-            ["current_user_id", "0"],
+            ["identity_uuid", identity_uuid],
         )?;
 
         // Derive workspace root from db path
@@ -216,6 +220,14 @@ impl Workspace {
         };
         let title = humanize(filename);
 
+        // Derive the base64-encoded public key from the signing key so we can
+        // stamp it onto notes as created_by / modified_by.
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
+
         let root = Note {
             id: Uuid::new_v4().to_string(),
             title,
@@ -224,8 +236,8 @@ impl Workspace {
             position: 0.0,
             created_at: now,
             modified_at: now,
-            created_by: 0,
-            modified_by: 0,
+            created_by: identity_pubkey_b64.clone(),
+            modified_by: identity_pubkey_b64.clone(),
             fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
@@ -269,7 +281,8 @@ impl Workspace {
             script_registry,
             operation_log,
             device_id,
-            current_user_id: 0,
+            identity_uuid: identity_uuid.to_string(),
+            current_identity_pubkey: identity_pubkey_b64,
             workspace_root,
             workspace_id,
             attachment_key,
@@ -296,7 +309,7 @@ impl Workspace {
     /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
     /// is a plain unencrypted SQLite database, or
     /// [`crate::KrillnotesError::Database`] for any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P, password: &str, signing_key: Option<ed25519_dalek::SigningKey>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -309,14 +322,12 @@ impl Workspace {
                 |row| row.get::<_, String>(0)
             )?;
 
-        let current_user_id = storage.connection()
-            .query_row(
-                "SELECT value FROM workspace_meta WHERE key = 'current_user_id'",
-                [],
-                |row| row.get::<_, String>(0)
-            )?
-            .parse::<i64>()
-            .unwrap_or(0);
+        // Derive the base64-encoded public key from the signing key.
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
 
         let workspace_root = path.as_ref()
             .parent()
@@ -369,12 +380,20 @@ impl Workspace {
         let hlc = HlcClock::load_from_db(storage.connection(), node_id)
             .map_err(KrillnotesError::Database)?;
 
+        // Persist identity_uuid into workspace_meta if not already present
+        // (handles workspaces created before identity enforcement).
+        let _ = storage.connection().execute(
+            "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["identity_uuid", identity_uuid],
+        );
+
         let mut ws = Self {
             storage,
             script_registry,
             operation_log,
             device_id,
-            current_user_id,
+            identity_uuid: identity_uuid.to_string(),
+            current_identity_pubkey: identity_pubkey_b64,
             workspace_root,
             workspace_id,
             attachment_key,
@@ -430,6 +449,17 @@ impl Workspace {
     /// Returns the unique workspace UUID (stored in `workspace_meta`).
     pub fn workspace_id(&self) -> &str {
         &self.workspace_id
+    }
+
+    /// Returns the UUID of the identity bound to this workspace.
+    pub fn identity_uuid(&self) -> &str {
+        &self.identity_uuid
+    }
+
+    /// Returns the base64-encoded Ed25519 public key of the bound identity.
+    /// This value is stamped onto every note as `created_by` / `modified_by`.
+    pub fn identity_pubkey(&self) -> &str {
+        &self.current_identity_pubkey
     }
 
     /// Writes `info.json` to the workspace root with cached metadata.
@@ -523,10 +553,8 @@ impl Workspace {
     ///
     /// Takes the signing key as an explicit parameter to avoid a borrow conflict
     /// with the transaction (which is borrowed from `self.storage`).
-    fn sign_op_with(signing_key: &Option<ed25519_dalek::SigningKey>, op: &mut Operation) {
-        if let Some(key) = signing_key {
-            op.sign(key);
-        }
+    fn sign_op_with(signing_key: &ed25519_dalek::SigningKey, op: &mut Operation) {
+        op.sign(signing_key);
     }
 
     /// Phase D: batch-migrate notes whose `schema_version` is behind the current schema version.
@@ -1174,8 +1202,8 @@ impl Workspace {
             position: final_position,
             created_at: now,
             modified_at: now,
-            created_by: self.current_user_id,
-            modified_by: self.current_user_id,
+            created_by: self.current_identity_pubkey.clone(),
+            modified_by: self.current_identity_pubkey.clone(),
             fields: schema.default_fields(),
             is_expanded: true,
             tags: vec![],
@@ -1412,8 +1440,8 @@ impl Workspace {
                     this_position,
                     now,
                     now,
-                    self.current_user_id,
-                    self.current_user_id,
+                    self.current_identity_pubkey.clone(),
+                    self.current_identity_pubkey.clone(),
                     serde_json::to_string(&note.fields)?,
                     note.is_expanded,
                     note.schema_version,
@@ -1478,8 +1506,8 @@ impl Workspace {
             position: 0.0,
             created_at: now,
             modified_at: now,
-            created_by: self.current_user_id,
-            modified_by: self.current_user_id,
+            created_by: self.current_identity_pubkey.clone(),
+            modified_by: self.current_identity_pubkey.clone(),
             fields: schema.default_fields(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
@@ -1559,7 +1587,7 @@ impl Workspace {
 
         tx.execute(
             "UPDATE notes SET title = ?, modified_at = ?, modified_by = ? WHERE id = ?",
-            rusqlite::params![new_title, now, self.current_user_id, note_id],
+            rusqlite::params![new_title, now, self.current_identity_pubkey.clone(), note_id],
         )?;
 
         // Log operation
@@ -2130,7 +2158,7 @@ impl Workspace {
                         rusqlite::params![
                             pending.note_id, effective_title, pending.node_type,
                             parent_id, position, now, now,
-                            self.current_user_id, self.current_user_id, fields_json, true,
+                            self.current_identity_pubkey.clone(), self.current_identity_pubkey.clone(), fields_json, true,
                             schema_ver,
                         ],
                     )?;
@@ -2163,7 +2191,7 @@ impl Workspace {
                          WHERE id = ?5",
                         rusqlite::params![
                             effective_title, fields_json, now,
-                            self.current_user_id, pending.note_id,
+                            self.current_identity_pubkey.clone(), pending.note_id,
                         ],
                     )?;
 
@@ -3093,7 +3121,7 @@ impl Workspace {
             .unwrap_or(1);
         tx.execute(
             "UPDATE notes SET title = ?1, fields_json = ?2, modified_at = ?3, modified_by = ?4, schema_version = ?5 WHERE id = ?6",
-            rusqlite::params![title, fields_json, now, self.current_user_id, current_schema_version, note_id],
+            rusqlite::params![title, fields_json, now, self.current_identity_pubkey.clone(), current_schema_version, note_id],
         )?;
 
         // Detect nonexistent IDs: SQLite UPDATE on a missing row succeeds but
@@ -4238,7 +4266,7 @@ fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<
 ///
 /// `position` is stored as REAL in the DB (to support fractional positions for future
 /// CRDT ordering) but the Rust API still uses `i32`; we read it as `f64` and truncate.
-type NoteRow = (String, String, String, Option<String>, f64, i64, i64, i64, i64, String, i64, u32, Option<String>);
+type NoteRow = (String, String, String, Option<String>, f64, i64, i64, String, String, String, i64, u32, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
@@ -4253,8 +4281,8 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
         row.get::<_, f64>(4)?,              // position
         row.get::<_, i64>(5)?,              // created_at
         row.get::<_, i64>(6)?,              // modified_at
-        row.get::<_, i64>(7)?,              // created_by
-        row.get::<_, i64>(8)?,              // modified_by
+        row.get::<_, String>(7).unwrap_or_default(),  // created_by
+        row.get::<_, String>(8).unwrap_or_default(),  // modified_by
         row.get::<_, String>(9)?,           // fields_json
         row.get::<_, i64>(10)?,             // is_expanded
         row.get::<_, u32>(11)?,             // schema_version
@@ -4338,7 +4366,7 @@ mod tests {
     #[test]
     fn test_create_workspace() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Verify root note exists
         let count: i64 = ws
@@ -4359,7 +4387,7 @@ mod tests {
     #[test]
     fn test_create_and_get_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws
@@ -4374,7 +4402,7 @@ mod tests {
     #[test]
     fn test_update_note_title() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "New Title".to_string())
@@ -4390,13 +4418,13 @@ mod tests {
 
         // Create workspace first
         {
-            let ws = Workspace::create(temp.path(), "", None).unwrap();
+            let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
             assert_eq!(root.node_type, "TextNote");
         }
 
         // Open it
-        let ws = Workspace::open(temp.path(), "", None).unwrap();
+        let ws = Workspace::open(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Verify we can read notes
         let notes = ws.list_all_notes().unwrap();
@@ -4407,7 +4435,7 @@ mod tests {
     #[test]
     fn test_is_expanded_defaults_to_true() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Check root note is expanded by default
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -4428,14 +4456,14 @@ mod tests {
 
         // Create workspace with notes
         {
-            let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+            let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
             ws.create_note(&root.id, AddPosition::AsChild, "TextNote")
                 .unwrap();
         }
 
         // Open and verify is_expanded is true
-        let ws = Workspace::open(temp.path(), "", None).unwrap();
+        let ws = Workspace::open(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let notes = ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 2);
         assert!(notes[0].is_expanded, "Root note should be expanded");
@@ -4445,7 +4473,7 @@ mod tests {
     #[test]
     fn test_toggle_note_expansion() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         assert!(root.is_expanded, "Root should start expanded");
@@ -4464,7 +4492,7 @@ mod tests {
     #[test]
     fn test_toggle_note_expansion_with_child_notes() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws
@@ -4485,7 +4513,7 @@ mod tests {
     #[test]
     fn test_toggle_note_expansion_nonexistent_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Try to toggle a note that doesn't exist
         let result = ws.toggle_note_expansion("nonexistent-id");
@@ -4495,7 +4523,7 @@ mod tests {
     #[test]
     fn test_set_and_get_selected_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
 
@@ -4520,13 +4548,13 @@ mod tests {
 
         // Create workspace and set selection
         {
-            let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+            let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
             ws.set_selected_note(Some(&root.id)).unwrap();
         }
 
         // Open workspace and verify selection persists
-        let ws = Workspace::open(temp.path(), "", None).unwrap();
+        let ws = Workspace::open(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         let selected = ws.get_selected_note().unwrap();
         assert_eq!(selected, Some(root.id), "Selection should persist across open");
@@ -4535,7 +4563,7 @@ mod tests {
     #[test]
     fn test_set_selected_note_overwrites_previous() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws
@@ -4556,7 +4584,7 @@ mod tests {
     #[test]
     fn test_create_note_root() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Delete existing root note to simulate empty workspace
         let existing_root = ws.list_all_notes().unwrap()[0].clone();
@@ -4579,7 +4607,7 @@ mod tests {
     #[test]
     fn test_create_note_root_invalid_type() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Delete existing root note
         let existing_root = ws.list_all_notes().unwrap()[0].clone();
@@ -4596,7 +4624,7 @@ mod tests {
     #[test]
     fn test_sibling_insertion_does_not_create_duplicate_positions() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
 
@@ -4620,7 +4648,7 @@ mod tests {
     #[test]
     fn test_get_note_with_corrupt_fields_json_returns_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
 
         // Corrupt the stored JSON directly.
@@ -4637,7 +4665,7 @@ mod tests {
     #[test]
     fn test_list_all_notes_with_corrupt_fields_json_returns_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
 
         ws.storage.connection_mut().execute(
@@ -4652,7 +4680,7 @@ mod tests {
     #[test]
     fn test_sibling_insertion_preserves_correct_order() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
 
@@ -4675,7 +4703,7 @@ mod tests {
     #[test]
     fn test_update_note() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Get the root note
         let notes = ws.list_all_notes().unwrap();
@@ -4701,7 +4729,7 @@ mod tests {
     #[test]
     fn test_update_note_not_found() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let result = ws.update_note("nonexistent-id", "Title".to_string(), BTreeMap::new());
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
@@ -4710,7 +4738,7 @@ mod tests {
     #[test]
     fn test_count_children() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Get root note
         let notes = ws.list_all_notes().unwrap();
@@ -4736,7 +4764,7 @@ mod tests {
     #[test]
     fn test_delete_note_recursive() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Get root note
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -4767,7 +4795,7 @@ mod tests {
     #[test]
     fn test_delete_note_recursive_not_found() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let result = ws.delete_note_recursive("nonexistent-id");
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
     }
@@ -4775,7 +4803,7 @@ mod tests {
     #[test]
     fn test_delete_note_promote() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Get root note
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -4809,7 +4837,7 @@ mod tests {
     #[test]
     fn test_update_contact_rejects_empty_required_fields() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         // Contact schema is already loaded from starter scripts.
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
@@ -4847,7 +4875,7 @@ mod tests {
     #[test]
     fn test_delete_note_promote_not_found() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let result = ws.delete_note_promote("nonexistent-id");
         assert!(matches!(result, Err(KrillnotesError::NoteNotFound(_))));
@@ -4860,7 +4888,7 @@ mod tests {
     #[test]
     fn test_delete_note_promote_no_position_collision() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Build tree: root -> sib1 (pos 0) -> child1 (pos 0)
         //                                   -> child2 (pos 1)
@@ -4906,7 +4934,7 @@ mod tests {
     #[test]
     fn test_update_contact_derives_title_from_hook() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         // Contact schema is already loaded from starter scripts.
 
         let notes = ws.list_all_notes().unwrap();
@@ -4951,7 +4979,7 @@ mod tests {
     #[test]
     fn test_workspace_created_with_starter_scripts() {
         let temp = NamedTempFile::new().unwrap();
-        let workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let scripts = workspace.list_user_scripts().unwrap();
         assert!(!scripts.is_empty(), "New workspace should have starter scripts");
         // Verify starter scripts include both presentation and schema scripts
@@ -4963,7 +4991,7 @@ mod tests {
     #[test]
     fn test_create_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: Test Script\n// @description: A test\nschema(\"TestType\", #{ version: 1, fields: [] });";
         let (script, errors) = workspace.create_user_script(source).unwrap();
@@ -4977,7 +5005,7 @@ mod tests {
     #[test]
     fn test_create_user_script_missing_name_fails() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let source = "// no name here\nschema(\"X\", #{ version: 1, fields: [] });";
         let result = workspace.create_user_script(source);
         assert!(result.is_err());
@@ -4986,7 +5014,7 @@ mod tests {
     #[test]
     fn test_update_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let source = "// @name: Original\nschema(\"Orig\", #{ version: 1, fields: [] });";
         let (script, _) = workspace.create_user_script(source).unwrap();
 
@@ -4999,7 +5027,7 @@ mod tests {
     #[test]
     fn test_delete_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let initial_count = workspace.list_user_scripts().unwrap().len();
         let source = "// @name: ToDelete\nschema(\"Del\", #{ version: 1, fields: [] });";
         let (script, _) = workspace.create_user_script(source).unwrap();
@@ -5012,7 +5040,7 @@ mod tests {
     #[test]
     fn test_toggle_user_script() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let source = "// @name: Toggle\nschema(\"Tog\", #{ version: 1, fields: [] });";
         let (script, _) = workspace.create_user_script(source).unwrap();
         assert!(script.enabled);
@@ -5025,7 +5053,7 @@ mod tests {
     #[test]
     fn test_user_scripts_sorted_by_load_order() {
         let temp = NamedTempFile::new().unwrap();
-        let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+        let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let starter_count = workspace.list_user_scripts().unwrap().len();
 
         let s1 = "// @name: Second\nschema(\"S2\", #{ version: 1, fields: [] });";
@@ -5046,13 +5074,13 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
 
         {
-            let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+            let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
             workspace.create_user_script(
                 "// @name: TestOpen\nschema(\"OpenType\", #{ version: 1, fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap(); // (UserScript, Vec<ScriptError>) — result not inspected here
         }
 
-        let workspace = Workspace::open(temp.path(), "", None).unwrap();
+        let workspace = Workspace::open(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(workspace.script_registry().get_schema("OpenType").is_ok());
     }
 
@@ -5061,21 +5089,21 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
 
         {
-            let mut workspace = Workspace::create(temp.path(), "", None).unwrap();
+            let mut workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
             let (script, _) = workspace.create_user_script(
                 "// @name: Disabled\nschema(\"DisType\", #{ version: 1, fields: [#{ name: \"x\", type: \"text\" }] });"
             ).unwrap();
             workspace.toggle_user_script(&script.id, false).unwrap();
         }
 
-        let workspace = Workspace::open(temp.path(), "", None).unwrap();
+        let workspace = Workspace::open(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(workspace.script_registry().get_schema("DisType").is_err());
     }
 
     #[test]
     fn test_delete_note_with_strategy() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
@@ -5107,7 +5135,7 @@ mod tests {
     /// preserves that order: `child_ids[0]` is at position 0, etc.
     fn setup_with_children(n: usize) -> (Workspace, String, Vec<String>, NamedTempFile) {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         let mut child_ids: Vec<String> = Vec::new();
         for i in 0..n {
@@ -5206,7 +5234,7 @@ mod tests {
     #[test]
     fn test_run_view_hook_returns_html_without_hook() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Load a schema with a textarea field but no on_view hook.
         ws.create_user_script(
@@ -5242,7 +5270,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_create_user_script_rejects_compile_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let initial_count = ws.list_user_scripts().unwrap().len();
 
@@ -5259,7 +5287,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_update_user_script_rejects_compile_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let initial_count = ws.list_user_scripts().unwrap().len();
 
@@ -5286,7 +5314,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_create_workspace_with_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "secret", None).unwrap();
+        let ws = Workspace::create(temp.path(), "secret", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         // Should have at least one note (the root note)
         assert!(!ws.list_all_notes().unwrap().is_empty());
     }
@@ -5294,23 +5322,23 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_open_workspace_with_password() {
         let temp = NamedTempFile::new().unwrap();
-        Workspace::create(temp.path(), "secret", None).unwrap();
-        let ws = Workspace::open(temp.path(), "secret", None).unwrap();
+        Workspace::create(temp.path(), "secret", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let ws = Workspace::open(temp.path(), "secret", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(!ws.list_all_notes().unwrap().is_empty());
     }
 
     #[test]
     fn test_open_workspace_wrong_password() {
         let temp = NamedTempFile::new().unwrap();
-        Workspace::create(temp.path(), "secret", None).unwrap();
-        let result = Workspace::open(temp.path(), "wrong", None);
+        Workspace::create(temp.path(), "secret", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let result = Workspace::open(temp.path(), "wrong", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]));
         assert!(matches!(result, Err(KrillnotesError::WrongPassword)));
     }
 
     #[test]
     fn test_deep_copy_note_as_child() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // root → child
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -5342,7 +5370,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_deep_copy_note_recursive() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // root → note_a → note_b
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -5387,7 +5415,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_on_add_child_hook_fires_on_create() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.script_registry_mut().load_script(r#"
             schema("Folder", #{ version: 1,
@@ -5420,7 +5448,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_on_add_child_hook_fires_for_sibling_under_hooked_parent() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.script_registry_mut().load_script(r#"
             schema("Folder", #{ version: 1,
@@ -5452,7 +5480,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_on_add_child_hook_does_not_fire_for_root_level_creation() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // No on_add_child hook registered — creating a sibling of root should work silently
         let root = ws.list_all_notes().unwrap()[0].clone();
@@ -5464,7 +5492,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_on_add_child_hook_fires_on_move() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.script_registry_mut().load_script(r#"
             schema("Folder", #{ version: 1,
@@ -5501,7 +5529,7 @@ schema("Memo", #{ version: 1,
     #[test]
     fn test_run_tree_action_reorders_children() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         let parent_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
@@ -5541,7 +5569,7 @@ register_menu("Sort A→Z", ["TextNote"], |note| {
     #[test]
     fn test_tree_action_create_note_writes_to_db() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(r#"
 // @name: CreateAction
@@ -5572,7 +5600,7 @@ register_menu("Add Item", ["TaFolder"], |folder| {
     #[test]
     fn test_tree_action_update_note_writes_to_db() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(r#"
 // @name: UpdateAction
@@ -5600,7 +5628,7 @@ register_menu("Mark Done", ["TaTask"], |note| {
     #[test]
     fn test_tree_action_nested_create_builds_subtree() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(r#"
 // @name: NestedCreate
@@ -5634,7 +5662,7 @@ register_menu("Add Sprint With Task", ["TaSprint"], |sprint| {
     #[test]
     fn test_tree_action_error_rolls_back_all_writes() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(r#"
 // @name: ErrorAction
@@ -5661,7 +5689,7 @@ register_menu("Create Then Fail", ["TaErrFolder"], |folder| {
     #[test]
     fn test_tree_action_create_child_gated() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.create_user_script(r#"
 // @name: TAGated
 schema("TAFolder", #{ version: 1, fields: [] });
@@ -5693,7 +5721,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_note_tags_round_trip() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         assert!(root.tags.is_empty());
 
@@ -5705,14 +5733,14 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_get_all_tags_empty() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(ws.get_all_tags().unwrap().is_empty());
     }
 
     #[test]
     fn test_get_all_tags_sorted_distinct() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         ws.update_note_tags(&root.id, vec!["rust".into(), "design".into()]).unwrap();
@@ -5724,7 +5752,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_get_notes_for_tag() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         ws.update_note_tags(&root.id, vec!["rust".into()]).unwrap();
@@ -5746,7 +5774,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_update_note_tags_replaces_existing() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_tags(&root.id, vec!["old".into()]).unwrap();
         ws.update_note_tags(&root.id, vec!["new".into()]).unwrap();
@@ -5757,7 +5785,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_update_note_tags_normalises() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_tags(&root.id, vec!["  Rust  ".into(), "RUST".into(), "rust".into()]).unwrap();
         let note = ws.get_note(&root.id).unwrap();
@@ -5770,7 +5798,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     /// Returns the workspace ready to use.
     fn create_test_workspace_with_schema(schema_script: &str) -> Workspace {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         // Wrap the bare schema call in the required front matter so create_user_script accepts it.
         let source = format!("// @name: TestSchema\n{schema_script}");
         ws.create_user_script(&source).unwrap();
@@ -6018,7 +6046,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn operations_log_always_records_create_note() {
         // The operation log is always active — every mutation must be recorded.
         let temp = tempfile::NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         let ops = ws.list_operations(None, None, None).unwrap();
@@ -6031,7 +6059,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_workspace_has_attachment_key_when_encrypted() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let ws = Workspace::create(&db_path, "hunter2", None).unwrap();
+        let ws = Workspace::create(&db_path, "hunter2", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(ws.attachment_key().is_some(), "Encrypted workspace must have attachment_key");
     }
 
@@ -6039,7 +6067,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_workspace_has_no_attachment_key_when_unencrypted() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let ws = Workspace::create(&db_path, "", None).unwrap();
+        let ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(ws.attachment_key().is_none(), "Unencrypted workspace must have no attachment_key");
     }
 
@@ -6047,7 +6075,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_workspace_creates_attachments_directory() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        Workspace::create(&db_path, "", None).unwrap();
+        Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(dir.path().join("attachments").is_dir());
     }
 
@@ -6055,10 +6083,10 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_workspace_attachment_key_stable_across_open() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let ws1 = Workspace::create(&db_path, "mypass", None).unwrap();
+        let ws1 = Workspace::create(&db_path, "mypass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let key1 = ws1.attachment_key().unwrap().clone();
         drop(ws1);
-        let ws2 = Workspace::open(&db_path, "mypass", None).unwrap();
+        let ws2 = Workspace::open(&db_path, "mypass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let key2 = ws2.attachment_key().unwrap();
         assert_eq!(key1, *key2, "Key must be derived deterministically from password + workspace_id");
     }
@@ -6066,7 +6094,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_get_set_workspace_metadata() {
         let temp = tempfile::NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Fresh workspace returns default (no error)
         let initial = ws.get_workspace_metadata().unwrap();
@@ -6111,7 +6139,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_attach_file_stores_metadata_and_file() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "testpass", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "testpass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let notes = ws.list_all_notes().unwrap();
         let root_id = &notes[0].id;
 
@@ -6128,7 +6156,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_get_attachment_bytes_decrypts_correctly() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "testpass", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "testpass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         let data = b"secret file content";
@@ -6141,7 +6169,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_get_attachments_returns_metadata_list() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         ws.attach_file(&root_id, "a.pdf", None, b"data a").unwrap();
@@ -6158,7 +6186,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_delete_attachment_soft_deletes() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "testpass", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "testpass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         let meta = ws.attach_file(&root_id, "bye.txt", None, b"temp").unwrap();
@@ -6180,7 +6208,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_attach_file_enforces_size_limit() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         ws.set_attachment_max_size_bytes(Some(10)).unwrap();
@@ -6193,7 +6221,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_update_note_cleans_up_replaced_file_field() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Use the root TextNote that is always created on workspace init.
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
@@ -6224,7 +6252,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_operation_log_always_records() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
 
         // The operation log should record the CreateNote even without sync.
@@ -6238,7 +6266,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_update_note_cleans_up_cleared_file_field() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
@@ -6261,7 +6289,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_can_undo_initially_false() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let ws = Workspace::create(&path, "", None).unwrap();
+        let ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(!ws.can_undo());
         assert!(!ws.can_redo());
     }
@@ -6270,7 +6298,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_collect_subtree_notes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
         let _grandchild = ws.create_note(&child_id, AddPosition::AsChild, "TextNote").unwrap();
@@ -6285,7 +6313,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_group_collapses_to_one_entry() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         // Clear the undo entry from root creation
         ws.undo_stack.clear();
@@ -6306,7 +6334,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_create_note() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         ws.undo_stack.clear(); // ignore root creation
 
@@ -6322,7 +6350,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_update_note_restores_old_title() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         ws.undo_stack.clear();
 
@@ -6343,7 +6371,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_delete_note_restores_subtree() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
         ws.undo_stack.clear();
@@ -6360,7 +6388,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_move_note_restores_position() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
         let sibling_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
@@ -6384,7 +6412,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_delete_script_restores_it() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let src = "// @name: TestScript\n// @description: desc\n";
         let (script, _) = ws.create_user_script(src).unwrap();
@@ -6401,7 +6429,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_redo_create_note_cycle() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         ws.undo_stack.clear();
 
@@ -6426,7 +6454,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_delete_note_full_cycle() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         let child_id = ws.create_note(&root_id, AddPosition::AsChild, "TextNote").unwrap();
         ws.undo_stack.clear();
@@ -6442,7 +6470,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_tree_action_collapses_to_one_undo_entry() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.create_note_root("TextNote").unwrap();
         ws.undo_stack.clear();
 
@@ -6460,11 +6488,11 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_limit_persists() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.set_undo_limit(10).unwrap();
         drop(ws);
 
-        let ws2 = Workspace::open(&path, "", None).unwrap();
+        let ws2 = Workspace::open(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert_eq!(ws2.undo_limit, 10);
     }
 
@@ -6472,7 +6500,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_undo_limit_clamp_and_trim() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.set_undo_limit(0).unwrap();
         assert_eq!(ws.get_undo_limit(), 1);
@@ -6499,7 +6527,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         // the update.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let src_v1 = "// @name: CycleScript\n// @description: v1\nlet x = 1;";
         let (script, _) = ws.create_user_script(src_v1).unwrap();
@@ -6531,7 +6559,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         // the script with its real content on redo, not an empty placeholder.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let src = "// @name: RedoScript\n// @description: test\nlet y = 42;";
         let (script, _) = ws.create_user_script(src).unwrap();
@@ -6557,7 +6585,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_write_info_json_creates_file() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let ws = Workspace::create(&db_path, "", None).unwrap();
+        let ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.write_info_json().unwrap();
 
         let info_path = dir.path().join("info.json");
@@ -6574,7 +6602,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_write_info_json_counts_notes() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
@@ -6590,7 +6618,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_info_json_written_on_create() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        Workspace::create(&db_path, "", None).unwrap();
+        Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(dir.path().join("info.json").exists(), "info.json must exist after create");
     }
 
@@ -6598,9 +6626,9 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_info_json_written_on_open() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        Workspace::create(&db_path, "", None).unwrap();
+        Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         std::fs::remove_file(dir.path().join("info.json")).unwrap(); // remove it
-        Workspace::open(&db_path, "", None).unwrap();
+        Workspace::open(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert!(dir.path().join("info.json").exists(), "info.json must be rewritten on open");
     }
 
@@ -6610,7 +6638,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_hlc_counter_increments_for_rapid_ops() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("hlc.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Create two notes in rapid succession.
         ws.create_note_root("TextNote").unwrap();
@@ -6634,7 +6662,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_set_tags_op_logged() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tags_log.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
 
         ws.update_note_tags(&root.id, vec!["crdt".into(), "hlc".into()]).unwrap();
@@ -6648,7 +6676,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     fn test_update_note_op_logged() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("update_note_log.krillnotes");
-        let mut ws = Workspace::create(&path, "", None).unwrap();
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
 
         ws.update_note_title(&root.id, "HLC Title".to_string()).unwrap();
@@ -6712,7 +6740,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
     #[test]
     fn test_save_pipeline_success() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineOk
 schema("PipeItem", #{ version: 1,
@@ -6733,7 +6761,7 @@ schema("PipeItem", #{ version: 1,
     #[test]
     fn test_save_pipeline_validation_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineValidate
 schema("RatedItem", #{ version: 1,
@@ -6761,7 +6789,7 @@ schema("RatedItem", #{ version: 1,
     #[test]
     fn test_save_pipeline_reject_error() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineReject
 schema("RejectItem", #{ version: 1,
@@ -6800,7 +6828,7 @@ schema("RejectItem", #{ version: 1,
     #[test]
     fn test_full_pipeline_groups_validation_reject() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.create_user_script(r#"
 // @name: PipelineGrouped
 schema("Grouped", #{ version: 1,
@@ -6882,7 +6910,7 @@ schema("Grouped", #{ version: 1,
     #[test]
     fn test_tree_action_validates_created_notes() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         ws.create_user_script(r#"
 // @name: RequiredField
 schema("RequiredItem", #{ version: 1,
@@ -6919,7 +6947,7 @@ schema("RequiredItem", #{ version: 1,
     #[test]
     fn migration_renames_field_on_version_bump() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Register a v1 schema with a "phone" field.
         ws.create_user_script(
@@ -6988,7 +7016,7 @@ schema("MigType", #{
     #[test]
     fn migration_skips_up_to_date_notes() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(
             r#"// @name: UpToDate
@@ -7012,7 +7040,7 @@ schema("UpToDateType", #{
     #[test]
     fn migration_chains_across_multiple_versions() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(
             r#"// @name: ChainTest
@@ -7062,7 +7090,7 @@ schema("ChainType", #{
     #[test]
     fn schema_version_downgrade_rejected() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Register v2.
         ws.create_user_script(
@@ -7097,7 +7125,7 @@ schema("DowngradeType", #{
     #[test]
     fn schema_same_version_reregistration_allowed() {
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         ws.create_user_script(
             r#"// @name: SameVerTest

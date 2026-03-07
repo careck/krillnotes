@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::io::{Cursor, Read, Seek, Write};
 use std::path::Path;
 
+use ed25519_dalek;
 use serde::{Deserialize, Serialize};
 use zip::write::SimpleFileOptions;
 use zip::AesMode;
@@ -353,6 +354,8 @@ pub fn import_workspace<R: Read + Seek>(
     db_path: &Path,
     zip_password: Option<&str>,
     workspace_password: &str,
+    identity_uuid: &str,
+    signing_key: ed25519_dalek::SigningKey,
 ) -> Result<ImportResult, ExportError> {
     let mut archive = ZipArchive::new(reader)?;
 
@@ -421,7 +424,7 @@ pub fn import_workspace<R: Read + Seek>(
         .connection()
         .execute(
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
-            ["current_user_id", "0"],
+            ["identity_uuid", identity_uuid],
         )
         .map_err(|e| ExportError::Database(e.to_string()))?;
 
@@ -499,7 +502,7 @@ pub fn import_workspace<R: Read + Seek>(
     drop(storage);
 
     // Rebuild the note_links index from the imported fields_json data.
-    let mut workspace = Workspace::open(db_path, workspace_password, None)
+    let mut workspace = Workspace::open(db_path, workspace_password, identity_uuid, signing_key)
         .map_err(|e| ExportError::Database(e.to_string()))?;
     workspace
         .rebuild_note_links_index()
@@ -595,7 +598,7 @@ mod tests {
     fn test_export_workspace_creates_valid_zip() {
         // Create a workspace with a note and a script
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         // Add a user script (unique name to avoid collision with starters)
         let script_source =
@@ -636,7 +639,7 @@ mod tests {
     fn test_peek_import_reads_metadata() {
         // Create a workspace with a script
         let temp = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let script_source =
             "// @name: Custom Widget\n// @description: Widget cards\nschema(\"Widget\", #{ version: 1, fields: [] });";
@@ -662,7 +665,7 @@ mod tests {
     fn test_round_trip_export_import() {
         // Create a workspace with nested notes and a script
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "Root Note".to_string()).unwrap();
@@ -688,7 +691,7 @@ mod tests {
 
         // Import into a new workspace file
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         assert_eq!(result.app_version, APP_VERSION);
         assert_eq!(result.note_count, 3);
@@ -696,7 +699,7 @@ mod tests {
         assert!(result.script_count >= 2, "Should have starters + user script, got {}", result.script_count);
 
         // Open the imported workspace and verify contents
-        let imported_ws = Workspace::open(temp_dst.path(), "", None).unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let notes = imported_ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 3);
@@ -727,7 +730,7 @@ mod tests {
     #[test]
     fn test_export_includes_workspace_json() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -741,7 +744,7 @@ mod tests {
     #[test]
     fn test_round_trip_preserves_tags() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_tags(&root.id, vec!["rust".into()]).unwrap();
 
@@ -749,9 +752,9 @@ mod tests {
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         let temp_dst = NamedTempFile::new().unwrap();
-        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
-        let imported = Workspace::open(temp_dst.path(), "", None).unwrap();
+        let imported = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let tags = imported.get_all_tags().unwrap();
         assert_eq!(tags, vec!["rust"]);
 
@@ -764,7 +767,7 @@ mod tests {
     #[test]
     fn test_import_invalid_zip() {
         let garbage = b"this is not a zip file at all";
-        let result = import_workspace(Cursor::new(garbage), Path::new("/tmp/invalid.db"), None, "");
+        let result = import_workspace(Cursor::new(garbage), Path::new("/tmp/invalid.db"), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]));
         assert!(result.is_err());
     }
 
@@ -781,14 +784,14 @@ mod tests {
             zip.finish().unwrap();
         }
 
-        let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"), None, "");
+        let result = import_workspace(Cursor::new(&buf), Path::new("/tmp/missing_notes.db"), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]));
         assert!(matches!(result, Err(ExportError::InvalidFormat(_))));
     }
 
     #[test]
     fn test_export_with_password_creates_encrypted_zip() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("hunter2")).unwrap();
@@ -805,7 +808,7 @@ mod tests {
     #[test]
     fn test_export_without_password_creates_plain_zip() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -820,7 +823,7 @@ mod tests {
     fn test_read_entry_wrong_password_returns_invalid_password() {
         // Export with a password
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("correct")).unwrap();
 
@@ -832,7 +835,7 @@ mod tests {
     #[test]
     fn test_peek_import_returns_encrypted_archive_error_when_no_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -844,7 +847,7 @@ mod tests {
     #[test]
     fn test_peek_import_with_correct_password_succeeds() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -857,7 +860,7 @@ mod tests {
     #[test]
     fn test_peek_import_with_wrong_password_returns_invalid_password() {
         let temp = NamedTempFile::new().unwrap();
-        let ws = Workspace::create(temp.path(), "", None).unwrap();
+        let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), Some("s3cr3t")).unwrap();
@@ -869,7 +872,7 @@ mod tests {
     #[test]
     fn test_encrypted_round_trip_import() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root = ws.list_all_notes().unwrap()[0].clone();
         ws.update_note_title(&root.id, "Encrypted Root".to_string()).unwrap();
 
@@ -879,11 +882,11 @@ mod tests {
 
         // Import with correct password → should succeed
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), Some("mypass"), "").unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), Some("mypass"), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert_eq!(result.note_count, 1);
 
         // Verify imported note title
-        let imported_ws = Workspace::open(temp_dst.path(), "", None).unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let notes = imported_ws.list_all_notes().unwrap();
         assert!(notes.iter().any(|n| n.title == "Encrypted Root"));
     }
@@ -924,10 +927,10 @@ mod tests {
         }
 
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert_eq!(result.note_count, 1);
 
-        let imported_ws = Workspace::open(temp_dst.path(), "", None).unwrap();
+        let imported_ws = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let notes = imported_ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 1);
         assert!(notes[0].tags.is_empty(), "imported note from old archive should have no tags");
@@ -968,7 +971,7 @@ mod tests {
         }
 
         let temp_dst = NamedTempFile::new().unwrap();
-        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        let result = import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         assert_eq!(result.note_count, 1);
         assert_eq!(result.script_count, 0);
     }
@@ -976,7 +979,7 @@ mod tests {
     #[test]
     fn test_workspace_metadata_roundtrip() {
         let temp_src = NamedTempFile::new().unwrap();
-        let mut ws = Workspace::create(temp_src.path(), "", None).unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
         let meta = WorkspaceMetadata {
             version: 1,
@@ -995,9 +998,9 @@ mod tests {
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
         let temp_dst = NamedTempFile::new().unwrap();
-        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
-        let imported = Workspace::open(temp_dst.path(), "", None).unwrap();
+        let imported = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let restored = imported.get_workspace_metadata().unwrap();
 
         assert_eq!(restored.author_name.as_deref(), Some("Alice"));
@@ -1014,7 +1017,7 @@ mod tests {
     fn test_export_includes_attachments() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("notes.db");
-        let mut ws = Workspace::create(&db_path, "", None).unwrap();
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         ws.attach_file(&root_id, "hello.txt", Some("text/plain"), b"hello world").unwrap();
@@ -1036,7 +1039,7 @@ mod tests {
     fn test_import_restores_attachments() {
         let dir_src = tempfile::tempdir().unwrap();
         let db_src = dir_src.path().join("notes.db");
-        let mut ws = Workspace::create(&db_src, "pass", None).unwrap();
+        let mut ws = Workspace::create(&db_src, "pass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         ws.attach_file(&root_id, "data.txt", None, b"attachment content").unwrap();
@@ -1046,9 +1049,9 @@ mod tests {
 
         let dir_dst = tempfile::tempdir().unwrap();
         let db_dst = dir_dst.path().join("notes.db");
-        import_workspace(Cursor::new(&buf), &db_dst, None, "newpass").unwrap();
+        import_workspace(Cursor::new(&buf), &db_dst, None, "newpass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
-        let ws2 = Workspace::open(&db_dst, "newpass", None).unwrap();
+        let ws2 = Workspace::open(&db_dst, "newpass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let notes = ws2.list_all_notes().unwrap();
         let root = notes.iter().find(|n| n.parent_id.is_none()).unwrap();
         let attachments = ws2.get_attachments(&root.id).unwrap();
@@ -1086,9 +1089,9 @@ mod tests {
         }
 
         let temp_dst = NamedTempFile::new().unwrap();
-        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "").unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
 
-        let imported = Workspace::open(temp_dst.path(), "", None).unwrap();
+        let imported = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
         let meta = imported.get_workspace_metadata().unwrap();
         assert!(meta.author_name.is_none());
         assert!(meta.tags.is_empty());

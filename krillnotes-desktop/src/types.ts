@@ -19,8 +19,8 @@ export interface Note {
   position: number;
   createdAt: number;
   modifiedAt: number;
-  createdBy: number;
-  modifiedBy: number;
+  createdBy: string;
+  modifiedBy: string;
   fields: Record<string, FieldValue>;
   isExpanded: boolean;
   tags: string[];

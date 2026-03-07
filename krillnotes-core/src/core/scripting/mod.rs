@@ -1272,7 +1272,7 @@ mod tests {
         let note = Note {
             id: "n1".to_string(), node_type: "Folder".to_string(),
             title: "F".to_string(), parent_id: None, position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -2208,7 +2208,7 @@ mod tests {
         let note = Note {
             id: "n1".into(), title: "Test".into(), node_type: "Memo".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0, fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
 
         let html = registry.render_default_view(&note, &Default::default(), &[]);
@@ -2254,8 +2254,8 @@ mod tests {
             position: 0.0,
             created_at: 0,
             modified_at: 0,
-            created_by: 0,
-            modified_by: 0,
+            created_by: String::new(),
+            modified_by: String::new(),
             fields: BTreeMap::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -2556,7 +2556,7 @@ mod tests {
         let note = Note {
             id: "n1".to_string(), node_type: "BoomView".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -2619,7 +2619,7 @@ mod tests {
             id: "n1".into(), title: "Hello".into(),
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -2646,7 +2646,7 @@ mod tests {
             id: "p1".into(), title: "Parent".into(),
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -2668,7 +2668,7 @@ mod tests {
             id: "n1".into(), title: "T".into(),
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -2695,7 +2695,7 @@ mod tests {
             id: "n1".into(), title: "T".into(),
             node_type: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -2717,7 +2717,7 @@ mod tests {
             id: id.into(), title: "Test".into(),
             node_type: node_type.into(), parent_id: None,
             fields: Default::default(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
         }
     }
@@ -2885,7 +2885,7 @@ mod tests {
         let note = Note {
             id: "n1".to_string(), node_type: "Tagged".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
-            created_at: 0, modified_at: 0, created_by: 0, modified_by: 0,
+            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false,
             tags: vec!["rust".to_string(), "notes".to_string()], schema_version: 1,
         };
@@ -3085,7 +3085,7 @@ mod tests {
         let note = crate::Note {
             id: "id1".into(), title: "Test Note".into(), node_type: "HoverRun".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: 0, modified_by: 0,
+            created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
         };
         let ctx = QueryContext {
@@ -3182,7 +3182,7 @@ mod tests {
             id: "n1".to_string(), node_type: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
-            created_by: 0, modified_by: 0, is_expanded: false,
+            created_by: String::new(), modified_by: String::new(), is_expanded: false,
         };
 
         let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
@@ -3213,7 +3213,7 @@ mod tests {
             id: "n2".to_string(), node_type: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
-            created_by: 0, modified_by: 0, is_expanded: false,
+            created_by: String::new(), modified_by: String::new(), is_expanded: false,
         };
 
         let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
