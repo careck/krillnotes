@@ -3540,6 +3540,11 @@ impl Workspace {
         self.operation_log.list(self.connection(), type_filter, since, until)
     }
 
+    /// Returns the full JSON detail for a single operation by ID.
+    pub fn get_operation_detail(&self, operation_id: &str) -> Result<serde_json::Value> {
+        self.operation_log.get_detail(self.connection(), operation_id)
+    }
+
     /// Deletes all operations from the log. Returns the number deleted.
     pub fn purge_all_operations(&self) -> Result<usize> {
         self.operation_log.purge_all(self.connection())

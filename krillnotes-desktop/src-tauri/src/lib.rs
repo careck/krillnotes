@@ -1481,6 +1481,22 @@ fn list_operations(
     Ok(summaries)
 }
 
+/// Returns the full JSON payload for a single operation by ID.
+#[tauri::command]
+fn get_operation_detail(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    operation_id: String,
+) -> std::result::Result<serde_json::Value, String> {
+    let label = window.label();
+    state.workspaces.lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .get_operation_detail(&operation_id)
+        .map_err(|e| e.to_string())
+}
+
 /// Deletes all operations from the log.
 #[tauri::command]
 fn purge_operations(
@@ -2824,6 +2840,7 @@ pub fn run() {
             reorder_user_script,
             reorder_all_user_scripts,
             list_operations,
+            get_operation_detail,
             purge_operations,
             export_workspace_cmd,
             peek_import_cmd,

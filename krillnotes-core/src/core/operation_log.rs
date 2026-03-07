@@ -181,6 +181,30 @@ impl OperationLog {
         Ok(summaries)
     }
 
+    /// Fetches the full JSON payload for a single operation by ID.
+    ///
+    /// Returns the raw `operation_data` deserialized as a JSON value so the
+    /// frontend can display all fields without a separate schema per variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::KrillnotesError::Database`] if the query fails or the
+    /// operation is not found, and [`crate::KrillnotesError::Json`] if the
+    /// stored data cannot be parsed.
+    pub fn get_detail(
+        &self,
+        conn: &Connection,
+        operation_id: &str,
+    ) -> Result<serde_json::Value> {
+        let raw: String = conn.query_row(
+            "SELECT operation_data FROM operations WHERE operation_id = ?",
+            [operation_id],
+            |row| row.get(0),
+        )?;
+        let value: serde_json::Value = serde_json::from_str(&raw)?;
+        Ok(value)
+    }
+
     /// Deletes all operations from the log, returning the number of rows removed.
     ///
     /// # Errors

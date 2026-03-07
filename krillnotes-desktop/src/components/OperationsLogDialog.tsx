@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { ListFilter, Trash2 } from 'lucide-react';
+import { ListFilter, Trash2, X } from 'lucide-react';
 import type { OperationSummary } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -26,8 +26,136 @@ const OPERATION_TYPES = [
 ] as const;
 
 function formatTimestamp(wallMs: number): string {
-  const date = new Date(wallMs);
-  return date.toLocaleString();
+  return new Date(wallMs).toLocaleString();
+}
+
+function formatKey(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Fields shown in the "metadata" section at the top of the detail panel.
+const METADATA_KEYS = new Set(['type', 'operation_id', 'device_id', 'timestamp']);
+
+// Operation fields that hold a public key identifying the author.
+const AUTHOR_KEY_FIELDS = new Set(['created_by', 'modified_by', 'deleted_by', 'moved_by', 'updated_by']);
+
+function DetailValue({ fieldKey, value }: { fieldKey: string; value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground italic">—</span>;
+  }
+  if (typeof value === 'boolean') {
+    return <span className="font-mono">{value ? 'true' : 'false'}</span>;
+  }
+  if (typeof value === 'number') {
+    return <span className="font-mono">{value}</span>;
+  }
+  if (typeof value === 'string') {
+    if (value.length > 100) {
+      return (
+        <pre className="text-xs font-mono bg-muted/50 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">
+          {value}
+        </pre>
+      );
+    }
+    return <span className="font-mono text-xs break-all">{value}</span>;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-muted-foreground italic">[]</span>;
+    return (
+      <ul className="text-xs font-mono list-disc list-inside space-y-0.5">
+        {(value as unknown[]).map((item, i) => (
+          <li key={i}>{typeof item === 'object' ? JSON.stringify(item) : String(item)}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === 'object') {
+    // Render HLC timestamp inline.
+    if (fieldKey === 'timestamp') {
+      const ts = value as { wall_ms: number; counter: number; node_id: number };
+      return (
+        <span className="font-mono text-xs">
+          {new Date(ts.wall_ms).toISOString()} (counter={ts.counter})
+        </span>
+      );
+    }
+    return (
+      <pre className="text-xs font-mono bg-muted/50 rounded p-2 max-h-48 overflow-auto">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
+  }
+  return <span className="text-xs">{String(value)}</span>;
+}
+
+function OperationDetailPanel({
+  detail,
+  resolvedAuthor,
+  onClose,
+}: {
+  detail: Record<string, unknown>;
+  resolvedAuthor: string;
+  onClose: () => void;
+}) {
+  const opType = detail['type'] as string | undefined;
+
+  const metaEntries = Object.entries(detail).filter(([k]) => METADATA_KEYS.has(k));
+  const dataEntries = Object.entries(detail).filter(([k]) => !METADATA_KEYS.has(k));
+
+  return (
+    <div className="w-[380px] border-l border-border flex flex-col overflow-hidden shrink-0">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20 shrink-0">
+        <span className="text-sm font-semibold font-mono">{opType ?? 'Operation'}</span>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground rounded p-0.5"
+          aria-label="Close detail"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4 text-sm">
+        {/* Metadata section */}
+        <section>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Metadata</p>
+          <dl className="space-y-1.5">
+            {metaEntries.map(([k, v]) => (
+              k === 'type' ? null : (
+                <div key={k}>
+                  <dt className="text-xs text-muted-foreground">{formatKey(k)}</dt>
+                  <dd className="mt-0.5"><DetailValue fieldKey={k} value={v} /></dd>
+                </div>
+              )
+            ))}
+          </dl>
+        </section>
+
+        {/* Operation-specific data */}
+        {dataEntries.length > 0 && (
+          <section>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Data</p>
+            <dl className="space-y-2">
+              {dataEntries.map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-xs text-muted-foreground">{formatKey(k)}</dt>
+                  <dd className="mt-0.5">
+                    <DetailValue fieldKey={k} value={v} />
+                    {AUTHOR_KEY_FIELDS.has(k) && resolvedAuthor && (
+                      <span className="block text-xs text-muted-foreground mt-0.5">
+                        {resolvedAuthor}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
@@ -38,6 +166,8 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
   const [untilDate, setUntilDate] = useState('');
   const [error, setError] = useState('');
   const [confirmPurge, setConfirmPurge] = useState(false);
+  const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
+  const [opDetail, setOpDetail] = useState<Record<string, unknown> | null>(null);
 
   const loadOperations = useCallback(async () => {
     try {
@@ -67,6 +197,8 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
       setUntilDate('');
       setConfirmPurge(false);
       setError('');
+      setSelectedOpId(null);
+      setOpDetail(null);
     }
   }, [isOpen]);
 
@@ -76,10 +208,30 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
     }
   }, [isOpen, loadOperations]);
 
+  const handleSelectOp = async (opId: string) => {
+    if (selectedOpId === opId) {
+      setSelectedOpId(null);
+      setOpDetail(null);
+      return;
+    }
+    setSelectedOpId(opId);
+    setOpDetail(null);
+    try {
+      const detail = await invoke<Record<string, unknown>>('get_operation_detail', {
+        operationId: opId,
+      });
+      setOpDetail(detail);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const handlePurge = async () => {
     try {
       await invoke('purge_operations');
       setConfirmPurge(false);
+      setSelectedOpId(null);
+      setOpDetail(null);
       loadOperations();
     } catch (err) {
       setError(t('log.failedPurge', { error: String(err) }));
@@ -90,9 +242,12 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border border-border rounded-lg shadow-lg w-[700px] max-h-[80vh] flex flex-col">
+      <div
+        className="bg-background border border-border rounded-lg shadow-lg max-h-[80vh] flex flex-col"
+        style={{ width: opDetail ? '1080px' : '700px', transition: 'width 0.15s ease' }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <ListFilter className="w-5 h-5" />
             {t('log.title')}
@@ -106,7 +261,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30 shrink-0">
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
@@ -137,55 +292,75 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
 
         {/* Error */}
         {error && (
-          <div className="px-4 py-2 text-sm text-red-600 bg-red-50 border-b border-border">
+          <div className="px-4 py-2 text-sm text-red-600 bg-red-50 border-b border-border shrink-0">
             {error}
           </div>
         )}
 
-        {/* Operations list */}
-        <div className="flex-1 overflow-y-auto">
-          {operations.length === 0 ? (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              {t('log.noOperations')}
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30 sticky top-0">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.author')}</th>
-                  <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {operations.map((op) => (
-                  <tr key={op.operationId} className="border-b border-border/50 hover:bg-muted/20">
-                    <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                      {formatTimestamp(op.timestampWallMs)}
-                    </td>
-                    <td className="px-4 py-2 truncate max-w-[200px]" title={op.targetName}>
-                      {op.targetName || <span className="text-muted-foreground italic">&mdash;</span>}
-                    </td>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <span className="text-xs font-mono text-muted-foreground">
-                        {op.authorKey || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <span className="inline-block bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs font-mono">
-                        {op.operationType}
-                      </span>
-                    </td>
+        {/* Content area: list + optional detail panel side by side */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Operations list */}
+          <div className="flex-1 overflow-y-auto">
+            {operations.length === 0 ? (
+              <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                {t('log.noOperations')}
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 sticky top-0">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.author')}</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {operations.map((op) => (
+                    <tr
+                      key={op.operationId}
+                      onClick={() => handleSelectOp(op.operationId)}
+                      className={`border-b border-border/50 cursor-pointer ${
+                        selectedOpId === op.operationId
+                          ? 'bg-primary/10 hover:bg-primary/15'
+                          : 'hover:bg-muted/20'
+                      }`}
+                    >
+                      <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                        {formatTimestamp(op.timestampWallMs)}
+                      </td>
+                      <td className="px-4 py-2 truncate max-w-[200px]" title={op.targetName}>
+                        {op.targetName || <span className="text-muted-foreground italic">&mdash;</span>}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {op.authorKey || '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <span className="inline-block bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs font-mono">
+                          {op.operationType}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Detail panel */}
+          {opDetail && (
+            <OperationDetailPanel
+              detail={opDetail}
+              resolvedAuthor={operations.find((op) => op.operationId === selectedOpId)?.authorKey ?? ''}
+              onClose={() => { setSelectedOpId(null); setOpDetail(null); }}
+            />
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0">
           <span className="text-sm text-muted-foreground">
             {t('log.count', { count: operations.length })}
           </span>
