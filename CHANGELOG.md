@@ -5,9 +5,16 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-03-07
+
+> **Breaking changes:** This release introduces an identity-based authentication system (workspaces from v0.2.x must be exported and re-imported), a new scripting API (`save_note` replaces `update_note`, `register_view`/`register_hover`/`register_menu` replace inline hooks, schema versioning is now required), and HLC-based operation timestamps that update the database schema. Additionally, the project is now licensed under MPL-2.0 (previously MIT).
 
 ### Added
+- **Identity system** — A cryptographic identity (an Ed25519 keypair protected by an Argon2id-derived passphrase) now manages workspace access. Each workspace is bound to an identity; the workspace's randomly-generated database password is stored encrypted under the identity key. You unlock your identity once per session with your passphrase, and all bound workspaces open without any additional password prompts.
+- **Identity Manager** — A new Identity Manager dialog (accessible from Settings) lets you create, rename, unlock, lock, and delete identities. Each identity shows its UUID and the list of workspaces bound to it.
+- **`.swarmid` export/import** — Identities can be exported as a portable `.swarmid` file (encrypted JSON containing your key material). Import a `.swarmid` file on another device to access the same workspaces. On import, an existing identity with the same UUID can be overwritten while preserving all workspace bindings.
+- **Workspace Manager** — Replaces the minimal Open Workspace dialog with a full manager. The list shows each workspace's name, last-modified date, and size on disk, sortable by name or modified date. Selecting a workspace reveals an info panel with created date, note count, attachment count, and size — all read from an unencrypted `info.json` sidecar so no password is required just to view metadata. Per-workspace actions: **Open** (requires the bound identity to be unlocked; also triggered by double-clicking a row), **Duplicate** (uses the export→import pipeline; prompts for new name), **Delete** (irreversible red confirmation banner; blocked if the workspace is currently open), and **New** (opens the New Workspace dialog and binds the new workspace to your unlocked identity).
+- **Random workspace passwords** — New workspaces no longer ask for a user-visible password. A cryptographically random 32-byte base64 key is generated at creation time, used as the SQLCipher database password, and immediately encrypted under the bound identity. Users never see or type a workspace password.
 - **HLC timestamps on operations** — Every mutation is now timestamped with a Hybrid Logical Clock (`wall_ms`, `counter`, `node_id`) instead of a plain Unix integer. HLC timestamps provide causal ordering guarantees even when clocks skew across devices, which is a prerequisite for CRDT merge.
 - **Ed25519-signed operations** — Each mutation carries an Ed25519 signature produced by the unlocked identity's signing key. Operations can be verified against the author's public key, laying the foundation for trustless multi-device sync.
 - **`UpdateNote` and `SetTags` operation variants** — Title changes now emit a dedicated `UpdateNote` operation (separate from field-level `UpdateField`) to enable last-write-wins conflict resolution on note titles. Tag assignments now emit `SetTags` and are recorded in the operations log for the first time.
@@ -31,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Migration toast notification** — After a batch migration, a transient toast appears: *"Contact schema updated — 12 notes migrated to version 3"*. Auto-dismisses after a few seconds.
 
 ### Changed
+- **License: MIT → MPL-2.0** — Krillnotes is now published under the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/). Existing integrations that relied on the MIT license should review the MPL-2.0 terms (file-level copyleft; compatible with GPL).
+- **Workspace opening requires an unlocked identity** — `EnterPasswordDialog` and `SetPasswordDialog` are removed. Opening a workspace now requires unlocking the bound identity first. If no identity is unlocked, the Workspace Manager prompts you to unlock one before opening.
 - **Note positions changed from integer to float** — `notes.position` in the database is now a `REAL` (f64) column. This enables future fractional mid-point insertion for CRDT reordering without rewriting sibling positions. Existing positions are migrated automatically.
 - **Operations table schema updated** — The `timestamp` column is replaced by three HLC columns (`timestamp_wall_ms`, `timestamp_counter`, `timestamp_node_id`). A new `hlc_state` table persists the HLC clock state across sessions. Existing workspaces are migrated automatically on first open.
 - **`HashMap` → `BTreeMap` for note fields** — `Note.fields`, `CreateNote.fields`, and related action types now use `BTreeMap` to guarantee deterministic serialization order. This is required for reproducible Ed25519 signatures across processes.
@@ -44,23 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Serde camelCase on `SaveResult::ValidationErrors`** — Added explicit `#[serde(rename)]` attributes for `fieldErrors`, `noteErrors`, `previewTitle`, and `previewFields` fields. Enum-level `rename_all` only renames variant tags, not struct variant fields.
 - **`evaluate_group_visibility` and `validate_field` invoke parameters** — Fixed frontend invoke calls to pass `schemaName` instead of `noteId`, matching the Tauri command signatures.
-
----
-
-## [0.3.0] — 2026-03-05
-
-> **Breaking change:** This release replaces per-workspace passwords with an identity-based authentication system. Workspaces created with v0.2.x that used a password cannot be opened directly — export them from v0.2.x via **File → Export Workspace** and re-import into v0.3.0. Additionally, the project is now licensed under MPL-2.0 (previously MIT).
-
-### Added
-- **Identity system** — A cryptographic identity (an Ed25519 keypair protected by an Argon2id-derived passphrase) now manages workspace access. Each workspace is bound to an identity; the workspace's randomly-generated database password is stored encrypted under the identity key. You unlock your identity once per session with your passphrase, and all bound workspaces open without any additional password prompts.
-- **Identity Manager** — A new Identity Manager dialog (accessible from Settings) lets you create, rename, unlock, lock, and delete identities. Each identity shows its UUID and the list of workspaces bound to it.
-- **`.swarmid` export/import** — Identities can be exported as a portable `.swarmid` file (encrypted JSON containing your key material). Import a `.swarmid` file on another device to access the same workspaces. On import, an existing identity with the same UUID can be overwritten while preserving all workspace bindings.
-- **Workspace Manager** — Replaces the minimal Open Workspace dialog with a full manager. The list shows each workspace's name, last-modified date, and size on disk, sortable by name or modified date. Selecting a workspace reveals an info panel with created date, note count, attachment count, and size — all read from an unencrypted `info.json` sidecar so no password is required just to view metadata. Per-workspace actions: **Open** (requires the bound identity to be unlocked; also triggered by double-clicking a row), **Duplicate** (uses the export→import pipeline; prompts for new name), **Delete** (irreversible red confirmation banner; blocked if the workspace is currently open), and **New** (opens the New Workspace dialog and binds the new workspace to your unlocked identity).
-- **Random workspace passwords** — New workspaces no longer ask for a user-visible password. A cryptographically random 32-byte base64 key is generated at creation time, used as the SQLCipher database password, and immediately encrypted under the bound identity. Users never see or type a workspace password.
-
-### Changed
-- **License: MIT → MPL-2.0** — Krillnotes is now published under the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/). Existing integrations that relied on the MIT license should review the MPL-2.0 terms (file-level copyleft; compatible with GPL).
-- **Workspace opening requires an unlocked identity** — `EnterPasswordDialog` and `SetPasswordDialog` are removed. Opening a workspace now requires unlocking the bound identity first. If no identity is unlocked, the Workspace Manager prompts you to unlock one before opening.
 
 ---
 
@@ -256,7 +248,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[Unreleased]: https://github.com/careck/krillnotes/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/careck/krillnotes/compare/v0.2.6...v0.3.0
 [0.2.6]: https://github.com/careck/krillnotes/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/careck/krillnotes/compare/v0.2.4...v0.2.5
