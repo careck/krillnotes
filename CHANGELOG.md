@@ -5,6 +5,11 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Operation detail panel** — Clicking any row in the Operations Log now opens a side panel showing all fields stored for that operation. The dialog expands from 700 px to 1080 px; clicking the selected row or the ✕ button closes the panel. Author-key fields (`created_by`, `modified_by`, etc.) display the resolved identity display name below the raw public-key hash.
+
 ## [0.3.0] — 2026-03-07
 
 > **Breaking changes:** This release introduces an identity-based authentication system (workspaces from v0.2.x must be exported and re-imported), a new scripting API (`save_note` replaces `update_note`, `register_view`/`register_hover`/`register_menu` replace inline hooks, schema versioning is now required), and HLC-based operation timestamps that update the database schema. Additionally, the project is now licensed under MPL-2.0 (previously MIT).
