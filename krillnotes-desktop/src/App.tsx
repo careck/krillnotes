@@ -17,6 +17,8 @@ import SettingsDialog from './components/SettingsDialog';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings, IdentityRef } from './types';
 import CreateIdentityDialog from './components/CreateIdentityDialog';
 import IdentityManagerDialog from './components/IdentityManagerDialog';
+import SwarmInviteDialog from './components/SwarmInviteDialog';
+import SwarmOpenDialog from './components/SwarmOpenDialog';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import i18n from './i18n';
@@ -43,6 +45,9 @@ const createMenuHandlers = (
   setShowExportPasswordDialog: (show: boolean) => void,
   setShowIdentityManager: (show: boolean) => void,
   doImport: (zipPath: string) => void,
+  setShowSwarmInvite: (show: boolean) => void,
+  setSwarmFilePath: (path: string | null) => void,
+  setShowSwarmOpen: (show: boolean) => void,
 ) => ({
   'File > New Workspace clicked': () => {
     setShowNewWorkspace(true);
@@ -79,6 +84,26 @@ const createMenuHandlers = (
     setShowOpenWorkspace(false);
     setShowIdentityManager(true);
   },
+
+  'File > Invite Peer clicked': () => {
+    setShowSwarmInvite(true);
+  },
+
+  'File > Open Swarm File clicked': async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({
+        filters: [{ name: 'Swarm Bundle', extensions: ['swarm'] }],
+        multiple: false,
+        title: 'Open .swarm file',
+      });
+      if (!picked || Array.isArray(picked)) return;
+      setSwarmFilePath(picked as string);
+      setShowSwarmOpen(true);
+    } catch {
+      // user cancelled
+    }
+  },
 });
 
 function App() {
@@ -103,6 +128,10 @@ function App() {
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
   const [showCreateFirstIdentity, setShowCreateFirstIdentity] = useState(false);
   const [showIdentityManager, setShowIdentityManager] = useState(false);
+  const [showSwarmInvite, setShowSwarmInvite] = useState(false);
+  const [showSwarmOpen, setShowSwarmOpen] = useState(false);
+  const [swarmFilePath, setSwarmFilePath] = useState<string | null>(null);
+  const [unlockedIdentityUuid, setUnlockedIdentityUuid] = useState<string | null>(null);
 
   useEffect(() => {
     // If this is a workspace window (not "main"), fetch workspace info immediately
@@ -125,6 +154,11 @@ function App() {
         }
       }).catch(err => console.error('Failed to check identities:', err));
     }
+
+    // Load first unlocked identity UUID for swarm operations
+    invoke<string[]>('get_unlocked_identities').then(ids => {
+      if (ids.length > 0) setUnlockedIdentityUuid(ids[0]);
+    }).catch(() => { /* not yet unlocked */ });
   }, []);
 
   // Cold-start: pull any file path that arrived via OS file-open before JS
@@ -134,6 +168,12 @@ function App() {
     if (win.label !== 'main') return;
     invoke<string | null>('consume_pending_file_open').then(path => {
       if (path) proceedWithImport(path, null);
+    });
+    invoke<string | null>('consume_pending_swarm_file').then(path => {
+      if (path) {
+        setSwarmFilePath(path);
+        setShowSwarmOpen(true);
+      }
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,6 +188,18 @@ function App() {
       invoke<string | null>('consume_pending_file_open').then(p => {
         if (p) proceedWithImport(p, null);
       });
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Warm-start (macOS): the backend emits "swarm-file-opened" when the app is already
+  // running and the user opens a .swarm file from the OS.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    if (win.label !== 'main') return;
+    const unlisten = win.listen<string>('swarm-file-opened', (event) => {
+      setSwarmFilePath(event.payload);
+      setShowSwarmOpen(true);
     });
     return () => { unlisten.then(f => f()); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -178,6 +230,9 @@ function App() {
       setShowExportPasswordDialog,
       setShowIdentityManager,
       (zipPath) => proceedWithImport(zipPath, null),
+      setShowSwarmInvite,
+      setSwarmFilePath,
+      setShowSwarmOpen,
     );
 
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
@@ -529,6 +584,20 @@ function App() {
       <IdentityManagerDialog
         isOpen={showIdentityManager}
         onClose={() => setShowIdentityManager(false)}
+      />
+      <SwarmInviteDialog
+        isOpen={showSwarmInvite}
+        onClose={() => setShowSwarmInvite(false)}
+        workspaceInfo={workspace}
+        unlockedIdentityUuid={unlockedIdentityUuid}
+        deviceId={unlockedIdentityUuid ?? ''}
+      />
+      <SwarmOpenDialog
+        isOpen={showSwarmOpen}
+        onClose={() => { setShowSwarmOpen(false); setSwarmFilePath(null); }}
+        swarmFilePath={swarmFilePath}
+        unlockedIdentityUuid={unlockedIdentityUuid}
+        deviceId={unlockedIdentityUuid ?? ''}
       />
     </div>
     </ThemeProvider>
