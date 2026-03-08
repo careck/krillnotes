@@ -20,6 +20,7 @@ pub mod error;
 pub mod note;
 pub mod operation;
 pub mod operation_log;
+pub mod peer_registry;
 pub mod save_transaction;
 pub mod scripting;
 pub mod storage;
@@ -46,6 +47,8 @@ pub use error::{KrillnotesError, Result};
 pub use note::{FieldValue, Note};
 #[doc(inline)]
 pub use operation::Operation;
+#[doc(inline)]
+pub use peer_registry::{PeerRegistry, SyncPeer};
 #[doc(inline)]
 pub use operation_log::{OperationLog, OperationSummary, PurgeStrategy};
 #[doc(inline)]

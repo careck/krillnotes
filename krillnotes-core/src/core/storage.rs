@@ -360,6 +360,24 @@ impl Storage {
             )?;
         }
 
+        // Migration: add sync_peers table if absent.
+        let sync_peers_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_peers'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !sync_peers_exists {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS sync_peers (
+                    peer_device_id   TEXT PRIMARY KEY,
+                    peer_identity_id TEXT NOT NULL,
+                    last_sent_op     TEXT,
+                    last_received_op TEXT,
+                    last_sync        TEXT
+                )",
+            )?;
+        }
+
         Ok(())
     }
 

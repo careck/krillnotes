@@ -88,3 +88,13 @@ CREATE TABLE IF NOT EXISTS attachments (
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_note_id ON attachments(note_id);
+
+-- Sync peers: devices we directly exchange .swarm bundles with.
+-- Display name is resolved via the contact record (peer_identity_id = public key).
+CREATE TABLE IF NOT EXISTS sync_peers (
+    peer_device_id   TEXT PRIMARY KEY,
+    peer_identity_id TEXT NOT NULL,
+    last_sent_op     TEXT,
+    last_received_op TEXT,
+    last_sync        TEXT
+);
