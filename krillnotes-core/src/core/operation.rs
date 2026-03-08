@@ -236,6 +236,52 @@ pub enum Operation {
         /// `false` for textarea (CRDT) field retracts — excluded from `.swarm` diffs.
         propagate: bool,
     },
+    /// A permission was granted on a note subtree.
+    ///
+    /// `note_id = None` means the grant covers the entire workspace.
+    SetPermission {
+        operation_id: String,
+        timestamp: HlcTimestamp,
+        device_id: String,
+        /// Target note (subtree root), or None for workspace-level grant.
+        note_id: Option<String>,
+        /// Public key (base64) of the identity receiving the permission.
+        user_id: String,
+        /// Role being granted: "owner" | "writer" | "reader" | "none".
+        role: String,
+        /// Public key (base64) of the identity issuing this grant.
+        granted_by: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
+    /// A previously granted permission was revoked.
+    RevokePermission {
+        operation_id: String,
+        timestamp: HlcTimestamp,
+        device_id: String,
+        /// Target note (subtree root), or None for workspace-level revocation.
+        note_id: Option<String>,
+        /// Public key (base64) of the identity whose permission is revoked.
+        user_id: String,
+        /// Public key (base64) of the identity performing the revocation.
+        revoked_by: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
+    /// A peer has joined the workspace via the invitation handshake.
+    JoinWorkspace {
+        operation_id: String,
+        timestamp: HlcTimestamp,
+        device_id: String,
+        /// Ed25519 public key (base64) of the joining identity.
+        identity_public_key: String,
+        /// Display name the joining peer has chosen.
+        declared_name: String,
+        /// Reference to the pairing token from the corresponding invite.swarm.
+        pairing_token: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
 }
 
 impl Operation {
@@ -253,7 +299,10 @@ impl Operation {
             | Self::UpdateUserScript { operation_id, .. }
             | Self::DeleteUserScript { operation_id, .. }
             | Self::UpdateSchema { operation_id, .. }
-            | Self::RetractOperation { operation_id, .. } => operation_id,
+            | Self::RetractOperation { operation_id, .. }
+            | Self::SetPermission { operation_id, .. }
+            | Self::RevokePermission { operation_id, .. }
+            | Self::JoinWorkspace { operation_id, .. } => operation_id,
         }
     }
 
@@ -271,7 +320,10 @@ impl Operation {
             | Self::UpdateUserScript { timestamp, .. }
             | Self::DeleteUserScript { timestamp, .. }
             | Self::UpdateSchema { timestamp, .. }
-            | Self::RetractOperation { timestamp, .. } => *timestamp,
+            | Self::RetractOperation { timestamp, .. }
+            | Self::SetPermission { timestamp, .. }
+            | Self::RevokePermission { timestamp, .. }
+            | Self::JoinWorkspace { timestamp, .. } => *timestamp,
         }
     }
 
@@ -289,7 +341,10 @@ impl Operation {
             | Self::UpdateUserScript { device_id, .. }
             | Self::DeleteUserScript { device_id, .. }
             | Self::UpdateSchema { device_id, .. }
-            | Self::RetractOperation { device_id, .. } => device_id,
+            | Self::RetractOperation { device_id, .. }
+            | Self::SetPermission { device_id, .. }
+            | Self::RevokePermission { device_id, .. }
+            | Self::JoinWorkspace { device_id, .. } => device_id,
         }
     }
 
@@ -310,6 +365,9 @@ impl Operation {
             Self::DeleteUserScript { deleted_by, .. } => deleted_by,
             Self::UpdateSchema { updated_by, .. } => updated_by,
             Self::RetractOperation { .. } => "",
+            Self::SetPermission { granted_by, .. } => granted_by,
+            Self::RevokePermission { revoked_by, .. } => revoked_by,
+            Self::JoinWorkspace { identity_public_key, .. } => identity_public_key,
         }
     }
 
@@ -328,6 +386,9 @@ impl Operation {
             Self::DeleteUserScript { deleted_by, .. } => *deleted_by = key,
             Self::UpdateSchema { updated_by, .. } => *updated_by = key,
             Self::RetractOperation { .. } => {}
+            Self::SetPermission { granted_by, .. } => *granted_by = key,
+            Self::RevokePermission { revoked_by, .. } => *revoked_by = key,
+            Self::JoinWorkspace { identity_public_key, .. } => *identity_public_key = key,
         }
     }
 
@@ -342,7 +403,10 @@ impl Operation {
             | Self::CreateUserScript { signature, .. }
             | Self::UpdateUserScript { signature, .. }
             | Self::DeleteUserScript { signature, .. }
-            | Self::UpdateSchema { signature, .. } => *signature = sig,
+            | Self::UpdateSchema { signature, .. }
+            | Self::SetPermission { signature, .. }
+            | Self::RevokePermission { signature, .. }
+            | Self::JoinWorkspace { signature, .. } => *signature = sig,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -358,7 +422,10 @@ impl Operation {
             | Self::CreateUserScript { signature, .. }
             | Self::UpdateUserScript { signature, .. }
             | Self::DeleteUserScript { signature, .. }
-            | Self::UpdateSchema { signature, .. } => signature,
+            | Self::UpdateSchema { signature, .. }
+            | Self::SetPermission { signature, .. }
+            | Self::RevokePermission { signature, .. }
+            | Self::JoinWorkspace { signature, .. } => signature,
             Self::RetractOperation { .. } => "",
         }
     }
@@ -418,6 +485,59 @@ impl Operation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dummy_hlc() -> HlcTimestamp {
+        HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 }
+    }
+
+    #[test]
+    fn test_set_permission_roundtrip() {
+        let op = Operation::SetPermission {
+            operation_id: "op1".to_string(),
+            timestamp: dummy_hlc(),
+            device_id: "dev1".to_string(),
+            note_id: Some("note1".to_string()),
+            user_id: "pubkey_b64".to_string(),
+            role: "writer".to_string(),
+            granted_by: "grantor_b64".to_string(),
+            signature: "sig_b64".to_string(),
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let back: Operation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.operation_id(), "op1");
+    }
+
+    #[test]
+    fn test_revoke_permission_roundtrip() {
+        let op = Operation::RevokePermission {
+            operation_id: "op2".to_string(),
+            timestamp: dummy_hlc(),
+            device_id: "dev1".to_string(),
+            note_id: Some("note1".to_string()),
+            user_id: "pubkey_b64".to_string(),
+            revoked_by: "revoker_b64".to_string(),
+            signature: "sig_b64".to_string(),
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let back: Operation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.operation_id(), "op2");
+    }
+
+    #[test]
+    fn test_join_workspace_roundtrip() {
+        let op = Operation::JoinWorkspace {
+            operation_id: "op3".to_string(),
+            timestamp: dummy_hlc(),
+            device_id: "dev1".to_string(),
+            identity_public_key: "pubkey_b64".to_string(),
+            declared_name: "Alice".to_string(),
+            pairing_token: "token_b64".to_string(),
+            signature: "sig_b64".to_string(),
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let back: Operation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.operation_id(), "op3");
+    }
 
     fn dummy_timestamp() -> HlcTimestamp {
         HlcTimestamp {

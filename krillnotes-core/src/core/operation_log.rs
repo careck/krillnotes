@@ -228,6 +228,9 @@ impl OperationLog {
             Operation::DeleteUserScript { .. } => "DeleteUserScript",
             Operation::UpdateSchema { .. } => "UpdateSchema",
             Operation::RetractOperation { .. } => "RetractOperation",
+            Operation::SetPermission { .. } => "SetPermission",
+            Operation::RevokePermission { .. } => "RevokePermission",
+            Operation::JoinWorkspace { .. } => "JoinWorkspace",
         }
     }
 
