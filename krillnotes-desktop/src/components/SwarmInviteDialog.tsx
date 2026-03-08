@@ -81,14 +81,14 @@ export default function SwarmInviteDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[--color-bg] border border-[--color-border] rounded-lg shadow-xl p-6 w-full max-w-md">
+      <div className="bg-background border border-secondary rounded-lg shadow-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-semibold mb-4">{t('swarm.inviteDialogTitle')}</h2>
 
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">{t('swarm.contactNameLabel')}</label>
             <input
-              className="w-full border border-[--color-border] rounded px-3 py-2 bg-[--color-bg]"
+              className="w-full border border-secondary rounded px-3 py-2 bg-background"
               value={contactName}
               onChange={e => setContactName(e.target.value)}
               placeholder={t('swarm.contactNamePlaceholder')}
@@ -99,7 +99,7 @@ export default function SwarmInviteDialog({
           <div>
             <label className="block text-sm font-medium mb-1">{t('swarm.publicKeyLabel')}</label>
             <textarea
-              className="w-full border border-[--color-border] rounded px-3 py-2 bg-[--color-bg] font-mono text-xs"
+              className="w-full border border-secondary rounded px-3 py-2 bg-background font-mono text-xs"
               rows={3}
               value={publicKey}
               onChange={e => setPublicKey(e.target.value)}
@@ -111,7 +111,7 @@ export default function SwarmInviteDialog({
           <div>
             <label className="block text-sm font-medium mb-1">{t('swarm.roleLabel')}</label>
             <select
-              className="w-full border border-[--color-border] rounded px-3 py-2 bg-[--color-bg]"
+              className="w-full border border-secondary rounded px-3 py-2 bg-background"
               value={role}
               onChange={e => setRole(e.target.value)}
               disabled={creating}
@@ -128,7 +128,7 @@ export default function SwarmInviteDialog({
 
         <div className="flex justify-end gap-3 mt-6">
           <button
-            className="px-4 py-2 rounded border border-[--color-border] hover:bg-[--color-hover]"
+            className="px-4 py-2 rounded border border-secondary hover:bg-secondary"
             onClick={onClose}
             disabled={creating}
           >
@@ -136,7 +136,7 @@ export default function SwarmInviteDialog({
           </button>
           {!success && (
             <button
-              className="px-4 py-2 rounded bg-[--color-accent] text-white hover:opacity-90 disabled:opacity-50"
+              className="px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
               onClick={handleCreate}
               disabled={creating || !contactName.trim() || !publicKey.trim()}
             >

@@ -151,29 +151,29 @@ export default function SwarmOpenDialog({
   };
 
   const FingerprintBadge = ({ fp }: { fp: string }) => (
-    <code className="block mt-1 text-xs font-mono bg-[--color-code-bg] px-2 py-1 rounded tracking-wide">
+    <code className="block mt-1 text-xs font-mono bg-secondary px-2 py-1 rounded tracking-wide">
       {fp}
     </code>
   );
 
   const renderContent = () => {
-    if (loading) return <p className="text-sm text-[--color-muted]">{t('swarm.loading')}</p>;
+    if (loading) return <p className="text-sm text-muted-foreground">{t('swarm.loading')}</p>;
     if (!fileInfo) return null;
 
     if (fileInfo.mode === 'invite') return (
       <div className="space-y-3">
         <h3 className="font-medium">{t('swarm.inviteModeHeading')}</h3>
         <div className="text-sm space-y-1">
-          <p><span className="text-[--color-muted]">{t('swarm.inviteWorkspace')}: </span>{fileInfo.workspaceName}</p>
-          <p><span className="text-[--color-muted]">{t('swarm.inviteFrom')}: </span>{fileInfo.inviterDisplayName}</p>
-          <p><span className="text-[--color-muted]">{t('swarm.inviteOfferedRole')}: </span>{fileInfo.offeredRole}</p>
-          <p className="text-[--color-muted] text-xs">{t('swarm.inviteFingerprint')}:</p>
+          <p><span className="text-muted-foreground">{t('swarm.inviteWorkspace')}: </span>{fileInfo.workspaceName}</p>
+          <p><span className="text-muted-foreground">{t('swarm.inviteFrom')}: </span>{fileInfo.inviterDisplayName}</p>
+          <p><span className="text-muted-foreground">{t('swarm.inviteOfferedRole')}: </span>{fileInfo.offeredRole}</p>
+          <p className="text-muted-foreground text-xs">{t('swarm.inviteFingerprint')}:</p>
           <FingerprintBadge fp={fileInfo.inviterFingerprint} />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">{t('swarm.contactNameLabel')}</label>
           <input
-            className="w-full border border-[--color-border] rounded px-3 py-2 bg-[--color-bg] text-sm"
+            className="w-full border border-secondary rounded px-3 py-2 bg-background text-sm"
             value={declaredName}
             onChange={e => setDeclaredName(e.target.value)}
             placeholder={t('swarm.contactNamePlaceholder')}
@@ -181,7 +181,7 @@ export default function SwarmOpenDialog({
           />
         </div>
         <button
-          className="w-full px-4 py-2 rounded bg-[--color-accent] text-white hover:opacity-90 disabled:opacity-50"
+          className="w-full px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           onClick={handleAcceptInvite}
           disabled={processing || !declaredName.trim()}
         >
@@ -194,12 +194,12 @@ export default function SwarmOpenDialog({
       <div className="space-y-3">
         <h3 className="font-medium">{t('swarm.acceptModeHeading', { name: fileInfo.declaredName })}</h3>
         <div className="text-sm space-y-1">
-          <p><span className="text-[--color-muted]">{t('swarm.inviteWorkspace')}: </span>{fileInfo.workspaceName}</p>
-          <p className="text-[--color-muted] text-xs">{t('swarm.acceptorFingerprint')}</p>
+          <p><span className="text-muted-foreground">{t('swarm.inviteWorkspace')}: </span>{fileInfo.workspaceName}</p>
+          <p className="text-muted-foreground text-xs">{t('swarm.acceptorFingerprint')}</p>
           <FingerprintBadge fp={fileInfo.acceptorFingerprint} />
         </div>
         <button
-          className="w-full px-4 py-2 rounded bg-[--color-accent] text-white hover:opacity-90 disabled:opacity-50"
+          className="w-full px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           onClick={handleSendSnapshot}
           disabled={processing}
         >
@@ -212,20 +212,20 @@ export default function SwarmOpenDialog({
       <div className="space-y-3">
         <h3 className="font-medium">{t('swarm.snapshotModeHeading', { name: fileInfo.senderDisplayName })}</h3>
         <div className="text-sm space-y-1">
-          <p className="text-[--color-muted] text-xs">{t('swarm.inviteFingerprint')}:</p>
+          <p className="text-muted-foreground text-xs">{t('swarm.inviteFingerprint')}:</p>
           <FingerprintBadge fp={fileInfo.senderFingerprint} />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">{t('swarm.snapshotWorkspaceNameLabel')}</label>
           <input
-            className="w-full border border-[--color-border] rounded px-3 py-2 bg-[--color-bg] text-sm"
+            className="w-full border border-secondary rounded px-3 py-2 bg-background text-sm"
             value={workspaceName}
             onChange={e => setWorkspaceName(e.target.value)}
             disabled={processing}
           />
         </div>
         <button
-          className="w-full px-4 py-2 rounded bg-[--color-accent] text-white hover:opacity-90 disabled:opacity-50"
+          className="w-full px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           onClick={handleCreateWorkspace}
           disabled={processing || !workspaceName.trim()}
         >
@@ -239,7 +239,7 @@ export default function SwarmOpenDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[--color-bg] border border-[--color-border] rounded-lg shadow-xl p-6 w-full max-w-md">
+      <div className="bg-background border border-secondary rounded-lg shadow-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-semibold mb-4">{t('swarm.openDialogTitle')}</h2>
 
         {renderContent()}
@@ -249,7 +249,7 @@ export default function SwarmOpenDialog({
 
         <div className="flex justify-end mt-4">
           <button
-            className="px-4 py-2 rounded border border-[--color-border] hover:bg-[--color-hover]"
+            className="px-4 py-2 rounded border border-secondary hover:bg-secondary"
             onClick={onClose}
             disabled={processing}
           >
