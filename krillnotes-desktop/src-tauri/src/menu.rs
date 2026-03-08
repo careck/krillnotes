@@ -133,9 +133,21 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
         .build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let close_item = PredefinedMenuItem::close_window(app, None)?;
+    let invite_item = MenuItemBuilder::with_id(
+        "file_invite_peer",
+        s(strings, "invitePeer", "Invite Peer\u{2026}"),
+    )
+    .enabled(false)
+    .build(app)?;
+    let open_swarm_item = MenuItemBuilder::with_id(
+        "file_open_swarm",
+        s(strings, "openSwarmFile", "Open .swarm File\u{2026}"),
+    )
+    .build(app)?;
+    let sep_sync = PredefinedMenuItem::separator(app)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "file", "File"))
-        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep2, &close_item]);
+        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &invite_item, &open_swarm_item, &sep2, &close_item]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -146,7 +158,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let submenu = builder.build()?;
     Ok(FileMenuResult {
         submenu,
-        workspace_items: vec![export_item],
+        workspace_items: vec![export_item, invite_item],
     })
 }
 
