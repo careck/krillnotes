@@ -40,6 +40,7 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
   const [activeForm, setActiveForm] = useState<'rename' | 'passphrase' | 'export' | 'publickey' | null>(null);
   const [publicKey, setPublicKey] = useState('');
+  const [fingerprint, setFingerprint] = useState('');
   const [publicKeyCopied, setPublicKeyCopied] = useState(false);
   const [exportPassphrase, setExportPassphrase] = useState('');
   const [exportError, setExportError] = useState('');
@@ -111,9 +112,10 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
     }
     if (form === 'publickey') {
       setPublicKey('');
+      setFingerprint('');
       setPublicKeyCopied(false);
-      invoke<string>('get_identity_public_key', { identityUuid: selectedUuid })
-        .then(pk => setPublicKey(pk))
+      invoke<{ publicKey: string; fingerprint: string }>('get_identity_public_key', { identityUuid: selectedUuid })
+        .then(info => { setPublicKey(info.publicKey); setFingerprint(info.fingerprint); })
         .catch(e => setError(String(e)));
     }
   };
@@ -476,11 +478,20 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
 
               {/* Public key panel */}
               {activeForm === 'publickey' && (
-                <div className="px-4 pb-3 pt-2 bg-secondary/30 space-y-2">
+                <div className="px-4 pb-3 pt-2 bg-secondary/30 space-y-3">
                   <p className="text-xs text-muted-foreground">{t('identity.publicKeyPrompt', 'Share this with anyone who wants to invite you to their workspace.')}</p>
-                  <code className="block text-xs font-mono bg-background border border-border rounded px-2 py-2 break-all select-all">
-                    {publicKey || '…'}
-                  </code>
+                  <div>
+                    <p className="text-xs font-medium mb-1">{t('identity.fingerprintLabel', 'Fingerprint (read aloud to verify)')}</p>
+                    <code className="block text-sm font-mono bg-background border border-border rounded px-2 py-2 tracking-wide select-all">
+                      {fingerprint || '…'}
+                    </code>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium mb-1">{t('identity.publicKeyLabel', 'Public Key')}</p>
+                    <code className="block text-xs font-mono bg-background border border-border rounded px-2 py-2 break-all select-all">
+                      {publicKey || '…'}
+                    </code>
+                  </div>
                   <div className="flex justify-end">
                     <button
                       onClick={() => {

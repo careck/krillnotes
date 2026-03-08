@@ -1897,13 +1897,20 @@ fn export_swarmid_cmd(
     Ok(())
 }
 
-/// Return the Base64-encoded Ed25519 public key for the given identity.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentityKeyInfo {
+    public_key: String,
+    fingerprint: String,
+}
+
+/// Return the Base64-encoded Ed25519 public key and 4-word fingerprint for the given identity.
 /// No passphrase required — the public key is stored unencrypted on disk.
 #[tauri::command]
 fn get_identity_public_key(
     state: State<'_, AppState>,
     identity_uuid: String,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<IdentityKeyInfo, String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let identities = mgr.list_identities().map_err(|e| e.to_string())?;
@@ -1916,7 +1923,9 @@ fn get_identity_public_key(
         .map_err(|e| format!("Cannot read identity file: {e}"))?;
     let file: krillnotes_core::core::identity::IdentityFile =
         serde_json::from_str(&data).map_err(|e| format!("Invalid identity file: {e}"))?;
-    Ok(file.public_key)
+    let fingerprint = krillnotes_core::core::contact::generate_fingerprint(&file.public_key)
+        .map_err(|e| format!("Cannot generate fingerprint: {e}"))?;
+    Ok(IdentityKeyInfo { public_key: file.public_key, fingerprint })
 }
 
 /// Import a `.swarmid` file from the given path.
