@@ -18,6 +18,8 @@ interface InviteInfo {
   inviterDisplayName: string;
   inviterFingerprint: string;
   pairingToken: string;
+  targetIdentityUuid: string | null;
+  targetIdentityName: string | null;
 }
 
 interface AcceptInfo {
@@ -68,13 +70,12 @@ export default function SwarmOpenDialog({
     invoke<SwarmFileInfo>('open_swarm_file_cmd', { path: swarmFilePath })
       .then(info => {
         setFileInfo(info);
-        if (info.mode === 'snapshot') {
-          setWorkspaceName(info.workspaceName);
-          // If we know which identity is required and it isn't already unlocked, prompt now.
-          if (info.targetIdentityUuid && info.targetIdentityUuid !== unlockedIdentityUuid && info.targetIdentityName) {
-            setUnlockTarget({ uuid: info.targetIdentityUuid, name: info.targetIdentityName });
-          }
+        // If we know which local identity is required and it isn't already unlocked, prompt now.
+        if ((info.mode === 'invite' || info.mode === 'snapshot') &&
+            info.targetIdentityUuid && info.targetIdentityUuid !== unlockedIdentityUuid && info.targetIdentityName) {
+          setUnlockTarget({ uuid: info.targetIdentityUuid, name: info.targetIdentityName });
         }
+        if (info.mode === 'snapshot') setWorkspaceName(info.workspaceName);
       })
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false));
@@ -96,10 +97,18 @@ export default function SwarmOpenDialog({
 
   if (!isOpen) return null;
 
-  const handleAcceptInvite = async () => {
+  const handleAcceptInvite = async (identityUuid?: string) => {
     if (!fileInfo || fileInfo.mode !== 'invite' || !swarmFilePath) return;
-    if (!unlockedIdentityUuid) { setError(t('swarm.identityLocked')); return; }
     if (!declaredName.trim()) { setError(t('swarm.contactNameLabel') + ' required'); return; }
+    const uuid = identityUuid ?? unlockedIdentityUuid;
+    if (!uuid) {
+      if (fileInfo.targetIdentityUuid && fileInfo.targetIdentityName) {
+        setUnlockTarget({ uuid: fileInfo.targetIdentityUuid, name: fileInfo.targetIdentityName });
+      } else {
+        setError(t('swarm.identityLocked'));
+      }
+      return;
+    }
     const savePath = await save({
       filters: [{ name: 'Swarm Bundle', extensions: ['swarm'] }],
       defaultPath: `accept-${fileInfo.workspaceName.replace(/\s+/g, '-')}.swarm`,
@@ -111,13 +120,17 @@ export default function SwarmOpenDialog({
         invitePath: swarmFilePath,
         declaredName: declaredName.trim(),
         sourceDeviceId: deviceId,
-        identityUuid: unlockedIdentityUuid,
+        identityUuid: uuid,
         savePath,
       });
       setSuccess(t('swarm.acceptSaved', { name: fileInfo.inviterDisplayName }));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setError(msg === 'IDENTITY_LOCKED' ? t('swarm.identityLocked') : msg);
+      if (msg === 'IDENTITY_LOCKED' && fileInfo.targetIdentityUuid && fileInfo.targetIdentityName) {
+        setUnlockTarget({ uuid: fileInfo.targetIdentityUuid, name: fileInfo.targetIdentityName });
+      } else {
+        setError(msg);
+      }
     } finally { setProcessing(false); }
   };
 
@@ -205,7 +218,7 @@ export default function SwarmOpenDialog({
         </div>
         <button
           className="w-full px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-          onClick={handleAcceptInvite}
+          onClick={() => handleAcceptInvite()}
           disabled={processing || !declaredName.trim()}
         >
           {processing ? '…' : t('swarm.acceptButton')}
@@ -291,7 +304,8 @@ export default function SwarmOpenDialog({
           onUnlocked={() => {
             const uuid = unlockTarget.uuid;
             setUnlockTarget(null);
-            handleCreateWorkspace(uuid);
+            if (fileInfo?.mode === 'invite') handleAcceptInvite(uuid);
+            else handleCreateWorkspace(uuid);
           }}
           onCancel={() => setUnlockTarget(null)}
         />

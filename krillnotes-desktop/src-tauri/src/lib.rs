@@ -2710,6 +2710,10 @@ pub enum SwarmFileInfo {
         inviter_fingerprint: String,
         #[serde(rename = "pairingToken")]
         pairing_token: String,
+        #[serde(rename = "targetIdentityUuid")]
+        target_identity_uuid: Option<String>,
+        #[serde(rename = "targetIdentityName")]
+        target_identity_name: Option<String>,
     },
     Accept {
         #[serde(rename = "workspaceName")]
@@ -2771,14 +2775,39 @@ fn open_swarm_file_cmd(
         .map_err(|e| e.to_string())?;
 
     match header.mode {
-        SwarmMode::Invite => Ok(SwarmFileInfo::Invite {
-            workspace_name: header.workspace_name,
-            offered_role: header.offered_role.unwrap_or_default(),
-            offered_scope: header.offered_scope,
-            inviter_display_name: header.source_display_name,
-            inviter_fingerprint: fingerprint,
-            pairing_token: header.pairing_token.unwrap_or_default(),
-        }),
+        SwarmMode::Invite => {
+            let (target_identity_uuid, target_identity_name) = {
+                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+                let identities = mgr.list_identities().unwrap_or_default();
+                let mut found_uuid = None;
+                let mut found_name = None;
+                if let Some(ref target_pubkey) = header.target_peer {
+                    for identity_ref in &identities {
+                        let full_path = crate::settings::config_dir().join(&identity_ref.file);
+                        if let Ok(data) = std::fs::read_to_string(&full_path) {
+                            if let Ok(file) = serde_json::from_str::<krillnotes_core::core::identity::IdentityFile>(&data) {
+                                if &file.public_key == target_pubkey {
+                                    found_uuid = Some(identity_ref.uuid.to_string());
+                                    found_name = Some(identity_ref.display_name.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                (found_uuid, found_name)
+            };
+            Ok(SwarmFileInfo::Invite {
+                workspace_name: header.workspace_name,
+                offered_role: header.offered_role.unwrap_or_default(),
+                offered_scope: header.offered_scope,
+                inviter_display_name: header.source_display_name,
+                inviter_fingerprint: fingerprint,
+                pairing_token: header.pairing_token.unwrap_or_default(),
+                target_identity_uuid,
+                target_identity_name,
+            })
+        }
         SwarmMode::Accept => Ok(SwarmFileInfo::Accept {
             workspace_name: header.workspace_name,
             declared_name: header.source_display_name,
@@ -2833,6 +2862,7 @@ fn create_invite_bundle_cmd(
     source_device_id: String,
     offered_role: String,
     offered_scope: Option<String>,
+    contact_public_key: Option<String>,
     identity_uuid: String,
     save_path: String,
 ) -> std::result::Result<(), String> {
@@ -2861,6 +2891,7 @@ fn create_invite_bundle_cmd(
         source_display_name,
         offered_role,
         offered_scope,
+        contact_public_key,
         inviter_key: &signing_key,
     })
     .map_err(|e| e.to_string())?;

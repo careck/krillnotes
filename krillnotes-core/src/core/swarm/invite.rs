@@ -31,6 +31,7 @@ pub struct InviteParams<'a> {
     pub source_display_name: String,
     pub offered_role: String,
     pub offered_scope: Option<String>,
+    pub contact_public_key: Option<String>,
     pub inviter_key: &'a SigningKey,
 }
 
@@ -75,7 +76,7 @@ pub fn create_invite_bundle(params: InviteParams<'_>) -> Result<Vec<u8>> {
         accepted_fingerprint: None,
         as_of_operation_id: None,
         since_operation_id: None,
-        target_peer: None,
+        target_peer: params.contact_public_key.clone(),
         recipients: None,
         has_attachments: false,
     };
@@ -316,6 +317,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             offered_role: "writer".to_string(),
             offered_scope: None,
+            contact_public_key: None,
             inviter_key: &inviter_key,
         }).unwrap();
 
@@ -334,6 +336,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             offered_role: "writer".to_string(),
             offered_scope: None,
+            contact_public_key: None,
             inviter_key: &inviter_key,
         }).unwrap();
 
@@ -362,6 +365,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             offered_role: "writer".to_string(),
             offered_scope: None,
+            contact_public_key: None,
             inviter_key: &inviter_key,
         }).unwrap();
         // Flip a byte in the middle of the bundle
