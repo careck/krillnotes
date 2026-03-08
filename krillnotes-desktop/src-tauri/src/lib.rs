@@ -1911,7 +1911,8 @@ fn get_identity_public_key(
         .into_iter()
         .find(|i| i.uuid == uuid)
         .ok_or("Identity not found")?;
-    let data = std::fs::read_to_string(&identity_ref.file)
+    let full_path = crate::settings::config_dir().join(&identity_ref.file);
+    let data = std::fs::read_to_string(&full_path)
         .map_err(|e| format!("Cannot read identity file: {e}"))?;
     let file: krillnotes_core::core::identity::IdentityFile =
         serde_json::from_str(&data).map_err(|e| format!("Invalid identity file: {e}"))?;
