@@ -31,6 +31,7 @@ sha2 = "0.10"
 rand = "0.8"
 hex = "0.4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 argon2 = "0.5"
 aes-gcm = "0.10"
 
