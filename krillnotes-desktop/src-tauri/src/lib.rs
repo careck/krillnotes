@@ -139,7 +139,7 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
 fn handle_file_opened(app: &AppHandle, state: &AppState, path: PathBuf) {
     match path.extension().and_then(|e| e.to_str()) {
         Some("krillnotes") => handle_krillnotes_open(app, state, path),
-        // future: Some("swarm") => handle_swarm_open(app, state, path),
+        Some("swarm") => handle_swarm_open(app, state, path),
         _ => {}
     }
 }
@@ -164,6 +164,30 @@ fn handle_krillnotes_open(app: &AppHandle, state: &AppState, path: PathBuf) {
         // No launcher window — create one. Its mount effect will call
         // consume_pending_file_open and start the import flow.
         create_main_window(app);
+    }
+}
+
+/// Handles opening a `.swarm` file from the OS.
+///
+/// Stores the path in [`AppState::pending_file_open`] for the cold-start
+/// case (frontend not yet ready), then emits a `"swarm-file-opened"` event
+/// to the focused window.
+fn handle_swarm_open(app: &AppHandle, state: &AppState, path: PathBuf) {
+    // Store path for cold-start retrieval.
+    {
+        let mut pending = state.pending_file_open.lock().expect("Mutex poisoned");
+        *pending = Some(path.clone());
+    }
+    // Emit to the focused window first; fall back to any open window.
+    let target_label = state
+        .focused_window
+        .lock()
+        .expect("Mutex poisoned")
+        .clone()
+        .unwrap_or_else(|| "main".to_string());
+
+    if let Some(win) = app.get_webview_window(&target_label) {
+        win.emit("swarm-file-opened", path.to_string_lossy().to_string()).ok();
     }
 }
 
@@ -1655,6 +1679,21 @@ fn consume_pending_file_open(state: State<'_, AppState>) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// Drain the pending .swarm file path stored for cold-start handling.
+///
+/// Returns `Some(path)` only when the pending path ends with `.swarm`.
+/// Returns `None` when no swarm file is pending.
+#[tauri::command]
+fn consume_pending_swarm_file(state: State<'_, AppState>) -> Option<String> {
+    state
+        .pending_file_open
+        .lock()
+        .expect("Mutex poisoned")
+        .take()
+        .map(|p| p.to_string_lossy().to_string())
+        .filter(|p| p.ends_with(".swarm"))
+}
+
 // ── Identity commands ─────────────────────────────────────────────
 
 /// Lists all registered identities.
@@ -2621,6 +2660,183 @@ async fn open_attachment(
         .map_err(|e| e.to_string())
 }
 
+// ── Swarm bundle commands ──────────────────────────────────────────
+
+/// Info returned to the frontend after peeking at a .swarm bundle header.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+pub enum SwarmFileInfo {
+    Invite {
+        #[serde(rename = "workspaceName")]
+        workspace_name: String,
+        #[serde(rename = "offeredRole")]
+        offered_role: String,
+        #[serde(rename = "offeredScope")]
+        offered_scope: Option<String>,
+        #[serde(rename = "inviterDisplayName")]
+        inviter_display_name: String,
+        #[serde(rename = "inviterFingerprint")]
+        inviter_fingerprint: String,
+        #[serde(rename = "pairingToken")]
+        pairing_token: String,
+    },
+    Accept {
+        #[serde(rename = "workspaceName")]
+        workspace_name: String,
+        #[serde(rename = "declaredName")]
+        declared_name: String,
+        #[serde(rename = "acceptorFingerprint")]
+        acceptor_fingerprint: String,
+        #[serde(rename = "acceptorPublicKey")]
+        acceptor_public_key: String,
+        #[serde(rename = "pairingToken")]
+        pairing_token: String,
+    },
+    Snapshot {
+        #[serde(rename = "workspaceName")]
+        workspace_name: String,
+        #[serde(rename = "senderDisplayName")]
+        sender_display_name: String,
+        #[serde(rename = "senderFingerprint")]
+        sender_fingerprint: String,
+        #[serde(rename = "asOfOperationId")]
+        as_of_operation_id: String,
+    },
+}
+
+/// Read and deserialise just the header.json from a .swarm zip bundle.
+fn peek_swarm_header(data: &[u8]) -> std::result::Result<krillnotes_core::core::swarm::header::SwarmHeader, String> {
+    use std::io::{Cursor, Read};
+    use zip::ZipArchive;
+    let cursor = Cursor::new(data);
+    let mut zip = ZipArchive::new(cursor)
+        .map_err(|e| format!("Cannot open bundle: {e}"))?;
+    let header_bytes = {
+        let mut file = zip.by_name("header.json")
+            .map_err(|_| "bundle missing 'header.json'".to_string())?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).map_err(|e| format!("Cannot read header: {e}"))?;
+        buf
+    };
+    serde_json::from_slice(&header_bytes)
+        .map_err(|e| format!("Invalid header: {e}"))
+}
+
+/// Peek at a .swarm file and return its type + display metadata.
+#[tauri::command]
+fn open_swarm_file_cmd(path: String) -> std::result::Result<SwarmFileInfo, String> {
+    use krillnotes_core::core::swarm::header::SwarmMode;
+    let data = std::fs::read(&path).map_err(|e| format!("Cannot read file: {e}"))?;
+    let header = peek_swarm_header(&data)?;
+
+    let fingerprint = krillnotes_core::core::contact::generate_fingerprint(&header.source_identity)
+        .map_err(|e| e.to_string())?;
+
+    match header.mode {
+        SwarmMode::Invite => Ok(SwarmFileInfo::Invite {
+            workspace_name: header.workspace_name,
+            offered_role: header.offered_role.unwrap_or_default(),
+            offered_scope: header.offered_scope,
+            inviter_display_name: header.source_display_name,
+            inviter_fingerprint: fingerprint,
+            pairing_token: header.pairing_token.unwrap_or_default(),
+        }),
+        SwarmMode::Accept => Ok(SwarmFileInfo::Accept {
+            workspace_name: header.workspace_name,
+            declared_name: header.source_display_name,
+            acceptor_fingerprint: fingerprint,
+            acceptor_public_key: header.source_identity,
+            pairing_token: header.pairing_token.unwrap_or_default(),
+        }),
+        SwarmMode::Snapshot => Ok(SwarmFileInfo::Snapshot {
+            workspace_name: header.workspace_name,
+            sender_display_name: header.source_display_name,
+            sender_fingerprint: fingerprint,
+            as_of_operation_id: header.as_of_operation_id.unwrap_or_default(),
+        }),
+        SwarmMode::Delta => Err("Delta bundles are not yet supported in this version.".to_string()),
+    }
+}
+
+/// Create an invite.swarm bundle and write it to `save_path`.
+#[tauri::command]
+fn create_invite_bundle_cmd(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    workspace_name: String,
+    source_device_id: String,
+    offered_role: String,
+    offered_scope: Option<String>,
+    identity_uuid: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    use krillnotes_core::core::swarm::invite::{create_invite_bundle, InviteParams};
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let signing_key = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities
+            .get(&uuid)
+            .ok_or("IDENTITY_LOCKED")?;
+        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+    };
+
+    let bundle = create_invite_bundle(InviteParams {
+        workspace_id,
+        workspace_name,
+        source_device_id,
+        offered_role,
+        offered_scope,
+        inviter_key: &signing_key,
+    })
+    .map_err(|e| e.to_string())?;
+
+    std::fs::write(&save_path, &bundle).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Read an invite.swarm, create an accept.swarm, write to `save_path`.
+#[tauri::command]
+fn create_accept_bundle_cmd(
+    state: State<'_, AppState>,
+    invite_path: String,
+    declared_name: String,
+    source_device_id: String,
+    identity_uuid: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    use krillnotes_core::core::swarm::invite::{
+        parse_invite_bundle, create_accept_bundle, AcceptParams,
+    };
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let signing_key = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities
+            .get(&uuid)
+            .ok_or("IDENTITY_LOCKED")?;
+        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+    };
+
+    // Parse and verify the invite (includes signature check).
+    let invite_data = std::fs::read(&invite_path)
+        .map_err(|e| format!("Cannot read invite file: {e}"))?;
+    let parsed = parse_invite_bundle(&invite_data).map_err(|e| e.to_string())?;
+
+    let bundle = create_accept_bundle(AcceptParams {
+        workspace_id: parsed.workspace_id,
+        workspace_name: parsed.workspace_name,
+        source_device_id,
+        declared_name,
+        pairing_token: parsed.pairing_token,
+        acceptor_key: &signing_key,
+    })
+    .map_err(|e| e.to_string())?;
+
+    std::fs::write(&save_path, &bundle).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -2640,6 +2856,8 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
     ("workspace_properties",  "Edit > Workspace Properties clicked"),
     ("file_identities",       "File > Manage Identities clicked"),
+    ("file_invite_peer",      "File > Invite Peer clicked"),
+    ("file_open_swarm",       "File > Open Swarm File clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -2857,6 +3075,7 @@ pub fn run() {
             execute_import,
             get_app_version,
             consume_pending_file_open,
+            consume_pending_swarm_file,
             get_settings,
             update_settings,
             list_themes,
@@ -2880,6 +3099,9 @@ pub fn run() {
             export_swarmid_cmd,
             import_swarmid_cmd,
             import_swarmid_overwrite_cmd,
+            open_swarm_file_cmd,
+            create_invite_bundle_cmd,
+            create_accept_bundle_cmd,
             attach_file,
             attach_file_bytes,
             get_attachments,

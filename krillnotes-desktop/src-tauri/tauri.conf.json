@@ -39,6 +39,13 @@
         "description": "Krillnotes Workspace Archive",
         "mimeType": "application/x-krillnotes",
         "role": "Editor"
+      },
+      {
+        "ext": ["swarm"],
+        "name": "Krillnotes Sync Bundle",
+        "description": "Krillnotes Peer Sync Bundle",
+        "mimeType": "application/x-krillnotes-swarm",
+        "role": "Editor"
       }
     ]
   }
