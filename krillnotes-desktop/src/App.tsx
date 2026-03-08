@@ -133,6 +133,12 @@ function App() {
   const [swarmFilePath, setSwarmFilePath] = useState<string | null>(null);
   const [unlockedIdentityUuid, setUnlockedIdentityUuid] = useState<string | null>(null);
 
+  const refreshUnlockedIdentity = () => {
+    invoke<string[]>('get_unlocked_identities')
+      .then(ids => setUnlockedIdentityUuid(ids.length > 0 ? ids[0] : null))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     // If this is a workspace window (not "main"), fetch workspace info immediately
     {
@@ -156,10 +162,14 @@ function App() {
     }
 
     // Load first unlocked identity UUID for swarm operations
-    invoke<string[]>('get_unlocked_identities').then(ids => {
-      if (ids.length > 0) setUnlockedIdentityUuid(ids[0]);
-    }).catch(() => { /* not yet unlocked */ });
+    refreshUnlockedIdentity();
   }, []);
+
+  // Refresh unlocked identity whenever a swarm dialog opens, so a recently
+  // unlocked identity is always picked up even if it happened after mount.
+  useEffect(() => {
+    if (showSwarmInvite || showSwarmOpen) refreshUnlockedIdentity();
+  }, [showSwarmInvite, showSwarmOpen]);
 
   // Cold-start: pull any file path that arrived via OS file-open before JS
   // listeners were registered. Only the "main" (launcher) window handles imports.
@@ -583,7 +593,7 @@ function App() {
       />
       <IdentityManagerDialog
         isOpen={showIdentityManager}
-        onClose={() => setShowIdentityManager(false)}
+        onClose={() => { setShowIdentityManager(false); refreshUnlockedIdentity(); }}
       />
       <SwarmInviteDialog
         isOpen={showSwarmInvite}
