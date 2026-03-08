@@ -2837,6 +2837,165 @@ fn create_accept_bundle_cmd(
     Ok(())
 }
 
+/// Parse an accept.swarm, create an encrypted snapshot.swarm for that peer,
+/// write it to `save_path`.
+#[tauri::command]
+fn create_snapshot_bundle_cmd(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    accept_path: String,
+    identity_uuid: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    use krillnotes_core::core::swarm::invite::parse_accept_bundle;
+    use krillnotes_core::core::swarm::snapshot::{create_snapshot_bundle, SnapshotParams};
+    use base64::Engine;
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let signing_key = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
+        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+    };
+
+    // Parse and verify the accept bundle.
+    let accept_data = std::fs::read(&accept_path)
+        .map_err(|e| format!("Cannot read accept file: {e}"))?;
+    let parsed_accept = parse_accept_bundle(&accept_data).map_err(|e| e.to_string())?;
+
+    // Decode acceptor's Ed25519 public key.
+    let acceptor_vk_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&parsed_accept.acceptor_public_key)
+        .map_err(|e| format!("Invalid acceptor public key: {e}"))?;
+    let acceptor_vk_arr: [u8; 32] = acceptor_vk_bytes
+        .try_into()
+        .map_err(|_| "Acceptor public key wrong length".to_string())?;
+    let acceptor_vk = Ed25519VerifyingKey::from_bytes(&acceptor_vk_arr)
+        .map_err(|e| format!("Invalid acceptor key: {e}"))?;
+
+    // Serialise workspace state.
+    let label = window.label().to_string();
+    let workspace_json = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(&label).ok_or("No workspace open")?;
+        ws.to_snapshot_json().map_err(|e| e.to_string())?
+    };
+
+    // Get workspace metadata (separate lock scope to avoid holding lock across await).
+    let (workspace_id, workspace_name) = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(&label).ok_or("No workspace open")?;
+        (ws.workspace_id().to_string(), label.clone())
+    };
+
+    let bundle = create_snapshot_bundle(SnapshotParams {
+        workspace_id,
+        workspace_name,
+        source_device_id: uuid.to_string(),
+        as_of_operation_id: "initial".to_string(),
+        workspace_json,
+        sender_key: &signing_key,
+        recipient_keys: vec![&acceptor_vk],
+        recipient_peer_ids: vec![parsed_accept.workspace_id.clone()],
+    })
+    .map_err(|e| e.to_string())?;
+
+    std::fs::write(&save_path, &bundle).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Decrypt a snapshot.swarm and create a new workspace populated with its content.
+#[tauri::command]
+async fn create_workspace_from_snapshot_cmd(
+    window: tauri::Window,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    snapshot_path: String,
+    workspace_name: String,
+    identity_uuid: String,
+) -> std::result::Result<WorkspaceInfo, String> {
+    use krillnotes_core::core::swarm::snapshot::parse_snapshot_bundle;
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    let signing_key = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
+        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+    };
+
+    // Parse and decrypt snapshot.
+    let snapshot_data = std::fs::read(&snapshot_path)
+        .map_err(|e| format!("Cannot read snapshot file: {e}"))?;
+    let parsed = parse_snapshot_bundle(&snapshot_data, &signing_key)
+        .map_err(|e| e.to_string())?;
+
+    // Compute workspace folder from settings.
+    let workspace_dir = crate::settings::load_settings().workspace_directory;
+    let safe_name = workspace_name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>();
+    let base_folder = PathBuf::from(&workspace_dir).join(&safe_name);
+
+    // Handle name collisions by appending (2), (3), etc.
+    let folder = {
+        let mut candidate = base_folder.clone();
+        let mut n = 2;
+        while candidate.exists() {
+            candidate = PathBuf::from(&workspace_dir).join(format!("{safe_name} ({n})"));
+            n += 1;
+        }
+        candidate
+    };
+
+    // Generate random DB password.
+    let password: String = {
+        use base64::Engine;
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    };
+
+    // Create workspace folder and DB.
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
+    let db_path = folder.join("notes.db");
+
+    let signing_key_for_create = {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
+        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+    };
+
+    let mut workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key_for_create)
+        .map_err(|e| format!("Failed to create workspace: {e}"))?;
+
+    // Import the snapshot content.
+    workspace.import_snapshot_json(&parsed.workspace_json)
+        .map_err(|e| format!("Failed to import snapshot: {e}"))?;
+
+    let workspace_uuid = workspace.workspace_id().to_string();
+
+    // Bind workspace to identity.
+    {
+        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
+        let seed = unlocked.signing_key.to_bytes();
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.bind_workspace(&uuid, &workspace_uuid, &db_path.display().to_string(), &password, &seed)
+            .map_err(|e| format!("Failed to bind workspace: {e}"))?;
+    }
+
+    let label = generate_unique_label(&state, &folder);
+    let new_window = create_workspace_window(&app, &label, &window)?;
+    store_workspace(&state, label.clone(), workspace, folder);
+    new_window.set_title(&format!("Krillnotes - {label}")).map_err(|e| e.to_string())?;
+
+    get_workspace_info_internal(&state, &label)
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -3102,6 +3261,8 @@ pub fn run() {
             open_swarm_file_cmd,
             create_invite_bundle_cmd,
             create_accept_bundle_cmd,
+            create_snapshot_bundle_cmd,
+            create_workspace_from_snapshot_cmd,
             attach_file,
             attach_file_bytes,
             get_attachments,

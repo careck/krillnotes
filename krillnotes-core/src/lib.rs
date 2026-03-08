@@ -38,6 +38,8 @@ pub use core::{
     workspace::{AddPosition, NoteSearchResult, Workspace},
 };
 
-// Re-export SigningKey so consumers don't need a direct ed25519-dalek dependency.
+// Re-export ed25519-dalek key types so consumers don't need a direct ed25519-dalek dependency.
 #[doc(inline)]
 pub use ed25519_dalek::SigningKey as Ed25519SigningKey;
+#[doc(inline)]
+pub use ed25519_dalek::VerifyingKey as Ed25519VerifyingKey;
