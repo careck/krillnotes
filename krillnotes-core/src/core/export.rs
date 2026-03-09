@@ -442,12 +442,12 @@ pub fn import_workspace<R: Read + Seek>(
         for note in &export_notes.notes {
             let fields_json = serde_json::to_string(&note.fields)?;
             tx.execute(
-                "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
+                "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rusqlite::params![
                     note.id,
                     note.title,
-                    note.node_type,
+                    note.schema,
                     note.parent_id,
                     note.position,
                     note.created_at,
