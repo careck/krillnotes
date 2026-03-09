@@ -886,8 +886,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         />
       )}
 
-      {/* Metadata Section */}
-      <details className="bg-secondary rounded-lg">
+      {/* Metadata Section — always visible when no custom views; only on Fields tab when views exist */}
+      {(views.length === 0 || activeTab === 'fields') && <details className="bg-secondary rounded-lg">
         <summary className="px-6 py-4 cursor-pointer list-none flex items-center gap-2 text-sm font-medium text-muted-foreground select-none">
           <ChevronRight size={16} className="[details[open]_&]:rotate-90 transition-transform" />
           {t('notes.info')}
@@ -911,7 +911,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('notes.id')}</dt>
           <dd className="m-0 text-foreground text-xs font-mono break-all">{selectedNote.id}</dd>
         </dl>
-      </details>
+      </details>}
     </div>
   );
 }
