@@ -45,6 +45,8 @@ pub struct AppState {
     pub focused_window: Arc<Mutex<Option<String>>>,
     /// Identity manager — handles identity CRUD, unlock, and workspace bindings.
     pub identity_manager: Arc<Mutex<IdentityManager>>,
+    /// Contact manager — cross-workspace address book for remote peers.
+    pub contact_manager: Arc<Mutex<krillnotes_core::core::contact::ContactManager>>,
     /// In-memory map of currently unlocked identities (UUID → unlocked state).
     /// Entries are removed when an identity is locked or the app exits.
     pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
@@ -1705,9 +1707,10 @@ fn list_identities(
     mgr.list_identities().map_err(|e| e.to_string())
 }
 
-/// Resolves a public key to an identity display name.
-/// Returns the display name if the key belongs to a known local identity,
-/// a truncated fingerprint (first 8 chars) if unknown, or None if the key is empty.
+/// Resolves a public key to a display name.
+/// Checks local identities first, then the contacts address book.
+/// Returns a truncated fingerprint (first 8 chars) if the key is unknown but non-empty,
+/// or None if the key is empty.
 #[tauri::command]
 fn resolve_identity_name(
     state: State<'_, AppState>,
@@ -1716,9 +1719,20 @@ fn resolve_identity_name(
     if public_key.is_empty() {
         return None;
     }
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.lookup_display_name(&public_key)
-        .or_else(|| Some(public_key.chars().take(8).collect()))
+    // 1. Local identity (keys owned by this device)
+    let identity_mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    if let Some(name) = identity_mgr.lookup_display_name(&public_key) {
+        return Some(name);
+    }
+    drop(identity_mgr);
+    // 2. Contacts address book (remote peers)
+    let contact_mgr = state.contact_manager.lock().expect("Mutex poisoned");
+    if let Ok(Some(contact)) = contact_mgr.find_by_public_key(&public_key) {
+        return Some(contact.display_name().to_string());
+    }
+    drop(contact_mgr);
+    // 3. Unknown key — show a short fingerprint so it's not blank
+    Some(public_key.chars().take(8).collect())
 }
 
 /// Creates a new identity and auto-unlocks it in memory.
@@ -3193,6 +3207,9 @@ pub fn run() {
             focused_window: Arc::new(Mutex::new(None)),
             identity_manager: Arc::new(Mutex::new(
                 IdentityManager::new(settings::config_dir()).expect("Failed to init IdentityManager")
+            )),
+            contact_manager: Arc::new(Mutex::new(
+                krillnotes_core::core::contact::ContactManager::new(settings::config_dir()).expect("Failed to init ContactManager")
             )),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
