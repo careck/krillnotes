@@ -1912,7 +1912,7 @@ mod tests {
             .unwrap();
 
         let pn = tx.pending_notes.get("id-1").unwrap();
-        assert_eq!(pn.title, Some("Hello, World".to_string()));
+        assert_eq!(pn.pending_title, Some("Hello, World".to_string()));
     }
 
     /// Regression: clear_all must reset library_sources so a reload doesn't carry over
