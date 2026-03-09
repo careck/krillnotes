@@ -673,7 +673,7 @@ async fn create_note_with_type(
     state: State<'_, AppState>,
     parent_id: Option<String>,
     position: String,
-    node_type: String,
+    schema: String,
 ) -> std::result::Result<Note, String> {
     let label = window.label();
     let mut workspaces = state.workspaces.lock()
@@ -691,11 +691,11 @@ async fn create_note_with_type(
 
     // If no parent_id, create root note
     let note_id = if let Some(pid) = parent_id {
-        workspace.create_note(&pid, add_position, &node_type)
+        workspace.create_note(&pid, add_position, &schema)
             .map_err(|e| e.to_string())?
     } else {
         // Create root note (parent_id = null, position = 0)
-        workspace.create_note_root(&node_type)
+        workspace.create_note_root(&schema)
             .map_err(|e| e.to_string())?
     };
 
@@ -799,33 +799,33 @@ fn schema_to_info(schema: &Schema, has_views: bool, has_hover: bool) -> SchemaIn
     }
 }
 
-/// Returns the field definitions for the schema identified by `node_type`.
+/// Returns the field definitions for the schema identified by `schema`.
 ///
-/// Looks up the schema registered under `node_type` in the calling window's
+/// Looks up the schema registered under `schema` in the calling window's
 /// workspace and returns its list of [`FieldDefinition`] values so the
 /// frontend can render an appropriate editing form.
 ///
 /// # Errors
 ///
 /// Returns an error string if no workspace is open for the calling window,
-/// or if `node_type` is not registered in the schema registry.
+/// or if `schema` is not registered in the schema registry.
 #[tauri::command]
 fn get_schema_fields(
     window: tauri::Window,
     state: State<'_, AppState>,
-    node_type: String,
+    schema: String,
 ) -> std::result::Result<SchemaInfo, String> {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
 
-    let schema = workspace.script_registry().get_schema(&node_type)
+    let schema_def = workspace.script_registry().get_schema(&schema)
         .map_err(|e: KrillnotesError| e.to_string())?;
 
     Ok(schema_to_info(
-        &schema,
-        workspace.script_registry().has_views(&node_type),
-        workspace.script_registry().has_hover(&node_type),
+        &schema_def,
+        workspace.script_registry().has_views(&schema),
+        workspace.script_registry().has_hover(&schema),
     ))
 }
 
