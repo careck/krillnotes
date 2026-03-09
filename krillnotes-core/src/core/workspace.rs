@@ -239,7 +239,7 @@ impl Workspace {
         let root = Note {
             id: Uuid::new_v4().to_string(),
             title,
-            node_type: "TextNote".to_string(),
+            schema: "TextNote".to_string(),
             parent_id: None,
             position: 0.0,
             created_at: now,
@@ -253,12 +253,12 @@ impl Workspace {
 
         let tx = storage.connection_mut().transaction()?;
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 root.id,
                 root.title,
-                root.node_type,
+                root.schema,
                 root.parent_id,
                 root.position,
                 root.created_at,
@@ -719,7 +719,7 @@ impl Workspace {
                 let conn = self.storage.connection();
                 let mut stmt = conn.prepare(
                     "SELECT id, title, fields_json, schema_version \
-                     FROM notes WHERE node_type = ?1 AND schema_version < ?2",
+                     FROM notes WHERE schema = ?1 AND schema_version < ?2",
                 )?;
                 let rows = stmt.query_map(
                     rusqlite::params![&schema_name, schema_version],
@@ -1254,7 +1254,7 @@ impl Workspace {
     /// if `fields_json` cannot be deserialised.
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
         let row = self.connection().query_row(
-            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+            "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
                     n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
@@ -1302,10 +1302,10 @@ impl Workspace {
                 ))),
                 Some(pid) => {
                     let parent_note = self.get_note(pid)?;
-                    if !schema.allowed_parent_types.contains(&parent_note.node_type) {
+                    if !schema.allowed_parent_types.contains(&parent_note.schema) {
                         return Err(KrillnotesError::InvalidMove(format!(
                             "Note type '{}' cannot be placed under '{}'",
-                            note_type, parent_note.node_type
+                            note_type, parent_note.schema
                         )));
                     }
                 }
@@ -1315,13 +1315,13 @@ impl Workspace {
         // Validate allowed_children_types on the parent schema
         if let Some(pid) = &final_parent {
             let parent_note = self.get_note(pid)?;
-            let parent_schema = self.script_registry.get_schema(&parent_note.node_type)?;
+            let parent_schema = self.script_registry.get_schema(&parent_note.schema)?;
             if !parent_schema.allowed_children_types.is_empty()
                 && !parent_schema.allowed_children_types.contains(&note_type.to_string())
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
-                    note_type, parent_note.node_type
+                    note_type, parent_note.schema
                 )));
             }
         }
@@ -1337,7 +1337,7 @@ impl Workspace {
         let mut note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
-            node_type: note_type.to_string(),
+            schema: note_type.to_string(),
             parent_id: final_parent,
             position: final_position,
             created_at: now,
@@ -1366,12 +1366,12 @@ impl Workspace {
 
         // Insert note
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 note.id,
                 note.title,
-                note.node_type,
+                note.schema,
                 note.parent_id,
                 note.position,
                 note.created_at,
@@ -1388,9 +1388,9 @@ impl Workspace {
         // Allowed-parent and allowed-children checks have already passed above.
         if let Some(ref parent_note) = hook_parent {
             if let Some(hook_result) = self.script_registry.run_on_add_child_hook(
-                &parent_note.node_type,
-                &parent_note.id, &parent_note.node_type, &parent_note.title, &parent_note.fields,
-                &note.id, &note.node_type, &note.title, &note.fields,
+                &parent_note.schema,
+                &parent_note.id, &parent_note.schema, &parent_note.title, &parent_note.fields,
+                &note.id, &note.schema, &note.title, &note.fields,
             )? {
                 let now = chrono::Utc::now().timestamp();
                 if let Some((new_title, new_fields)) = hook_result.child {
@@ -1423,7 +1423,7 @@ impl Workspace {
             note_id: note.id.clone(),
             parent_id: note.parent_id.clone(),
             position: note.position,
-            node_type: note.node_type.clone(),
+            schema: note.schema.clone(),
             title: note.title.clone(),
             fields: note.fields.clone(),
             created_by: String::new(),
@@ -1490,7 +1490,7 @@ impl Workspace {
 
         // 2. Validate the paste location for the root note only.
         let root_source = subtree[0].clone();
-        let root_schema = self.script_registry.get_schema(&root_source.node_type)?;
+        let root_schema = self.script_registry.get_schema(&root_source.schema)?;
         let target_note = self.get_note(target_id)?;
 
         let (new_parent_id, new_position) = match position {
@@ -1502,14 +1502,14 @@ impl Workspace {
         if !root_schema.allowed_parent_types.is_empty() {
             match &new_parent_id {
                 None => return Err(KrillnotesError::InvalidMove(format!(
-                    "Note type '{}' cannot be placed at root level", root_source.node_type
+                    "Note type '{}' cannot be placed at root level", root_source.schema
                 ))),
                 Some(pid) => {
                     let parent = self.get_note(pid)?;
-                    if !root_schema.allowed_parent_types.contains(&parent.node_type) {
+                    if !root_schema.allowed_parent_types.contains(&parent.schema) {
                         return Err(KrillnotesError::InvalidMove(format!(
                             "Note type '{}' cannot be placed under '{}'",
-                            root_source.node_type, parent.node_type
+                            root_source.schema, parent.schema
                         )));
                     }
                 }
@@ -1519,13 +1519,13 @@ impl Workspace {
         // Validate allowed_children_types on the paste parent
         if let Some(pid) = &new_parent_id {
             let parent = self.get_note(pid)?;
-            let parent_schema = self.script_registry.get_schema(&parent.node_type)?;
+            let parent_schema = self.script_registry.get_schema(&parent.schema)?;
             if !parent_schema.allowed_children_types.is_empty()
-                && !parent_schema.allowed_children_types.contains(&root_source.node_type)
+                && !parent_schema.allowed_children_types.contains(&root_source.schema)
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
-                    root_source.node_type, parent.node_type
+                    root_source.schema, parent.schema
                 )));
             }
         }
@@ -1570,12 +1570,12 @@ impl Workspace {
             let this_position = if note.id == source_id { new_position } else { note.position };
 
             tx.execute(
-                "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+                "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rusqlite::params![
                     new_id,
                     note.title,
-                    note.node_type,
+                    note.schema,
                     new_parent,
                     this_position,
                     now,
@@ -1597,7 +1597,7 @@ impl Workspace {
                 note_id: new_id.clone(),
                 parent_id: new_parent,
                 position: this_position as f64,
-                node_type: note.node_type.clone(),
+                schema: note.schema.clone(),
                 title: note.title.clone(),
                 fields: note.fields.clone(),
                 created_by: String::new(),
@@ -1641,7 +1641,7 @@ impl Workspace {
         let new_note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
-            node_type: node_type.to_string(),
+            schema: node_type.to_string(),
             parent_id: None,
             position: 0.0,
             created_at: now,
@@ -1658,12 +1658,12 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
-            "INSERT INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 new_note.id,
                 new_note.title,
-                new_note.node_type,
+                new_note.schema,
                 new_note.parent_id,
                 new_note.position,
                 new_note.created_at,
@@ -1685,7 +1685,7 @@ impl Workspace {
             note_id: new_note.id.clone(),
             parent_id: new_note.parent_id.clone(),
             position: new_note.position,
-            node_type: new_note.node_type.clone(),
+            schema: new_note.schema.clone(),
             title: new_note.title.clone(),
             fields: new_note.fields.clone(),
             created_by: String::new(),
@@ -1812,7 +1812,7 @@ impl Workspace {
         }
         let placeholders = tags.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
         let sql = format!(
-            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+            "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
                     n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt2.tag, ',') AS tags_csv
@@ -1881,7 +1881,7 @@ impl Workspace {
             .into_iter()
             .filter(|n| {
                 if let Some(t) = target_type {
-                    n.node_type == t
+                    n.schema == t
                 } else {
                     true
                 }
@@ -1954,7 +1954,7 @@ impl Workspace {
     /// [`crate::KrillnotesError::Json`] if any row's `fields_json` is corrupt.
     pub fn list_all_notes(&self) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+            "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
                     n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
@@ -1991,7 +1991,7 @@ impl Workspace {
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            notes_by_type.entry(n.schema.clone()).or_default().push(dyn_map.clone());
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
@@ -2018,7 +2018,7 @@ impl Workspace {
         let note = self.get_note(note_id)?;
 
         // No hook registered: generate the default view without fetching all notes.
-        if !self.script_registry.has_views(&note.node_type) {
+        if !self.script_registry.has_views(&note.schema) {
             // Pre-resolve NoteLink field targets to titles for the default renderer.
             let mut resolved_titles: std::collections::HashMap<String, String> = std::collections::HashMap::new();
             for value in note.fields.values() {
@@ -2051,7 +2051,7 @@ impl Workspace {
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            notes_by_type.entry(n.schema.clone()).or_default().push(dyn_map.clone());
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
@@ -2092,7 +2092,7 @@ impl Workspace {
     pub fn run_hover_hook(&self, note_id: &str) -> Result<Option<String>> {
         let note = self.get_note(note_id)?;
 
-        if !self.script_registry.has_hover(&note.node_type) {
+        if !self.script_registry.has_hover(&note.schema) {
             return Ok(None);
         }
 
@@ -2115,7 +2115,7 @@ impl Workspace {
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            notes_by_type.entry(n.schema.clone()).or_default().push(dyn_map.clone());
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
@@ -2187,7 +2187,7 @@ impl Workspace {
             if let Some(pid) = &n.parent_id {
                 children_by_id.entry(pid.clone()).or_default().push(dyn_map.clone());
             }
-            notes_by_type.entry(n.node_type.clone()).or_default().push(dyn_map.clone());
+            notes_by_type.entry(n.schema.clone()).or_default().push(dyn_map.clone());
             for tag in &n.tags {
                 notes_by_tag.entry(tag.clone()).or_default().push(dyn_map.clone());
             }
@@ -2288,15 +2288,15 @@ impl Workspace {
                     let fields_json = serde_json::to_string(&effective_fields)?;
                     let effective_title = pending.effective_title();
 
-                    let schema_ver = self.script_registry.get_schema(&pending.node_type)
+                    let schema_ver = self.script_registry.get_schema(&pending.schema)
                         .map(|s| s.version).unwrap_or(1);
                     tx_db.execute(
-                        "INSERT INTO notes (id, title, node_type, parent_id, position, \
+                        "INSERT INTO notes (id, title, schema, parent_id, position, \
                                             created_at, modified_at, created_by, modified_by, \
                                             fields_json, is_expanded, schema_version) \
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         rusqlite::params![
-                            pending.note_id, effective_title, pending.node_type,
+                            pending.note_id, effective_title, pending.schema,
                             parent_id, position, now, now,
                             self.current_identity_pubkey.clone(), self.current_identity_pubkey.clone(), fields_json, true,
                             schema_ver,
@@ -2311,7 +2311,7 @@ impl Workspace {
                         note_id: pending.note_id.clone(),
                         parent_id: Some(parent_id.to_string()),
                         position: position as f64,
-                        node_type: pending.node_type.clone(),
+                        schema: pending.schema.clone(),
                         title: effective_title.to_string(),
                         fields: effective_fields,
                         created_by: String::new(),
@@ -2579,18 +2579,18 @@ impl Workspace {
 
         // 3. Allowed-parent-types check
         let note_to_move = self.get_note(note_id)?;
-        let schema = self.script_registry.get_schema(&note_to_move.node_type)?;
+        let schema = self.script_registry.get_schema(&note_to_move.schema)?;
         if !schema.allowed_parent_types.is_empty() {
             match new_parent_id {
                 None => return Err(KrillnotesError::InvalidMove(format!(
-                    "Note type '{}' cannot be placed at root level", note_to_move.node_type
+                    "Note type '{}' cannot be placed at root level", note_to_move.schema
                 ))),
                 Some(pid) => {
                     let parent_note = self.get_note(pid)?;
-                    if !schema.allowed_parent_types.contains(&parent_note.node_type) {
+                    if !schema.allowed_parent_types.contains(&parent_note.schema) {
                         return Err(KrillnotesError::InvalidMove(format!(
                             "Note type '{}' cannot be placed under '{}'",
-                            note_to_move.node_type, parent_note.node_type
+                            note_to_move.schema, parent_note.schema
                         )));
                     }
                 }
@@ -2600,13 +2600,13 @@ impl Workspace {
         // 3b. Allowed-children-types check on the new parent
         if let Some(pid) = new_parent_id {
             let parent_note = self.get_note(pid)?;
-            let parent_schema = self.script_registry.get_schema(&parent_note.node_type)?;
+            let parent_schema = self.script_registry.get_schema(&parent_note.schema)?;
             if !parent_schema.allowed_children_types.is_empty()
-                && !parent_schema.allowed_children_types.contains(&note_to_move.node_type)
+                && !parent_schema.allowed_children_types.contains(&note_to_move.schema)
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
-                    note_to_move.node_type, parent_note.node_type
+                    note_to_move.schema, parent_note.schema
                 )));
             }
         }
@@ -2651,9 +2651,9 @@ impl Workspace {
         // Run on_add_child hook if the new parent's schema defines one.
         if let Some(ref parent_note) = hook_new_parent {
             if let Some(hook_result) = self.script_registry.run_on_add_child_hook(
-                &parent_note.node_type,
-                &parent_note.id, &parent_note.node_type, &parent_note.title, &parent_note.fields,
-                &note_to_move.id, &note_to_move.node_type, &note_to_move.title, &note_to_move.fields,
+                &parent_note.schema,
+                &parent_note.id, &parent_note.schema, &parent_note.title, &parent_note.fields,
+                &note_to_move.id, &note_to_move.schema, &note_to_move.title, &note_to_move.fields,
             )? {
                 let hook_now = chrono::Utc::now().timestamp();
                 if let Some((new_title, new_fields)) = hook_result.child {
@@ -2718,7 +2718,7 @@ impl Workspace {
     /// Returns [`KrillnotesError`] if the database query fails.
     pub fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
         let mut stmt = self.connection().prepare(
-            "SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+            "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
                     n.fields_json, n.is_expanded, n.schema_version,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
@@ -3065,11 +3065,11 @@ impl Workspace {
     ) -> Result<SaveResult> {
         let note = self.get_note(note_id)
             .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
-        let schema = self.script_registry.get_schema(&note.node_type)?;
+        let schema = self.script_registry.get_schema(&note.schema)?;
 
         // Step 1: Evaluate group visibility.
         let visibility = self.script_registry.evaluate_group_visibility(
-            &note.node_type, &fields,
+            &note.schema, &fields,
         )?;
 
         // Collect visible field names (top-level + fields from visible groups).
@@ -3083,7 +3083,7 @@ impl Workspace {
             .collect();
 
         // Step 2: Run validate closures on visible fields.
-        let all_errors = self.script_registry.validate_fields(&note.node_type, &fields)?;
+        let all_errors = self.script_registry.validate_fields(&note.schema, &fields)?;
         let mut field_errors: BTreeMap<String, String> = all_errors.into_iter()
             .filter(|(k, _)| visible_field_names.contains(k))
             .collect();
@@ -3159,11 +3159,11 @@ impl Workspace {
             .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
 
         // Look up this note's schema so the pre-save hook can be dispatched.
-        let node_type: String = self
+        let note_schema: String = self
             .storage
             .connection()
             .query_row(
-                "SELECT node_type FROM notes WHERE id = ?1",
+                "SELECT schema FROM notes WHERE id = ?1",
                 rusqlite::params![note_id],
                 |row| row.get(0),
             )
@@ -3177,7 +3177,7 @@ impl Workspace {
         let (title, fields) =
             match self
                 .script_registry
-                .run_on_save_hook(&node_type, note_id, &node_type, &title, &fields)?
+                .run_on_save_hook(&note_schema, note_id, &note_schema, &title, &fields)?
             {
                 None => (title, fields),
                 Some(tx) if tx.committed => {
@@ -3200,7 +3200,7 @@ impl Workspace {
             };
 
         // Enforce required-field constraints defined in the schema.
-        let schema = self.script_registry.get_schema(&node_type)?;
+        let schema = self.script_registry.get_schema(&note_schema)?;
         schema.validate_required_fields(&fields)?;
 
         let now = chrono::Utc::now().timestamp();
@@ -3256,7 +3256,7 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
 
         let current_schema_version = self.script_registry
-            .get_schema(&node_type)
+            .get_schema(&note_schema)
             .map(|s| s.version)
             .unwrap_or(1);
         tx.execute(
@@ -4203,7 +4203,7 @@ impl Workspace {
                 UNION ALL
                 SELECT n.id, s.depth + 1 FROM notes n JOIN subtree s ON n.parent_id = s.id
             )
-            SELECT n.id, n.title, n.node_type, n.parent_id, n.position,
+            SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                    n.created_at, n.modified_at, n.created_by, n.modified_by,
                    n.fields_json, n.is_expanded, n.schema_version,
                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
@@ -4248,12 +4248,12 @@ impl Workspace {
                         .map_err(KrillnotesError::Json)?;
                     tx.execute(
                         "INSERT OR IGNORE INTO notes
-                         (id, title, node_type, parent_id, position,
+                         (id, title, schema, parent_id, position,
                           created_at, modified_at, created_by, modified_by,
                           fields_json, is_expanded, schema_version)
                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         rusqlite::params![
-                            note.id, note.title, note.node_type, note.parent_id,
+                            note.id, note.title, note.schema, note.parent_id,
                             note.position, note.created_at, note.modified_at,
                             note.created_by, note.modified_by, fields_json,
                             note.is_expanded as i32, note.schema_version,
@@ -4416,12 +4416,12 @@ impl Workspace {
             for note in &snapshot.notes {
                 let fields_json = serde_json::to_string(&note.fields)?;
                 tx.execute(
-                    "INSERT OR IGNORE INTO notes (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+                    "INSERT OR IGNORE INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     rusqlite::params![
                         note.id,
                         note.title,
-                        note.node_type,
+                        note.schema,
                         note.parent_id,
                         note.position,
                         note.created_at,
@@ -4509,7 +4509,7 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
     Ok((
         row.get::<_, String>(0)?,           // id
         row.get::<_, String>(1)?,           // title
-        row.get::<_, String>(2)?,           // node_type
+        row.get::<_, String>(2)?,           // schema
         row.get::<_, Option<String>>(3)?,   // parent_id
         row.get::<_, f64>(4)?,              // position
         row.get::<_, i64>(5)?,              // created_at
@@ -4525,7 +4525,7 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
 
 /// Converts a raw 13-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
 fn note_from_row_tuple(
-    (id, title, node_type, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, schema_version, tags_csv): NoteRow,
+    (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, schema_version, tags_csv): NoteRow,
 ) -> Result<Note> {
     let mut tags: Vec<String> = tags_csv
         .unwrap_or_default()
@@ -4537,7 +4537,7 @@ fn note_from_row_tuple(
     Ok(Note {
         id,
         title,
-        node_type,
+        schema,
         parent_id,
         position,
         created_at,
@@ -4553,9 +4553,9 @@ fn note_from_row_tuple(
 
 /// Converts a [`Note`] into a Rhai `Dynamic` map for use in `on_view` query functions.
 ///
-/// Produces the `{ id, node_type, title, fields, tags }` shape used by `on_view`
+/// Produces the `{ id, schema, title, fields, tags }` shape used by `on_view`
 /// hooks and `QueryContext` indexes. Note: `on_save` hooks receive a narrower
-/// `{ id, node_type, title, fields }` map without `tags`.
+/// `{ id, schema, title, fields }` map without `tags`.
 fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
     use crate::core::scripting::field_value_to_dynamic;
     let mut fields_map = rhai::Map::new();
@@ -4567,7 +4567,7 @@ fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
         .collect();
     let mut note_map = rhai::Map::new();
     note_map.insert("id".into(), Dynamic::from(note.id.clone()));
-    note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+    note_map.insert("schema".into(), Dynamic::from(note.schema.clone()));
     note_map.insert("title".into(), Dynamic::from(note.title.clone()));
     note_map.insert("fields".into(), Dynamic::from(fields_map));
     note_map.insert("tags".into(), Dynamic::from(tags_array));
@@ -4653,7 +4653,7 @@ mod tests {
         {
             let ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
             let root = ws.list_all_notes().unwrap()[0].clone();
-            assert_eq!(root.node_type, "TextNote");
+            assert_eq!(root.schema, "TextNote");
         }
 
         // Open it
@@ -4662,7 +4662,7 @@ mod tests {
         // Verify we can read notes
         let notes = ws.list_all_notes().unwrap();
         assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].node_type, "TextNote");
+        assert_eq!(notes[0].schema, "TextNote");
     }
 
     #[test]
@@ -4831,7 +4831,7 @@ mod tests {
         let new_root = ws.get_note(&new_root_id).unwrap();
 
         assert_eq!(new_root.title, "Untitled");
-        assert_eq!(new_root.node_type, "TextNote");
+        assert_eq!(new_root.schema, "TextNote");
         assert_eq!(new_root.parent_id, None, "Root note should have no parent");
         assert_eq!(new_root.position, 0.0, "Root note should be at position 0");
         assert!(new_root.is_expanded, "Root note should be expanded");
@@ -5589,10 +5589,10 @@ schema("Memo", #{ version: 1,
         // Copy has a new ID
         assert_ne!(copy_id, child_id);
 
-        // Copy has same title and node_type
+        // Copy has same title and schema
         let copy = ws.get_note(&copy_id).unwrap();
         assert_eq!(copy.title, "Original Child");
-        assert_eq!(copy.node_type, "TextNote");
+        assert_eq!(copy.schema, "TextNote");
 
         // Original is unchanged
         let original = ws.get_note(&child_id).unwrap();

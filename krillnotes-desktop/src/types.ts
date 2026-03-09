@@ -14,7 +14,7 @@ export interface WorkspaceInfo {
 export interface Note {
   id: string;
   title: string;
-  nodeType: string;
+  schema: string;
   parentId: string | null;
   position: number;
   createdAt: number;

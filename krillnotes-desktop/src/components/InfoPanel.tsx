@@ -111,7 +111,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       return;
     }
 
-    invoke<SchemaInfo>('get_schema_fields', { nodeType: selectedNote.nodeType })
+    invoke<SchemaInfo>('get_schema_fields', { schema: selectedNote.schema })
       .then(info => {
         setSchemaInfo(info);
         setEditedFields(prev => {
@@ -129,7 +129,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
           pendingEditModeRef.current = false;
         }
         // Fetch registered views for this note type
-        invoke<ViewInfo[]>('get_views_for_type', { schemaName: selectedNote.nodeType })
+        invoke<ViewInfo[]>('get_views_for_type', { schemaName: selectedNote.schema })
           .then(v => {
             setViews(v);
             setViewHtml({});
@@ -358,7 +358,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     if (!selectedNote || !schemaInfo.fieldGroups.some(g => g.hasVisibleClosure)) return;
     try {
       const vis = await invoke<Record<string, boolean>>('evaluate_group_visibility', {
-        schemaName: selectedNote.nodeType,
+        schemaName: selectedNote.schema,
         fields,
       });
       setGroupVisible(vis);
@@ -371,7 +371,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     if (!selectedNote || !fieldDef.hasValidate) return;
     try {
       const error = await invoke<string | null>('validate_field', {
-        schemaName: selectedNote.nodeType,
+        schemaName: selectedNote.schema,
         fieldName,
         value: editedFields[fieldName] ?? defaultValueForFieldType(fieldDef.fieldType),
       });
@@ -894,7 +894,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         </summary>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 px-6 pb-6">
           <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('notes.type')}</dt>
-          <dd className="m-0 text-foreground text-sm">{selectedNote.nodeType}</dd>
+          <dd className="m-0 text-foreground text-sm">{selectedNote.schema}</dd>
 
           <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('notes.created')}</dt>
           <dd className="m-0 text-foreground text-sm">

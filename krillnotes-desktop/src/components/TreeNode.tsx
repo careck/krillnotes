@@ -79,14 +79,14 @@ function TreeNode({
       // Compute prospective parent type once for both checks
       let prospectiveParentType: string | null;
       if (position === 'child') {
-        prospectiveParentType = node.note.nodeType;
+        prospectiveParentType = node.note.schema;
       } else {
         const parentNote = node.note.parentId ? notes.find(n => n.id === node.note.parentId) : null;
-        prospectiveParentType = parentNote ? parentNote.nodeType : null;
+        prospectiveParentType = parentNote ? parentNote.schema : null;
       }
 
       // Child constraint: dragged type's allowedParentTypes
-      const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
+      const apt = schemas[draggedNote.schema]?.allowedParentTypes ?? [];
       if (apt.length > 0) {
         if (!prospectiveParentType || !apt.includes(prospectiveParentType)) return;
       }
@@ -94,7 +94,7 @@ function TreeNode({
       // Parent constraint: prospective parent's allowedChildrenTypes
       if (prospectiveParentType !== null) {
         const act = schemas[prospectiveParentType]?.allowedChildrenTypes ?? [];
-        if (act.length > 0 && !act.includes(draggedNote.nodeType)) return;
+        if (act.length > 0 && !act.includes(draggedNote.schema)) return;
       }
     }
 
@@ -145,9 +145,9 @@ function TreeNode({
       const parentNote = newParentId ? notes.find(n => n.id === newParentId) : null;
 
       // Child constraint: dragged type's allowedParentTypes
-      const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
+      const apt = schemas[draggedNote.schema]?.allowedParentTypes ?? [];
       if (apt.length > 0) {
-        if (!parentNote || !apt.includes(parentNote.nodeType)) {
+        if (!parentNote || !apt.includes(parentNote.schema)) {
           setDraggedNoteId(null);
           setDropIndicator(null);
           return;
@@ -156,8 +156,8 @@ function TreeNode({
 
       // Parent constraint: new parent's allowedChildrenTypes
       if (parentNote) {
-        const act = schemas[parentNote.nodeType]?.allowedChildrenTypes ?? [];
-        if (act.length > 0 && !act.includes(draggedNote.nodeType)) {
+        const act = schemas[parentNote.schema]?.allowedChildrenTypes ?? [];
+        if (act.length > 0 && !act.includes(draggedNote.schema)) {
           setDraggedNoteId(null);
           setDropIndicator(null);
           return;
@@ -178,7 +178,7 @@ function TreeNode({
     setDropIndicator(null);
   }, [draggedNoteId, node, notes, schemas, dragDescendants, isExpanded, hasChildren, onToggleExpand, onMoveNote, setDraggedNoteId, setDropIndicator]);
 
-  const schema = schemas[node.note.nodeType];
+  const schema = schemas[node.note.schema];
   const hasHoverContent = (schema?.hasHover ?? false) || (schema?.fields.some(f => f.showOnHover) ?? false);
 
   const indentPx = level * 20 + 8;

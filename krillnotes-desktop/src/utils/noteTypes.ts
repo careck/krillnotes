@@ -31,11 +31,11 @@ export function getAvailableTypes(
 
   let effectiveParentType: string | null;
   if (position === 'child') {
-    effectiveParentType = referenceNote.nodeType;
+    effectiveParentType = referenceNote.schema;
   } else {
     // sibling: effective parent is referenceNote's parent
     const parentNote = notes.find(n => n.id === referenceNote.parentId);
-    effectiveParentType = parentNote ? parentNote.nodeType : null;
+    effectiveParentType = parentNote ? parentNote.schema : null;
   }
 
   return allTypes.filter(type => {

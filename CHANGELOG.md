@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Note Info panel metadata now uses the same `dl/dt/dd` grid layout as the fields view
 - Note Info panel metadata section is hidden on custom view tabs and only shown on the Fields tab
 
+### Changed
+- **Breaking (Rhai scripts):** `note.node_type` renamed to `note.schema` in all Rhai script contexts.
+  Update any user scripts that reference `note.node_type` → `note.schema`.
+- `Note` JSON key changed from `nodeType` to `schema` in workspace exports.
+  Old `.krillnotes` archives with `nodeType` are still importable (backward compat preserved via serde alias).
+
 ## [0.3.0] — 2026-03-07
 
 > **Breaking changes:** This release introduces an identity-based authentication system (workspaces from v0.2.x must be exported and re-imported), a new scripting API (`save_note` replaces `update_note`, `register_view`/`register_hover`/`register_menu` replace inline hooks, schema versioning is now required), and HLC-based operation timestamps that update the database schema. Additionally, the project is now licensed under MPL-2.0 (previously MIT).

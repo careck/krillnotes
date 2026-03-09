@@ -55,7 +55,7 @@ pub enum FieldValue {
 /// A single node in the workspace hierarchy.
 ///
 /// Notes form a tree via `parent_id`; siblings are ordered by `position`.
-/// Each note has a `node_type` that maps to a [`crate::Schema`] and a set
+/// Each note has a `schema` that maps to a [`crate::Schema`] and a set
 /// of typed `fields` validated against that schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +65,8 @@ pub struct Note {
     /// Human-readable title shown in the tree view.
     pub title: String,
     /// Schema name governing this note's `fields` (e.g. `"TextNote"`).
-    pub node_type: String,
+    #[serde(alias = "nodeType")]
+    pub schema: String,
     /// ID of the parent note, or `None` for root-level notes.
     pub parent_id: Option<String>,
     /// Fractional sort order among siblings that share the same `parent_id`.
@@ -106,7 +107,7 @@ mod tests {
         let note = Note {
             id: "test-id".to_string(),
             title: "Test Note".to_string(),
-            node_type: "TextNote".to_string(),
+            schema: "TextNote".to_string(),
             parent_id: None,
             position: 0.0,
             created_at: 1234567890,
@@ -119,7 +120,7 @@ mod tests {
         };
 
         assert_eq!(note.title, "Test Note");
-        assert_eq!(note.node_type, "TextNote");
+        assert_eq!(note.schema, "TextNote");
         assert!(note.parent_id.is_none());
     }
 
@@ -217,5 +218,39 @@ mod tests {
         assert_eq!(json, r#"{"File":null}"#);
         let back: FieldValue = serde_json::from_str(&json).unwrap();
         assert!(matches!(back, FieldValue::File(None)));
+    }
+
+    #[test]
+    fn test_note_deserializes_legacy_node_type_key() {
+        // Old archives use "nodeType" (camelCase). Must still deserialize.
+        let json = r#"{
+            "id": "abc",
+            "title": "Old Note",
+            "nodeType": "TextNote",
+            "parentId": null,
+            "position": 0.0,
+            "createdAt": 0,
+            "modifiedAt": 0,
+            "createdBy": "",
+            "modifiedBy": "",
+            "fields": {},
+            "isExpanded": true
+        }"#;
+        let note: Note = serde_json::from_str(json).expect("should deserialize legacy archive");
+        assert_eq!(note.schema, "TextNote");
+    }
+
+    #[test]
+    fn test_note_serializes_new_schema_key() {
+        // New exports must use "schema", not "nodeType".
+        let note = Note {
+            id: "x".into(), title: "T".into(), schema: "TextNote".into(),
+            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            created_by: String::new(), modified_by: String::new(),
+            fields: BTreeMap::new(), is_expanded: true, tags: vec![], schema_version: 1,
+        };
+        let json = serde_json::to_string(&note).unwrap();
+        assert!(json.contains(r#""schema":"TextNote""#), "must use new key");
+        assert!(!json.contains("nodeType"), "must not contain old key");
     }
 }

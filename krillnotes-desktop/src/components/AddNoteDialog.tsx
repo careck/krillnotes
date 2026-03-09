@@ -22,7 +22,7 @@ interface AddNoteDialogProps {
 
 function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, position, notes, schemas }: AddNoteDialogProps) {
   const { t } = useTranslation();
-  const [nodeType, setNodeType] = useState<string>('');
+  const [noteSchema, setNoteSchema] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
@@ -32,10 +32,10 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
   );
 
   useEffect(() => {
-    if (availableTypes.length > 0 && !availableTypes.includes(nodeType)) {
-      setNodeType(availableTypes[0]);
+    if (availableTypes.length > 0 && !availableTypes.includes(noteSchema)) {
+      setNoteSchema(availableTypes[0]);
     }
-  }, [availableTypes, nodeType]);
+  }, [availableTypes, noteSchema]);
 
   useEffect(() => {
     if (isOpen) {
@@ -54,7 +54,7 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
       const note = await invoke<Note>('create_note_with_type', {
         parentId: position === 'root' ? null : referenceNoteId,
         position: position === 'root' ? 'child' : position,
-        nodeType,
+        schema: noteSchema,
       });
       onNoteCreated(note.id);
       onClose();
@@ -80,8 +80,8 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
             <p className="text-sm text-amber-600 py-2">{t('notes.noAllowedTypes')}</p>
           ) : (
             <select
-              value={nodeType}
-              onChange={(e) => setNodeType(e.target.value)}
+              value={noteSchema}
+              onChange={(e) => setNoteSchema(e.target.value)}
               className="w-full bg-secondary border border-secondary rounded px-3 py-2"
             >
               {availableTypes.map(type => (
@@ -108,7 +108,7 @@ function AddNoteDialog({ isOpen, onClose, onNoteCreated, referenceNoteId, positi
           <button
             onClick={handleCreate}
             className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
-            disabled={loading || !nodeType || availableTypes.length === 0}
+            disabled={loading || !noteSchema || availableTypes.length === 0}
           >
             {loading ? t('common.creating') : t('common.create')}
           </button>

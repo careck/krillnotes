@@ -30,7 +30,7 @@ pub struct PendingNote {
     pub is_new: bool,
     /// Parent ID (only meaningful when `is_new` is true).
     pub parent_id: Option<String>,
-    pub node_type: String,
+    pub schema: String,
     pub original_fields: BTreeMap<String, FieldValue>,
     pub pending_fields: BTreeMap<String, FieldValue>,
     pub original_title: String,
@@ -76,7 +76,7 @@ impl SaveTransaction {
     /// Creates a transaction pre-loaded with one existing note (for on_save).
     pub fn for_existing_note(
         note_id: String,
-        node_type: String,
+        schema: String,
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) -> Self {
@@ -85,7 +85,7 @@ impl SaveTransaction {
             note_id,
             is_new: false,
             parent_id: None,
-            node_type,
+            schema,
             original_fields: fields,
             pending_fields: BTreeMap::new(),
             original_title: title,
@@ -101,7 +101,7 @@ impl SaveTransaction {
     pub fn register_existing_note(
         &mut self,
         note_id: String,
-        node_type: String,
+        schema: String,
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) {
@@ -109,7 +109,7 @@ impl SaveTransaction {
             note_id,
             is_new: false,
             parent_id: None,
-            node_type,
+            schema,
             original_fields: fields,
             pending_fields: BTreeMap::new(),
             original_title: title,
@@ -122,7 +122,7 @@ impl SaveTransaction {
         &mut self,
         note_id: String,
         parent_id: String,
-        node_type: String,
+        schema: String,
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) {
@@ -130,7 +130,7 @@ impl SaveTransaction {
             note_id,
             is_new: true,
             parent_id: Some(parent_id),
-            node_type,
+            schema,
             original_fields: fields.clone(),
             pending_fields: fields,
             original_title: title,

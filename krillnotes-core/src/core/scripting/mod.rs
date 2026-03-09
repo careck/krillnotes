@@ -59,7 +59,7 @@ fn pending_note_to_dynamic(pending: &crate::core::save_transaction::PendingNote)
     }
     let mut note_map = rhai::Map::new();
     note_map.insert("id".into(),        Dynamic::from(pending.note_id.clone()));
-    note_map.insert("node_type".into(), Dynamic::from(pending.node_type.clone()));
+    note_map.insert("schema".into(), Dynamic::from(pending.schema.clone()));
     note_map.insert("title".into(),     Dynamic::from(pending.effective_title().to_string()));
     note_map.insert("fields".into(),    Dynamic::from(fields_map));
     note_map.insert("tags".into(),      Dynamic::from(rhai::Array::new()));
@@ -540,7 +540,7 @@ impl ScriptRegistry {
                 let mut map = rhai::Map::new();
                 map.insert("id".into(),        Dynamic::from(note_id));
                 map.insert("parent_id".into(), Dynamic::from(parent_id));
-                map.insert("node_type".into(), Dynamic::from(node_type));
+                map.insert("schema".into(), Dynamic::from(node_type));
                 map.insert("title".into(),     Dynamic::from(String::new()));
                 map.insert("fields".into(),    Dynamic::from(fields_map));
                 map.insert("tags".into(),      Dynamic::from(rhai::Array::new()));
@@ -644,7 +644,7 @@ impl ScriptRegistry {
                 let node_type_opt: Option<String> = SAVE_TX.with(|cell| {
                     cell.borrow()
                         .as_ref()
-                        .and_then(|tx| tx.pending_notes.get(&note_id).map(|p| p.node_type.clone()))
+                        .and_then(|tx| tx.pending_notes.get(&note_id).map(|p| p.schema.clone()))
                 });
                 if let Some(node_type) = node_type_opt {
                     // Clone the data we need before releasing the lock.
@@ -860,13 +860,13 @@ impl ScriptRegistry {
         &self,
         schema_name: &str,
         note_id: &str,
-        node_type: &str,
+        schema: &str,
         title: &str,
         fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<SaveTransaction>> {
-        let schema = self.schema_registry.get(schema_name)?;
+        let schema_def = self.schema_registry.get(schema_name)?;
         self.schema_registry
-            .run_on_save_hook(&self.engine, &schema, note_id, node_type, title, fields)
+            .run_on_save_hook(&self.engine, &schema_def, note_id, schema, title, fields)
     }
 
     /// Runs the `on_add_child` hook registered for `parent_schema_name`, if any.
@@ -965,7 +965,7 @@ impl ScriptRegistry {
 
     /// Renders a default HTML view for `note` using schema field type information.
     pub fn render_default_view(&self, note: &Note, resolved_titles: &std::collections::HashMap<String, String>, attachments: &[crate::core::attachment::AttachmentMeta]) -> String {
-        let schema = self.schema_registry.get(&note.node_type).ok();
+        let schema = self.schema_registry.get(&note.schema).ok();
         display_helpers::render_default_view(note, schema.as_ref(), resolved_titles, attachments)
     }
 
@@ -977,7 +977,7 @@ impl ScriptRegistry {
         }
         let mut note_map = Map::new();
         note_map.insert("id".into(), Dynamic::from(note.id.clone()));
-        note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+        note_map.insert("schema".into(), Dynamic::from(note.schema.clone()));
         note_map.insert("title".into(), Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(), Dynamic::from(fields_map));
         let tags_array: rhai::Array = note.tags.iter()
@@ -1076,7 +1076,7 @@ impl ScriptRegistry {
         }
         let mut note_map = Map::new();
         note_map.insert("id".into(),        Dynamic::from(note.id.clone()));
-        note_map.insert("node_type".into(), Dynamic::from(note.node_type.clone()));
+        note_map.insert("schema".into(),    Dynamic::from(note.schema.clone()));
         note_map.insert("title".into(),     Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(),    Dynamic::from(fields_map));
 
@@ -1085,7 +1085,7 @@ impl ScriptRegistry {
         *self.query_context.lock().unwrap() = Some(context);
         let initial_tx = SaveTransaction::for_existing_note(
             note.id.clone(),
-            note.node_type.clone(),
+            note.schema.clone(),
             note.title.clone(),
             note.fields.clone(),
         );
@@ -1300,7 +1300,7 @@ mod tests {
 
         use crate::Note;
         let note = Note {
-            id: "n1".to_string(), node_type: "Folder".to_string(),
+            id: "n1".to_string(), schema: "Folder".to_string(),
             title: "F".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
@@ -1912,7 +1912,7 @@ mod tests {
             .unwrap();
 
         let pn = tx.pending_notes.get("id-1").unwrap();
-        assert_eq!(pn.title, Some("Hello, World".to_string()));
+        assert_eq!(pn.pending_title, Some("Hello, World".to_string()));
     }
 
     /// Regression: clear_all must reset library_sources so a reload doesn't carry over
@@ -2306,7 +2306,7 @@ mod tests {
         let mut fields = BTreeMap::new();
         fields.insert("body".into(), FieldValue::Text("**important**".into()));
         let note = Note {
-            id: "n1".into(), title: "Test".into(), node_type: "Memo".into(),
+            id: "n1".into(), title: "Test".into(), schema: "Memo".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -2335,7 +2335,7 @@ mod tests {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             register_view("LinkTest", "Default", |note| {
-                let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, node_type: "TextNote" };
+                let target = #{ id: "target-id-123", title: "Target Note", fields: #{}, schema: "TextNote" };
                 link_to(target)
             });
         "#, "test_views.rhai").unwrap();
@@ -2348,7 +2348,7 @@ mod tests {
 
         let note = Note {
             id: "note-1".to_string(),
-            node_type: "LinkTest".to_string(),
+            schema: "LinkTest".to_string(),
             title: "Test".to_string(),
             parent_id: None,
             position: 0.0,
@@ -2654,7 +2654,7 @@ mod tests {
 
         use crate::Note;
         let note = Note {
-            id: "n1".to_string(), node_type: "BoomView".to_string(),
+            id: "n1".to_string(), schema: "BoomView".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
@@ -2717,7 +2717,7 @@ mod tests {
         registry.resolve_bindings();
         let note = crate::Note {
             id: "n1".into(), title: "Hello".into(),
-            node_type: "TextNote".into(), parent_id: None,
+            schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
@@ -2744,7 +2744,7 @@ mod tests {
         registry.resolve_bindings();
         let note = crate::Note {
             id: "p1".into(), title: "Parent".into(),
-            node_type: "TextNote".into(), parent_id: None,
+            schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
@@ -2766,7 +2766,7 @@ mod tests {
         let registry = ScriptRegistry::new().unwrap();
         let note = crate::Note {
             id: "n1".into(), title: "T".into(),
-            node_type: "TextNote".into(), parent_id: None,
+            schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
@@ -2793,7 +2793,7 @@ mod tests {
         registry.resolve_bindings();
         let note = crate::Note {
             id: "n1".into(), title: "T".into(),
-            node_type: "TextNote".into(), parent_id: None,
+            schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
@@ -2815,7 +2815,7 @@ mod tests {
     fn make_test_note(id: &str, node_type: &str) -> crate::Note {
         crate::Note {
             id: id.into(), title: "Test".into(),
-            node_type: node_type.into(), parent_id: None,
+            schema: node_type.into(), parent_id: None,
             fields: Default::default(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1,
@@ -2844,7 +2844,7 @@ mod tests {
             });
             register_menu("Make Task", ["Task"], |note| {
                 let t = create_child(note.id, "Task");
-                if t.node_type != "Task" { throw "node_type must be Task"; }
+                if t.schema != "Task" { throw "schema must be Task"; }
                 if t.id == ""           { throw "id must not be empty"; }
                 if t.fields.status != "" { throw "status must default to empty string"; }
                 commit();
@@ -2858,7 +2858,7 @@ mod tests {
         let new_notes: Vec<_> = result.transaction.pending_notes.values()
             .filter(|p| p.is_new).collect();
         assert_eq!(new_notes.len(), 1, "one new pending note expected");
-        assert_eq!(new_notes[0].node_type, "Task");
+        assert_eq!(new_notes[0].schema, "Task");
         assert_eq!(new_notes[0].parent_id.as_deref(), Some("parent1"));
     }
 
@@ -2983,7 +2983,7 @@ mod tests {
         registry.resolve_bindings();
 
         let note = Note {
-            id: "n1".to_string(), node_type: "Tagged".to_string(),
+            id: "n1".to_string(), schema: "Tagged".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false,
@@ -3183,7 +3183,7 @@ mod tests {
         "#, "HoverRun.schema.rhai").unwrap();
         registry.resolve_bindings();
         let note = crate::Note {
-            id: "id1".into(), title: "Test Note".into(), node_type: "HoverRun".into(),
+            id: "id1".into(), title: "Test Note".into(), schema: "HoverRun".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
@@ -3279,7 +3279,7 @@ mod tests {
         let mut fields = BTreeMap::new();
         fields.insert("photo".to_string(), FieldValue::File(Some("abc-uuid-123".to_string())));
         let note = Note {
-            id: "n1".to_string(), node_type: "PhotoNote".to_string(),
+            id: "n1".to_string(), schema: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
             created_by: String::new(), modified_by: String::new(), is_expanded: false,
@@ -3310,7 +3310,7 @@ mod tests {
         let mut fields = BTreeMap::new();
         fields.insert("photo".to_string(), FieldValue::File(None));
         let note = Note {
-            id: "n2".to_string(), node_type: "PhotoNote".to_string(),
+            id: "n2".to_string(), schema: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
             created_by: String::new(), modified_by: String::new(), is_expanded: false,

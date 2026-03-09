@@ -406,8 +406,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     if (draggedNoteId !== null) return;
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
     hoverTimer.current = setTimeout(async () => {
-      const nodeType = notes.find(n => n.id === noteId)?.nodeType ?? '';
-      const schema = schemas[nodeType] ?? null;
+      const noteSchema = notes.find(n => n.id === noteId)?.schema ?? '';
+      const schema = schemas[noteSchema] ?? null;
       if (schema?.hasHover) {
         try {
           const html = await invoke<string | null>('get_note_hover', { noteId });
@@ -616,7 +616,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
     const note = notes.find(n => n.id === noteId);
-    const noteType = note?.nodeType ?? '';
+    const noteType = note?.schema ?? '';
     setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType });
   };
 
@@ -629,7 +629,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       const parentId = position === 'root' ? null : referenceNoteId;
       const tauriPosition = position === 'root' ? 'child' : position;
       invoke('begin_undo_group')
-        .then(() => invoke<Note>('create_note_with_type', { parentId, position: tauriPosition, nodeType: available[0] }))
+        .then(() => invoke<Note>('create_note_with_type', { parentId, position: tauriPosition, schema: available[0] }))
         .then(note => handleNoteCreated(note.id).then(() => refreshUndoState()))
         .catch(err => console.error('Failed to create note:', err));
       return;
@@ -914,7 +914,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       {/* Hover Tooltip */}
       {hoveredNoteId && (() => {
         const note = notes.find(n => n.id === hoveredNoteId);
-        const schema = note ? (schemas[note.nodeType] ?? null) : null;
+        const schema = note ? (schemas[note.schema] ?? null) : null;
         if (!note) return null;
         const hasHoverFields = schema?.fields.some(f => f.showOnHover) ?? false;
         if (hoverHtml === null && !hasHoverFields) return null;

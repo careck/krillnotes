@@ -333,7 +333,7 @@ The hook receives the note as a map for **field reading only**. All writes must 
 | Key | Type | Notes |
 |---|---|---|
 | `note.id` | String | — |
-| `note.node_type` | String | — |
+| `note.schema` | String | — |
 | `note.title` | String | Updated by `set_title()` (read-your-writes) |
 | `note.fields` | Map | Updated by `set_field()` (read-your-writes) |
 | `note.tags` | Array of strings | Read-only |
@@ -1061,7 +1061,7 @@ Each note returned by query functions:
 | Key | Type |
 |---|---|
 | `note.id` | String |
-| `note.node_type` | String |
+| `note.schema` | String |
 | `note.title` | String |
 | `note.fields` | Map of field values |
 | `note.tags` | Array of strings |

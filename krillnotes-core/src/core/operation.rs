@@ -35,7 +35,7 @@ pub enum Operation {
         /// Fractional position among siblings.
         position: f64,
         /// Schema type of the new note.
-        node_type: String,
+        schema: String,
         /// Initial title of the new note.
         title: String,
         /// Initial field values of the new note.
@@ -577,7 +577,7 @@ mod tests {
             note_id: "note-1".to_string(),
             parent_id: None,
             position: 0.0,
-            node_type: "TextNote".to_string(),
+            schema: "TextNote".to_string(),
             title: "Test".to_string(),
             fields: BTreeMap::new(),
             created_by: String::new(),
@@ -646,7 +646,7 @@ mod tests {
             note_id: "note-multi-1".to_string(),
             parent_id: None,
             position: 0.0,
-            node_type: "TextNote".to_string(),
+            schema: "TextNote".to_string(),
             title: "Multi-field note".to_string(),
             fields,
             created_by: String::new(),

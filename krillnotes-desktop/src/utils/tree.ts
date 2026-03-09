@@ -32,7 +32,7 @@ export function buildTree(
   // 2. Recursive builder — sorts children based on parent's schema
   function buildNode(note: Note): TreeNode {
     const children = childrenMap.get(note.id) || [];
-    const mode = sortConfig?.[note.nodeType] ?? 'none';
+    const mode = sortConfig?.[note.schema] ?? 'none';
     if (mode === 'asc') {
       children.sort((a, b) => a.title.localeCompare(b.title));
     } else if (mode === 'desc') {

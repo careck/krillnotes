@@ -49,8 +49,10 @@ mod integration_tests {
             workspace_id: "ws-alpha".to_string(),
             workspace_name: "Project Alpha".to_string(),
             source_device_id: "dev-alice".to_string(),
+            source_display_name: String::new(),
             offered_role: "writer".to_string(),
             offered_scope: None,
+            contact_public_key: None,
             inviter_key: &alice_key,
         }).unwrap();
 

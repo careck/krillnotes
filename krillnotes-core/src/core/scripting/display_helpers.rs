@@ -872,7 +872,7 @@ mod tests {
         fields.insert("notes".into(), FieldValue::Text("**bold**".into()));
 
         let note = Note {
-            id: "id1".into(), title: "Test".into(), node_type: "T".into(),
+            id: "id1".into(), title: "Test".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -904,7 +904,7 @@ mod tests {
         fields.insert("name".into(), FieldValue::Text("<script>alert(1)</script>".into()));
 
         let note = Note {
-            id: "id2".into(), title: "T".into(), node_type: "T".into(),
+            id: "id2".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -936,7 +936,7 @@ mod tests {
         fields.insert("secret".into(), FieldValue::Text("hidden".into()));
 
         let note = Note {
-            id: "id3".into(), title: "T".into(), node_type: "T".into(),
+            id: "id3".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -971,7 +971,7 @@ mod tests {
         fields.insert("body".into(), FieldValue::Text("<em>italic</em> and **bold**".into()));
 
         let note = Note {
-            id: "sec1".into(), title: "T".into(), node_type: "T".into(),
+            id: "sec1".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -1030,7 +1030,7 @@ mod tests {
         fields.insert("old_field".into(), FieldValue::Text("legacy value".into()));
 
         let note = Note {
-            id: "id4".into(), title: "T".into(), node_type: "T".into(),
+            id: "id4".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };
@@ -1367,7 +1367,7 @@ mod tests {
             FieldValue::Text("Watch this:\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nDone.".into()),
         );
         let note = Note {
-            id: "id-embed".into(), title: "T".into(), node_type: "T".into(),
+            id: "id-embed".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
         };

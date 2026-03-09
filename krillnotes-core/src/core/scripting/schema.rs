@@ -712,7 +712,7 @@ impl SchemaRegistry {
         engine: &Engine,
         schema: &Schema,
         note_id: &str,
-        node_type: &str,
+        schema_type: &str,
         title: &str,
         fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<SaveTransaction>> {
@@ -733,14 +733,14 @@ impl SchemaRegistry {
         }
         let mut note_map = Map::new();
         note_map.insert("id".into(),        Dynamic::from(note_id.to_string()));
-        note_map.insert("node_type".into(), Dynamic::from(node_type.to_string()));
+        note_map.insert("schema".into(),    Dynamic::from(schema_type.to_string()));
         note_map.insert("title".into(),     Dynamic::from(title.to_string()));
         note_map.insert("fields".into(),    Dynamic::from(fields_map));
 
         // Populate the thread-local SaveTransaction before calling the hook.
         let tx = SaveTransaction::for_existing_note(
             note_id.to_string(),
-            node_type.to_string(),
+            schema_type.to_string(),
             title.to_string(),
             fields.clone(),
         );
@@ -796,7 +796,7 @@ impl SchemaRegistry {
         note_map: Map,
     ) -> Result<Option<String>> {
         let schema_name = note_map
-            .get("node_type")
+            .get("schema")
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_default();
 
@@ -828,7 +828,7 @@ impl SchemaRegistry {
         view_label: &str,
     ) -> Result<String> {
         let schema_name = note_map
-            .get("node_type")
+            .get("schema")
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_default();
 
@@ -860,7 +860,7 @@ impl SchemaRegistry {
         note_map: Map,
     ) -> Result<Option<String>> {
         let schema_name = note_map
-            .get("node_type")
+            .get("schema")
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_default();
 
@@ -929,7 +929,7 @@ impl SchemaRegistry {
         }
         let mut parent_map = Map::new();
         parent_map.insert("id".into(),        Dynamic::from(parent_id.to_string()));
-        parent_map.insert("node_type".into(), Dynamic::from(parent_type.to_string()));
+        parent_map.insert("schema".into(), Dynamic::from(parent_type.to_string()));
         parent_map.insert("title".into(),     Dynamic::from(parent_title.to_string()));
         parent_map.insert("fields".into(),    Dynamic::from(p_fields_map));
 
@@ -940,7 +940,7 @@ impl SchemaRegistry {
         }
         let mut child_map = Map::new();
         child_map.insert("id".into(),        Dynamic::from(child_id.to_string()));
-        child_map.insert("node_type".into(), Dynamic::from(child_type.to_string()));
+        child_map.insert("schema".into(), Dynamic::from(child_type.to_string()));
         child_map.insert("title".into(),     Dynamic::from(child_title.to_string()));
         child_map.insert("fields".into(),    Dynamic::from(c_fields_map));
 

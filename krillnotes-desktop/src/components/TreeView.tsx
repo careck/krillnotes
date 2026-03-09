@@ -50,7 +50,7 @@ function TreeView({
     // Block if dragged note's schema restricts parent types (root has no parent)
     const draggedNote = notes.find(n => n.id === draggedNoteId);
     if (draggedNote) {
-      const apt = schemas[draggedNote.nodeType]?.allowedParentTypes ?? [];
+      const apt = schemas[draggedNote.schema]?.allowedParentTypes ?? [];
       if (apt.length > 0) {
         setDraggedNoteId(null);
         setDropIndicator(null);

@@ -378,6 +378,18 @@ impl Storage {
             )?;
         }
 
+        // Migration: rename node_type column to schema (if the old column name still exists).
+        let node_type_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='node_type'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if node_type_exists {
+            conn.execute_batch(
+                "ALTER TABLE notes RENAME COLUMN node_type TO schema;",
+            )?;
+        }
+
         Ok(())
     }
 
