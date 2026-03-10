@@ -58,8 +58,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     titleCanView: true,
     titleCanEdit: true,
     childrenSort: 'none',
-    allowedParentTypes: [],
-    allowedChildrenTypes: [],
+    allowedParentSchemas: [],
+    allowedChildrenSchemas: [],
     hasViews: false,
     hasHover: false,
     allowAttachments: false,
@@ -95,7 +95,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
   const emptySchemaInfo: SchemaInfo = {
     fields: [], titleCanView: true, titleCanEdit: true, childrenSort: 'none',
-    allowedParentTypes: [], allowedChildrenTypes: [], hasViews: false, hasHover: false,
+    allowedParentSchemas: [], allowedChildrenSchemas: [], hasViews: false, hasHover: false,
     allowAttachments: false, attachmentTypes: [], fieldGroups: [],
   };
 
@@ -693,7 +693,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                 required={field.required}
                 options={field.options}
                 max={field.max}
-                targetType={field.targetType}
+                targetSchema={field.targetSchema}
                 noteId={selectedNote.id}
                 fieldDef={field}
                 error={fieldErrors[field.name]}
@@ -733,7 +733,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                           required={field.required}
                           options={field.options}
                           max={field.max}
-                          targetType={field.targetType}
+                          targetSchema={field.targetSchema}
                           noteId={selectedNote.id}
                           fieldDef={field}
                           error={fieldErrors[field.name]}

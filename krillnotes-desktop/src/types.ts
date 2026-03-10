@@ -58,7 +58,7 @@ export interface FieldDefinition {
   canEdit: boolean;
   options: string[];       // non-empty for 'select' fields
   max: number;             // non-zero for 'rating' fields
-  targetType?: string;     // only meaningful for note_link fields
+  targetSchema?: string;   // only meaningful for note_link fields
   showOnHover: boolean;
   allowedTypes: string[];  // MIME types; empty = all allowed; only meaningful for 'file' fields
   hasValidate: boolean;    // true if a validate closure is registered for this field
@@ -81,8 +81,8 @@ export interface SchemaInfo {
   titleCanView: boolean;
   titleCanEdit: boolean;
   childrenSort: 'asc' | 'desc' | 'none';
-  allowedParentTypes: string[];
-  allowedChildrenTypes: string[];
+  allowedParentSchemas: string[];
+  allowedChildrenSchemas: string[];
   hasViews: boolean;
   hasHover: boolean;
   allowAttachments: boolean;

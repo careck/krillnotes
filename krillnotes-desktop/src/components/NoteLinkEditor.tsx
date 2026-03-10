@@ -11,11 +11,11 @@ import type { NoteSearchResult } from '../types';
 
 interface Props {
   value: string | null;
-  targetType?: string;
+  targetSchema?: string;
   onChange: (id: string | null) => void;
 }
 
-export function NoteLinkEditor({ value, targetType, onChange }: Props) {
+export function NoteLinkEditor({ value, targetSchema, onChange }: Props) {
   const { t } = useTranslation();
   const [displayTitle, setDisplayTitle] = useState<string>('');
   const [query, setQuery] = useState('');
@@ -54,7 +54,7 @@ export function NoteLinkEditor({ value, targetType, onChange }: Props) {
       try {
         const r = await invoke<NoteSearchResult[]>('search_notes', {
           query: q,
-          targetType: targetType ?? null,
+          targetSchema: targetSchema ?? null,
         });
         setResults(r);
       } catch {

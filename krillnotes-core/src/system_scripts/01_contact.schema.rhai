@@ -10,7 +10,7 @@
 schema("ContactsFolder", #{
     version: 1,
     children_sort: "asc",
-    allowed_children_types: ["Contact"],
+    allowed_children_schemas: ["Contact"],
     fields: [
         #{ name: "notes", type: "textarea", required: false },
     ],
@@ -19,7 +19,7 @@ schema("ContactsFolder", #{
 schema("Contact", #{
     version: 1,
     title_can_edit: false,
-    allowed_parent_types: ["ContactsFolder"],
+    allowed_parent_schemas: ["ContactsFolder"],
     fields: [
         #{ name: "first_name",      type: "text",  required: true  },
         #{ name: "middle_name",     type: "text",  required: false },

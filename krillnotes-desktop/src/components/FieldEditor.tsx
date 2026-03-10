@@ -17,7 +17,7 @@ interface FieldEditorProps {
   required: boolean;
   options: string[];
   max: number;
-  targetType?: string;
+  targetSchema?: string;
   noteId?: string;
   fieldDef?: FieldDefinition;
   error?: string;
@@ -25,7 +25,7 @@ interface FieldEditorProps {
   onChange: (value: FieldValue) => void;
 }
 
-function FieldEditor({ fieldName, fieldType, value, required, options, max, targetType, noteId, fieldDef, error, onBlur, onChange }: FieldEditorProps) {
+function FieldEditor({ fieldName, fieldType, value, required, options, max, targetSchema, noteId, fieldDef, error, onBlur, onChange }: FieldEditorProps) {
   const { t } = useTranslation();
   const renderEditor = () => {
     if (fieldType === 'file') {
@@ -45,7 +45,7 @@ function FieldEditor({ fieldName, fieldType, value, required, options, max, targ
       return (
         <NoteLinkEditor
           value={currentId}
-          targetType={targetType}
+          targetSchema={targetSchema}
           onChange={(id) => onChange({ NoteLink: id })}
         />
       );

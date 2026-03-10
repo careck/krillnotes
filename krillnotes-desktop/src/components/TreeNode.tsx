@@ -85,15 +85,15 @@ function TreeNode({
         prospectiveParentType = parentNote ? parentNote.schema : null;
       }
 
-      // Child constraint: dragged type's allowedParentTypes
-      const apt = schemas[draggedNote.schema]?.allowedParentTypes ?? [];
+      // Child constraint: dragged type's allowedParentSchemas
+      const apt = schemas[draggedNote.schema]?.allowedParentSchemas ?? [];
       if (apt.length > 0) {
         if (!prospectiveParentType || !apt.includes(prospectiveParentType)) return;
       }
 
-      // Parent constraint: prospective parent's allowedChildrenTypes
+      // Parent constraint: prospective parent's allowedChildrenSchemas
       if (prospectiveParentType !== null) {
-        const act = schemas[prospectiveParentType]?.allowedChildrenTypes ?? [];
+        const act = schemas[prospectiveParentType]?.allowedChildrenSchemas ?? [];
         if (act.length > 0 && !act.includes(draggedNote.schema)) return;
       }
     }
@@ -144,8 +144,8 @@ function TreeNode({
     if (draggedNote) {
       const parentNote = newParentId ? notes.find(n => n.id === newParentId) : null;
 
-      // Child constraint: dragged type's allowedParentTypes
-      const apt = schemas[draggedNote.schema]?.allowedParentTypes ?? [];
+      // Child constraint: dragged type's allowedParentSchemas
+      const apt = schemas[draggedNote.schema]?.allowedParentSchemas ?? [];
       if (apt.length > 0) {
         if (!parentNote || !apt.includes(parentNote.schema)) {
           setDraggedNoteId(null);
@@ -154,9 +154,9 @@ function TreeNode({
         }
       }
 
-      // Parent constraint: new parent's allowedChildrenTypes
+      // Parent constraint: new parent's allowedChildrenSchemas
       if (parentNote) {
-        const act = schemas[parentNote.schema]?.allowedChildrenTypes ?? [];
+        const act = schemas[parentNote.schema]?.allowedChildrenSchemas ?? [];
         if (act.length > 0 && !act.includes(draggedNote.schema)) {
           setDraggedNoteId(null);
           setDropIndicator(null);

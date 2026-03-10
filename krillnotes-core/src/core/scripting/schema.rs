@@ -44,7 +44,7 @@ pub struct MenuRegistration {
 #[derive(Debug, Clone)]
 pub struct DeferredBinding {
     pub kind: BindingKind,
-    pub target_type: String,
+    pub target_schema: String,
     pub fn_ptr: FnPtr,
     pub ast: Arc<AST>,
     pub script_name: String,
@@ -96,7 +96,7 @@ pub struct FieldDefinition {
     /// Optional schema type filter for `note_link` fields.
     /// If set, the picker only shows notes of this type. Ignored for all other field types.
     #[serde(default)]
-    pub target_type: Option<String>,
+    pub target_schema: Option<String>,
     /// When `true`, this field is included in the hover-tooltip simple-path renderer.
     /// Defaults to `false` (opt-in).
     #[serde(default)]
@@ -132,10 +132,10 @@ pub struct Schema {
     pub children_sort: String,
     /// Note types that are allowed as parents of this note type.
     /// Empty means no restriction (any parent or root is allowed).
-    pub allowed_parent_types: Vec<String>,
+    pub allowed_parent_schemas: Vec<String>,
     /// Note types that this schema allows as direct children.
     /// Empty means no restriction (any child type is allowed here).
-    pub allowed_children_types: Vec<String>,
+    pub allowed_children_schemas: Vec<String>,
     /// When `true`, the note-level attachments panel is shown for this schema.
     /// Defaults to `false` (opt-in).
     pub allow_attachments: bool,
@@ -277,8 +277,8 @@ impl Schema {
             ));
         }
 
-        let target_type: Option<String> = field_map
-            .get("target_type")
+        let target_schema: Option<String> = field_map
+            .get("target_schema")
             .and_then(|v| v.clone().try_cast::<String>());
 
         let show_on_hover = field_map
@@ -303,7 +303,7 @@ impl Schema {
             .get("validate")
             .and_then(|v| v.clone().try_cast::<rhai::FnPtr>());
 
-        Ok(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_type, show_on_hover, allowed_types, validate })
+        Ok(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_schema, show_on_hover, allowed_types, validate })
     }
 
     /// Parses a `Schema` from a Rhai object map produced by a `schema(...)` call.
@@ -344,29 +344,29 @@ impl Schema {
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_else(|| "none".to_string());
 
-        let mut allowed_parent_types: Vec<String> = Vec::new();
+        let mut allowed_parent_schemas: Vec<String> = Vec::new();
         if let Some(arr) = def
-            .get("allowed_parent_types")
+            .get("allowed_parent_schemas")
             .and_then(|v| v.clone().try_cast::<rhai::Array>())
         {
             for item in arr {
                 let s = item.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("allowed_parent_types must contain only strings".into())
+                    KrillnotesError::Scripting("allowed_parent_schemas must contain only strings".into())
                 })?;
-                allowed_parent_types.push(s);
+                allowed_parent_schemas.push(s);
             }
         }
 
-        let mut allowed_children_types: Vec<String> = Vec::new();
+        let mut allowed_children_schemas: Vec<String> = Vec::new();
         if let Some(arr) = def
-            .get("allowed_children_types")
+            .get("allowed_children_schemas")
             .and_then(|v| v.clone().try_cast::<rhai::Array>())
         {
             for item in arr {
                 let s = item.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("allowed_children_types must contain only strings".into())
+                    KrillnotesError::Scripting("allowed_children_schemas must contain only strings".into())
                 })?;
-                allowed_children_types.push(s);
+                allowed_children_schemas.push(s);
             }
         }
 
@@ -477,7 +477,7 @@ impl Schema {
             }
         }
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_types, allowed_children_types, allow_attachments, attachment_types, field_groups, ast: None, version, migrations })
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_schemas, allowed_children_schemas, allow_attachments, attachment_types, field_groups, ast: None, version, migrations })
     }
 }
 
@@ -622,9 +622,9 @@ impl SchemaRegistry {
         for binding in bindings.drain(..) {
             match binding.kind {
                 BindingKind::View => {
-                    if schemas.contains_key(&binding.target_type) {
-                        let label = binding.label.unwrap_or_else(|| binding.target_type.clone());
-                        let slot = views.entry(binding.target_type).or_default();
+                    if schemas.contains_key(&binding.target_schema) {
+                        let label = binding.label.unwrap_or_else(|| binding.target_schema.clone());
+                        let slot = views.entry(binding.target_schema).or_default();
                         // Deduplicate: library source is prepended to each schema compilation,
                         // so register_view() in a library script fires once per schema loaded.
                         // Keep only the first registration for each (type, label) pair.
@@ -641,27 +641,27 @@ impl SchemaRegistry {
                         warnings.push(ScriptWarning {
                             script_name: binding.script_name,
                             message: format!(
-                                "register_view('{}', '{}') -- type not found",
-                                binding.target_type,
+                                "register_view('{}', '{}') -- schema not found",
+                                binding.target_schema,
                                 binding.label.unwrap_or_default()
                             ),
                         });
                     }
                 }
                 BindingKind::Hover => {
-                    if schemas.contains_key(&binding.target_type) {
+                    if schemas.contains_key(&binding.target_schema) {
                         let entry = HookEntry {
                             fn_ptr: binding.fn_ptr,
                             ast: binding.ast.as_ref().clone(),
                             script_name: binding.script_name,
                         };
-                        hovers.insert(binding.target_type, entry);
+                        hovers.insert(binding.target_schema, entry);
                     } else {
                         warnings.push(ScriptWarning {
                             script_name: binding.script_name,
                             message: format!(
-                                "register_hover('{}') -- type not found",
-                                binding.target_type
+                                "register_hover('{}') -- schema not found",
+                                binding.target_schema
                             ),
                         });
                     }

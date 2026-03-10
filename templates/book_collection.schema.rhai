@@ -12,7 +12,7 @@
 schema("Book", #{
     version: 1,
     title_can_edit: false,
-    allowed_parent_types: ["Library"],
+    allowed_parent_schemas: ["Library"],
     fields: [
         #{ name: "book_title",    type: "text",     required: true                   },
         #{ name: "author",        type: "text",     required: true                   },
@@ -63,6 +63,6 @@ schema("Book", #{
 
 schema("Library", #{
     version: 1,
-    allowed_children_types: ["Book"],
+    allowed_children_schemas: ["Book"],
     fields: [],
 });

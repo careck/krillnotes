@@ -725,7 +725,7 @@ struct FieldDefInfo {
     can_edit: bool,
     options: Vec<String>,
     max: i64,
-    target_type: Option<String>,
+    target_schema: Option<String>,
     show_on_hover: bool,
     allowed_types: Vec<String>,
     /// `true` if a `validate` closure is registered for this field.
@@ -742,7 +742,7 @@ impl From<&FieldDefinition> for FieldDefInfo {
             can_edit: f.can_edit,
             options: f.options.clone(),
             max: f.max,
-            target_type: f.target_type.clone(),
+            target_schema: f.target_schema.clone(),
             show_on_hover: f.show_on_hover,
             allowed_types: f.allowed_types.clone(),
             has_validate: f.validate.is_some(),
@@ -769,8 +769,8 @@ struct SchemaInfo {
     title_can_view: bool,
     title_can_edit: bool,
     children_sort: String,
-    allowed_parent_types: Vec<String>,
-    allowed_children_types: Vec<String>,
+    allowed_parent_schemas: Vec<String>,
+    allowed_children_schemas: Vec<String>,
     allow_attachments: bool,
     attachment_types: Vec<String>,
     has_views: bool,
@@ -786,8 +786,8 @@ fn schema_to_info(schema: &Schema, has_views: bool, has_hover: bool) -> SchemaIn
         title_can_view: schema.title_can_view,
         title_can_edit: schema.title_can_edit,
         children_sort: schema.children_sort.clone(),
-        allowed_parent_types: schema.allowed_parent_types.clone(),
-        allowed_children_types: schema.allowed_children_types.clone(),
+        allowed_parent_schemas: schema.allowed_parent_schemas.clone(),
+        allowed_children_schemas: schema.allowed_children_schemas.clone(),
         allow_attachments: schema.allow_attachments,
         attachment_types: schema.attachment_types.clone(),
         field_groups: schema.field_groups.iter().map(|g| FieldGroupInfo {
@@ -1189,14 +1189,14 @@ fn search_notes(
     window: tauri::Window,
     state: State<'_, AppState>,
     query: String,
-    target_type: Option<String>,
+    target_schema: Option<String>,
 ) -> std::result::Result<Vec<NoteSearchResult>, String> {
     let label = window.label();
     let workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get(label)
         .ok_or("No workspace open")?;
-    workspace.search_notes(&query, target_type.as_deref())
+    workspace.search_notes(&query, target_schema.as_deref())
         .map_err(|e| e.to_string())
 }
 

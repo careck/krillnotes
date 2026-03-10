@@ -881,11 +881,11 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "notes".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_types: vec![], allowed_children_types: vec![],
+            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -913,11 +913,11 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "name".into(), field_type: "text".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_types: vec![], allowed_children_types: vec![],
+            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -945,11 +945,11 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "secret".into(), field_type: "text".into(),
                 required: false, can_view: false, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_types: vec![], allowed_children_types: vec![],
+            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -980,11 +980,11 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "body".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_types: vec![], allowed_children_types: vec![],
+            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -1039,11 +1039,11 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "known".into(), field_type: "text".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_types: vec![], allowed_children_types: vec![],
+            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -1376,11 +1376,11 @@ mod tests {
             fields: vec![FieldDefinition {
                 name: "body".into(), field_type: "textarea".into(),
                 required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_type: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
             }],
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_types: vec![], allowed_children_types: vec![],
+            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false, attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
 

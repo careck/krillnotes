@@ -184,7 +184,7 @@ impl ScriptRegistry {
                 let script_name = n1.lock().unwrap().clone().unwrap_or_default();
                 d1.lock().unwrap().push(DeferredBinding {
                     kind: BindingKind::View,
-                    target_type,
+                    target_schema: target_type,
                     fn_ptr,
                     ast: Arc::new(ast),
                     script_name,
@@ -214,7 +214,7 @@ impl ScriptRegistry {
                     .unwrap_or(false);
                 d2.lock().unwrap().push(DeferredBinding {
                     kind: BindingKind::View,
-                    target_type,
+                    target_schema: target_type,
                     fn_ptr,
                     ast: Arc::new(ast),
                     script_name,
@@ -241,7 +241,7 @@ impl ScriptRegistry {
                 let script_name = n3.lock().unwrap().clone().unwrap_or_default();
                 d3.lock().unwrap().push(DeferredBinding {
                     kind: BindingKind::Hover,
-                    target_type,
+                    target_schema: target_type,
                     fn_ptr,
                     ast: Arc::new(ast),
                     script_name,
@@ -271,7 +271,7 @@ impl ScriptRegistry {
                     .collect();
                 d4.lock().unwrap().push(DeferredBinding {
                     kind: BindingKind::Menu,
-                    target_type: String::new(),
+                    target_schema: String::new(),
                     fn_ptr,
                     ast: Arc::new(ast),
                     script_name,
@@ -1434,7 +1434,7 @@ mod tests {
                     can_edit: true,
                     options: vec![],
                     max: 0,
-                    target_type: None,
+                    target_schema: None,
                     show_on_hover: false,
                     allowed_types: vec![], validate: None,
                 },
@@ -1446,7 +1446,7 @@ mod tests {
                     can_edit: true,
                     options: vec![],
                     max: 0,
-                    target_type: None,
+                    target_schema: None,
                     show_on_hover: false,
                     allowed_types: vec![], validate: None,
                 },
@@ -1454,8 +1454,8 @@ mod tests {
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
-            allowed_parent_types: vec![],
-            allowed_children_types: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -1495,15 +1495,15 @@ mod tests {
                 can_edit: true,
                 options: vec![],
                 max: 0,
-                target_type: None,
+                target_schema: None,
                 show_on_hover: false,
                 allowed_types: vec![], validate: None,
             }],
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
-            allowed_parent_types: vec![],
-            allowed_children_types: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -1523,15 +1523,15 @@ mod tests {
                 can_edit: true,
                 options: vec![],
                 max: 0,
-                target_type: None,
+                target_schema: None,
                 show_on_hover: false,
                 allowed_types: vec![], validate: None,
             }],
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
-            allowed_parent_types: vec![],
-            allowed_children_types: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -3121,15 +3121,15 @@ mod tests {
                 can_edit: true,
                 options: vec![],
                 max: 0,
-                target_type: None,
+                target_schema: None,
                 show_on_hover: false,
                 allowed_types: vec![], validate: None,
             }],
             title_can_view: true,
             title_can_edit: true,
             children_sort: "none".to_string(),
-            allowed_parent_types: vec![],
-            allowed_children_types: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
             attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
         };
@@ -3138,18 +3138,18 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_note_link_target_type() {
+    fn test_parse_note_link_target_schema() {
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(r#"
             schema("Task", #{ version: 1,
                 fields: [
-                    #{ name: "project", type: "note_link", target_type: "Project" }
+                    #{ name: "project", type: "note_link", target_schema: "Project" }
                 ]
             });
         "#, "test").unwrap();
         let fields = get_schema_fields_for_test(&registry, "Task");
         assert_eq!(fields[0].field_type, "note_link");
-        assert_eq!(fields[0].target_type, Some("Project".to_string()));
+        assert_eq!(fields[0].target_schema, Some("Project".to_string()));
     }
 
     // ── on_hover hook ────────────────────────────────────────────────────────

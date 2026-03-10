@@ -22,7 +22,7 @@ fn strip_markdown(s) {
 schema("Zettel", #{
     version: 1,
     title_can_edit: false,
-    allowed_parent_types: ["Kasten"],
+    allowed_parent_schemas: ["Kasten"],
     fields: [
         #{ name: "body", type: "textarea", required: false, show_on_hover: true },
     ],
@@ -46,6 +46,6 @@ schema("Zettel", #{
 
 schema("Kasten", #{
     version: 1,
-    allowed_children_types: ["Zettel"],
+    allowed_children_schemas: ["Zettel"],
     fields: [],
 });

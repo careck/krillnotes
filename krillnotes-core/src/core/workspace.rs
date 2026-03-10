@@ -1294,15 +1294,15 @@ impl Workspace {
             AddPosition::AsSibling => (selected.parent_id.clone(), selected.position + 1.0),
         };
 
-        // Validate allowed_parent_types
-        if !schema.allowed_parent_types.is_empty() {
+        // Validate allowed_parent_schemas
+        if !schema.allowed_parent_schemas.is_empty() {
             match &final_parent {
                 None => return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' cannot be placed at root level", note_type
                 ))),
                 Some(pid) => {
                     let parent_note = self.get_note(pid)?;
-                    if !schema.allowed_parent_types.contains(&parent_note.schema) {
+                    if !schema.allowed_parent_schemas.contains(&parent_note.schema) {
                         return Err(KrillnotesError::InvalidMove(format!(
                             "Note type '{}' cannot be placed under '{}'",
                             note_type, parent_note.schema
@@ -1312,12 +1312,12 @@ impl Workspace {
             }
         }
 
-        // Validate allowed_children_types on the parent schema
+        // Validate allowed_children_schemas on the parent schema
         if let Some(pid) = &final_parent {
             let parent_note = self.get_note(pid)?;
             let parent_schema = self.script_registry.get_schema(&parent_note.schema)?;
-            if !parent_schema.allowed_children_types.is_empty()
-                && !parent_schema.allowed_children_types.contains(&note_type.to_string())
+            if !parent_schema.allowed_children_schemas.is_empty()
+                && !parent_schema.allowed_children_schemas.contains(&note_type.to_string())
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
@@ -1457,7 +1457,7 @@ impl Workspace {
     /// Returns the ID of the new root note.
     ///
     /// All notes in the subtree receive fresh UUIDs and current timestamps.
-    /// Schema constraints (`allowed_parent_types`, `allowed_children_types`) are
+    /// Schema constraints (`allowed_parent_schemas`, `allowed_children_schemas`) are
     /// validated only for the root of the copy against the paste target.
     /// Children's internal parent/child relationships are trusted and not re-validated.
     pub fn deep_copy_note(
@@ -1498,15 +1498,15 @@ impl Workspace {
             AddPosition::AsSibling => (target_note.parent_id.clone(), target_note.position + 1.0),
         };
 
-        // Validate allowed_parent_types for the root copy
-        if !root_schema.allowed_parent_types.is_empty() {
+        // Validate allowed_parent_schemas for the root copy
+        if !root_schema.allowed_parent_schemas.is_empty() {
             match &new_parent_id {
                 None => return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' cannot be placed at root level", root_source.schema
                 ))),
                 Some(pid) => {
                     let parent = self.get_note(pid)?;
-                    if !root_schema.allowed_parent_types.contains(&parent.schema) {
+                    if !root_schema.allowed_parent_schemas.contains(&parent.schema) {
                         return Err(KrillnotesError::InvalidMove(format!(
                             "Note type '{}' cannot be placed under '{}'",
                             root_source.schema, parent.schema
@@ -1516,12 +1516,12 @@ impl Workspace {
             }
         }
 
-        // Validate allowed_children_types on the paste parent
+        // Validate allowed_children_schemas on the paste parent
         if let Some(pid) = &new_parent_id {
             let parent = self.get_note(pid)?;
             let parent_schema = self.script_registry.get_schema(&parent.schema)?;
-            if !parent_schema.allowed_children_types.is_empty()
-                && !parent_schema.allowed_children_types.contains(&root_source.schema)
+            if !parent_schema.allowed_children_schemas.is_empty()
+                && !parent_schema.allowed_children_schemas.contains(&root_source.schema)
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
@@ -1631,8 +1631,8 @@ impl Workspace {
         let now = chrono::Utc::now().timestamp();
         let schema = self.script_registry.get_schema(node_type)?;
 
-        // Validate allowed_parent_types — root notes have no parent
-        if !schema.allowed_parent_types.is_empty() {
+        // Validate allowed_parent_schemas — root notes have no parent
+        if !schema.allowed_parent_schemas.is_empty() {
             return Err(KrillnotesError::InvalidMove(format!(
                 "Note type '{}' cannot be placed at root level", node_type
             )));
@@ -1868,7 +1868,7 @@ impl Workspace {
     pub fn search_notes(
         &self,
         query: &str,
-        target_type: Option<&str>,
+        target_schema: Option<&str>,
     ) -> Result<Vec<NoteSearchResult>> {
         let query_lower = query.to_lowercase();
         if query_lower.is_empty() {
@@ -1880,7 +1880,7 @@ impl Workspace {
         let results = all_notes
             .into_iter()
             .filter(|n| {
-                if let Some(t) = target_type {
+                if let Some(t) = target_schema {
                     n.schema == t
                 } else {
                     true
@@ -2577,17 +2577,17 @@ impl Workspace {
             }
         }
 
-        // 3. Allowed-parent-types check
+        // 3. Allowed-parent-schemas check
         let note_to_move = self.get_note(note_id)?;
         let schema = self.script_registry.get_schema(&note_to_move.schema)?;
-        if !schema.allowed_parent_types.is_empty() {
+        if !schema.allowed_parent_schemas.is_empty() {
             match new_parent_id {
                 None => return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' cannot be placed at root level", note_to_move.schema
                 ))),
                 Some(pid) => {
                     let parent_note = self.get_note(pid)?;
-                    if !schema.allowed_parent_types.contains(&parent_note.schema) {
+                    if !schema.allowed_parent_schemas.contains(&parent_note.schema) {
                         return Err(KrillnotesError::InvalidMove(format!(
                             "Note type '{}' cannot be placed under '{}'",
                             note_to_move.schema, parent_note.schema
@@ -2597,12 +2597,12 @@ impl Workspace {
             }
         }
 
-        // 3b. Allowed-children-types check on the new parent
+        // 3b. Allowed-children-schemas check on the new parent
         if let Some(pid) = new_parent_id {
             let parent_note = self.get_note(pid)?;
             let parent_schema = self.script_registry.get_schema(&parent_note.schema)?;
-            if !parent_schema.allowed_children_types.is_empty()
-                && !parent_schema.allowed_children_types.contains(&note_to_move.schema)
+            if !parent_schema.allowed_children_schemas.is_empty()
+                && !parent_schema.allowed_children_schemas.contains(&note_to_move.schema)
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
@@ -5074,7 +5074,7 @@ mod tests {
         // Contact schema is already loaded from starter scripts.
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
-        // Contact must be created under a ContactsFolder (allowed_parent_types constraint).
+        // Contact must be created under a ContactsFolder (allowed_parent_schemas constraint).
         let folder_id = ws
             .create_note(&root_id, AddPosition::AsChild, "ContactsFolder")
             .unwrap();
@@ -5173,7 +5173,7 @@ mod tests {
         let notes = ws.list_all_notes().unwrap();
         let root_id = notes[0].id.clone();
 
-        // Contact must be created under a ContactsFolder (allowed_parent_types constraint).
+        // Contact must be created under a ContactsFolder (allowed_parent_schemas constraint).
         let folder_id = ws
             .create_note(&root_id, AddPosition::AsChild, "ContactsFolder")
             .unwrap();

@@ -107,8 +107,8 @@ schema("TypeName", #{
     title_can_view:         true,          // default: true
     title_can_edit:         true,          // default: true
     children_sort:          "asc",         // "asc" | "desc" | "none" (default)
-    allowed_parent_types:   ["Folder"],    // default: [] (any parent allowed)
-    allowed_children_types: ["Item"],      // default: [] (any child allowed)
+    allowed_parent_schemas:   ["Folder"],    // default: [] (any parent allowed)
+    allowed_children_schemas: ["Item"],      // default: [] (any child allowed)
 
     // --- required ---
     fields: [
@@ -178,7 +178,7 @@ but users cannot change it directly.
 | `"email"` | String | Email input with mailto link in view mode |
 | `"select"` | String | Dropdown; requires `options: [...]` |
 | `"rating"` | Float | Star rating; requires `max: N` (e.g. `max: 5`) |
-| `"note_link"` | String (UUID) or `null` | Link to another note; optional `target_type` restricts the picker to notes of that schema type |
+| `"note_link"` | String (UUID) or `null` | Link to another note; optional `target_schema` restricts the picker to notes of that schema type |
 | `"file"` | String (UUID) or `null` | Attachment reference; optional `allowed_types` restricts the file picker to specific MIME types. In view mode images render as a thumbnail; other files show a paperclip icon and filename. |
 
 ### Reading field values in hooks
@@ -215,7 +215,7 @@ if linked_id != () {
 
 | Option | Type | Description |
 |---|---|---|
-| `target_type` | String (optional) | If set, the note-picker in edit mode only shows notes of this schema type. |
+| `target_schema` | String (optional) | If set, the note-picker in edit mode only shows notes of this schema type. |
 
 ### `file` field options
 
@@ -260,23 +260,23 @@ Hides the title entirely in view mode. Rarely needed.
 Automatically sorts child notes alphabetically by title when displayed in the tree.
 Default is `"none"` (manual/insertion order).
 
-### `allowed_parent_types: [...]`
+### `allowed_parent_schemas: [...]`
 
 Restricts which note types this type may be placed under. An empty array means no restriction.
 
 ```rhai
-allowed_parent_types: ["ContactsFolder"],
+allowed_parent_schemas: ["ContactsFolder"],
 ```
 
-### `allowed_children_types: [...]`
+### `allowed_children_schemas: [...]`
 
 Restricts which note types may be placed inside this type.
 
 ```rhai
-allowed_children_types: ["Contact"],
+allowed_children_schemas: ["Contact"],
 ```
 
-> **Validation order:** `allowed_parent_types` and `allowed_children_types` are always checked
+> **Validation order:** `allowed_parent_schemas` and `allowed_children_schemas` are always checked
 > **before** any hook runs. If validation fails the operation is aborted and no hook fires.
 
 ### `field_groups: [...]`
@@ -616,7 +616,7 @@ Both `parent_note` and `child_note` are available by ID.
 | Note moved under a new parent (drag-and-drop) | Yes |
 | Note created at root level (no parent) | No |
 
-`allowed_parent_types` and `allowed_children_types` checks always run **before** the hook.
+`allowed_parent_schemas` and `allowed_children_schemas` checks always run **before** the hook.
 If either check fails, the operation is aborted and the hook never runs.
 
 ### Example — child count in parent title
@@ -1191,14 +1191,14 @@ schema("Contact", #{
 ```rhai
 schema("ProjectFolder", #{
     version: 1,
-    allowed_children_types: ["Project"],
+    allowed_children_schemas: ["Project"],
     fields: [],
     on_save: |note| { commit(); }
 });
 
 schema("Project", #{
     version: 1,
-    allowed_parent_types: ["ProjectFolder"],
+    allowed_parent_schemas: ["ProjectFolder"],
     fields: [ /* … */ ],
     on_save: |note| { commit(); }
 });
@@ -1308,7 +1308,7 @@ Two files: the schema definition and a presentation script for the folder view.
 schema("ContactsFolder", #{
     version: 1,
     children_sort: "asc",
-    allowed_children_types: ["Contact"],
+    allowed_children_schemas: ["Contact"],
     fields: [
         #{ name: "notes", type: "textarea", required: false },
     ],
@@ -1318,7 +1318,7 @@ schema("ContactsFolder", #{
 schema("Contact", #{
     version: 1,
     title_can_edit: false,
-    allowed_parent_types: ["ContactsFolder"],
+    allowed_parent_schemas: ["ContactsFolder"],
     fields: [
         #{ name: "first_name", type: "text",    required: true  },
         #{ name: "last_name",  type: "text",    required: true  },
@@ -1375,7 +1375,7 @@ a hook. The `Kasten` folder shows recent notes and a live child count in hover.
 schema("Zettel", #{
     version: 1,
     title_can_edit: false,
-    allowed_parent_types: ["Kasten"],
+    allowed_parent_schemas: ["Kasten"],
     fields: [
         #{ name: "body", type: "textarea", required: false, show_on_hover: true },
     ],
@@ -1396,7 +1396,7 @@ schema("Zettel", #{
 
 schema("Kasten", #{
     version: 1,
-    allowed_children_types: ["Zettel"],
+    allowed_children_schemas: ["Zettel"],
     fields: [],
     on_save: |note| { commit(); }
 });
