@@ -61,7 +61,7 @@ export default function AddContactDialog({ identityUuid, onSaved, onClose }: Add
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
-      <div className="bg-background border border-border rounded-lg p-6 w-full max-w-md shadow-xl">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 w-full max-w-md shadow-xl">
         <h2 className="text-lg font-semibold mb-4">{t('contacts.addContact')}</h2>
 
         <div className="space-y-4">
@@ -72,7 +72,7 @@ export default function AddContactDialog({ identityUuid, onSaved, onClose }: Add
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder={t('contacts.namePlaceholder')}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-sm"
+              className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-input)] text-sm"
             />
           </div>
 
@@ -83,10 +83,10 @@ export default function AddContactDialog({ identityUuid, onSaved, onClose }: Add
               onChange={e => setPublicKey(e.target.value)}
               placeholder={t('contacts.publicKeyPlaceholder')}
               rows={3}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-sm font-mono"
+              className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-input)] text-sm font-mono"
             />
             {fingerprint && (
-              <p className="mt-1 text-xs text-muted-foreground font-mono">
+              <p className="mt-1 text-xs text-[var(--color-text-muted)] font-mono">
                 {t('contacts.fingerprintLabel')} <span className="font-semibold">{fingerprint}</span>
               </p>
             )}
@@ -97,7 +97,7 @@ export default function AddContactDialog({ identityUuid, onSaved, onClose }: Add
             <select
               value={trustLevel}
               onChange={e => setTrustLevel(e.target.value as TrustLevel)}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-sm"
+              className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-input)] text-sm"
             >
               {TRUST_LEVELS.map(tl => (
                 <option key={tl.value} value={tl.value}>{t(tl.labelKey)}</option>
@@ -108,7 +108,7 @@ export default function AddContactDialog({ identityUuid, onSaved, onClose }: Add
           {trustLevel === 'VerifiedInPerson' && fingerprint && (
             <div className="rounded-lg border border-amber-400/50 bg-amber-50/10 p-4 space-y-3">
               <p className="text-sm font-medium">{t('contacts.fingerprintVerificationRequired')}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[var(--color-text-muted)]">
                 {t('contacts.fingerprintVerificationHint')}
               </p>
               <p className="text-lg font-mono font-bold tracking-wider text-center py-2">
@@ -134,7 +134,7 @@ export default function AddContactDialog({ identityUuid, onSaved, onClose }: Add
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary"
+            className="px-4 py-2 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-hover)]"
           >
             {t('common.cancel')}
           </button>

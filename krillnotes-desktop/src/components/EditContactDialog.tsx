@@ -76,18 +76,18 @@ export default function EditContactDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
-      <div className="bg-background border border-border rounded-lg p-6 w-full max-w-md shadow-xl">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 w-full max-w-md shadow-xl">
         <h2 className="text-lg font-semibold mb-1">{t('contacts.editContact')}</h2>
-        <p className="text-sm text-muted-foreground mb-4">
+        <p className="text-sm text-[var(--color-text-muted)] mb-4">
           {t('contacts.declaredNameLabel')} <span className="font-medium">{contact.declaredName}</span>
         </p>
 
         <div className="space-y-4">
           {/* Read-only: fingerprint + public key */}
-          <div className="rounded border border-border p-3 space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('contacts.fingerprintHeading')}</p>
+          <div className="rounded border border-[var(--color-border)] p-3 space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">{t('contacts.fingerprintHeading')}</p>
             <p className="font-mono font-semibold">{contact.fingerprint}</p>
-            <p className="text-xs font-mono text-muted-foreground break-all">{contact.publicKey}</p>
+            <p className="text-xs font-mono text-[var(--color-text-muted)] break-all">{contact.publicKey}</p>
           </div>
 
           <div>
@@ -97,9 +97,9 @@ export default function EditContactDialog({
               value={localName}
               onChange={e => setLocalName(e.target.value)}
               placeholder={contact.declaredName}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-sm"
+              className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-input)] text-sm"
             />
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
               {t('contacts.localNameHint')}
             </p>
           </div>
@@ -109,7 +109,7 @@ export default function EditContactDialog({
             <select
               value={trustLevel}
               onChange={e => setTrustLevel(e.target.value as TrustLevel)}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-sm"
+              className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-input)] text-sm"
             >
               {TRUST_LEVELS.map(tl => (
                 <option key={tl.value} value={tl.value}>{t(tl.labelKey)}</option>
@@ -120,7 +120,7 @@ export default function EditContactDialog({
           {needsFingerprintConfirm && (
             <div className="rounded-lg border border-amber-400/50 bg-amber-50/10 p-4 space-y-3">
               <p className="text-sm font-medium">{t('contacts.fingerprintVerificationRequired')}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[var(--color-text-muted)]">
                 {t('contacts.fingerprintVerificationHint')}
               </p>
               <p className="text-lg font-mono font-bold tracking-wider text-center py-2">
@@ -145,7 +145,7 @@ export default function EditContactDialog({
               onChange={e => setNotes(e.target.value)}
               placeholder={t('contacts.notesPlaceholder')}
               rows={3}
-              className="w-full px-3 py-2 rounded border border-border bg-background text-sm"
+              className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-input)] text-sm"
             />
           </div>
 
@@ -167,7 +167,7 @@ export default function EditContactDialog({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary"
+              className="px-4 py-2 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-hover)]"
             >
               {t('common.cancel')}
             </button>
