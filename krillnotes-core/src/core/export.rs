@@ -42,6 +42,8 @@ pub struct ScriptManifestEntry {
     pub filename: String,
     pub load_order: i32,
     pub enabled: bool,
+    #[serde(default)]
+    pub category: Option<String>,
 }
 
 /// The `scripts/scripts.json` manifest.
@@ -234,6 +236,7 @@ pub fn export_workspace<W: Write + Seek>(
             filename: filename.clone(),
             load_order: script.load_order,
             enabled: script.enabled,
+            category: Some(script.category.clone()),
         });
 
         zip.start_file(format!("scripts/{filename}"), options)?;
@@ -391,7 +394,7 @@ pub fn import_workspace<R: Read + Seek>(
     };
 
     // Read each .rhai script source from the archive
-    let mut script_sources: Vec<(String, i32, bool)> = Vec::new(); // (source_code, load_order, enabled)
+    let mut script_sources: Vec<(String, i32, bool, String)> = Vec::new(); // (source_code, load_order, enabled, category)
     if let Some(ref manifest) = manifest {
         for entry in &manifest.scripts {
             let path = format!("scripts/{}", entry.filename);
@@ -403,7 +406,8 @@ pub fn import_workspace<R: Read + Seek>(
             })?;
             let mut source = String::new();
             rhai_cursor.read_to_string(&mut source)?;
-            script_sources.push((source, entry.load_order, entry.enabled));
+            let category = entry.category.clone().unwrap_or_else(|| "schema".to_string());
+            script_sources.push((source, entry.load_order, entry.enabled, category));
         }
     }
 
@@ -480,13 +484,13 @@ pub fn import_workspace<R: Read + Seek>(
             .transaction()
             .map_err(|e| ExportError::Database(e.to_string()))?;
         let now = chrono::Utc::now().timestamp();
-        for (source_code, load_order, enabled) in &script_sources {
+        for (source_code, load_order, enabled, category) in &script_sources {
             let id = uuid::Uuid::new_v4().to_string();
             let fm = user_script::parse_front_matter(source_code);
             tx.execute(
                 "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rusqlite::params![id, fm.name, fm.description, source_code, load_order, enabled, now, now, "presentation"],
+                rusqlite::params![id, fm.name, fm.description, source_code, load_order, enabled, now, now, category],
             )
             .map_err(|e| ExportError::Database(e.to_string()))?;
         }
@@ -573,6 +577,7 @@ mod tests {
                 filename: "contacts.rhai".to_string(),
                 load_order: 0,
                 enabled: true,
+                category: Some("schema".to_string()),
             }],
         };
         let json = serde_json::to_string(&manifest).unwrap();
@@ -725,6 +730,36 @@ mod tests {
         let widget = scripts.iter().find(|s| s.name == "Custom Widget").unwrap();
         assert_eq!(widget.description, "Widget cards");
         assert!(widget.source_code.contains("@name: Custom Widget"));
+    }
+
+    #[test]
+    fn test_round_trip_preserves_script_category() {
+        // Regression test: imported scripts must retain their original category.
+        // Previously all scripts were hardcoded to "presentation" on import, which
+        // caused schema() scripts to fail with "can only be called from schema-category scripts".
+        let temp_src = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp_src.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+
+        let schema_src = "// @name: My Schema\n// @description: A schema script\nschema(\"MyType\", #{ version: 1, fields: [] });";
+        let lib_src = "// @name: My Library\n// @description: A presentation script\nfn my_helper() { \"hello\" }";
+
+        ws.create_user_script_with_category(schema_src, "schema").unwrap();
+        ws.create_user_script_with_category(lib_src, "presentation").unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let temp_dst = NamedTempFile::new().unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+
+        let imported_ws = Workspace::open(temp_dst.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let scripts = imported_ws.list_user_scripts().unwrap();
+
+        let schema_script = scripts.iter().find(|s| s.name == "My Schema").unwrap();
+        let lib_script = scripts.iter().find(|s| s.name == "My Library").unwrap();
+
+        assert_eq!(schema_script.category, "schema", "schema script category must survive export/import round-trip");
+        assert_eq!(lib_script.category, "presentation", "presentation script category must survive export/import round-trip");
     }
 
     #[test]
