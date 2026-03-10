@@ -1316,6 +1316,12 @@ impl Workspace {
         if let Some(pid) = &final_parent {
             let parent_note = self.get_note(pid)?;
             let parent_schema = self.script_registry.get_schema(&parent_note.schema)?;
+            if parent_schema.is_leaf {
+                return Err(KrillnotesError::InvalidMove(format!(
+                    "Cannot add children to a leaf note (schema: '{}')",
+                    parent_note.schema
+                )));
+            }
             if !parent_schema.allowed_children_schemas.is_empty()
                 && !parent_schema.allowed_children_schemas.contains(&note_type.to_string())
             {
@@ -1520,6 +1526,12 @@ impl Workspace {
         if let Some(pid) = &new_parent_id {
             let parent = self.get_note(pid)?;
             let parent_schema = self.script_registry.get_schema(&parent.schema)?;
+            if parent_schema.is_leaf {
+                return Err(KrillnotesError::InvalidMove(format!(
+                    "Cannot add children to a leaf note (schema: '{}')",
+                    parent.schema
+                )));
+            }
             if !parent_schema.allowed_children_schemas.is_empty()
                 && !parent_schema.allowed_children_schemas.contains(&root_source.schema)
             {
@@ -2601,6 +2613,12 @@ impl Workspace {
         if let Some(pid) = new_parent_id {
             let parent_note = self.get_note(pid)?;
             let parent_schema = self.script_registry.get_schema(&parent_note.schema)?;
+            if parent_schema.is_leaf {
+                return Err(KrillnotesError::InvalidMove(format!(
+                    "Cannot add children to a leaf note (schema: '{}')",
+                    parent_note.schema
+                )));
+            }
             if !parent_schema.allowed_children_schemas.is_empty()
                 && !parent_schema.allowed_children_schemas.contains(&note_to_move.schema)
             {
@@ -7444,5 +7462,84 @@ schema("SameVerType", #{
         assert_eq!(count, 3);
         let notes = dst.list_all_notes().unwrap();
         assert_eq!(notes.len(), 3);
+    }
+
+    #[test]
+    fn test_is_leaf_defaults_to_false() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        ws.create_user_script(
+            "// @name: NormalSchema\nschema(\"NormalType\", #{ version: 1, fields: [] });"
+        ).unwrap();
+        let schema = ws.script_registry().get_schema("NormalType").unwrap();
+        assert!(!schema.is_leaf, "is_leaf should default to false");
+    }
+
+    #[test]
+    fn test_is_leaf_explicit_true() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        ws.create_user_script(
+            "// @name: LeafSchema\nschema(\"LeafType\", #{ version: 1, is_leaf: true, fields: [] });"
+        ).unwrap();
+        let schema = ws.script_registry().get_schema("LeafType").unwrap();
+        assert!(schema.is_leaf, "is_leaf should be true when explicitly set");
+    }
+
+    #[test]
+    fn test_is_leaf_blocks_create_child() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        ws.create_user_script(
+            "// @name: IsLeafSchemas\nschema(\"LeafType\", #{ version: 1, is_leaf: true, fields: [] });\nschema(\"ChildType\", #{ version: 1, fields: [] });"
+        ).unwrap();
+
+        // Create a root LeafType note
+        let leaf_id = ws.create_note_root("LeafType").unwrap();
+
+        // Trying to create a child under it must fail
+        let result = ws.create_note(&leaf_id, AddPosition::AsChild, "ChildType");
+        assert!(result.is_err(), "expected error when adding child to leaf note");
+        let err = result.unwrap_err().to_string();
+        assert!(err.to_lowercase().contains("leaf"), "expected 'leaf' in error: {err}");
+    }
+
+    #[test]
+    fn test_is_leaf_blocks_move_note() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        ws.create_user_script(
+            "// @name: IsLeafMoveSchemas\nschema(\"LeafType\", #{ version: 1, is_leaf: true, fields: [] });\nschema(\"ChildType\", #{ version: 1, fields: [] });"
+        ).unwrap();
+
+        let leaf_id  = ws.create_note_root("LeafType").unwrap();
+        let child_id = ws.create_note_root("ChildType").unwrap();
+
+        // Moving child under leaf must fail
+        let result = ws.move_note(&child_id, Some(&leaf_id), 0.0);
+        assert!(result.is_err(), "expected error when moving note under leaf");
+        let err = result.unwrap_err().to_string();
+        assert!(err.to_lowercase().contains("leaf"), "expected 'leaf' in error: {err}");
+    }
+
+    #[test]
+    fn test_is_leaf_blocks_deep_copy() {
+        // deep_copy_note (paste) should also be blocked when the target parent is a leaf
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        ws.create_user_script(
+            "// @name: IsLeafDeepCopySchemas\nschema(\"LeafType\", #{ version: 1, is_leaf: true, fields: [] });\nschema(\"ChildType\", #{ version: 1, fields: [] });"
+        ).unwrap();
+
+        // Create a root ChildType note (the note to copy)
+        let child_id = ws.create_note_root("ChildType").unwrap();
+        // Create a root LeafType note (the intended paste target)
+        let leaf_id = ws.create_note_root("LeafType").unwrap();
+
+        // Pasting child under leaf must fail
+        let result = ws.deep_copy_note(&child_id, &leaf_id, AddPosition::AsChild);
+        assert!(result.is_err(), "expected error when deep-copying note under leaf");
+        let err = result.unwrap_err().to_string();
+        assert!(err.to_lowercase().contains("leaf"), "expected 'leaf' in error: {err}");
     }
 }
