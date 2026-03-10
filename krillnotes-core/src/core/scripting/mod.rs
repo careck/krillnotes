@@ -1457,7 +1457,7 @@ mod tests {
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -1505,7 +1505,7 @@ mod tests {
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -1533,7 +1533,7 @@ mod tests {
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -3131,7 +3131,7 @@ mod tests {
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(),
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));

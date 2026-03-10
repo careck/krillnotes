@@ -136,6 +136,9 @@ pub struct Schema {
     /// Note types that this schema allows as direct children.
     /// Empty means no restriction (any child type is allowed here).
     pub allowed_children_schemas: Vec<String>,
+    /// When `true`, notes of this schema cannot have any children.
+    /// Defaults to `false`.
+    pub is_leaf: bool,
     /// When `true`, the note-level attachments panel is shown for this schema.
     /// Defaults to `false` (opt-in).
     pub allow_attachments: bool,
@@ -477,7 +480,12 @@ impl Schema {
             }
         }
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_schemas, allowed_children_schemas, allow_attachments, attachment_types, field_groups, ast: None, version, migrations })
+        let is_leaf = def
+            .get("is_leaf")
+            .and_then(|v| v.clone().try_cast::<bool>())
+            .unwrap_or(false);
+
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_schemas, allowed_children_schemas, allow_attachments, attachment_types, field_groups, ast: None, version, migrations, is_leaf })
     }
 }
 
