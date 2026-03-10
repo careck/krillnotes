@@ -8,12 +8,13 @@ interface AddContactDialogProps {
   identityUuid: string;
   onSaved: (contact: ContactInfo) => void;
   onClose: () => void;
+  prefillPublicKey?: string;
 }
 
-export default function AddContactDialog({ identityUuid, onSaved, onClose }: AddContactDialogProps) {
+export default function AddContactDialog({ identityUuid, onSaved, onClose, prefillPublicKey }: AddContactDialogProps) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
-  const [publicKey, setPublicKey] = useState('');
+  const [publicKey, setPublicKey] = useState(prefillPublicKey ?? '');
   const [trustLevel, setTrustLevel] = useState<TrustLevel>('Tofu');
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [fingerprintConfirmed, setFingerprintConfirmed] = useState(false);
