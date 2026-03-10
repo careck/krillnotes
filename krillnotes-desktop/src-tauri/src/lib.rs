@@ -90,6 +90,35 @@ pub struct WorkspaceBindingInfo {
     pub db_path: String,
 }
 
+/// Serialisable contact record returned to the frontend.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactInfo {
+    pub contact_id: String,
+    pub declared_name: String,
+    pub local_name: Option<String>,
+    pub public_key: String,
+    pub fingerprint: String,
+    pub trust_level: String,
+    pub first_seen: String,
+    pub notes: Option<String>,
+}
+
+impl ContactInfo {
+    fn from_contact(c: krillnotes_core::core::contact::Contact) -> Self {
+        Self {
+            contact_id: c.contact_id.to_string(),
+            declared_name: c.declared_name,
+            local_name: c.local_name,
+            public_key: c.public_key,
+            fingerprint: c.fingerprint,
+            trust_level: trust_level_to_str(&c.trust_level).to_string(),
+            first_seen: c.first_seen.to_rfc3339(),
+            notes: c.notes,
+        }
+    }
+}
+
 /// Derives a unique window label from the `path` filename stem.
 ///
 /// Appends a numeric suffix (`-2`, `-3`, …) until the label is absent
@@ -2059,6 +2088,116 @@ fn import_swarmid_overwrite_cmd(
     mgr.import_swarmid_overwrite(file).map_err(|e| e.to_string())
 }
 
+// ── Contact commands ──────────────────────────────────────────────
+
+fn parse_trust_level(s: &str) -> std::result::Result<krillnotes_core::core::contact::TrustLevel, String> {
+    use krillnotes_core::core::contact::TrustLevel;
+    match s {
+        "Tofu" => Ok(TrustLevel::Tofu),
+        "CodeVerified" => Ok(TrustLevel::CodeVerified),
+        "Vouched" => Ok(TrustLevel::Vouched),
+        "VerifiedInPerson" => Ok(TrustLevel::VerifiedInPerson),
+        other => Err(format!("Unknown trust level: {other}")),
+    }
+}
+
+/// Explicit string mapping — do NOT use `format!("{:?}", ...)` which is fragile.
+fn trust_level_to_str(tl: &krillnotes_core::core::contact::TrustLevel) -> &'static str {
+    use krillnotes_core::core::contact::TrustLevel;
+    match tl {
+        TrustLevel::Tofu => "Tofu",
+        TrustLevel::CodeVerified => "CodeVerified",
+        TrustLevel::Vouched => "Vouched",
+        TrustLevel::VerifiedInPerson => "VerifiedInPerson",
+    }
+}
+
+#[tauri::command]
+fn list_contacts(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> std::result::Result<Vec<ContactInfo>, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let cms = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
+    let contacts = cm.list_contacts().map_err(|e| e.to_string())?;
+    Ok(contacts.into_iter().map(ContactInfo::from_contact).collect())
+}
+
+#[tauri::command]
+fn get_contact(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    contact_id: String,
+) -> std::result::Result<Option<ContactInfo>, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let cid = Uuid::parse_str(&contact_id).map_err(|e| e.to_string())?;
+    let cms = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
+    let contact = cm.get_contact(cid).map_err(|e| e.to_string())?;
+    Ok(contact.map(ContactInfo::from_contact))
+}
+
+#[tauri::command]
+fn create_contact(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    declared_name: String,
+    public_key: String,
+    trust_level: String,
+) -> std::result::Result<ContactInfo, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let tl = parse_trust_level(&trust_level)?;
+    let cms = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
+    let contact = cm.create_contact(&declared_name, &public_key, tl)
+        .map_err(|e| e.to_string())?;
+    Ok(ContactInfo::from_contact(contact))
+}
+
+#[tauri::command]
+fn update_contact(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    contact_id: String,
+    local_name: Option<String>,
+    notes: Option<String>,
+    trust_level: String,
+) -> std::result::Result<ContactInfo, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let cid = Uuid::parse_str(&contact_id).map_err(|e| e.to_string())?;
+    let tl = parse_trust_level(&trust_level)?;
+    let cms = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
+    let mut contact = cm.get_contact(cid)
+        .map_err(|e| e.to_string())?
+        .ok_or("Contact not found")?;
+    contact.local_name = local_name;
+    contact.notes = notes;
+    contact.trust_level = tl;
+    cm.save_contact(&contact).map_err(|e| e.to_string())?;
+    Ok(ContactInfo::from_contact(contact))
+}
+
+#[tauri::command]
+fn delete_contact(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    contact_id: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let cid = Uuid::parse_str(&contact_id).map_err(|e| e.to_string())?;
+    let cms = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
+    cm.delete_contact(cid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_fingerprint(public_key: String) -> std::result::Result<String, String> {
+    krillnotes_core::core::contact::generate_fingerprint(&public_key)
+        .map_err(|e| e.to_string())
+}
+
 // ── Theme commands ────────────────────────────────────────────────
 
 /// Lists all user theme files in the themes directory.
@@ -3487,6 +3626,12 @@ pub fn run() {
             script_redo,
             can_script_undo,
             can_script_redo,
+            list_contacts,
+            get_contact,
+            create_contact,
+            update_contact,
+            delete_contact,
+            get_fingerprint,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
