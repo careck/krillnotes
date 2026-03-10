@@ -640,7 +640,7 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
         <ContactBookDialog
           identityUuid={showContactBook}
           identityName={identities.find(i => i.uuid === showContactBook)?.displayName ?? ''}
-          onClose={() => setShowContactBook(null)}
+          onClose={() => { setShowContactBook(null); loadData(); }}
         />
       )}
     </>
