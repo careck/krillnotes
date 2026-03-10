@@ -3355,6 +3355,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
     ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
     ("workspace_properties",  "Edit > Workspace Properties clicked"),
+    ("workspace_peers",       "Edit > Workspace Peers clicked"),
     ("file_identities",       "File > Manage Identities clicked"),
     ("file_invite_peer",      "File > Invite Peer clicked"),
     ("file_open_swarm",       "File > Open Swarm File clicked"),
