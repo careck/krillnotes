@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-identity encrypted contact book (Phase A)** — contacts are stored per identity under
+  `~/.config/krillnotes/identities/<uuid>/contacts/` as AES-256-GCM encrypted blobs. The
+  encryption key is derived via HKDF-SHA256 from the identity seed and is only in memory while
+  the identity is unlocked. Full CRUD via six new Tauri commands (`list_contacts`, `get_contact`,
+  `create_contact`, `update_contact`, `delete_contact`, `get_fingerprint`). UI accessible via
+  a "Contacts (n)" button in the Identity Manager — opens `ContactBookDialog` with search,
+  trust-level badges, `AddContactDialog` (with live fingerprint preview and in-person
+  verification gate), and `EditContactDialog` (with local name override, notes, and delete).
 - **`is_leaf` schema option** — When `is_leaf: true` is set on a schema, notes of that
   type cannot have children. Blocked in core (`create_note`, `move_note`, `deep_copy_note`)
   and observed in the UI ("Add Child" and "Paste as Child" are greyed out; drag-drop onto
