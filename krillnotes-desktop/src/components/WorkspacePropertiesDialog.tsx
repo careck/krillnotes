@@ -61,7 +61,7 @@ function WorkspacePropertiesDialog({ isOpen, onClose }: WorkspacePropertiesDialo
         setDescription(meta.description ?? '');
         setLicenseUrl(meta.licenseUrl ?? '');
         setLanguage(meta.language ?? '');
-        setTagsRaw(meta.tags.join(', '));
+        setTagsRaw((meta.tags ?? []).join(', '));
         setError('');
 
         const lic = meta.license ?? '';
