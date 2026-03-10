@@ -526,6 +526,9 @@ async fn open_workspace(
             // Lock ordering: always acquire identity_manager before unlocked_identities,
             // and drop identity_manager before re-acquiring it — avoids deadlock with
             // create_workspace / execute_import which use the same ordering.
+            // contact_managers is always acquired after (and separately from) both of
+            // the above; never hold identity_manager or unlocked_identities simultaneously
+            // with contact_managers.
 
             // Step 1: Get identity_uuid from identity_manager (drop lock after)
             let identity_uuid = {
@@ -1494,28 +1497,43 @@ fn list_operations(
         .map_err(|e| e.to_string())?;
 
     // Resolve raw base64 public keys to display names where possible.
-    let identity_manager = state.identity_manager.lock().expect("Mutex poisoned");
-    let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
-    for summary in &mut summaries {
-        if !summary.author_key.is_empty() {
-            if let Some(name) = identity_manager.lookup_display_name(&summary.author_key) {
-                summary.author_key = name;
-            } else {
-                let mut resolved = false;
-                for cm in contact_managers.values() {
-                    if let Ok(Some(contact)) = cm.find_by_public_key(&summary.author_key) {
-                        summary.author_key = contact.display_name().to_string();
-                        resolved = true;
-                        break;
-                    }
-                }
-                if !resolved {
-                    // Unknown key: show first 8 chars of base64 as a compact fingerprint.
-                    summary.author_key = summary.author_key.chars().take(8).collect();
+    // We track which indices are already resolved so pass 2 doesn't clobber them.
+    let mut resolved_indices = vec![false; summaries.len()];
+
+    // Pass 1: resolve via identity_manager, then drop the lock.
+    {
+        let identity_manager = state.identity_manager.lock().expect("Mutex poisoned");
+        for (i, summary) in summaries.iter_mut().enumerate() {
+            if !summary.author_key.is_empty() {
+                if let Some(name) = identity_manager.lookup_display_name(&summary.author_key) {
+                    summary.author_key = name;
+                    resolved_indices[i] = true;
                 }
             }
         }
-    }
+    } // identity_manager lock released here
+
+    // Pass 2: for keys not yet resolved, try contact_managers, then fall back to fingerprint.
+    {
+        let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
+        for (i, summary) in summaries.iter_mut().enumerate() {
+            if resolved_indices[i] || summary.author_key.is_empty() {
+                continue;
+            }
+            let mut resolved = false;
+            for cm in contact_managers.values() {
+                if let Ok(Some(contact)) = cm.find_by_public_key(&summary.author_key) {
+                    summary.author_key = contact.display_name().to_string();
+                    resolved = true;
+                    break;
+                }
+            }
+            if !resolved {
+                // Unknown key: show first 8 chars of base64 as a compact fingerprint.
+                summary.author_key = summary.author_key.chars().take(8).collect();
+            }
+        }
+    } // contact_managers lock released here
 
     Ok(summaries)
 }
@@ -1774,8 +1792,14 @@ fn create_identity(
         .join("identities")
         .join(uuid.to_string())
         .join("contacts");
-    if let Ok(cm) = krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
-        state.contact_managers.lock().unwrap().insert(uuid, cm);
+    match krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
+        Ok(cm) => {
+            state.contact_managers.lock().expect("Mutex poisoned").insert(uuid, cm);
+        }
+        Err(e) => {
+            // Non-fatal: log but don't fail creation
+            eprintln!("Warning: failed to initialize contact manager for {uuid}: {e}");
+        }
     }
 
     // Return the IdentityRef
@@ -1811,7 +1835,7 @@ fn unlock_identity(
         .join("contacts");
     match krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
         Ok(cm) => {
-            state.contact_managers.lock().unwrap().insert(uuid, cm);
+            state.contact_managers.lock().expect("Mutex poisoned").insert(uuid, cm);
         }
         Err(e) => {
             // Non-fatal: log but don't fail unlock
@@ -1854,9 +1878,11 @@ fn lock_identity(
         }
     }
 
-    // Wipe identity from memory
-    state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
+    // Wipe identity from memory.
+    // Remove contact_managers first so there is no window where the identity is
+    // "locked" but its ContactManager is still live.
     state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
     Ok(())
 }
 
