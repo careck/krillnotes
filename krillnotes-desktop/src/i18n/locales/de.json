@@ -436,5 +436,19 @@
     "addToContacts": "Zu Kontakten hinzufügen",
     "confirmRemovePeer": "Diesen Peer aus dem Arbeitsbereich entfernen?",
     "noPeers": "Noch keine Peers. Füge einen Kontakt hinzu oder erstelle eine Einladungsdatei."
+  },
+  "peers": {
+    "title": "Arbeitsbereich-Peers",
+    "peer": "Peer",
+    "peers": "Peers",
+    "neverSynced": "Nie synchronisiert",
+    "justNow": "gerade eben",
+    "noPeers": "Noch keine Peers. Füge einen Kontakt hinzu oder erstelle eine Einladungsdatei.",
+    "notInContacts": "nicht in Kontakten",
+    "addToContacts": "Zu Kontakten hinzufügen",
+    "confirmRemove": "Diesen Peer aus dem Arbeitsbereich entfernen?",
+    "removePeer": "Peer entfernen",
+    "addFromContacts": "Aus Kontakten hinzufügen",
+    "createInviteFile": "Einladungsdatei erstellen"
   }
 }

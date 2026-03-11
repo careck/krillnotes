@@ -434,5 +434,19 @@
     "addToContacts": "연락처에 추가",
     "confirmRemovePeer": "이 피어를 워크스페이스에서 제거하시겠습니까?",
     "noPeers": "아직 피어가 없습니다. 연락처를 추가하거나 초대 파일을 만드세요."
+  },
+  "peers": {
+    "title": "워크스페이스 피어",
+    "peer": "피어",
+    "peers": "피어",
+    "neverSynced": "동기화 없음",
+    "justNow": "방금",
+    "noPeers": "아직 피어가 없습니다. 연락처를 추가하거나 초대 파일을 만드세요.",
+    "notInContacts": "연락처에 없음",
+    "addToContacts": "연락처에 추가",
+    "confirmRemove": "이 피어를 워크스페이스에서 제거하시겠습니까?",
+    "removePeer": "피어 제거",
+    "addFromContacts": "연락처에서 추가",
+    "createInviteFile": "초대 파일 만들기"
   }
 }

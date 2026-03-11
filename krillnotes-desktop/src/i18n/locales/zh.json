@@ -434,5 +434,19 @@
     "addToContacts": "添加到联系人",
     "confirmRemovePeer": "从工作区移除此对等节点？",
     "noPeers": "暂无对等节点。添加联系人或创建邀请文件以开始。"
+  },
+  "peers": {
+    "title": "工作区对等节点",
+    "peer": "节点",
+    "peers": "节点",
+    "neverSynced": "从未同步",
+    "justNow": "刚刚",
+    "noPeers": "暂无对等节点。添加联系人或创建邀请文件以开始。",
+    "notInContacts": "不在联系人中",
+    "addToContacts": "添加到联系人",
+    "confirmRemove": "从工作区移除此对等节点？",
+    "removePeer": "移除节点",
+    "addFromContacts": "从联系人添加",
+    "createInviteFile": "创建邀请文件"
   }
 }

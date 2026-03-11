@@ -436,5 +436,19 @@
     "addToContacts": "Ajouter aux contacts",
     "confirmRemovePeer": "Supprimer ce pair de l'espace de travail ?",
     "noPeers": "Aucun pair pour l'instant. Ajoutez un contact ou créez un fichier d'invitation."
+  },
+  "peers": {
+    "title": "Pairs de l'espace de travail",
+    "peer": "pair",
+    "peers": "pairs",
+    "neverSynced": "Jamais synchronisé",
+    "justNow": "à l'instant",
+    "noPeers": "Aucun pair pour l'instant. Ajoutez un contact ou créez un fichier d'invitation.",
+    "notInContacts": "pas dans les contacts",
+    "addToContacts": "Ajouter aux contacts",
+    "confirmRemove": "Supprimer ce pair de l'espace de travail ?",
+    "removePeer": "Supprimer le pair",
+    "addFromContacts": "Ajouter depuis les contacts",
+    "createInviteFile": "Créer un fichier d'invitation"
   }
 }

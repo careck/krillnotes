@@ -438,5 +438,19 @@
     "addToContacts": "Add to contacts",
     "confirmRemovePeer": "Remove this peer from the workspace?",
     "noPeers": "No peers yet. Add a contact or create an invite file to get started."
+  },
+  "peers": {
+    "title": "Workspace Peers",
+    "peer": "peer",
+    "peers": "peers",
+    "neverSynced": "Never synced",
+    "justNow": "just now",
+    "noPeers": "No peers yet. Add a contact or create an invite file to get started.",
+    "notInContacts": "not in contacts",
+    "addToContacts": "Add to contacts",
+    "confirmRemove": "Remove this peer from the workspace?",
+    "removePeer": "Remove peer",
+    "addFromContacts": "Add from contacts",
+    "createInviteFile": "Create invite file"
   }
 }
