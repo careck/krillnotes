@@ -14,6 +14,7 @@ pub mod contact;
 pub mod delete;
 pub mod hlc;
 pub mod identity;
+pub mod invite;
 pub mod export;
 pub mod device;
 pub mod error;

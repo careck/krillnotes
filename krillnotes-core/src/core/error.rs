@@ -95,6 +95,12 @@ pub enum KrillnotesError {
     #[error("swarm: {0}")]
     Swarm(String),
 
+    #[error("Invalid signature")]
+    InvalidSignature,
+
+    #[error("Invite expired or revoked")]
+    InviteExpiredOrRevoked,
+
     /// A zip archive operation failed (bundle encoding/decoding).
     #[error("zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
@@ -173,6 +179,8 @@ impl KrillnotesError {
                 format!("This .swarmid file uses version {v}, which is not supported by this version of Krillnotes.")
             }
             Self::Swarm(msg) => format!("Swarm bundle error: {msg}"),
+            Self::InvalidSignature => "Invalid signature — the file may be tampered or corrupted.".to_string(),
+            Self::InviteExpiredOrRevoked => "This invite has expired or been revoked.".to_string(),
             Self::Zip(e) => format!("Bundle archive error: {e}"),
         }
     }
