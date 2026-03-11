@@ -312,6 +312,7 @@
     "pasteAsChild": "Paste as Child",
     "pasteAsSibling": "Paste as Sibling",
     "workspaceProperties": "Workspace Properties…",
+    "workspacePeers": "Workspace Peers",
     "settings": "Settings…",
     "manageScripts": "Manage Scripts…",
     "operationsLog": "Operations Log…",
@@ -428,6 +429,28 @@
     "fingerprintMatches": "Yes, the fingerprint matches",
     "saveContact": "Save Contact",
     "confirmDeleteContact": "Confirm Delete",
-    "contactsButton": "Contacts ({{count}})"
+    "contactsButton": "Contacts ({{count}})",
+    "addFromContacts": "Add from contacts",
+    "createInviteFile": "Create invite file",
+    "notInContacts": "not in contacts",
+    "neverSynced": "never",
+    "removePeer": "Remove peer",
+    "addToContacts": "Add to contacts",
+    "confirmRemovePeer": "Remove this peer from the workspace?",
+    "noPeers": "No peers yet. Add a contact or create an invite file to get started."
+  },
+  "peers": {
+    "title": "Workspace Peers",
+    "peer": "peer",
+    "peers": "peers",
+    "neverSynced": "Never synced",
+    "justNow": "just now",
+    "noPeers": "No peers yet. Add a contact or create an invite file to get started.",
+    "notInContacts": "not in contacts",
+    "addToContacts": "Add to contacts",
+    "confirmRemove": "Remove this peer from the workspace?",
+    "removePeer": "Remove peer",
+    "addFromContacts": "Add from contacts",
+    "createInviteFile": "Create invite file"
   }
 }

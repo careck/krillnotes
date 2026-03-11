@@ -19,6 +19,7 @@ import CreateIdentityDialog from './components/CreateIdentityDialog';
 import IdentityManagerDialog from './components/IdentityManagerDialog';
 import SwarmInviteDialog from './components/SwarmInviteDialog';
 import SwarmOpenDialog from './components/SwarmOpenDialog';
+import WorkspacePeersDialog from './components/WorkspacePeersDialog';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import i18n from './i18n';
@@ -48,6 +49,7 @@ const createMenuHandlers = (
   setShowSwarmInvite: (show: boolean) => void,
   setSwarmFilePath: (path: string | null) => void,
   setShowSwarmOpen: (show: boolean) => void,
+  setShowWorkspacePeers: (show: boolean) => void,
 ) => ({
   'File > New Workspace clicked': () => {
     setShowNewWorkspace(true);
@@ -87,6 +89,10 @@ const createMenuHandlers = (
 
   'File > Invite Peer clicked': () => {
     setShowSwarmInvite(true);
+  },
+
+  'Edit > Workspace Peers clicked': () => {
+    setShowWorkspacePeers(true);
   },
 
   'File > Open Swarm File clicked': async () => {
@@ -132,6 +138,7 @@ function App() {
   const [showSwarmOpen, setShowSwarmOpen] = useState(false);
   const [swarmFilePath, setSwarmFilePath] = useState<string | null>(null);
   const [unlockedIdentityUuid, setUnlockedIdentityUuid] = useState<string | null>(null);
+  const [showWorkspacePeers, setShowWorkspacePeers] = useState(false);
 
   const refreshUnlockedIdentity = () => {
     invoke<string[]>('get_unlocked_identities')
@@ -243,6 +250,7 @@ function App() {
       setShowSwarmInvite,
       setSwarmFilePath,
       setShowSwarmOpen,
+      setShowWorkspacePeers,
     );
 
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
@@ -609,6 +617,14 @@ function App() {
         unlockedIdentityUuid={unlockedIdentityUuid}
         deviceId={unlockedIdentityUuid ?? ''}
       />
+      {showWorkspacePeers && (
+        <WorkspacePeersDialog
+          identityUuid={unlockedIdentityUuid ?? ''}
+          workspaceInfo={workspace}
+          unlockedIdentityUuid={unlockedIdentityUuid}
+          onClose={() => setShowWorkspacePeers(false)}
+        />
+      )}
     </div>
     </ThemeProvider>
   );

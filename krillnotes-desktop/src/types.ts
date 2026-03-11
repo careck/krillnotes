@@ -232,3 +232,13 @@ export interface ContactInfo {
   firstSeen: string; // ISO 8601
   notes: string | null;
 }
+
+export interface PeerInfo {
+  peerDeviceId: string;
+  peerIdentityId: string;
+  displayName: string;
+  fingerprint: string;
+  trustLevel?: string;    // undefined if peer is not in the contact book
+  contactId?: string;     // UUID string, undefined if not in contacts
+  lastSync?: string;      // ISO 8601, undefined if never synced
+}

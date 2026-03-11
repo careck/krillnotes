@@ -2198,6 +2198,102 @@ fn get_fingerprint(public_key: String) -> std::result::Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+// ── Peer commands ─────────────────────────────────────────────────
+
+/// Returns all sync peers registered for the calling window's workspace,
+/// enriching each entry with the matching contact name where available.
+#[tauri::command]
+fn list_workspace_peers(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<krillnotes_core::PeerInfo>, String> {
+    let window_label = window.label().to_string();
+
+    // Resolve identity UUID from workspace binding.
+    let identity_uuid = {
+        let paths = state.workspace_paths.lock().expect("Mutex poisoned");
+        let folder = paths.get(&window_label).ok_or("Workspace path not found")?.clone();
+        drop(paths);
+        let (ws_uuid_opt, _, _, _) = read_info_json_full(&folder);
+        let workspace_uuid = ws_uuid_opt.ok_or("Workspace UUID missing from info.json")?;
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.get_workspace_binding(&workspace_uuid)
+            .map_err(|e| e.to_string())?
+            .ok_or("No identity bound to this workspace")?
+            .identity_uuid
+    };
+
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(&window_label).ok_or("Workspace not found")?;
+    let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = contact_managers
+        .get(&identity_uuid)
+        .ok_or("Contact manager not found — identity must be unlocked")?;
+    workspace.list_peers_info(cm).map_err(|e| e.to_string())
+}
+
+/// Removes a sync peer from the calling window's workspace by device ID.
+#[tauri::command]
+fn remove_workspace_peer(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    peer_device_id: String,
+) -> std::result::Result<(), String> {
+    let window_label = window.label().to_string();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(&window_label).ok_or("Workspace not found")?;
+    workspace.remove_peer(&peer_device_id).map_err(|e| e.to_string())
+}
+
+/// Pre-authorises a contact as a sync peer for the calling window's workspace.
+/// Returns the newly created `PeerInfo` entry.
+#[tauri::command]
+fn add_contact_as_peer(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    contact_id: String,
+) -> std::result::Result<krillnotes_core::PeerInfo, String> {
+    let window_label = window.label().to_string();
+    let identity_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let contact_id = Uuid::parse_str(&contact_id).map_err(|e| e.to_string())?;
+
+    // Step 1: Get contact's public key — drop contact_managers lock before touching workspaces.
+    let peer_identity_id = {
+        let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
+        let cm = contact_managers
+            .get(&identity_uuid)
+            .ok_or("Contact manager not found — identity must be unlocked")?;
+        let contact = cm
+            .get_contact(contact_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Contact not found")?;
+        contact.public_key.clone()
+    };
+
+    // Step 2: Add to workspace — acquire workspaces lock separately.
+    {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let workspace = workspaces.get(&window_label).ok_or("Workspace not found")?;
+        workspace.add_contact_as_peer(&peer_identity_id).map_err(|e| e.to_string())?;
+    }
+
+    // Step 3: Build PeerInfo for the caller — re-acquire both locks.
+    let peers = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let workspace = workspaces.get(&window_label).ok_or("Workspace not found")?;
+        let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
+        let cm = contact_managers
+            .get(&identity_uuid)
+            .ok_or("Contact manager not found")?;
+        workspace.list_peers_info(cm).map_err(|e| e.to_string())?
+    };
+    peers
+        .into_iter()
+        .find(|p| p.peer_identity_id == peer_identity_id)
+        .ok_or_else(|| "Peer not found after insert".to_string())
+}
+
 // ── Theme commands ────────────────────────────────────────────────
 
 /// Lists all user theme files in the themes directory.
@@ -3355,6 +3451,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
     ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
     ("workspace_properties",  "Edit > Workspace Properties clicked"),
+    ("workspace_peers",       "Edit > Workspace Peers clicked"),
     ("file_identities",       "File > Manage Identities clicked"),
     ("file_invite_peer",      "File > Invite Peer clicked"),
     ("file_open_swarm",       "File > Open Swarm File clicked"),
@@ -3632,6 +3729,9 @@ pub fn run() {
             update_contact,
             delete_contact,
             get_fingerprint,
+            list_workspace_peers,
+            remove_workspace_peer,
+            add_contact_as_peer,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

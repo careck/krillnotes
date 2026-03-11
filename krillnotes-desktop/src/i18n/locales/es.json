@@ -310,6 +310,7 @@
     "pasteAsChild": "Pegar como hijo",
     "pasteAsSibling": "Pegar como hermano",
     "workspaceProperties": "Propiedades del espacio de trabajo…",
+    "workspacePeers": "Pares del Espacio de Trabajo",
     "settings": "Ajustes…",
     "manageScripts": "Gestionar scripts…",
     "operationsLog": "Registro de operaciones…",
@@ -426,6 +427,28 @@
     "fingerprintMatches": "Sí, la huella digital coincide",
     "saveContact": "Guardar contacto",
     "confirmDeleteContact": "Confirmar eliminación",
-    "contactsButton": "Contactos ({{count}})"
+    "contactsButton": "Contactos ({{count}})",
+    "addFromContacts": "Agregar desde contactos",
+    "createInviteFile": "Crear archivo de invitación",
+    "notInContacts": "no en contactos",
+    "neverSynced": "nunca",
+    "removePeer": "Eliminar par",
+    "addToContacts": "Agregar a contactos",
+    "confirmRemovePeer": "¿Eliminar este par del espacio de trabajo?",
+    "noPeers": "Aún no hay pares. Agrega un contacto o crea un archivo de invitación."
+  },
+  "peers": {
+    "title": "Pares del Espacio de Trabajo",
+    "peer": "par",
+    "peers": "pares",
+    "neverSynced": "Nunca sincronizado",
+    "justNow": "ahora mismo",
+    "noPeers": "Aún no hay pares. Agrega un contacto o crea un archivo de invitación.",
+    "notInContacts": "no en contactos",
+    "addToContacts": "Agregar a contactos",
+    "confirmRemove": "¿Eliminar este par del espacio de trabajo?",
+    "removePeer": "Eliminar par",
+    "addFromContacts": "Agregar desde contactos",
+    "createInviteFile": "Crear archivo de invitación"
   }
 }

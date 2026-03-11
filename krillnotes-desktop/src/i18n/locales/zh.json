@@ -308,6 +308,7 @@
     "pasteAsChild": "粘贴为子节点",
     "pasteAsSibling": "粘贴为兄弟节点",
     "workspaceProperties": "工作区属性…",
+    "workspacePeers": "工作区对等节点",
     "settings": "设置…",
     "manageScripts": "管理脚本…",
     "operationsLog": "操作日志…",
@@ -424,6 +425,28 @@
     "fingerprintMatches": "是的，指纹匹配",
     "saveContact": "保存联系人",
     "confirmDeleteContact": "确认删除",
-    "contactsButton": "联系人 ({{count}})"
+    "contactsButton": "联系人 ({{count}})",
+    "addFromContacts": "从联系人添加",
+    "createInviteFile": "创建邀请文件",
+    "notInContacts": "不在联系人中",
+    "neverSynced": "从未",
+    "removePeer": "移除对等节点",
+    "addToContacts": "添加到联系人",
+    "confirmRemovePeer": "从工作区移除此对等节点？",
+    "noPeers": "暂无对等节点。添加联系人或创建邀请文件以开始。"
+  },
+  "peers": {
+    "title": "工作区对等节点",
+    "peer": "节点",
+    "peers": "节点",
+    "neverSynced": "从未同步",
+    "justNow": "刚刚",
+    "noPeers": "暂无对等节点。添加联系人或创建邀请文件以开始。",
+    "notInContacts": "不在联系人中",
+    "addToContacts": "添加到联系人",
+    "confirmRemove": "从工作区移除此对等节点？",
+    "removePeer": "移除节点",
+    "addFromContacts": "从联系人添加",
+    "createInviteFile": "创建邀请文件"
   }
 }

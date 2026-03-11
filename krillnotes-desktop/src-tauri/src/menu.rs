@@ -185,6 +185,10 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
     let workspace_properties = MenuItemBuilder::with_id("workspace_properties", s(strings, "workspaceProperties", "Workspace Properties\u{2026}"))
         .enabled(false)
         .build(app)?;
+    let workspace_peers_item = MenuItemBuilder::with_id("workspace_peers",
+        s(strings, "workspacePeers", "Workspace Peers"))
+        .enabled(false)
+        .build(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
     let undo       = PredefinedMenuItem::undo(app, None)?;
     let redo       = PredefinedMenuItem::redo(app, None)?;
@@ -195,7 +199,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
 
     let builder = SubmenuBuilder::new(app, s(strings, "edit", "Edit"))
         .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling,
-                 &sep2, &workspace_properties, &sep3]);
+                 &sep2, &workspace_properties, &workspace_peers_item, &sep3]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -211,7 +215,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         submenu,
         paste_as_child: paste_child,
         paste_as_sibling: paste_sibling,
-        workspace_items: vec![add_note, delete_note, copy_note, workspace_properties],
+        workspace_items: vec![add_note, delete_note, copy_note, workspace_properties, workspace_peers_item],
     })
 }
 

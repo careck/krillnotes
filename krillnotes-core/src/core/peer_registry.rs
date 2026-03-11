@@ -31,6 +31,29 @@ pub struct SyncPeer {
     pub last_sync: Option<String>,
 }
 
+/// A resolved view of a sync peer, joining sync_peers with the contact book.
+/// This is the type returned to callers (Tauri, future frontends).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerInfo {
+    /// Raw device ID from sync_peers (PRIMARY KEY). May be `identity:<pubkey>` for
+    /// pre-authorised contacts who have never synced yet.
+    pub peer_device_id: String,
+    /// Ed25519 public key (base64) — the peer's identity.
+    pub peer_identity_id: String,
+    /// Resolved display name: local_name || declared_name || first 8 chars of key + "…"
+    pub display_name: String,
+    /// 4-word BIP-39 fingerprint derived from BLAKE3(peer_identity_id).
+    pub fingerprint: String,
+    /// Trust level string if peer is in the contact book ("Tofu", "CodeVerified",
+    /// "Vouched", "VerifiedInPerson"). None if not in contacts.
+    pub trust_level: Option<String>,
+    /// Contact UUID (as String) if peer is in the contact book. None otherwise.
+    pub contact_id: Option<String>,
+    /// ISO 8601 timestamp of last .swarm bundle exchange. None if never synced.
+    pub last_sync: Option<String>,
+}
+
 /// Manages the `sync_peers` table for one workspace connection.
 pub struct PeerRegistry<'a> {
     conn: &'a Connection,

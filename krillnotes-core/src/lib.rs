@@ -35,6 +35,7 @@ pub use core::{
     storage::Storage,
     undo::{RetractInverse, UndoResult},
     user_script::UserScript,
+    peer_registry::PeerInfo,
     workspace::{AddPosition, NoteSearchResult, Workspace},
 };
 

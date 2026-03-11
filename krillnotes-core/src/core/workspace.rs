@@ -9,8 +9,10 @@
 use crate::core::attachment::{
     decrypt_attachment, encrypt_attachment, AttachmentMeta,
 };
+use crate::core::contact::{generate_fingerprint, TrustLevel};
 use crate::core::export::WorkspaceMetadata;
 use crate::core::hlc::{HlcClock, HlcTimestamp};
+use crate::core::peer_registry::{PeerInfo, PeerRegistry};
 use crate::core::user_script;
 #[allow(unused_imports)]
 use crate::{
@@ -4487,6 +4489,80 @@ impl Workspace {
         Ok(note_count)
     }
 
+    /// Returns a resolved view of all sync peers for this workspace, joining
+    /// sync_peers with the given contact manager for name/trust resolution.
+    /// Sorted by display_name ascending.
+    pub fn list_peers_info(
+        &self,
+        contact_manager: &crate::core::contact::ContactManager,
+    ) -> Result<Vec<PeerInfo>> {
+        let conn = self.storage.connection();
+        let registry = PeerRegistry::new(conn);
+        let peers = registry.list_peers()?;
+        let contacts = contact_manager.list_contacts()?;
+
+        let mut result: Vec<PeerInfo> = peers
+            .into_iter()
+            .map(|peer| {
+                let contact = contacts
+                    .iter()
+                    .find(|c| c.public_key == peer.peer_identity_id);
+
+                let display_name = contact
+                    .map(|c| c.local_name.clone().unwrap_or_else(|| c.declared_name.clone()))
+                    .unwrap_or_else(|| {
+                        let key = &peer.peer_identity_id;
+                        format!("{}…", &key[..key.len().min(8)])
+                    });
+
+                let fingerprint = generate_fingerprint(&peer.peer_identity_id)
+                    .unwrap_or_else(|_| format!("{}…", &peer.peer_identity_id[..peer.peer_identity_id.len().min(8)]));
+
+                let trust_level = contact.map(|c| match c.trust_level {
+                    TrustLevel::Tofu => "Tofu".to_string(),
+                    TrustLevel::CodeVerified => "CodeVerified".to_string(),
+                    TrustLevel::Vouched => "Vouched".to_string(),
+                    TrustLevel::VerifiedInPerson => "VerifiedInPerson".to_string(),
+                });
+
+                PeerInfo {
+                    peer_device_id: peer.peer_device_id,
+                    peer_identity_id: peer.peer_identity_id,
+                    display_name,
+                    fingerprint,
+                    trust_level,
+                    contact_id: contact.map(|c| c.contact_id.to_string()),
+                    last_sync: peer.last_sync,
+                }
+            })
+            .collect();
+
+        result.sort_by(|a, b| a.display_name.cmp(&b.display_name));
+        Ok(result)
+    }
+
+    /// Pre-authorises a contact as a workspace sync peer before any .swarm exchange.
+    /// Uses `identity:<peer_identity_id>` as a placeholder device ID.
+    pub fn add_contact_as_peer(
+        &self,
+        peer_identity_id: &str,
+    ) -> Result<()> {
+        let placeholder_device_id = format!("identity:{}", peer_identity_id);
+        let conn = self.storage.connection();
+        let registry = PeerRegistry::new(conn);
+        registry.add_peer(&placeholder_device_id, peer_identity_id)
+    }
+
+    /// Removes a peer from this workspace's sync peer list by device ID.
+    pub fn remove_peer(
+        &self,
+        peer_device_id: &str,
+    ) -> Result<()> {
+        let conn = self.storage.connection();
+        let registry = PeerRegistry::new(conn);
+        registry.remove_peer(peer_device_id)
+    }
+
 }
 
 /// Keeps the `note_links` junction table in sync with the current field values of a note.
@@ -4610,6 +4686,7 @@ fn humanize(filename: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::contact::{ContactManager, TrustLevel};
     use crate::FieldValue;
     use std::collections::BTreeMap;
     use tempfile::NamedTempFile;
@@ -7541,5 +7618,61 @@ schema("SameVerType", #{
         assert!(result.is_err(), "expected error when deep-copying note under leaf");
         let err = result.unwrap_err().to_string();
         assert!(err.to_lowercase().contains("leaf"), "expected 'leaf' in error: {err}");
+    }
+
+    #[test]
+    fn test_list_peers_info_unknown_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path().join("ws.db"), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        ws.add_contact_as_peer("AAAAAAAAAAAAAAAA").unwrap();
+
+        let cm_dir = tempfile::tempdir().unwrap();
+        let key = [0u8; 32];
+        let cm = ContactManager::for_identity(cm_dir.path().to_path_buf(), key).unwrap();
+
+        let peers = ws.list_peers_info(&cm).unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].display_name, "AAAAAAAA…");
+        assert!(peers[0].trust_level.is_none());
+        assert!(peers[0].contact_id.is_none());
+        assert!(!peers[0].fingerprint.is_empty());
+    }
+
+    #[test]
+    fn test_list_peers_info_known_contact() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path().join("ws.db"), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let pubkey = "BBBBBBBBBBBBBBBB";
+        ws.add_contact_as_peer(pubkey).unwrap();
+
+        let cm_dir = tempfile::tempdir().unwrap();
+        let key = [1u8; 32];
+        let mut cm = ContactManager::for_identity(cm_dir.path().to_path_buf(), key).unwrap();
+        let contact = cm.create_contact("Bob", pubkey, TrustLevel::CodeVerified).unwrap();
+
+        let peers = ws.list_peers_info(&cm).unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].display_name, "Bob");
+        assert_eq!(peers[0].trust_level.as_deref(), Some("CodeVerified"));
+        let expected_contact_id = contact.contact_id.to_string();
+        assert_eq!(peers[0].contact_id.as_deref(), Some(expected_contact_id.as_str()));
+    }
+
+    #[test]
+    fn test_add_and_remove_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path().join("ws.db"), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let pubkey = "CCCCCCCCCCCCCCCC";
+
+        ws.add_contact_as_peer(pubkey).unwrap();
+        let cm_dir = tempfile::tempdir().unwrap();
+        let cm = ContactManager::for_identity(cm_dir.path().to_path_buf(), [0u8; 32]).unwrap();
+        let peers = ws.list_peers_info(&cm).unwrap();
+        assert_eq!(peers.len(), 1);
+
+        let placeholder = format!("identity:{}", pubkey);
+        ws.remove_peer(&placeholder).unwrap();
+        let peers = ws.list_peers_info(&cm).unwrap();
+        assert_eq!(peers.len(), 0);
     }
 }

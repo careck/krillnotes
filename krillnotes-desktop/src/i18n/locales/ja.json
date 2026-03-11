@@ -308,6 +308,7 @@
     "pasteAsChild": "子として貼り付け",
     "pasteAsSibling": "兄弟として貼り付け",
     "workspaceProperties": "ワークスペースのプロパティ…",
+    "workspacePeers": "ワークスペースのピア",
     "settings": "設定…",
     "manageScripts": "スクリプトを管理…",
     "operationsLog": "操作ログ…",
@@ -424,6 +425,28 @@
     "fingerprintMatches": "はい、フィンガープリントが一致します",
     "saveContact": "連絡先を保存",
     "confirmDeleteContact": "削除を確認",
-    "contactsButton": "連絡先 ({{count}})"
+    "contactsButton": "連絡先 ({{count}})",
+    "addFromContacts": "連絡先から追加",
+    "createInviteFile": "招待ファイルを作成",
+    "notInContacts": "連絡先にない",
+    "neverSynced": "なし",
+    "removePeer": "ピアを削除",
+    "addToContacts": "連絡先に追加",
+    "confirmRemovePeer": "このピアをワークスペースから削除しますか？",
+    "noPeers": "ピアがまだいません。連絡先を追加するか、招待ファイルを作成してください。"
+  },
+  "peers": {
+    "title": "ワークスペースのピア",
+    "peer": "ピア",
+    "peers": "ピア",
+    "neverSynced": "同期なし",
+    "justNow": "たった今",
+    "noPeers": "ピアがまだいません。連絡先を追加するか、招待ファイルを作成してください。",
+    "notInContacts": "連絡先にない",
+    "addToContacts": "連絡先に追加",
+    "confirmRemove": "このピアをワークスペースから削除しますか？",
+    "removePeer": "ピアを削除",
+    "addFromContacts": "連絡先から追加",
+    "createInviteFile": "招待ファイルを作成"
   }
 }

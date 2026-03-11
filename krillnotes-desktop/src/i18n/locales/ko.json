@@ -308,6 +308,7 @@
     "pasteAsChild": "자식으로 붙여넣기",
     "pasteAsSibling": "형제로 붙여넣기",
     "workspaceProperties": "작업 공간 속성…",
+    "workspacePeers": "워크스페이스 피어",
     "settings": "설정…",
     "manageScripts": "스크립트 관리…",
     "operationsLog": "작업 로그…",
@@ -424,6 +425,28 @@
     "fingerprintMatches": "예, 지문이 일치합니다",
     "saveContact": "연락처 저장",
     "confirmDeleteContact": "삭제 확인",
-    "contactsButton": "연락처 ({{count}})"
+    "contactsButton": "연락처 ({{count}})",
+    "addFromContacts": "연락처에서 추가",
+    "createInviteFile": "초대 파일 만들기",
+    "notInContacts": "연락처에 없음",
+    "neverSynced": "없음",
+    "removePeer": "피어 제거",
+    "addToContacts": "연락처에 추가",
+    "confirmRemovePeer": "이 피어를 워크스페이스에서 제거하시겠습니까?",
+    "noPeers": "아직 피어가 없습니다. 연락처를 추가하거나 초대 파일을 만드세요."
+  },
+  "peers": {
+    "title": "워크스페이스 피어",
+    "peer": "피어",
+    "peers": "피어",
+    "neverSynced": "동기화 없음",
+    "justNow": "방금",
+    "noPeers": "아직 피어가 없습니다. 연락처를 추가하거나 초대 파일을 만드세요.",
+    "notInContacts": "연락처에 없음",
+    "addToContacts": "연락처에 추가",
+    "confirmRemove": "이 피어를 워크스페이스에서 제거하시겠습니까?",
+    "removePeer": "피어 제거",
+    "addFromContacts": "연락처에서 추가",
+    "createInviteFile": "초대 파일 만들기"
   }
 }
