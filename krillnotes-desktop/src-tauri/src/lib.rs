@@ -47,6 +47,8 @@ pub struct AppState {
     pub identity_manager: Arc<Mutex<IdentityManager>>,
     /// Per-identity contact managers — keyed by identity UUID, created on unlock.
     pub contact_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::contact::ContactManager>>>,
+    /// Per-identity invite managers — keyed by identity UUID, created on unlock.
+    pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
     /// In-memory map of currently unlocked identities (UUID → unlocked state).
     /// Entries are removed when an identity is locked or the app exits.
     pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
@@ -1830,6 +1832,14 @@ fn create_identity(
             eprintln!("Warning: failed to initialize contact manager for {uuid}: {e}");
         }
     }
+    let invites_dir = settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("invites");
+    match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
+        Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
+        Err(e) => { eprintln!("Warning: failed to initialize invite manager for {uuid}: {e}"); }
+    }
 
     // Return the IdentityRef
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
@@ -1871,6 +1881,14 @@ fn unlock_identity(
             eprintln!("Warning: failed to initialize contact manager for {uuid}: {e}");
         }
     }
+    let invites_dir = settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("invites");
+    match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
+        Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
+        Err(e) => { eprintln!("Warning: failed to initialize invite manager for {uuid}: {e}"); }
+    }
     Ok(())
 }
 
@@ -1908,9 +1926,10 @@ fn lock_identity(
     }
 
     // Wipe identity from memory.
-    // Remove contact_managers first so there is no window where the identity is
-    // "locked" but its ContactManager is still live.
+    // Remove contact_managers and invite_managers first so there is no window where
+    // the identity is "locked" but its managers are still live.
     state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
     Ok(())
 }
@@ -3512,6 +3531,7 @@ pub fn run() {
                 IdentityManager::new(settings::config_dir()).expect("Failed to init IdentityManager")
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
+            invite_managers: Arc::new(Mutex::new(HashMap::new())),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
