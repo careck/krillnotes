@@ -24,7 +24,9 @@
     "yes": "Sí",
     "no": "No",
     "undo": "Undo",
-    "redo": "Redo"
+    "redo": "Redo",
+    "accept": "Accept",
+    "reject": "Reject"
   },
   "settings": {
     "title": "Ajustes",
@@ -450,5 +452,37 @@
     "removePeer": "Eliminar par",
     "addFromContacts": "Agregar desde contactos",
     "createInviteFile": "Crear archivo de invitación"
+  },
+  "invite": {
+    "createTitle": "Create Invite",
+    "createDescription": "Create a signed invite for {{workspaceName}}. Share the file with anyone you want to invite.",
+    "createInvite": "Create Invite",
+    "createAndSave": "Create & Save",
+    "expiry": "Expiry",
+    "noExpiry": "No expiry",
+    "customDays": "Days until expiry",
+    "expiresOn": "Expires {{date}}",
+    "expiredOn": "Expired {{date}}",
+    "expired": "This invite has expired.",
+    "manageTitle": "Invites",
+    "manageInvites": "Invites",
+    "noInvites": "No invites yet.",
+    "usedCount_one": "Used {{count}} time",
+    "usedCount_other": "Used {{count}} times",
+    "revoked": "Revoked",
+    "revoke": "Revoke",
+    "importResponse": "Import Response",
+    "importResponsePrompt": "Import a response .swarm file from a peer.",
+    "importInvite": "Import Invite",
+    "importTitle": "Workspace Invite",
+    "importSubtitle": "You have been invited to join a workspace.",
+    "by": "by",
+    "license": "License",
+    "invitedBy": "Invited by",
+    "fingerprintVerifyPrompt": "Ask the other person to read their fingerprint aloud and confirm it matches before proceeding.",
+    "fingerprintConfirm": "Yes, the fingerprint matches",
+    "respond": "Respond",
+    "acceptTitle": "Accept Peer",
+    "duplicateContact": "This peer is already in your contacts. Accepting will update their workspace peer status."
   }
 }
