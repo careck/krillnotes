@@ -3233,6 +3233,25 @@ impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteFileData {
+    pub invite_id: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub workspace_description: Option<String>,
+    pub workspace_author_name: Option<String>,
+    pub workspace_author_org: Option<String>,
+    pub workspace_homepage_url: Option<String>,
+    pub workspace_license: Option<String>,
+    pub workspace_language: Option<String>,
+    pub workspace_tags: Vec<String>,
+    pub inviter_public_key: String,
+    pub inviter_declared_name: String,
+    pub inviter_fingerprint: String,
+    pub expires_at: Option<String>,
+}
+
 #[tauri::command]
 fn list_invites(
     state: State<'_, AppState>,
@@ -3370,6 +3389,66 @@ fn import_invite_response(
         invitee_declared_name: response.invitee_declared_name,
         fingerprint,
     })
+}
+
+#[tauri::command]
+fn import_invite(path: String) -> std::result::Result<InviteFileData, String> {
+    use krillnotes_core::core::invite::InviteManager;
+    use krillnotes_core::core::contact::generate_fingerprint;
+
+    let invite = InviteManager::parse_and_verify_invite(std::path::Path::new(&path))
+        .map_err(|e| e.to_string())?;
+
+    let fingerprint = generate_fingerprint(&invite.inviter_public_key).map_err(|e| e.to_string())?;
+
+    Ok(InviteFileData {
+        invite_id: invite.invite_id,
+        workspace_id: invite.workspace_id,
+        workspace_name: invite.workspace_name,
+        workspace_description: invite.workspace_description,
+        workspace_author_name: invite.workspace_author_name,
+        workspace_author_org: invite.workspace_author_org,
+        workspace_homepage_url: invite.workspace_homepage_url,
+        workspace_license: invite.workspace_license,
+        workspace_language: invite.workspace_language,
+        workspace_tags: invite.workspace_tags,
+        inviter_public_key: invite.inviter_public_key,
+        inviter_declared_name: invite.inviter_declared_name,
+        inviter_fingerprint: fingerprint,
+        expires_at: invite.expires_at,
+    })
+}
+
+#[tauri::command]
+fn respond_to_invite(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_path: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    use krillnotes_core::core::invite::InviteManager;
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+
+    let invite = InviteManager::parse_and_verify_invite(std::path::Path::new(&invite_path))
+        .map_err(|e| e.to_string())?;
+
+    InviteManager::build_and_save_response(
+        &invite,
+        &signing_key,
+        &declared_name,
+        std::path::Path::new(&save_path),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3683,6 +3762,8 @@ pub fn run() {
             create_invite,
             revoke_invite,
             import_invite_response,
+            import_invite,
+            respond_to_invite,
             accept_peer,
             attach_file,
             attach_file_bytes,
