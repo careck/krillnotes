@@ -6,10 +6,8 @@
 
 //! Invite record and `.swarm` file structures for the peer invite flow.
 
-#[allow(unused_imports)]
 use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
-#[allow(unused_imports)]
 use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -17,7 +15,6 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{SigningKey, Signer, VerifyingKey, Verifier, Signature};
 use crate::core::error::KrillnotesError;
 
-#[allow(dead_code)]
 type Result<T> = std::result::Result<T, KrillnotesError>;
 
 // ── On-disk invite record (plaintext, managed by inviter) ─────────────────────
@@ -137,6 +134,240 @@ pub fn verify_payload(
     verifying_key
         .verify(canonical.as_bytes(), &signature)
         .map_err(|_| KrillnotesError::InvalidSignature)
+}
+
+// ── InviteManager ─────────────────────────────────────────────────────────────
+
+pub struct InviteManager {
+    invites_dir: PathBuf,
+}
+
+impl InviteManager {
+    pub fn new(invites_dir: PathBuf) -> Result<Self> {
+        std::fs::create_dir_all(&invites_dir)?;
+        Ok(Self { invites_dir })
+    }
+
+    fn path_for(&self, id: Uuid) -> PathBuf {
+        self.invites_dir.join(format!("{}.json", id))
+    }
+
+    fn save_record(&self, record: &InviteRecord) -> Result<()> {
+        let json = serde_json::to_string_pretty(record)?;
+        std::fs::write(self.path_for(record.invite_id), json)?;
+        Ok(())
+    }
+
+    /// Create a new invite and return the record + signed InviteFile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_invite(
+        &mut self,
+        workspace_id: &str,
+        workspace_name: &str,
+        expires_in_days: Option<u32>,
+        signing_key: &SigningKey,
+        inviter_declared_name: &str,
+        workspace_description: Option<String>,
+        workspace_author_name: Option<String>,
+        workspace_author_org: Option<String>,
+        workspace_homepage_url: Option<String>,
+        workspace_license: Option<String>,
+        workspace_tags: Vec<String>,
+    ) -> Result<(InviteRecord, InviteFile)> {
+        let invite_id = Uuid::new_v4();
+        let now = Utc::now();
+        let expires_at = expires_in_days.map(|d| now + Duration::days(d as i64));
+
+        let record = InviteRecord {
+            invite_id,
+            workspace_id: workspace_id.to_string(),
+            workspace_name: workspace_name.to_string(),
+            created_at: now,
+            expires_at,
+            revoked: false,
+            use_count: 0,
+        };
+        self.save_record(&record)?;
+
+        let pubkey_b64 = STANDARD.encode(signing_key.verifying_key().to_bytes());
+        let mut file = InviteFile {
+            file_type: "krillnotes-invite-v1".to_string(),
+            invite_id: invite_id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            workspace_name: workspace_name.to_string(),
+            workspace_description,
+            workspace_author_name,
+            workspace_author_org,
+            workspace_homepage_url,
+            workspace_license,
+            workspace_language: None, // TODO: expose workspace_language parameter when needed
+            workspace_tags,
+            inviter_public_key: pubkey_b64,
+            inviter_declared_name: inviter_declared_name.to_string(),
+            expires_at: expires_at.map(|dt| dt.to_rfc3339()),
+            signature: String::new(),
+        };
+        let payload = serde_json::to_value(&file)?;
+        file.signature = sign_payload(&payload, signing_key);
+        Ok((record, file))
+    }
+
+    pub fn list_invites(&self) -> Result<Vec<InviteRecord>> {
+        let mut records = Vec::new();
+        for entry in std::fs::read_dir(&self.invites_dir)? {
+            let entry = entry?;
+            if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let json = std::fs::read_to_string(entry.path())?;
+            let record: InviteRecord = serde_json::from_str(&json)?;
+            records.push(record);
+        }
+        records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(records)
+    }
+
+    pub fn get_invite(&self, invite_id: Uuid) -> Result<Option<InviteRecord>> {
+        let path = self.path_for(invite_id);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let json = std::fs::read_to_string(path)?;
+        Ok(Some(serde_json::from_str(&json)?))
+    }
+
+    pub fn revoke_invite(&mut self, invite_id: Uuid) -> Result<()> {
+        let mut record = self
+            .get_invite(invite_id)?
+            .ok_or_else(|| KrillnotesError::Swarm(format!("Invite {} not found", invite_id)))?;
+        record.revoked = true;
+        self.save_record(&record)
+    }
+
+    pub fn increment_use_count(&mut self, invite_id: Uuid) -> Result<()> {
+        let mut record = self
+            .get_invite(invite_id)?
+            .ok_or_else(|| KrillnotesError::Swarm(format!("Invite {} not found", invite_id)))?;
+        record.use_count += 1;
+        self.save_record(&record)
+    }
+
+    /// Parse and verify a response `.swarm` file (inviter side).
+    /// Returns the PendingPeer data. Does NOT check invite validity here —
+    /// the Tauri command does that after looking up the record.
+    pub fn parse_and_verify_response(path: &Path) -> Result<InviteResponseFile> {
+        let json = std::fs::read_to_string(path)?;
+        let response: InviteResponseFile = serde_json::from_str(&json)?;
+        if response.file_type != "krillnotes-invite-response-v1" {
+            return Err(KrillnotesError::Swarm("Not a response file".to_string()));
+        }
+        let payload = serde_json::to_value(&response)?;
+        verify_payload(&payload, &response.signature, &response.invitee_public_key)?;
+        Ok(response)
+    }
+
+    /// Parse and verify an invite `.swarm` file (invitee side).
+    pub fn parse_and_verify_invite(path: &Path) -> Result<InviteFile> {
+        let json = std::fs::read_to_string(path)?;
+        let invite: InviteFile = serde_json::from_str(&json)?;
+        if invite.file_type != "krillnotes-invite-v1" {
+            return Err(KrillnotesError::Swarm("Not an invite file".to_string()));
+        }
+        let payload = serde_json::to_value(&invite)?;
+        verify_payload(&payload, &invite.signature, &invite.inviter_public_key)?;
+        Ok(invite)
+    }
+
+    /// Build and sign a response file (invitee side). Writes to `save_path`.
+    pub fn build_and_save_response(
+        invite: &InviteFile,
+        signing_key: &SigningKey,
+        declared_name: &str,
+        save_path: &Path,
+    ) -> Result<()> {
+        let pubkey_b64 = STANDARD.encode(signing_key.verifying_key().to_bytes());
+        let mut response = InviteResponseFile {
+            file_type: "krillnotes-invite-response-v1".to_string(),
+            invite_id: invite.invite_id.clone(),
+            invitee_public_key: pubkey_b64,
+            invitee_declared_name: declared_name.to_string(),
+            signature: String::new(),
+        };
+        let payload = serde_json::to_value(&response)?;
+        response.signature = sign_payload(&payload, signing_key);
+        let json = serde_json::to_string_pretty(&response)?;
+        std::fs::write(save_path, json)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod manager_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn setup() -> (TempDir, SigningKey) {
+        let dir = tempfile::tempdir().unwrap();
+        let key = SigningKey::from_bytes(&[1u8; 32]);
+        (dir, key)
+    }
+
+    #[test]
+    fn create_and_list_invite() {
+        let (dir, key) = setup();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let (record, file) = mgr
+            .create_invite("ws-id", "My Workspace", None, &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        assert_eq!(record.workspace_id, "ws-id");
+        assert!(!record.revoked);
+        assert_eq!(record.use_count, 0);
+        assert_eq!(file.file_type, "krillnotes-invite-v1");
+        let list = mgr.list_invites().unwrap();
+        assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn revoke_invite() {
+        let (dir, key) = setup();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let (record, _) = mgr
+            .create_invite("ws-id", "My Workspace", None, &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        mgr.revoke_invite(record.invite_id).unwrap();
+        let list = mgr.list_invites().unwrap();
+        assert!(list[0].revoked);
+    }
+
+    #[test]
+    fn expires_in_days() {
+        let (dir, key) = setup();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let (record, file) = mgr
+            .create_invite("ws-id", "My Workspace", Some(7), &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        assert!(record.expires_at.is_some());
+        assert!(file.expires_at.is_some());
+    }
+
+    #[test]
+    fn invite_response_roundtrip() {
+        let (dir, inviter_key) = setup();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let (_, invite_file) = mgr
+            .create_invite("ws-id", "My Workspace", None, &inviter_key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+
+        // Invitee builds response
+        let invitee_key = SigningKey::from_bytes(&[2u8; 32]);
+        let response_path = dir.path().join("response.swarm");
+        InviteManager::build_and_save_response(&invite_file, &invitee_key, "Bob", &response_path).unwrap();
+
+        // Inviter parses and verifies response
+        let response = InviteManager::parse_and_verify_response(&response_path).unwrap();
+        assert_eq!(response.invitee_declared_name, "Bob");
+        assert_eq!(response.invite_id, invite_file.invite_id);
+    }
 }
 
 #[cfg(test)]
