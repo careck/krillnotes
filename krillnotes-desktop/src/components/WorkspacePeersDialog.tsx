@@ -6,11 +6,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, InviteFileData } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
+import { InviteManagerDialog } from './InviteManagerDialog';
+import { ImportInviteDialog } from './ImportInviteDialog';
 
 interface Props {
   identityUuid: string;
@@ -40,15 +42,9 @@ export default function WorkspacePeersDialog({
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [showAddFromContacts, setShowAddFromContacts] = useState(false);
   const [addContactForPeer, setAddContactForPeer] = useState<PeerInfo | null>(null);
-
-  // Invite form state
-  const [showInviteForm, setShowInviteForm] = useState(false);
-  const [inviteContactName, setInviteContactName] = useState('');
-  const [invitePublicKey, setInvitePublicKey] = useState('');
-  const [inviteRole, setInviteRole] = useState('writer');
-  const [inviteCreating, setInviteCreating] = useState(false);
-  const [inviteError, setInviteError] = useState('');
-  const [inviteSuccess, setInviteSuccess] = useState('');
+  const [showInviteManager, setShowInviteManager] = useState(false);
+  const [importInviteData, setImportInviteData] = useState<InviteFileData | null>(null);
+  const [importInvitePath, setImportInvitePath] = useState<string | null>(null);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -87,49 +83,17 @@ export default function WorkspacePeersDialog({
     }
   };
 
-  const handleCreateInvite = async () => {
-    if (!workspaceInfo) { setInviteError(t('swarm.noWorkspace', 'No workspace open')); return; }
-    if (!unlockedIdentityUuid) { setInviteError(t('swarm.identityLocked')); return; }
-    if (!inviteContactName.trim()) { setInviteError(t('swarm.contactNameLabel') + ' required'); return; }
-    if (!invitePublicKey.trim()) { setInviteError(t('swarm.publicKeyLabel') + ' required'); return; }
-
-    const savePath = await save({
-      filters: [{ name: 'Swarm Bundle', extensions: ['swarm'] }],
-      defaultPath: `invite-${inviteContactName.trim().replace(/\s+/g, '-')}.swarm`,
-    });
-    if (!savePath) { setInviteError(t('swarm.saveCancelled')); return; }
-
-    setInviteCreating(true);
-    setInviteError('');
+  const handleImportInvite = async () => {
+    const path = await open({ filters: [{ name: 'Swarm Invite', extensions: ['swarm'] }] });
+    if (!path) return;
+    const p = typeof path === 'string' ? path : path[0];
     try {
-      await invoke('create_invite_bundle_cmd', {
-        workspaceId: workspaceInfo.path,
-        workspaceName: workspaceInfo.filename,
-        contactName: inviteContactName.trim(),
-        contactPublicKey: invitePublicKey.trim(),
-        offeredRole: inviteRole,
-        offeredScope: null,
-        sourceDeviceId: unlockedIdentityUuid,
-        identityUuid: unlockedIdentityUuid,
-        savePath,
-      });
-      setInviteSuccess(t('swarm.inviteSaved', { name: inviteContactName.trim() }));
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setInviteError(msg === 'IDENTITY_LOCKED' ? t('swarm.identityLocked') : msg);
-    } finally {
-      setInviteCreating(false);
+      const data = await invoke<InviteFileData>('import_invite', { path: p });
+      setImportInvitePath(p);
+      setImportInviteData(data);
+    } catch (e) {
+      setError(String(e));
     }
-  };
-
-  const resetInviteForm = () => {
-    setShowInviteForm(false);
-    setInviteContactName('');
-    setInvitePublicKey('');
-    setInviteRole('writer');
-    setInviteCreating(false);
-    setInviteError('');
-    setInviteSuccess('');
   };
 
   const formatLastSync = (lastSync?: string) => {
@@ -247,67 +211,6 @@ export default function WorkspacePeersDialog({
           })}
         </div>
 
-        {/* Invite form (collapsible) */}
-        {showInviteForm && (
-          <div className="border-t border-[var(--color-border)] p-4 space-y-3">
-            <h3 className="text-sm font-semibold">{t('swarm.inviteDialogTitle')}</h3>
-            <div>
-              <label className="block text-xs font-medium mb-1">{t('swarm.contactNameLabel')}</label>
-              <input
-                className="w-full border border-[var(--color-border)] rounded px-3 py-1.5 text-sm bg-[var(--color-background)]"
-                value={inviteContactName}
-                onChange={e => setInviteContactName(e.target.value)}
-                placeholder={t('swarm.contactNamePlaceholder')}
-                disabled={inviteCreating}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">{t('swarm.publicKeyLabel')}</label>
-              <textarea
-                className="w-full border border-[var(--color-border)] rounded px-3 py-1.5 text-xs font-mono bg-[var(--color-background)]"
-                rows={2}
-                value={invitePublicKey}
-                onChange={e => setInvitePublicKey(e.target.value)}
-                placeholder={t('swarm.publicKeyPlaceholder')}
-                disabled={inviteCreating}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">{t('swarm.roleLabel')}</label>
-              <select
-                className="w-full border border-[var(--color-border)] rounded px-3 py-1.5 text-sm bg-[var(--color-background)]"
-                value={inviteRole}
-                onChange={e => setInviteRole(e.target.value)}
-                disabled={inviteCreating}
-              >
-                <option value="owner">{t('swarm.roleOwner')}</option>
-                <option value="writer">{t('swarm.roleWriter')}</option>
-                <option value="reader">{t('swarm.roleReader')}</option>
-              </select>
-            </div>
-            {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
-            {inviteSuccess && <p className="text-xs text-green-600">{inviteSuccess}</p>}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={resetInviteForm}
-                className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
-                disabled={inviteCreating}
-              >
-                {inviteSuccess ? t('common.close', 'Close') : t('common.cancel')}
-              </button>
-              {!inviteSuccess && (
-                <button
-                  onClick={handleCreateInvite}
-                  disabled={inviteCreating || !inviteContactName.trim() || !invitePublicKey.trim()}
-                  className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  {inviteCreating ? '…' : t('swarm.createInviteButton')}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Footer buttons */}
         <div className="flex items-center gap-2 p-4 border-t border-[var(--color-border)]">
           <button
@@ -317,10 +220,16 @@ export default function WorkspacePeersDialog({
             {t('peers.addFromContacts', '＋ Add from Contacts')}
           </button>
           <button
-            onClick={() => { resetInviteForm(); setShowInviteForm(true); }}
-            className="px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
+            onClick={() => setShowInviteManager(true)}
+            className="px-3 py-1.5 text-sm rounded border dark:border-zinc-700"
           >
-            📨 {t('peers.createInviteFile', 'Create Invite File')}
+            {t('invite.manageInvites')}
+          </button>
+          <button
+            onClick={handleImportInvite}
+            className="px-3 py-1.5 text-sm rounded border dark:border-zinc-700"
+          >
+            {t('invite.importInvite')}
           </button>
         </div>
       </div>
@@ -346,6 +255,23 @@ export default function WorkspacePeersDialog({
             loadPeers();
           }}
           onClose={() => setAddContactForPeer(null)}
+        />
+      )}
+
+      {showInviteManager && workspaceInfo && (
+        <InviteManagerDialog
+          identityUuid={identityUuid}
+          workspaceName={workspaceInfo.filename}
+          onClose={() => setShowInviteManager(false)}
+        />
+      )}
+      {importInviteData && importInvitePath && (
+        <ImportInviteDialog
+          identityUuid={identityUuid}
+          invitePath={importInvitePath}
+          inviteData={importInviteData}
+          onResponded={() => {}}
+          onClose={() => { setImportInviteData(null); setImportInvitePath(null); }}
         />
       )}
     </div>
