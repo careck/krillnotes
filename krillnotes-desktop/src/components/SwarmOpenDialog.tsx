@@ -154,10 +154,10 @@ export default function SwarmOpenDialog({
     }
     setProcessing(true); setError('');
     try {
-      await invoke('create_workspace_from_snapshot_cmd', {
-        snapshotPath: swarmFilePath,
-        workspaceName: workspaceName.trim() || fileInfo.workspaceName,
+      await invoke('apply_swarm_snapshot', {
+        path: swarmFilePath,
         identityUuid: uuid,
+        workspaceNameOverride: workspaceName.trim() || undefined,
       });
       onClose();
     } catch (e: unknown) {
