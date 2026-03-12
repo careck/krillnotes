@@ -178,6 +178,17 @@ impl IdentityManager {
         self.config_dir.join("identities")
     }
 
+    /// Returns the directory for a single identity (contains identity.json, contacts/, invites/).
+    pub fn identity_dir(&self, identity_uuid: &Uuid) -> PathBuf {
+        self.identities_dir().join(identity_uuid.to_string())
+    }
+
+    /// Returns the absolute path to the identity key file for a given UUID.
+    /// Replaces the pattern: `config_dir.join(&identity_ref.file)` in lib.rs.
+    pub fn identity_file_path(&self, identity_uuid: &Uuid) -> PathBuf {
+        self.identity_dir(identity_uuid).join("identity.json")
+    }
+
     fn settings_path(&self) -> PathBuf {
         self.config_dir.join("identity_settings.json")
     }
@@ -1258,5 +1269,27 @@ mod tests {
         assert!(json.contains("workspace_uuid"));
         assert!(json.contains("identity_uuid"));
         assert!(!json.contains("db_path"));
+    }
+
+    #[test]
+    fn identity_dir_returns_uuid_subfolder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(tmp.path().to_path_buf()).unwrap();
+        let uuid = Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
+        assert_eq!(
+            mgr.identity_dir(&uuid),
+            tmp.path().join("identities").join("aaaaaaaa-0000-0000-0000-000000000001")
+        );
+    }
+
+    #[test]
+    fn identity_file_path_returns_identity_json_inside_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(tmp.path().to_path_buf()).unwrap();
+        let uuid = Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
+        assert_eq!(
+            mgr.identity_file_path(&uuid),
+            tmp.path().join("identities").join("aaaaaaaa-0000-0000-0000-000000000001").join("identity.json")
+        );
     }
 }
