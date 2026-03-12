@@ -6,6 +6,7 @@ import type { InviteInfo, PendingPeer, ContactInfo } from '../types';
 import { CreateInviteDialog } from './CreateInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
+import { SendSnapshotDialog } from './SendSnapshotDialog';
 
 interface Props {
   identityUuid: string;
@@ -22,6 +23,8 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
   const [pendingPeer, setPendingPeer] = useState<PendingPeer | null>(null);
   const [showAccept, setShowAccept] = useState(false);
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
+  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
+  const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -161,10 +164,19 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         open={postAcceptPeer !== null}
         peerName={postAcceptPeer?.name ?? ''}
         onSendNow={() => {
+          setSendSnapshotFor([postAcceptPeer!.publicKey]);
           setPostAcceptPeer(null);
-          // SendSnapshotDialog will be wired in next task
+          setShowSendSnapshot(true);
         }}
         onLater={() => setPostAcceptPeer(null)}
+      />
+
+      <SendSnapshotDialog
+        open={showSendSnapshot}
+        identityUuid={identityUuid}
+        preSelectedPublicKeys={sendSnapshotFor}
+        onClose={() => setShowSendSnapshot(false)}
+        onSuccess={() => {}}
       />
     </>
   );

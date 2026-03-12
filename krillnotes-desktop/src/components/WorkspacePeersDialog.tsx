@@ -15,6 +15,7 @@ import { InviteManagerDialog } from './InviteManagerDialog';
 import { ImportInviteDialog } from './ImportInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
+import { SendSnapshotDialog } from './SendSnapshotDialog';
 
 interface Props {
   identityUuid: string;
@@ -49,6 +50,8 @@ export default function WorkspacePeersDialog({
   const [importInvitePath, setImportInvitePath] = useState<string | null>(null);
   const [pendingResponsePeer, setPendingResponsePeer] = useState<PendingPeer | null>(null);
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
+  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
+  const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -244,6 +247,15 @@ export default function WorkspacePeersDialog({
           >
             {t('invite.importInvite')}
           </button>
+          <button
+            onClick={() => {
+              setSendSnapshotFor(peers.map(p => p.peerIdentityId));
+              setShowSendSnapshot(true);
+            }}
+            className="px-3 py-1.5 text-sm rounded border border-secondary hover:bg-secondary"
+          >
+            Create Snapshot…
+          </button>
         </div>
       </div>
 
@@ -305,10 +317,19 @@ export default function WorkspacePeersDialog({
         open={postAcceptPeer !== null}
         peerName={postAcceptPeer?.name ?? ''}
         onSendNow={() => {
+          setSendSnapshotFor([postAcceptPeer!.publicKey]);
           setPostAcceptPeer(null);
-          // SendSnapshotDialog will be wired in next task
+          setShowSendSnapshot(true);
         }}
         onLater={() => setPostAcceptPeer(null)}
+      />
+
+      <SendSnapshotDialog
+        open={showSendSnapshot}
+        identityUuid={identityUuid}
+        preSelectedPublicKeys={sendSnapshotFor}
+        onClose={() => setShowSendSnapshot(false)}
+        onSuccess={() => {}}
       />
     </div>
   );

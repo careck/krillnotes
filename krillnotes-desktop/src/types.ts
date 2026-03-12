@@ -277,3 +277,9 @@ export interface InviteFileData {
   inviterFingerprint: string;
   expiresAt: string | null;
 }
+
+export interface SnapshotCreatedResult {
+  savedPath: string;
+  peerCount: number;
+  asOfOperationId: string;
+}

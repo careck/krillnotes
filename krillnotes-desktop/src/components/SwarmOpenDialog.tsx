@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import UnlockIdentityDialog from './UnlockIdentityDialog';
+import { SendSnapshotDialog } from './SendSnapshotDialog';
 
 interface InviteInfo {
   mode: 'invite';
@@ -63,6 +64,7 @@ export default function SwarmOpenDialog({
   const [workspaceName, setWorkspaceName] = useState('');
   const [declaredName, setDeclaredName] = useState('');
   const [unlockTarget, setUnlockTarget] = useState<{ uuid: string; name: string } | null>(null);
+  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !swarmFilePath) return;
@@ -134,26 +136,8 @@ export default function SwarmOpenDialog({
     } finally { setProcessing(false); }
   };
 
-  const handleSendSnapshot = async () => {
-    if (!fileInfo || fileInfo.mode !== 'accept' || !swarmFilePath) return;
-    if (!unlockedIdentityUuid) { setError(t('swarm.identityLocked')); return; }
-    const savePath = await save({
-      filters: [{ name: 'Swarm Bundle', extensions: ['swarm'] }],
-      defaultPath: `snapshot-${fileInfo.workspaceName.replace(/\s+/g, '-')}.swarm`,
-    });
-    if (!savePath) return;
-    setProcessing(true); setError('');
-    try {
-      await invoke('create_snapshot_bundle_cmd', {
-        acceptPath: swarmFilePath,
-        identityUuid: unlockedIdentityUuid,
-        savePath,
-      });
-      setSuccess(t('swarm.snapshotSaved', { name: fileInfo.declaredName }));
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg === 'IDENTITY_LOCKED' ? t('swarm.identityLocked') : msg);
-    } finally { setProcessing(false); }
+  const handleSendSnapshot = () => {
+    setShowSendSnapshot(true);
   };
 
   const handleCreateWorkspace = async (identityUuid?: string) => {
@@ -308,6 +292,16 @@ export default function SwarmOpenDialog({
             else handleCreateWorkspace(uuid);
           }}
           onCancel={() => setUnlockTarget(null)}
+        />
+      )}
+
+      {fileInfo?.mode === 'accept' && (
+        <SendSnapshotDialog
+          open={showSendSnapshot}
+          identityUuid={unlockedIdentityUuid ?? ''}
+          preSelectedPublicKeys={fileInfo.acceptorPublicKey ? [fileInfo.acceptorPublicKey] : []}
+          onClose={() => setShowSendSnapshot(false)}
+          onSuccess={() => { setShowSendSnapshot(false); setSuccess('Snapshot saved.'); onClose(); }}
         />
       )}
     </>
