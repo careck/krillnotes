@@ -4922,11 +4922,12 @@ impl Workspace {
 
     /// Update last_sent_op for a peer identified by their identity public key.
     /// Peers added via invite use placeholder device_id = "identity:<pubkey>".
+    /// Uses upsert semantics: inserts a peer row if none exists yet.
     pub fn update_peer_last_sent_by_identity(&self, identity_pk: &str, op_id: &str) -> Result<()> {
         let conn = self.storage.connection();
         let registry = PeerRegistry::new(conn);
         let placeholder_device_id = format!("identity:{identity_pk}");
-        registry.update_last_sent(&placeholder_device_id, op_id)
+        registry.upsert_last_sent(&placeholder_device_id, identity_pk, op_id)
     }
 
 }

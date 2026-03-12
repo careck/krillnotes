@@ -3522,7 +3522,6 @@ async fn create_snapshot_for_peers(
     window: tauri::Window,
     state: State<'_, AppState>,
     identity_uuid: String,
-    workspace_name: String,
     peer_public_keys: Vec<String>,   // base64-encoded Ed25519 verifying keys
     save_path: String,
 ) -> std::result::Result<SnapshotCreatedResult, String> {
@@ -3556,9 +3555,16 @@ async fn create_snapshot_for_peers(
         .collect::<std::result::Result<_, _>>()?;
 
     // 3. Collect workspace data (hold lock only briefly).
-    let (workspace_id, _workspace_name_from_db, workspace_json, attachment_blobs, as_of_op_id) = {
+    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id) = {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
+        let workspace_name = paths
+            .get(window.label())
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or("Untitled")
+            .to_string();
 
         let workspace_id = ws.workspace_id().to_string();
 
@@ -3567,7 +3573,7 @@ async fn create_snapshot_for_peers(
         // Get attachment metadata from the snapshot JSON to load blobs.
         let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot = serde_json::from_slice(&workspace_json)
             .map_err(|e| e.to_string())?;
-        let mut attachment_blobs = Vec::new();
+        let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
         for meta in &snapshot.attachments {
             let plaintext = ws.get_attachment_bytes(&meta.id).map_err(|e| e.to_string())?;
             attachment_blobs.push((meta.id.clone(), plaintext));
@@ -3577,7 +3583,7 @@ async fn create_snapshot_for_peers(
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
 
-        (workspace_id, workspace_name.clone(), workspace_json, attachment_blobs, as_of_op_id)
+        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id)
     };
 
     // 4. Build the bundle.
@@ -3592,7 +3598,7 @@ async fn create_snapshot_for_peers(
         recipient_keys: recipient_refs,
         recipient_peer_ids: peer_public_keys.clone(),
         attachment_blobs,
-    } as SnapshotParams<'_>).map_err(|e| e.to_string())?;
+    }).map_err(|e| e.to_string())?;
 
     // 5. Write to file.
     std::fs::write(&save_path, &bundle_bytes).map_err(|e| e.to_string())?;
