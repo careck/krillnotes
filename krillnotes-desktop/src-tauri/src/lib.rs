@@ -3508,6 +3508,113 @@ fn accept_peer(
     Ok(ContactInfo::from_contact(contact))
 }
 
+/// Serialisable result returned after a snapshot bundle is written to disk.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotCreatedResult {
+    pub saved_path: String,
+    pub peer_count: usize,
+    pub as_of_operation_id: String,
+}
+
+#[tauri::command]
+async fn create_snapshot_for_peers(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    peer_public_keys: Vec<String>,   // base64-encoded Ed25519 verifying keys
+    save_path: String,
+) -> std::result::Result<SnapshotCreatedResult, String> {
+    use base64::Engine;
+    use krillnotes_core::core::swarm::snapshot::{create_snapshot_bundle, SnapshotParams};
+    use krillnotes_core::core::workspace::WorkspaceSnapshot;
+
+    let identity_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // 1. Sender signing key + display name.
+    let (signing_key, _source_display_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&identity_uuid).ok_or("Identity not unlocked")?;
+        (
+            Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+    let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+
+    // 2. Decode recipient verifying keys from base64.
+    let recipient_vks: Vec<Ed25519VerifyingKey> = peer_public_keys
+        .iter()
+        .map(|pk_b64| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(pk_b64)
+                .map_err(|e| e.to_string())?;
+            let arr: [u8; 32] = bytes.try_into().map_err(|_| "key wrong length".to_string())?;
+            Ed25519VerifyingKey::from_bytes(&arr).map_err(|e| e.to_string())
+        })
+        .collect::<std::result::Result<_, _>>()?;
+
+    // 3. Collect workspace data (hold lock only briefly).
+    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id) = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
+
+        let workspace_id = ws.workspace_id().to_string();
+        // WorkspaceMetadata has no dedicated name field; fall back to workspace_id.
+        let workspace_name = workspace_id.clone();
+
+        let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
+
+        // Get attachment metadata from the snapshot JSON to load blobs.
+        let snapshot: WorkspaceSnapshot = serde_json::from_slice(&workspace_json)
+            .map_err(|e| e.to_string())?;
+        let mut attachment_blobs = Vec::new();
+        for meta in &snapshot.attachments {
+            let plaintext = ws.get_attachment_bytes(&meta.id).map_err(|e| e.to_string())?;
+            attachment_blobs.push((meta.id.clone(), plaintext));
+        }
+
+        let as_of_op_id = ws.get_latest_operation_id()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+
+        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id)
+    };
+
+    // 4. Build the bundle.
+    let recipient_refs: Vec<&Ed25519VerifyingKey> = recipient_vks.iter().collect();
+    let bundle_bytes = create_snapshot_bundle(SnapshotParams {
+        workspace_id: workspace_id.clone(),
+        workspace_name,
+        source_device_id,
+        as_of_operation_id: as_of_op_id.clone(),
+        workspace_json,
+        sender_key: &signing_key,
+        recipient_keys: recipient_refs,
+        recipient_peer_ids: peer_public_keys.clone(),
+        attachment_blobs,
+    } as SnapshotParams<'_>).map_err(|e| e.to_string())?;
+
+    // 5. Write to file.
+    std::fs::write(&save_path, &bundle_bytes).map_err(|e| e.to_string())?;
+
+    // 6. Update last_sent_op for each recipient.
+    if !as_of_op_id.is_empty() {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        if let Some(ws) = workspaces.get(window.label()) {
+            for pk in &peer_public_keys {
+                let _ = ws.update_peer_last_sent_by_identity(pk, &as_of_op_id);
+            }
+        }
+    }
+
+    Ok(SnapshotCreatedResult {
+        saved_path: save_path,
+        peer_count: peer_public_keys.len(),
+        as_of_operation_id: as_of_op_id,
+    })
+}
+
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
 const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_new", "File > New Workspace clicked"),
@@ -3811,6 +3918,7 @@ pub fn run() {
             list_workspace_peers,
             remove_workspace_peer,
             add_contact_as_peer,
+            create_snapshot_for_peers,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
