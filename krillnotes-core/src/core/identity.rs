@@ -78,8 +78,9 @@ pub struct KdfParams {
 pub struct IdentitySettings {
     #[serde(default)]
     pub identities: Vec<IdentityRef>,
-    #[serde(default)]
-    pub workspaces: std::collections::HashMap<String, WorkspaceBinding>,
+    /// Migration-only: readable from old files, never written back.
+    #[serde(default, skip_serializing)]
+    pub workspaces: std::collections::HashMap<String, LegacyWorkspaceBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,8 +94,20 @@ pub struct IdentityRef {
     pub last_used: DateTime<Utc>,
 }
 
+/// Per-workspace binding stored in `<workspace_dir>/binding.json`.
+/// `workspace_uuid` is included so callers can derive the HKDF key without
+/// reading `info.json` separately.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceBinding {
+    pub workspace_uuid: String,
+    pub identity_uuid: Uuid,
+    pub db_password_enc: String,
+}
+
+/// Legacy workspace binding as stored in `identity_settings.json.workspaces`.
+/// Read-only during migration; never written after migration runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyWorkspaceBinding {
     pub db_path: String,
     pub identity_uuid: Uuid,
     pub db_password_enc: String,
@@ -573,7 +586,7 @@ impl IdentityManager {
         let mut settings = self.load_settings()?;
         settings.workspaces.insert(
             workspace_uuid.to_string(),
-            WorkspaceBinding {
+            LegacyWorkspaceBinding {
                 db_path: db_path.to_string(),
                 identity_uuid: *identity_uuid,
                 db_password_enc: encrypted,
@@ -625,7 +638,7 @@ impl IdentityManager {
     }
 
     /// Get all workspace bindings for a given identity.
-    pub fn get_workspaces_for_identity(&self, identity_uuid: &Uuid) -> Result<Vec<(String, WorkspaceBinding)>> {
+    pub fn get_workspaces_for_identity(&self, identity_uuid: &Uuid) -> Result<Vec<(String, LegacyWorkspaceBinding)>> {
         let settings = self.load_settings()?;
         let result = settings.workspaces.into_iter()
             .filter(|(_, b)| b.identity_uuid == *identity_uuid)
@@ -633,8 +646,8 @@ impl IdentityManager {
         Ok(result)
     }
 
-    /// Return the [`WorkspaceBinding`] for a given `workspace_uuid`, if one exists.
-    pub fn get_workspace_binding(&self, workspace_uuid: &str) -> Result<Option<WorkspaceBinding>> {
+    /// Return the [`LegacyWorkspaceBinding`] for a given `workspace_uuid`, if one exists.
+    pub fn get_workspace_binding(&self, workspace_uuid: &str) -> Result<Option<LegacyWorkspaceBinding>> {
         let settings = self.load_settings()?;
         Ok(settings.workspaces.get(workspace_uuid).cloned())
     }
@@ -1205,5 +1218,45 @@ mod tests {
             .unlock_identity(&identity2.identity_uuid, "passphrase123")
             .unwrap();
         assert_ne!(unlocked.contacts_key(), unlocked2.contacts_key());
+    }
+
+    #[test]
+    fn old_identity_settings_with_workspaces_key_deserialises() {
+        // Old format still deserialises (workspaces key is readable)
+        let json = r#"{
+            "identities": [],
+            "workspaces": {
+                "ws-uuid-1": {
+                    "db_path": "/tmp/foo/notes.db",
+                    "identity_uuid": "00000000-0000-0000-0000-000000000001",
+                    "db_password_enc": "aGVsbG8="
+                }
+            }
+        }"#;
+        let settings: IdentitySettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.workspaces.len(), 1);
+        let binding = settings.workspaces.get("ws-uuid-1").unwrap();
+        assert_eq!(binding.db_path, "/tmp/foo/notes.db");
+    }
+
+    #[test]
+    fn new_identity_settings_serialises_without_workspaces_key() {
+        let settings = IdentitySettings::default();
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(!json.contains("workspaces"),
+            "workspaces key must not appear in serialised output");
+    }
+
+    #[test]
+    fn workspace_binding_serialises_with_workspace_uuid() {
+        let b = WorkspaceBinding {
+            workspace_uuid: "ws-1".to_string(),
+            identity_uuid: Uuid::nil(),
+            db_password_enc: "enc".to_string(),
+        };
+        let json = serde_json::to_string(&b).unwrap();
+        assert!(json.contains("workspace_uuid"));
+        assert!(json.contains("identity_uuid"));
+        assert!(!json.contains("db_path"));
     }
 }
