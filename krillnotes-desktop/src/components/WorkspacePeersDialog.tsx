@@ -14,6 +14,7 @@ import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
 import { ImportInviteDialog } from './ImportInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
+import { PostAcceptDialog } from './PostAcceptDialog';
 
 interface Props {
   identityUuid: string;
@@ -33,7 +34,7 @@ const TRUST_BADGE: Record<string, { label: string; class: string }> = {
 export default function WorkspacePeersDialog({
   identityUuid,
   workspaceInfo,
-  unlockedIdentityUuid,
+  unlockedIdentityUuid: _unlockedIdentityUuid,
   onClose,
 }: Props) {
   const { t } = useTranslation();
@@ -47,6 +48,7 @@ export default function WorkspacePeersDialog({
   const [importInviteData, setImportInviteData] = useState<InviteFileData | null>(null);
   const [importInvitePath, setImportInvitePath] = useState<string | null>(null);
   const [pendingResponsePeer, setPendingResponsePeer] = useState<PendingPeer | null>(null);
+  const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -289,10 +291,25 @@ export default function WorkspacePeersDialog({
         <AcceptPeerDialog
           identityUuid={identityUuid}
           pendingPeer={pendingResponsePeer}
-          onAccepted={(_contact: ContactInfo) => { setPendingResponsePeer(null); loadPeers(); }}
+          onAccepted={(contact: ContactInfo) => {
+            setPendingResponsePeer(null);
+            loadPeers();
+            const peerName = contact.localName || contact.declaredName;
+            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
+          }}
           onClose={() => setPendingResponsePeer(null)}
         />
       )}
+
+      <PostAcceptDialog
+        open={postAcceptPeer !== null}
+        peerName={postAcceptPeer?.name ?? ''}
+        onSendNow={() => {
+          setPostAcceptPeer(null);
+          // SendSnapshotDialog will be wired in next task
+        }}
+        onLater={() => setPostAcceptPeer(null)}
+      />
     </div>
   );
 }
