@@ -92,6 +92,7 @@ mod integration_tests {
             sender_key: &alice_key,
             recipient_keys: vec![&bob_key.verifying_key()],
             recipient_peer_ids: vec!["dev-bob".to_string()],
+            attachment_blobs: vec![],
         }).unwrap();
 
         // === Step 6: Bob imports snapshot ===
