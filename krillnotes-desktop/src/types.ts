@@ -242,3 +242,37 @@ export interface PeerInfo {
   contactId?: string;     // UUID string, undefined if not in contacts
   lastSync?: string;      // ISO 8601, undefined if never synced
 }
+
+export interface InviteInfo {
+  inviteId: string;
+  workspaceId: string;
+  workspaceName: string;
+  createdAt: string;
+  expiresAt: string | null;
+  revoked: boolean;
+  useCount: number;
+}
+
+export interface PendingPeer {
+  inviteId: string;
+  inviteePublicKey: string;
+  inviteeDeclaredName: string;
+  fingerprint: string;
+}
+
+export interface InviteFileData {
+  inviteId: string;
+  workspaceId: string;
+  workspaceName: string;
+  workspaceDescription: string | null;
+  workspaceAuthorName: string | null;
+  workspaceAuthorOrg: string | null;
+  workspaceHomepageUrl: string | null;
+  workspaceLicense: string | null;
+  workspaceLanguage: string | null;
+  workspaceTags: string[];
+  inviterPublicKey: string;
+  inviterDeclaredName: string;
+  inviterFingerprint: string;
+  expiresAt: string | null;
+}

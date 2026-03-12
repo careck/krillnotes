@@ -47,6 +47,8 @@ pub struct AppState {
     pub identity_manager: Arc<Mutex<IdentityManager>>,
     /// Per-identity contact managers — keyed by identity UUID, created on unlock.
     pub contact_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::contact::ContactManager>>>,
+    /// Per-identity invite managers — keyed by identity UUID, created on unlock.
+    pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
     /// In-memory map of currently unlocked identities (UUID → unlocked state).
     /// Entries are removed when an identity is locked or the app exits.
     pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
@@ -1830,6 +1832,14 @@ fn create_identity(
             eprintln!("Warning: failed to initialize contact manager for {uuid}: {e}");
         }
     }
+    let invites_dir = settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("invites");
+    match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
+        Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
+        Err(e) => { eprintln!("Warning: failed to initialize invite manager for {uuid}: {e}"); }
+    }
 
     // Return the IdentityRef
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
@@ -1871,6 +1881,14 @@ fn unlock_identity(
             eprintln!("Warning: failed to initialize contact manager for {uuid}: {e}");
         }
     }
+    let invites_dir = settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("invites");
+    match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
+        Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
+        Err(e) => { eprintln!("Warning: failed to initialize invite manager for {uuid}: {e}"); }
+    }
     Ok(())
 }
 
@@ -1908,9 +1926,10 @@ fn lock_identity(
     }
 
     // Wipe identity from memory.
-    // Remove contact_managers first so there is no window where the identity is
-    // "locked" but its ContactManager is still live.
+    // Remove contact_managers and invite_managers first so there is no window where
+    // the identity is "locked" but its managers are still live.
     state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
     Ok(())
 }
@@ -3082,6 +3101,15 @@ fn peek_swarm_header(data: &[u8]) -> std::result::Result<krillnotes_core::core::
     let cursor = Cursor::new(data);
     let mut zip = ZipArchive::new(cursor)
         .map_err(|e| format!("Cannot open bundle: {e}"))?;
+
+    // Detect Phase C invite/response files before trying to read header.json
+    if zip.by_name("invite.json").is_ok() {
+        return Err("This is a Phase C invite file. Use the 'Import Invite' button to open it.".to_string());
+    }
+    if zip.by_name("response.json").is_ok() {
+        return Err("This is a Phase C response file. Use the 'Import Response' button to open it.".to_string());
+    }
+
     let header_bytes = {
         let mut file = zip.by_name("header.json")
             .map_err(|_| "bundle missing 'header.json'".to_string())?;
@@ -3185,252 +3213,290 @@ fn open_swarm_file_cmd(
     }
 }
 
-/// Create an invite.swarm bundle and write it to `save_path`.
-#[tauri::command]
-fn create_invite_bundle_cmd(
-    state: State<'_, AppState>,
-    workspace_id: String,
-    workspace_name: String,
-    source_device_id: String,
-    offered_role: String,
-    offered_scope: Option<String>,
-    contact_public_key: Option<String>,
-    identity_uuid: String,
-    save_path: String,
-) -> std::result::Result<(), String> {
-    use krillnotes_core::core::swarm::invite::{create_invite_bundle, InviteParams};
+// ── Invite commands (Phase C) ─────────────────────────────────────────────
 
-    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
-    let signing_key = {
-        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
-        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
-    };
-    let source_display_name = {
-        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-        mgr.list_identities()
-            .unwrap_or_default()
-            .into_iter()
-            .find(|i| i.uuid == uuid)
-            .map(|i| i.display_name)
-            .unwrap_or_default()
-    };
-
-    let bundle = create_invite_bundle(InviteParams {
-        workspace_id,
-        workspace_name,
-        source_device_id,
-        source_display_name,
-        offered_role,
-        offered_scope,
-        contact_public_key,
-        inviter_key: &signing_key,
-    })
-    .map_err(|e| e.to_string())?;
-
-    std::fs::write(&save_path, &bundle).map_err(|e| e.to_string())?;
-    Ok(())
+/// Serialisable invite record returned to the frontend.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteInfo {
+    pub invite_id: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub created_at: String,
+    pub expires_at: Option<String>,
+    pub revoked: bool,
+    pub use_count: u32,
 }
 
-/// Read an invite.swarm, create an accept.swarm, write to `save_path`.
-#[tauri::command]
-fn create_accept_bundle_cmd(
-    state: State<'_, AppState>,
-    invite_path: String,
-    declared_name: String,
-    source_device_id: String,
-    identity_uuid: String,
-    save_path: String,
-) -> std::result::Result<(), String> {
-    use krillnotes_core::core::swarm::invite::{
-        parse_invite_bundle, create_accept_bundle, AcceptParams,
-    };
-
-    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
-    let signing_key = {
-        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities
-            .get(&uuid)
-            .ok_or("IDENTITY_LOCKED")?;
-        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
-    };
-
-    // Parse and verify the invite (includes signature check).
-    let invite_data = std::fs::read(&invite_path)
-        .map_err(|e| format!("Cannot read invite file: {e}"))?;
-    let parsed = parse_invite_bundle(&invite_data).map_err(|e| e.to_string())?;
-
-    let bundle = create_accept_bundle(AcceptParams {
-        workspace_id: parsed.workspace_id,
-        workspace_name: parsed.workspace_name,
-        source_device_id,
-        declared_name,
-        pairing_token: parsed.pairing_token,
-        acceptor_key: &signing_key,
-    })
-    .map_err(|e| e.to_string())?;
-
-    std::fs::write(&save_path, &bundle).map_err(|e| e.to_string())?;
-    Ok(())
+impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
+    fn from(r: krillnotes_core::core::invite::InviteRecord) -> Self {
+        Self {
+            invite_id: r.invite_id.to_string(),
+            workspace_id: r.workspace_id,
+            workspace_name: r.workspace_name,
+            created_at: r.created_at.to_rfc3339(),
+            expires_at: r.expires_at.map(|dt| dt.to_rfc3339()),
+            revoked: r.revoked,
+            use_count: r.use_count,
+        }
+    }
 }
 
-/// Parse an accept.swarm, create an encrypted snapshot.swarm for that peer,
-/// write it to `save_path`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteFileData {
+    pub invite_id: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub workspace_description: Option<String>,
+    pub workspace_author_name: Option<String>,
+    pub workspace_author_org: Option<String>,
+    pub workspace_homepage_url: Option<String>,
+    pub workspace_license: Option<String>,
+    pub workspace_language: Option<String>,
+    pub workspace_tags: Vec<String>,
+    pub inviter_public_key: String,
+    pub inviter_declared_name: String,
+    pub inviter_fingerprint: String,
+    pub expires_at: Option<String>,
+}
+
 #[tauri::command]
-fn create_snapshot_bundle_cmd(
+fn list_invites(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> std::result::Result<Vec<InviteInfo>, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let ims = state.invite_managers.lock().expect("Mutex poisoned");
+    let im = ims.get(&uuid).ok_or("Identity not unlocked")?;
+    let records = im.list_invites().map_err(|e| e.to_string())?;
+    Ok(records.into_iter().map(InviteInfo::from).collect())
+}
+
+#[tauri::command]
+fn create_invite(
     window: tauri::Window,
     state: State<'_, AppState>,
-    accept_path: String,
     identity_uuid: String,
-    save_path: String,
-) -> std::result::Result<(), String> {
-    use krillnotes_core::core::swarm::invite::parse_accept_bundle;
-    use krillnotes_core::core::swarm::snapshot::{create_snapshot_bundle, SnapshotParams};
-    use base64::Engine;
-
-    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
-    let signing_key = {
-        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
-        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
-    };
-
-    // Parse and verify the accept bundle.
-    let accept_data = std::fs::read(&accept_path)
-        .map_err(|e| format!("Cannot read accept file: {e}"))?;
-    let parsed_accept = parse_accept_bundle(&accept_data).map_err(|e| e.to_string())?;
-
-    // Decode acceptor's Ed25519 public key.
-    let acceptor_vk_bytes = base64::engine::general_purpose::STANDARD
-        .decode(&parsed_accept.acceptor_public_key)
-        .map_err(|e| format!("Invalid acceptor public key: {e}"))?;
-    let acceptor_vk_arr: [u8; 32] = acceptor_vk_bytes
-        .try_into()
-        .map_err(|_| "Acceptor public key wrong length".to_string())?;
-    let acceptor_vk = Ed25519VerifyingKey::from_bytes(&acceptor_vk_arr)
-        .map_err(|e| format!("Invalid acceptor key: {e}"))?;
-
-    // Serialise workspace state.
-    let label = window.label().to_string();
-    let workspace_json = {
-        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-        let ws = workspaces.get(&label).ok_or("No workspace open")?;
-        ws.to_snapshot_json().map_err(|e| e.to_string())?
-    };
-
-    // Get workspace metadata (separate lock scope to avoid holding lock across await).
-    let (workspace_id, workspace_name) = {
-        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-        let ws = workspaces.get(&label).ok_or("No workspace open")?;
-        (ws.workspace_id().to_string(), label.clone())
-    };
-
-    let bundle = create_snapshot_bundle(SnapshotParams {
-        workspace_id,
-        workspace_name,
-        source_device_id: uuid.to_string(),
-        as_of_operation_id: "initial".to_string(),
-        workspace_json,
-        sender_key: &signing_key,
-        recipient_keys: vec![&acceptor_vk],
-        recipient_peer_ids: vec![parsed_accept.acceptor_public_key.clone()],
-    })
-    .map_err(|e| e.to_string())?;
-
-    std::fs::write(&save_path, &bundle).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Decrypt a snapshot.swarm and create a new workspace populated with its content.
-#[tauri::command]
-async fn create_workspace_from_snapshot_cmd(
-    window: tauri::Window,
-    app: AppHandle,
-    state: State<'_, AppState>,
-    snapshot_path: String,
     workspace_name: String,
-    identity_uuid: String,
-) -> std::result::Result<WorkspaceInfo, String> {
-    use krillnotes_core::core::swarm::snapshot::parse_snapshot_bundle;
-
+    expires_in_days: Option<u32>,
+    save_path: String,
+) -> std::result::Result<InviteInfo, String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let signing_key = {
-        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
-        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
+    // Get signing key + declared name from unlocked identity.
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
     };
 
-    // Parse and decrypt snapshot.
-    let snapshot_data = std::fs::read(&snapshot_path)
-        .map_err(|e| format!("Cannot read snapshot file: {e}"))?;
-    let parsed = parse_snapshot_bundle(&snapshot_data, &signing_key)
+    // Get workspace id + metadata from the current window's workspace.
+    let (ws_id, ws_desc, ws_author, ws_org, ws_url, ws_license, ws_tags) = {
+        let wss = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = wss.get(window.label()).ok_or("No workspace open")?;
+        let meta = ws.get_workspace_metadata().map_err(|e| e.to_string())?;
+        (
+            ws.workspace_id().to_string(),
+            meta.description,
+            meta.author_name,
+            meta.author_org,
+            meta.homepage_url,
+            meta.license,
+            meta.tags,
+        )
+    };
+
+    let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+    let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+    let (record, file) = im
+        .create_invite(
+            &ws_id,
+            &workspace_name,
+            expires_in_days,
+            &signing_key,
+            &declared_name,
+            ws_desc,
+            ws_author,
+            ws_org,
+            ws_url,
+            ws_license,
+            ws_tags,
+        )
         .map_err(|e| e.to_string())?;
 
-    // Compute workspace folder from settings.
-    let workspace_dir = crate::settings::load_settings().workspace_directory;
-    let safe_name = workspace_name
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect::<String>();
-    let base_folder = PathBuf::from(&workspace_dir).join(&safe_name);
+    krillnotes_core::core::invite::InviteManager::save_invite_file(&file, std::path::Path::new(&save_path))
+        .map_err(|e| e.to_string())?;
 
-    // Handle name collisions by appending (2), (3), etc.
-    let folder = {
-        let mut candidate = base_folder.clone();
-        let mut n = 2;
-        while candidate.exists() {
-            candidate = PathBuf::from(&workspace_dir).join(format!("{safe_name} ({n})"));
-            n += 1;
-        }
-        candidate
-    };
+    Ok(InviteInfo::from(record))
+}
 
-    // Generate random DB password.
-    let password: String = {
-        use base64::Engine;
-        use rand::RngCore;
-        let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
-    };
+#[tauri::command]
+fn revoke_invite(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_id: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let invite_uuid = Uuid::parse_str(&invite_id).map_err(|e| e.to_string())?;
+    let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+    let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+    im.revoke_invite(invite_uuid).map_err(|e| e.to_string())
+}
 
-    // Create workspace folder and DB.
-    std::fs::create_dir_all(&folder)
-        .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
-    let db_path = folder.join("notes.db");
+/// Serialisable pending peer data returned to the frontend after parsing a response file.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPeer {
+    pub invite_id: String,
+    pub invitee_public_key: String,
+    pub invitee_declared_name: String,
+    pub fingerprint: String,
+}
 
-    let signing_key_for_create = {
-        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
-        Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
-    };
+#[tauri::command]
+fn import_invite_response(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    path: String,
+) -> std::result::Result<PendingPeer, String> {
+    use krillnotes_core::core::invite::InviteManager;
+    use krillnotes_core::core::contact::generate_fingerprint;
 
-    let mut workspace = Workspace::create_empty(&db_path, &password, &uuid.to_string(), signing_key_for_create)
-        .map_err(|e| format!("Failed to create workspace: {e}"))?;
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let response = InviteManager::parse_and_verify_response(std::path::Path::new(&path))
+        .map_err(|e| e.to_string())?;
 
-    // Import the snapshot content.
-    workspace.import_snapshot_json(&parsed.workspace_json)
-        .map_err(|e| format!("Failed to import snapshot: {e}"))?;
-
-    let workspace_uuid = workspace.workspace_id().to_string();
-
-    // Bind workspace to identity.
+    // Validate invite is still active and increment use count.
+    let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
     {
-        let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid).ok_or("IDENTITY_LOCKED")?;
-        let seed = unlocked.signing_key.to_bytes();
-        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-        mgr.bind_workspace(&uuid, &workspace_uuid, &db_path.display().to_string(), &password, &seed)
-            .map_err(|e| format!("Failed to bind workspace: {e}"))?;
+        let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+        let record = im
+            .get_invite(invite_uuid)
+            .map_err(|e| e.to_string())?
+            .ok_or("Invite not found")?;
+        if record.revoked {
+            return Err("Invite has been revoked".to_string());
+        }
+        if let Some(exp) = record.expires_at {
+            if chrono::Utc::now() > exp {
+                return Err("Invite has expired".to_string());
+            }
+        }
+        im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
     }
 
-    let label = generate_unique_label(&state, &folder);
-    let new_window = create_workspace_window(&app, &label, &window)?;
-    store_workspace(&state, label.clone(), workspace, folder);
-    new_window.set_title(&format!("Krillnotes - {label}")).map_err(|e| e.to_string())?;
+    let fingerprint = generate_fingerprint(&response.invitee_public_key)
+        .map_err(|e| e.to_string())?;
+    Ok(PendingPeer {
+        invite_id: response.invite_id,
+        invitee_public_key: response.invitee_public_key,
+        invitee_declared_name: response.invitee_declared_name,
+        fingerprint,
+    })
+}
 
-    get_workspace_info_internal(&state, &label)
+#[tauri::command]
+fn import_invite(path: String) -> std::result::Result<InviteFileData, String> {
+    use krillnotes_core::core::invite::InviteManager;
+    use krillnotes_core::core::contact::generate_fingerprint;
+
+    let invite = InviteManager::parse_and_verify_invite(std::path::Path::new(&path))
+        .map_err(|e| e.to_string())?;
+
+    let fingerprint = generate_fingerprint(&invite.inviter_public_key).map_err(|e| e.to_string())?;
+
+    Ok(InviteFileData {
+        invite_id: invite.invite_id,
+        workspace_id: invite.workspace_id,
+        workspace_name: invite.workspace_name,
+        workspace_description: invite.workspace_description,
+        workspace_author_name: invite.workspace_author_name,
+        workspace_author_org: invite.workspace_author_org,
+        workspace_homepage_url: invite.workspace_homepage_url,
+        workspace_license: invite.workspace_license,
+        workspace_language: invite.workspace_language,
+        workspace_tags: invite.workspace_tags,
+        inviter_public_key: invite.inviter_public_key,
+        inviter_declared_name: invite.inviter_declared_name,
+        inviter_fingerprint: fingerprint,
+        expires_at: invite.expires_at,
+    })
+}
+
+#[tauri::command]
+fn respond_to_invite(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_path: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    use krillnotes_core::core::invite::InviteManager;
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+
+    let invite = InviteManager::parse_and_verify_invite(std::path::Path::new(&invite_path))
+        .map_err(|e| e.to_string())?;
+
+    InviteManager::build_and_save_response(
+        &invite,
+        &signing_key,
+        &declared_name,
+        std::path::Path::new(&save_path),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn accept_peer(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invitee_public_key: String,
+    declared_name: String,
+    trust_level: String,
+    local_name: Option<String>,
+) -> std::result::Result<ContactInfo, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let trust = parse_trust_level(&trust_level)?;
+
+    // Create or find existing contact by public key (handles duplicate public key per spec C5).
+    let contact = {
+        let cms = state.contact_managers.lock().expect("Mutex poisoned");
+        let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
+        let mut c = cm
+            .find_or_create_by_public_key(&declared_name, &invitee_public_key, trust)
+            .map_err(|e| e.to_string())?;
+        if let Some(name) = local_name {
+            c.local_name = Some(name);
+            cm.save_contact(&c).map_err(|e| e.to_string())?;
+        }
+        c
+    };
+
+    // Add as pre-authorised workspace peer.
+    {
+        let wss = state.workspaces.lock().expect("Mutex poisoned");
+        if let Some(ws) = wss.get(window.label()) {
+            ws.add_contact_as_peer(&invitee_public_key)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(ContactInfo::from_contact(contact))
 }
 
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
@@ -3512,6 +3578,7 @@ pub fn run() {
                 IdentityManager::new(settings::config_dir()).expect("Failed to init IdentityManager")
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
+            invite_managers: Arc::new(Mutex::new(HashMap::new())),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
@@ -3700,10 +3767,13 @@ pub fn run() {
             import_swarmid_cmd,
             import_swarmid_overwrite_cmd,
             open_swarm_file_cmd,
-            create_invite_bundle_cmd,
-            create_accept_bundle_cmd,
-            create_snapshot_bundle_cmd,
-            create_workspace_from_snapshot_cmd,
+            list_invites,
+            create_invite,
+            revoke_invite,
+            import_invite_response,
+            import_invite,
+            respond_to_invite,
+            accept_peer,
             attach_file,
             attach_file_bytes,
             get_attachments,
