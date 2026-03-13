@@ -78,8 +78,9 @@ pub struct KdfParams {
 pub struct IdentitySettings {
     #[serde(default)]
     pub identities: Vec<IdentityRef>,
-    #[serde(default)]
-    pub workspaces: std::collections::HashMap<String, WorkspaceBinding>,
+    /// Migration-only: readable from old files, never written back.
+    #[serde(default, skip_serializing)]
+    pub workspaces: std::collections::HashMap<String, LegacyWorkspaceBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,8 +94,20 @@ pub struct IdentityRef {
     pub last_used: DateTime<Utc>,
 }
 
+/// Per-workspace binding stored in `<workspace_dir>/binding.json`.
+/// `workspace_uuid` is included so callers can derive the HKDF key without
+/// reading `info.json` separately.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceBinding {
+    pub workspace_uuid: String,
+    pub identity_uuid: Uuid,
+    pub db_password_enc: String,
+}
+
+/// Legacy workspace binding as stored in `identity_settings.json.workspaces`.
+/// Read-only during migration; never written after migration runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyWorkspaceBinding {
     pub db_path: String,
     pub identity_uuid: Uuid,
     pub db_password_enc: String,
@@ -155,14 +168,168 @@ impl IdentityManager {
     /// Create a new `IdentityManager`.
     ///
     /// Ensures the `identities/` subdirectory exists under `config_dir`.
+    /// Runs on-disk migrations (idempotent).
     pub fn new(config_dir: PathBuf) -> Result<Self> {
         let identities_dir = config_dir.join("identities");
         std::fs::create_dir_all(&identities_dir)?;
+        Self::migrate(&config_dir);
+        // Remove vestigial top-level contacts/ dir (empty, superseded by per-identity folders)
+        let legacy_contacts = config_dir.join("contacts");
+        if legacy_contacts.is_dir() {
+            let is_empty = std::fs::read_dir(&legacy_contacts)
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(false);
+            if is_empty {
+                let _ = std::fs::remove_dir(&legacy_contacts);
+            }
+        }
         Ok(Self { config_dir })
+    }
+
+    /// Runs on-disk migrations. Called once from `new()`. Idempotent.
+    fn migrate(config_dir: &std::path::Path) {
+        Self::migrate_pass1_identity_files(config_dir);
+        Self::migrate_pass2_workspace_bindings(config_dir);
+    }
+
+    /// Pass 2: migrate workspace bindings from `identity_settings.json.workspaces`
+    /// into per-workspace `binding.json` files.
+    fn migrate_pass2_workspace_bindings(config_dir: &std::path::Path) {
+        let settings_path = config_dir.join("identity_settings.json");
+        let raw = match std::fs::read_to_string(&settings_path) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let mut settings: IdentitySettings = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        if settings.workspaces.is_empty() { return; }
+
+        for (ws_uuid, legacy) in &settings.workspaces {
+            // Derive workspace folder from db_path (parent of the .db file)
+            let workspace_dir = std::path::Path::new(&legacy.db_path)
+                .parent()
+                .map(|p| p.to_path_buf());
+
+            let workspace_dir = match workspace_dir {
+                Some(d) if d.is_dir() => d,
+                _ => {
+                    eprintln!("[migration] Workspace folder missing for {ws_uuid}, dropping binding");
+                    continue;
+                }
+            };
+
+            let binding = WorkspaceBinding {
+                workspace_uuid: ws_uuid.clone(),
+                identity_uuid: legacy.identity_uuid,
+                db_password_enc: legacy.db_password_enc.clone(),
+            };
+            let binding_path = workspace_dir.join("binding.json");
+            match serde_json::to_string_pretty(&binding) {
+                Ok(json) => {
+                    if let Err(e) = std::fs::write(&binding_path, json) {
+                        eprintln!("[migration] Cannot write binding.json to {binding_path:?}: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[migration] Cannot serialise binding for {ws_uuid}: {e}"),
+            }
+        }
+
+        // Clear workspaces from settings regardless (stale entries are dropped)
+        settings.workspaces.clear();
+        if let Ok(json) = serde_json::to_string_pretty(&settings) {
+            let _ = std::fs::write(&settings_path, json);
+        }
+    }
+
+    /// Pass 1: move flat `identities/<uuid>.json` → `identities/<uuid>/identity.json`.
+    fn migrate_pass1_identity_files(config_dir: &std::path::Path) {
+        let identities_dir = config_dir.join("identities");
+        let settings_path = config_dir.join("identity_settings.json");
+
+        // Collect flat .json files (entries like `<uuid>.json` at root of identities/)
+        let flat_files: Vec<(Uuid, std::path::PathBuf)> = match std::fs::read_dir(&identities_dir) {
+            Ok(rd) => rd.flatten()
+                .filter_map(|e| {
+                    let p = e.path();
+                    if p.is_file() && p.extension().map(|x| x == "json").unwrap_or(false) {
+                        let stem = p.file_stem()?.to_str()?;
+                        let uuid = Uuid::parse_str(stem).ok()?;
+                        Some((uuid, p))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            Err(_) => return,
+        };
+
+        if flat_files.is_empty() { return; }
+
+        // Load settings to update file refs
+        let raw = match std::fs::read_to_string(&settings_path) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let mut settings: IdentitySettings = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        let mut changed = false;
+        for (uuid, src_path) in flat_files {
+            let dest_dir = identities_dir.join(uuid.to_string());
+            let dest_path = dest_dir.join("identity.json");
+
+            if dest_path.exists() {
+                // Already migrated — remove the now-orphaned flat file
+                let _ = std::fs::remove_file(&src_path);
+                changed = true;
+                continue;
+            }
+
+            if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+                eprintln!("[migration] Cannot create {dest_dir:?}: {e}");
+                continue;
+            }
+            if let Err(e) = std::fs::rename(&src_path, &dest_path) {
+                eprintln!("[migration] Cannot move {src_path:?}: {e}");
+                continue;
+            }
+
+            // Update IdentityRef.file in settings
+            let new_file = format!("identities/{uuid}/identity.json");
+            for id_ref in settings.identities.iter_mut() {
+                if id_ref.uuid == uuid {
+                    id_ref.file = new_file.clone();
+                    break;
+                }
+            }
+            changed = true;
+        }
+
+        if changed {
+            if let Ok(json) = serde_json::to_string_pretty(&settings) {
+                let _ = std::fs::write(&settings_path, json);
+            }
+        }
     }
 
     fn identities_dir(&self) -> PathBuf {
         self.config_dir.join("identities")
+    }
+
+    /// Returns the directory for a single identity (contains identity.json, contacts/, invites/).
+    pub fn identity_dir(&self, identity_uuid: &Uuid) -> PathBuf {
+        self.identities_dir().join(identity_uuid.to_string())
+    }
+
+    /// Returns the absolute path to the identity key file for a given UUID.
+    /// Replaces the pattern: `config_dir.join(&identity_ref.file)` in lib.rs.
+    pub fn identity_file_path(&self, identity_uuid: &Uuid) -> PathBuf {
+        self.identity_dir(identity_uuid).join("identity.json")
     }
 
     fn settings_path(&self) -> PathBuf {
@@ -249,8 +416,13 @@ impl IdentityManager {
             },
         };
 
-        // Write identity file
-        let file_path = self.identities_dir().join(format!("{identity_uuid}.json"));
+        // Write identity file into per-identity directory
+        let identity_dir = self.identity_dir(&identity_uuid);
+        std::fs::create_dir_all(&identity_dir)?;
+        // Pre-create data subdirs so the identity folder is complete from the start
+        std::fs::create_dir_all(identity_dir.join("contacts"))?;
+        std::fs::create_dir_all(identity_dir.join("invites"))?;
+        let file_path = identity_dir.join("identity.json");
         let json = serde_json::to_string_pretty(&identity_file)?;
         std::fs::write(&file_path, json)?;
 
@@ -259,7 +431,7 @@ impl IdentityManager {
         settings.identities.push(IdentityRef {
             uuid: identity_uuid,
             display_name: display_name.to_string(),
-            file: format!("identities/{identity_uuid}.json"),
+            file: format!("identities/{identity_uuid}/identity.json"),
             last_used: Utc::now(),
         });
         self.save_settings(&settings)?;
@@ -270,7 +442,7 @@ impl IdentityManager {
     /// Unlock an identity by decrypting its Ed25519 seed with the given passphrase.
     pub fn unlock_identity(&self, identity_uuid: &Uuid, passphrase: &str) -> Result<UnlockedIdentity> {
         // Load identity file
-        let file_path = self.identities_dir().join(format!("{identity_uuid}.json"));
+        let file_path = self.identity_file_path(identity_uuid);
         if !file_path.exists() {
             return Err(crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()));
         }
@@ -342,7 +514,7 @@ impl IdentityManager {
     pub fn lookup_display_name(&self, public_key: &str) -> Option<String> {
         let settings = self.load_settings().ok()?;
         for identity_ref in &settings.identities {
-            let file_path = self.identities_dir().join(format!("{}.json", identity_ref.uuid));
+            let file_path = self.identity_file_path(&identity_ref.uuid);
             let Ok(data) = std::fs::read_to_string(&file_path) else { continue };
             let Ok(identity_file) = serde_json::from_str::<IdentityFile>(&data) else { continue };
             if identity_file.public_key == public_key {
@@ -353,27 +525,25 @@ impl IdentityManager {
     }
 
     /// Delete an identity. Fails if any workspaces are still bound to it.
-    pub fn delete_identity(&self, identity_uuid: &Uuid) -> Result<()> {
-        let mut settings = self.load_settings()?;
-
-        // Check for bound workspaces
-        let bound: Vec<_> = settings.workspaces.values()
-            .filter(|b| b.identity_uuid == *identity_uuid)
-            .collect();
+    pub fn delete_identity(&self, identity_uuid: &Uuid, workspace_base_dir: &std::path::Path) -> Result<()> {
+        // Check for bound workspaces in the workspace base directory
+        let bound = self.get_workspaces_for_identity(identity_uuid, workspace_base_dir)?;
         if !bound.is_empty() {
             return Err(crate::KrillnotesError::IdentityHasBoundWorkspaces(
                 identity_uuid.to_string(),
             ));
         }
 
+        let mut settings = self.load_settings()?;
+
         // Remove from settings
         settings.identities.retain(|i| i.uuid != *identity_uuid);
         self.save_settings(&settings)?;
 
-        // Delete file
-        let file_path = self.identities_dir().join(format!("{identity_uuid}.json"));
-        if file_path.exists() {
-            std::fs::remove_file(&file_path)?;
+        // Delete entire identity directory
+        let identity_dir = self.identity_dir(identity_uuid);
+        if identity_dir.exists() {
+            std::fs::remove_dir_all(&identity_dir)?;
         }
 
         Ok(())
@@ -421,7 +591,7 @@ impl IdentityManager {
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("AES encrypt: {e}")))?;
 
         // Load and update identity file
-        let file_path = self.identities_dir().join(format!("{identity_uuid}.json"));
+        let file_path = self.identity_file_path(identity_uuid);
         let data = std::fs::read_to_string(&file_path)?;
         let mut identity_file: IdentityFile = serde_json::from_str(&data)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("JSON parse: {e}")))?;
@@ -447,7 +617,7 @@ impl IdentityManager {
     /// Renames an identity's display name in both the identity file and the settings registry.
     pub fn rename_identity(&self, identity_uuid: &Uuid, new_name: &str) -> Result<()> {
         // Update identity file
-        let identity_path = self.identities_dir().join(format!("{}.json", identity_uuid));
+        let identity_path = self.identity_file_path(identity_uuid);
         let content = std::fs::read_to_string(&identity_path)
             .map_err(|_| crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()))?;
         let mut identity_file: IdentityFile = serde_json::from_str(&content)
@@ -473,7 +643,7 @@ impl IdentityManager {
         self.unlock_identity(identity_uuid, passphrase)?;
 
         // Read the raw IdentityFile from disk
-        let file_path = self.identities_dir().join(format!("{identity_uuid}.json"));
+        let file_path = self.identity_file_path(identity_uuid);
         let data = std::fs::read_to_string(&file_path)
             .map_err(|_| crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()))?;
         let identity: IdentityFile = serde_json::from_str(&data)
@@ -512,9 +682,9 @@ impl IdentityManager {
         let mut settings = self.load_settings()?;
         settings.identities.retain(|i| i.uuid != uuid);
         self.save_settings(&settings)?;
-        let file_path = self.identities_dir().join(format!("{uuid}.json"));
-        if file_path.exists() {
-            std::fs::remove_file(&file_path)?;
+        let identity_dir = self.identity_dir(&uuid);
+        if identity_dir.exists() {
+            std::fs::remove_dir_all(&identity_dir)?;
         }
         self.write_swarmid_to_store(file)
     }
@@ -539,8 +709,12 @@ impl IdentityManager {
         let uuid = identity.identity_uuid;
         let display_name = identity.display_name.clone();
 
-        // Write identity file to disk
-        let file_path = self.identities_dir().join(format!("{uuid}.json"));
+        // Write identity file into per-identity directory
+        let identity_dir = self.identity_dir(&uuid);
+        std::fs::create_dir_all(&identity_dir)?;
+        std::fs::create_dir_all(identity_dir.join("contacts"))?;
+        std::fs::create_dir_all(identity_dir.join("invites"))?;
+        let file_path = identity_dir.join("identity.json");
         let json = serde_json::to_string_pretty(&identity)?;
         std::fs::write(&file_path, json)?;
 
@@ -549,7 +723,7 @@ impl IdentityManager {
         let identity_ref = IdentityRef {
             uuid,
             display_name: display_name.clone(),
-            file: format!("identities/{uuid}.json"),
+            file: format!("identities/{uuid}/identity.json"),
             last_used: Utc::now(),
         };
         settings.identities.push(identity_ref.clone());
@@ -558,85 +732,100 @@ impl IdentityManager {
         Ok(identity_ref)
     }
 
-    /// Bind a workspace to an identity, encrypting the DB password with a key
-    /// derived from the Ed25519 seed.
+    /// Encrypts `db_password` with `seed` and writes a `binding.json` into `workspace_dir`.
     pub fn bind_workspace(
         &self,
         identity_uuid: &Uuid,
         workspace_uuid: &str,
-        db_path: &str,
+        workspace_dir: &std::path::Path,
         db_password: &str,
         seed: &[u8; 32],
     ) -> Result<()> {
-        let encrypted = self.encrypt_db_password(seed, workspace_uuid, db_password)?;
-
-        let mut settings = self.load_settings()?;
-        settings.workspaces.insert(
-            workspace_uuid.to_string(),
-            WorkspaceBinding {
-                db_path: db_path.to_string(),
-                identity_uuid: *identity_uuid,
-                db_password_enc: encrypted,
-            },
-        );
-        self.save_settings(&settings)?;
+        let db_password_enc = self.encrypt_db_password(seed, workspace_uuid, db_password)?;
+        let binding = WorkspaceBinding {
+            workspace_uuid: workspace_uuid.to_string(),
+            identity_uuid: *identity_uuid,
+            db_password_enc,
+        };
+        let json = serde_json::to_string_pretty(&binding)?;
+        std::fs::write(workspace_dir.join("binding.json"), json)?;
         Ok(())
     }
 
-    /// Remove a workspace binding from the identity settings.
-    pub fn unbind_workspace(&self, workspace_uuid: &str) -> Result<()> {
-        let mut settings = self.load_settings()?;
-        if settings.workspaces.remove(workspace_uuid).is_none() {
-            return Err(crate::KrillnotesError::WorkspaceNotBound(workspace_uuid.to_string()));
+    /// Removes `binding.json` from `workspace_dir`. Returns `Ok(())` if already absent.
+    pub fn unbind_workspace(&self, workspace_dir: &std::path::Path) -> Result<()> {
+        let path = workspace_dir.join("binding.json");
+        if path.exists() {
+            std::fs::remove_file(&path)?;
         }
-        self.save_settings(&settings)?;
         Ok(())
     }
 
-    /// Decrypt a workspace's DB password using the Ed25519 seed.
-    pub fn decrypt_db_password(
-        &self,
-        workspace_uuid: &str,
-        seed: &[u8; 32],
-    ) -> Result<String> {
-        let settings = self.load_settings()?;
-        let binding = settings.workspaces.get(workspace_uuid)
-            .ok_or_else(|| crate::KrillnotesError::WorkspaceNotBound(workspace_uuid.to_string()))?;
+    /// Reads `<workspace_dir>/binding.json`. Returns `None` if the file is absent.
+    pub fn get_workspace_binding(&self, workspace_dir: &std::path::Path) -> Result<Option<WorkspaceBinding>> {
+        let path = workspace_dir.join("binding.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let raw = std::fs::read_to_string(&path)?;
+        let binding: WorkspaceBinding = serde_json::from_str(&raw)
+            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(
+                format!("binding.json in {:?}: {e}", workspace_dir)
+            ))?;
+        Ok(Some(binding))
+    }
 
+    /// Decrypts the DB password from `<workspace_dir>/binding.json`.
+    /// Uses `workspace_uuid` stored in the binding for HKDF key derivation.
+    pub fn decrypt_db_password(&self, workspace_dir: &std::path::Path, seed: &[u8; 32]) -> Result<String> {
+        let binding = self.get_workspace_binding(workspace_dir)?
+            .ok_or_else(|| crate::KrillnotesError::WorkspaceNotBound(
+                workspace_dir.display().to_string()
+            ))?;
+
+        let key = self.derive_db_password_key(seed, &binding.workspace_uuid)?;
         let blob = BASE64.decode(&binding.db_password_enc)
-            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("db_password_enc decode: {e}")))?;
+            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("db_password_enc: {e}")))?;
 
-        let key = self.derive_db_password_key(seed, workspace_uuid)?;
-
-        // AES-256-GCM decrypt: first 12 bytes are nonce, rest is ciphertext+tag
-        if blob.len() < 13 {
-            return Err(crate::KrillnotesError::IdentityCorrupt("db password blob too short".to_string()));
+        if blob.len() < 12 {
+            return Err(crate::KrillnotesError::IdentityCorrupt("db_password_enc too short".into()));
         }
         let (nonce_bytes, ciphertext) = blob.split_at(12);
         let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("AES key: {e}")))?;
+            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))?;
         let nonce = Nonce::from_slice(nonce_bytes);
-        let plaintext = cipher
-            .decrypt(nonce, ciphertext)
-            .map_err(|_| crate::KrillnotesError::IdentityWrongPassphrase)?;
-
+        let plaintext = cipher.decrypt(nonce, ciphertext)
+            .map_err(|_| crate::KrillnotesError::IdentityCorrupt("decrypt failed".into()))?;
         String::from_utf8(plaintext)
-            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("db password not UTF-8: {e}")))
+            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))
     }
 
-    /// Get all workspace bindings for a given identity.
-    pub fn get_workspaces_for_identity(&self, identity_uuid: &Uuid) -> Result<Vec<(String, WorkspaceBinding)>> {
-        let settings = self.load_settings()?;
-        let result = settings.workspaces.into_iter()
-            .filter(|(_, b)| b.identity_uuid == *identity_uuid)
-            .collect();
-        Ok(result)
-    }
-
-    /// Return the [`WorkspaceBinding`] for a given `workspace_uuid`, if one exists.
-    pub fn get_workspace_binding(&self, workspace_uuid: &str) -> Result<Option<WorkspaceBinding>> {
-        let settings = self.load_settings()?;
-        Ok(settings.workspaces.get(workspace_uuid).cloned())
+    /// Scans all subdirectories of `workspace_base_dir` for `binding.json` files
+    /// that belong to `identity_uuid`. Returns `(workspace_folder, WorkspaceBinding)` pairs.
+    pub fn get_workspaces_for_identity(
+        &self,
+        identity_uuid: &Uuid,
+        workspace_base_dir: &std::path::Path,
+    ) -> Result<Vec<(PathBuf, WorkspaceBinding)>> {
+        let mut results = Vec::new();
+        let entries = match std::fs::read_dir(workspace_base_dir) {
+            Ok(rd) => rd,
+            Err(_) => return Ok(results), // directory doesn't exist yet
+        };
+        for entry in entries.flatten() {
+            let folder = entry.path();
+            if !folder.is_dir() { continue; }
+            let binding_path = folder.join("binding.json");
+            if !binding_path.exists() { continue; }
+            if let Ok(raw) = std::fs::read_to_string(&binding_path) {
+                if let Ok(b) = serde_json::from_str::<WorkspaceBinding>(&raw) {
+                    if b.identity_uuid == *identity_uuid {
+                        results.push((folder, b));
+                    }
+                }
+            }
+        }
+        Ok(results)
     }
 
     // --- private helpers ---
@@ -748,8 +937,10 @@ mod tests {
 
         let identity_file = mgr.create_identity("Alice", "password123").unwrap();
 
-        // File was written
-        let file_path = dir.path().join("identities").join(format!("{}.json", identity_file.identity_uuid));
+        // File was written in the new per-identity subfolder
+        let file_path = dir.path().join("identities")
+            .join(identity_file.identity_uuid.to_string())
+            .join("identity.json");
         assert!(file_path.exists());
 
         // Settings updated
@@ -840,12 +1031,15 @@ mod tests {
         let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
         let identity = mgr.create_identity("ToDelete", "pass").unwrap();
 
-        let file_path = dir.path().join("identities").join(format!("{}.json", identity.identity_uuid));
-        assert!(file_path.exists());
+        let identity_dir = dir.path().join("identities").join(identity.identity_uuid.to_string());
+        assert!(identity_dir.join("identity.json").exists());
 
-        mgr.delete_identity(&identity.identity_uuid).unwrap();
+        // Empty workspace base dir — no bound workspaces
+        let ws_base = dir.path().join("workspaces");
+        std::fs::create_dir_all(&ws_base).unwrap();
+        mgr.delete_identity(&identity.identity_uuid, &ws_base).unwrap();
 
-        assert!(!file_path.exists());
+        assert!(!identity_dir.exists());
         let list = mgr.list_identities().unwrap();
         assert!(list.is_empty());
     }
@@ -873,117 +1067,143 @@ mod tests {
     }
 
     #[test]
-    fn test_bind_workspace_and_decrypt() {
-        let dir = tempfile::tempdir().unwrap();
-        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
-        let identity = mgr.create_identity("Frank", "pass").unwrap();
-        let unlocked = mgr.unlock_identity(&identity.identity_uuid, "pass").unwrap();
+    fn bind_and_get_workspace_binding_round_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir).unwrap();
 
-        let db_password = "random-db-password-abc123";
-        mgr.bind_workspace(
-            &identity.identity_uuid,
-            "workspace-uuid-1",
-            "/path/to/ws.db",
-            db_password,
-            unlocked.signing_key.as_bytes(),
-        ).unwrap();
+        let identity_uuid = Uuid::new_v4();
+        let workspace_uuid = Uuid::new_v4().to_string();
+        let workspace_dir = tmp.path().join("ws");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
 
-        // Settings should have the binding
-        let settings = mgr.load_settings().unwrap();
-        assert!(settings.workspaces.contains_key("workspace-uuid-1"));
-        assert_eq!(settings.workspaces["workspace-uuid-1"].identity_uuid, identity.identity_uuid);
+        let seed = [42u8; 32];
+        let password = "hunter2";
 
-        // Decrypt should return original password
-        let decrypted = mgr.decrypt_db_password(
-            "workspace-uuid-1",
-            unlocked.signing_key.as_bytes(),
-        ).unwrap();
-        assert_eq!(decrypted, db_password);
+        mgr.bind_workspace(&identity_uuid, &workspace_uuid, &workspace_dir, password, &seed).unwrap();
+
+        // binding.json must exist
+        assert!(workspace_dir.join("binding.json").exists());
+
+        let binding = mgr.get_workspace_binding(&workspace_dir).unwrap().unwrap();
+        assert_eq!(binding.workspace_uuid, workspace_uuid);
+        assert_eq!(binding.identity_uuid, identity_uuid);
+
+        // Decrypt round-trip
+        let decrypted = mgr.decrypt_db_password(&workspace_dir, &seed).unwrap();
+        assert_eq!(decrypted, password);
     }
 
     #[test]
-    fn test_db_password_roundtrip_multiple_workspaces() {
-        let dir = tempfile::tempdir().unwrap();
-        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
-        let identity = mgr.create_identity("Grace", "pass").unwrap();
-        let unlocked = mgr.unlock_identity(&identity.identity_uuid, "pass").unwrap();
+    fn get_workspace_binding_returns_none_when_no_binding_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws_dir = tmp.path().join("ws");
+        std::fs::create_dir_all(&ws_dir).unwrap();
 
-        let seed = unlocked.signing_key.as_bytes();
-        mgr.bind_workspace(&identity.identity_uuid, "ws-1", "/a.db", "pw-alpha", seed).unwrap();
-        mgr.bind_workspace(&identity.identity_uuid, "ws-2", "/b.db", "pw-beta", seed).unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir).unwrap();
 
-        assert_eq!(mgr.decrypt_db_password("ws-1", seed).unwrap(), "pw-alpha");
-        assert_eq!(mgr.decrypt_db_password("ws-2", seed).unwrap(), "pw-beta");
+        assert!(mgr.get_workspace_binding(&ws_dir).unwrap().is_none());
     }
 
     #[test]
-    fn test_unbind_workspace() {
-        let dir = tempfile::tempdir().unwrap();
-        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
-        let identity = mgr.create_identity("Heidi", "pass").unwrap();
-        let unlocked = mgr.unlock_identity(&identity.identity_uuid, "pass").unwrap();
+    fn decrypt_db_password_round_trips_multiple_workspaces() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir).unwrap();
+        let identity_uuid = Uuid::new_v4();
+        let seed = [7u8; 32];
 
-        mgr.bind_workspace(
-            &identity.identity_uuid,
-            "ws-unbind",
-            "/db.db",
-            "pw",
-            unlocked.signing_key.as_bytes(),
-        ).unwrap();
+        for i in 0..3 {
+            let ws_uuid = Uuid::new_v4().to_string();
+            let ws_dir = tmp.path().join(format!("ws{i}"));
+            std::fs::create_dir_all(&ws_dir).unwrap();
+            let password = format!("pass{i}");
+            mgr.bind_workspace(&identity_uuid, &ws_uuid, &ws_dir, &password, &seed).unwrap();
+            let decrypted = mgr.decrypt_db_password(&ws_dir, &seed).unwrap();
+            assert_eq!(decrypted, password);
+        }
+    }
 
-        mgr.unbind_workspace("ws-unbind").unwrap();
+    #[test]
+    fn unbind_workspace_removes_binding_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws_dir = tmp.path().join("ws");
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        let binding_path = ws_dir.join("binding.json");
+        std::fs::write(&binding_path, "{}").unwrap();
 
-        let result = mgr.decrypt_db_password("ws-unbind", unlocked.signing_key.as_bytes());
-        assert!(matches!(result.unwrap_err(), crate::KrillnotesError::WorkspaceNotBound(_)));
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir).unwrap();
+
+        mgr.unbind_workspace(&ws_dir).unwrap();
+        assert!(!binding_path.exists());
     }
 
     #[test]
     fn test_multiple_identities_isolation() {
-        let dir = tempfile::tempdir().unwrap();
-        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir).unwrap();
 
         let id_a = mgr.create_identity("IdentA", "passA").unwrap();
         let id_b = mgr.create_identity("IdentB", "passB").unwrap();
         let unlocked_a = mgr.unlock_identity(&id_a.identity_uuid, "passA").unwrap();
         let unlocked_b = mgr.unlock_identity(&id_b.identity_uuid, "passB").unwrap();
 
-        mgr.bind_workspace(&id_a.identity_uuid, "ws-a", "/a.db", "pw-a", unlocked_a.signing_key.as_bytes()).unwrap();
-        mgr.bind_workspace(&id_b.identity_uuid, "ws-b", "/b.db", "pw-b", unlocked_b.signing_key.as_bytes()).unwrap();
+        let ws_a = tmp.path().join("ws_a");
+        let ws_b = tmp.path().join("ws_b");
+        std::fs::create_dir_all(&ws_a).unwrap();
+        std::fs::create_dir_all(&ws_b).unwrap();
+
+        mgr.bind_workspace(&id_a.identity_uuid, "ws-a-uuid", &ws_a, "pw-a", unlocked_a.signing_key.as_bytes()).unwrap();
+        mgr.bind_workspace(&id_b.identity_uuid, "ws-b-uuid", &ws_b, "pw-b", unlocked_b.signing_key.as_bytes()).unwrap();
 
         // A can decrypt A's workspace
-        assert_eq!(mgr.decrypt_db_password("ws-a", unlocked_a.signing_key.as_bytes()).unwrap(), "pw-a");
+        assert_eq!(mgr.decrypt_db_password(&ws_a, unlocked_a.signing_key.as_bytes()).unwrap(), "pw-a");
 
         // B can decrypt B's workspace
-        assert_eq!(mgr.decrypt_db_password("ws-b", unlocked_b.signing_key.as_bytes()).unwrap(), "pw-b");
+        assert_eq!(mgr.decrypt_db_password(&ws_b, unlocked_b.signing_key.as_bytes()).unwrap(), "pw-b");
 
         // A cannot decrypt B's workspace (wrong key, AES-GCM will fail)
-        let result = mgr.decrypt_db_password("ws-b", unlocked_a.signing_key.as_bytes());
+        let result = mgr.decrypt_db_password(&ws_b, unlocked_a.signing_key.as_bytes());
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_delete_identity_with_bound_workspaces() {
-        let dir = tempfile::tempdir().unwrap();
-        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
-        let identity = mgr.create_identity("Bound", "pass").unwrap();
-        let unlocked = mgr.unlock_identity(&identity.identity_uuid, "pass").unwrap();
+    fn delete_identity_fails_if_workspaces_still_bound() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir.clone()).unwrap();
 
-        // Bind a workspace
-        mgr.bind_workspace(
-            &identity.identity_uuid,
-            "ws-uuid-123",
-            "/path/to/db",
-            "db-password",
-            unlocked.signing_key.as_bytes(),
-        ).unwrap();
+        let seed = [1u8; 32];
+        let ws_dir = tmp.path().join("ws");
+        std::fs::create_dir_all(&ws_dir).unwrap();
 
-        // Delete should fail
-        let result = mgr.delete_identity(&identity.identity_uuid);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            crate::KrillnotesError::IdentityHasBoundWorkspaces(_)
-        ));
+        // Create the identity first
+        let display_name = "Test";
+        let passphrase = "testpass";
+        mgr.create_identity(display_name, passphrase).unwrap();
+
+        // Get the UUID we just created
+        let settings = mgr.load_settings().unwrap();
+        let id_ref = settings.identities.first().unwrap();
+        let real_uuid = id_ref.uuid;
+
+        // Bind a workspace to it
+        let ws_uuid = Uuid::new_v4().to_string();
+        mgr.bind_workspace(&real_uuid, &ws_uuid, &ws_dir, "pass", &seed).unwrap();
+
+        // delete_identity must fail because a workspace is still bound
+        let ws_base = tmp.path().to_path_buf();
+        let result = mgr.delete_identity(&real_uuid, &ws_base);
+        assert!(result.is_err(), "should fail when workspaces are bound");
     }
 
     #[test]
@@ -1006,19 +1226,36 @@ mod tests {
     }
 
     #[test]
-    fn test_get_workspaces_for_identity() {
-        let dir = tempfile::tempdir().unwrap();
-        let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
+    fn get_workspaces_for_identity_scans_workspace_base_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let mgr = IdentityManager::new(config_dir).unwrap();
 
-        let id_a = mgr.create_identity("Multi", "pass").unwrap();
-        let unlocked = mgr.unlock_identity(&id_a.identity_uuid, "pass").unwrap();
-        let seed = unlocked.signing_key.as_bytes();
+        let identity_a = Uuid::new_v4();
+        let identity_b = Uuid::new_v4();
+        let ws_base = tmp.path().join("workspaces");
 
-        mgr.bind_workspace(&id_a.identity_uuid, "ws-1", "/a.db", "pw1", seed).unwrap();
-        mgr.bind_workspace(&id_a.identity_uuid, "ws-2", "/b.db", "pw2", seed).unwrap();
+        // Two workspaces for identity_a, one for identity_b
+        for (name, owner) in &[("ws1", identity_a), ("ws2", identity_a), ("ws3", identity_b)] {
+            let ws_dir = ws_base.join(name);
+            std::fs::create_dir_all(&ws_dir).unwrap();
+            let binding = WorkspaceBinding {
+                workspace_uuid: Uuid::new_v4().to_string(),
+                identity_uuid: *owner,
+                db_password_enc: "enc".to_string(),
+            };
+            std::fs::write(
+                ws_dir.join("binding.json"),
+                serde_json::to_string(&binding).unwrap()
+            ).unwrap();
+        }
+        // ws4 has no binding.json — must be ignored
+        std::fs::create_dir_all(ws_base.join("ws4")).unwrap();
 
-        let workspaces = mgr.get_workspaces_for_identity(&id_a.identity_uuid).unwrap();
-        assert_eq!(workspaces.len(), 2);
+        let results = mgr.get_workspaces_for_identity(&identity_a, &ws_base).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|(_, b)| b.identity_uuid == identity_a));
     }
 
     #[test]
@@ -1027,8 +1264,10 @@ mod tests {
         let mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
         let identity = mgr.create_identity("Spec Check", "pass").unwrap();
 
-        // Read the raw JSON file
-        let file_path = dir.path().join("identities").join(format!("{}.json", identity.identity_uuid));
+        // Read the raw JSON file from the new per-identity subfolder
+        let file_path = dir.path().join("identities")
+            .join(identity.identity_uuid.to_string())
+            .join("identity.json");
         let raw = std::fs::read_to_string(&file_path).unwrap();
         let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
@@ -1113,7 +1352,9 @@ mod tests {
             version: SwarmIdFile::VERSION,
             identity: original.clone(),
         };
-        mgr.delete_identity(&original.identity_uuid).unwrap();
+        let ws_base = dir.path().join("workspaces");
+        std::fs::create_dir_all(&ws_base).unwrap();
+        mgr.delete_identity(&original.identity_uuid, &ws_base).unwrap();
         assert!(mgr.list_identities().unwrap().is_empty());
 
         let identity_ref = mgr.import_swarmid(swarmid).unwrap();
@@ -1205,5 +1446,208 @@ mod tests {
             .unlock_identity(&identity2.identity_uuid, "passphrase123")
             .unwrap();
         assert_ne!(unlocked.contacts_key(), unlocked2.contacts_key());
+    }
+
+    #[test]
+    fn old_identity_settings_with_workspaces_key_deserialises() {
+        // Old format still deserialises (workspaces key is readable)
+        let json = r#"{
+            "identities": [],
+            "workspaces": {
+                "ws-uuid-1": {
+                    "db_path": "/tmp/foo/notes.db",
+                    "identity_uuid": "00000000-0000-0000-0000-000000000001",
+                    "db_password_enc": "aGVsbG8="
+                }
+            }
+        }"#;
+        let settings: IdentitySettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.workspaces.len(), 1);
+        let binding = settings.workspaces.get("ws-uuid-1").unwrap();
+        assert_eq!(binding.db_path, "/tmp/foo/notes.db");
+    }
+
+    #[test]
+    fn new_identity_settings_serialises_without_workspaces_key() {
+        let settings = IdentitySettings::default();
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(!json.contains("workspaces"),
+            "workspaces key must not appear in serialised output");
+    }
+
+    #[test]
+    fn workspace_binding_serialises_with_workspace_uuid() {
+        let b = WorkspaceBinding {
+            workspace_uuid: "ws-1".to_string(),
+            identity_uuid: Uuid::nil(),
+            db_password_enc: "enc".to_string(),
+        };
+        let json = serde_json::to_string(&b).unwrap();
+        assert!(json.contains("workspace_uuid"));
+        assert!(json.contains("identity_uuid"));
+        assert!(!json.contains("db_path"));
+    }
+
+    #[test]
+    fn identity_dir_returns_uuid_subfolder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(tmp.path().to_path_buf()).unwrap();
+        let uuid = Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
+        assert_eq!(
+            mgr.identity_dir(&uuid),
+            tmp.path().join("identities").join("aaaaaaaa-0000-0000-0000-000000000001")
+        );
+    }
+
+    #[test]
+    fn identity_file_path_returns_identity_json_inside_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = IdentityManager::new(tmp.path().to_path_buf()).unwrap();
+        let uuid = Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap();
+        assert_eq!(
+            mgr.identity_file_path(&uuid),
+            tmp.path().join("identities").join("aaaaaaaa-0000-0000-0000-000000000001").join("identity.json")
+        );
+    }
+
+    #[test]
+    fn migration_pass1_moves_flat_json_into_identity_subfolder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().to_path_buf();
+        let identities_dir = config_dir.join("identities");
+        std::fs::create_dir_all(&identities_dir).unwrap();
+
+        // Create legacy flat identity file
+        let uuid = Uuid::new_v4();
+        let legacy_path = identities_dir.join(format!("{uuid}.json"));
+        let identity_file = serde_json::json!({
+            "identity_uuid": uuid.to_string(),
+            "display_name": "Test",
+            "public_key": "dGVzdA==",
+            "private_key_enc": {
+                "ciphertext": "dGVzdA==",
+                "nonce": "dGVzdA==",
+                "kdf": "argon2id",
+                "kdf_params": { "salt": "dGVzdA==", "m_cost": 1024, "t_cost": 1, "p_cost": 1 }
+            }
+        });
+        std::fs::write(&legacy_path, serde_json::to_string(&identity_file).unwrap()).unwrap();
+
+        // Create identity_settings.json referencing the flat file
+        let settings = serde_json::json!({
+            "identities": [{
+                "uuid": uuid.to_string(),
+                "displayName": "Test",
+                "file": format!("identities/{uuid}.json"),
+                "lastUsed": "2026-01-01T00:00:00Z"
+            }]
+        });
+        std::fs::write(config_dir.join("identity_settings.json"),
+            serde_json::to_string(&settings).unwrap()).unwrap();
+
+        // Trigger migration
+        let _mgr = IdentityManager::new(config_dir.clone()).unwrap();
+
+        // Flat file must be gone
+        assert!(!legacy_path.exists(), "flat file should be removed");
+
+        // New path must exist
+        let new_path = identities_dir.join(uuid.to_string()).join("identity.json");
+        assert!(new_path.exists(), "identity.json inside folder must exist");
+
+        // settings must be updated
+        let raw = std::fs::read_to_string(config_dir.join("identity_settings.json")).unwrap();
+        let updated: IdentitySettings = serde_json::from_str(&raw).unwrap();
+        assert_eq!(updated.identities[0].file,
+            format!("identities/{uuid}/identity.json"));
+    }
+
+    #[test]
+    fn migration_pass1_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().to_path_buf();
+        // First call (no legacy files) — should succeed silently
+        let _m1 = IdentityManager::new(config_dir.clone()).unwrap();
+        // Second call — must also succeed
+        let _m2 = IdentityManager::new(config_dir.clone()).unwrap();
+    }
+
+    #[test]
+    fn migration_pass2_writes_binding_json_for_existing_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().to_path_buf();
+
+        // Create a fake workspace folder with notes.db
+        let ws_dir = tmp.path().join("workspaces").join("my-workspace");
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        std::fs::write(ws_dir.join("notes.db"), b"").unwrap();
+
+        let ws_uuid = "aaaaaaaa-1111-0000-0000-000000000001";
+        let identity_uuid = "bbbbbbbb-2222-0000-0000-000000000001";
+
+        // Write legacy identity_settings.json with workspaces section
+        let settings_json = serde_json::json!({
+            "identities": [],
+            "workspaces": {
+                ws_uuid: {
+                    "db_path": ws_dir.join("notes.db").display().to_string(),
+                    "identity_uuid": identity_uuid,
+                    "db_password_enc": "dGVzdA=="
+                }
+            }
+        });
+        std::fs::write(
+            config_dir.join("identity_settings.json"),
+            serde_json::to_string(&settings_json).unwrap()
+        ).unwrap();
+
+        // Trigger migration
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+        let _mgr = IdentityManager::new(config_dir.clone()).unwrap();
+
+        // binding.json must exist in workspace folder
+        let binding_path = ws_dir.join("binding.json");
+        assert!(binding_path.exists(), "binding.json must be written");
+
+        let raw = std::fs::read_to_string(&binding_path).unwrap();
+        let binding: WorkspaceBinding = serde_json::from_str(&raw).unwrap();
+        assert_eq!(binding.workspace_uuid, ws_uuid);
+        assert_eq!(binding.identity_uuid.to_string(), identity_uuid);
+        assert_eq!(binding.db_password_enc, "dGVzdA==");
+
+        // identity_settings.json must no longer have workspaces key
+        let raw_settings = std::fs::read_to_string(config_dir.join("identity_settings.json")).unwrap();
+        assert!(!raw_settings.contains("workspaces"),
+            "workspaces key must be absent after migration");
+    }
+
+    #[test]
+    fn migration_pass2_drops_stale_entry_for_missing_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().to_path_buf();
+        std::fs::create_dir_all(config_dir.join("identities")).unwrap();
+
+        // Stale binding — workspace folder does not exist
+        let settings_json = serde_json::json!({
+            "identities": [],
+            "workspaces": {
+                "dead-ws-uuid": {
+                    "db_path": "/nonexistent/workspace/notes.db",
+                    "identity_uuid": "00000000-0000-0000-0000-000000000001",
+                    "db_password_enc": "dGVzdA=="
+                }
+            }
+        });
+        std::fs::write(
+            config_dir.join("identity_settings.json"),
+            serde_json::to_string(&settings_json).unwrap()
+        ).unwrap();
+
+        // Must not panic
+        let _mgr = IdentityManager::new(config_dir.clone()).unwrap();
+
+        // identity_settings.json cleaned up
+        let raw = std::fs::read_to_string(config_dir.join("identity_settings.json")).unwrap();
+        assert!(!raw.contains("workspaces"));
     }
 }

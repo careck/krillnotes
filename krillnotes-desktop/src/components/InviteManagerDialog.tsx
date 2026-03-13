@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import type { InviteInfo, PendingPeer, ContactInfo } from '../types';
 import { CreateInviteDialog } from './CreateInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
+import { PostAcceptDialog } from './PostAcceptDialog';
+import { SendSnapshotDialog } from './SendSnapshotDialog';
 
 interface Props {
   identityUuid: string;
@@ -20,6 +22,9 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
   const [showCreate, setShowCreate] = useState(false);
   const [pendingPeer, setPendingPeer] = useState<PendingPeer | null>(null);
   const [showAccept, setShowAccept] = useState(false);
+  const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
+  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
+  const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -146,10 +151,33 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         <AcceptPeerDialog
           identityUuid={identityUuid}
           pendingPeer={pendingPeer}
-          onAccepted={(_contact: ContactInfo) => { load(); }}
+          onAccepted={(contact: ContactInfo) => {
+            load();
+            const peerName = contact.localName || contact.declaredName;
+            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
+          }}
           onClose={() => { setShowAccept(false); setPendingPeer(null); }}
         />
       )}
+
+      <PostAcceptDialog
+        open={postAcceptPeer !== null}
+        peerName={postAcceptPeer?.name ?? ''}
+        onSendNow={() => {
+          setSendSnapshotFor([postAcceptPeer!.publicKey]);
+          setPostAcceptPeer(null);
+          setShowSendSnapshot(true);
+        }}
+        onLater={() => setPostAcceptPeer(null)}
+      />
+
+      <SendSnapshotDialog
+        open={showSendSnapshot}
+        identityUuid={identityUuid}
+        preSelectedPublicKeys={sendSnapshotFor}
+        onClose={() => setShowSendSnapshot(false)}
+        onSuccess={() => {}}
+      />
     </>
   );
 }

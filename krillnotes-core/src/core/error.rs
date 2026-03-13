@@ -95,6 +95,10 @@ pub enum KrillnotesError {
     #[error("swarm: {0}")]
     Swarm(String),
 
+    /// A low-level cryptographic operation failed (e.g. blob encrypt/decrypt).
+    #[error("crypto: {0}")]
+    Crypto(String),
+
     #[error("Invalid signature")]
     InvalidSignature,
 
@@ -179,6 +183,7 @@ impl KrillnotesError {
                 format!("This .swarmid file uses version {v}, which is not supported by this version of Krillnotes.")
             }
             Self::Swarm(msg) => format!("Swarm bundle error: {msg}"),
+            Self::Crypto(msg) => format!("Cryptography error: {msg}"),
             Self::InvalidSignature => "Invalid signature — the file may be tampered or corrupted.".to_string(),
             Self::InviteExpiredOrRevoked => "This invite has expired or been revoked.".to_string(),
             Self::Zip(e) => format!("Bundle archive error: {e}"),

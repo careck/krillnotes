@@ -57,7 +57,7 @@ fn ed25519_sk_to_x25519(key: &SigningKey) -> StaticSecret {
 fn aes_encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ct = cipher
         .encrypt(nonce, plaintext)
@@ -103,6 +103,19 @@ pub fn encrypt_for_recipients(
     plaintext: &[u8],
     recipients: &[&VerifyingKey],
 ) -> Result<(Vec<u8>, Vec<RecipientEntry>)> {
+    let (ciphertext, _sym_key, entries) = encrypt_for_recipients_with_key(plaintext, recipients)?;
+    Ok((ciphertext, entries))
+}
+
+/// Like `encrypt_for_recipients` but also returns the raw AES-256-GCM symmetric key.
+///
+/// Returns `(encrypted_payload, sym_key, Vec<RecipientEntry>)`.
+/// `sym_key` is the 32-byte key used to encrypt the payload; callers that need
+/// to store or forward the key (e.g. snapshot blobs) should use this variant.
+pub fn encrypt_for_recipients_with_key(
+    plaintext: &[u8],
+    recipients: &[&VerifyingKey],
+) -> Result<(Vec<u8>, [u8; 32], Vec<RecipientEntry>)> {
     // 1. Generate random AES-256-GCM payload key.
     let mut aes_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut aes_key);
@@ -130,7 +143,7 @@ pub fn encrypt_for_recipients(
         });
     }
 
-    Ok((ciphertext, entries))
+    Ok((ciphertext, aes_key, entries))
 }
 
 /// Decrypt a payload using the recipient's Ed25519 signing key and their
@@ -140,6 +153,19 @@ pub fn decrypt_payload(
     entry: &RecipientEntry,
     signing_key: &SigningKey,
 ) -> Result<Vec<u8>> {
+    let (plaintext, _sym_key) = decrypt_payload_with_key(ciphertext, entry, signing_key)?;
+    Ok(plaintext)
+}
+
+/// Like `decrypt_payload` but also returns the recovered AES-256-GCM symmetric key.
+///
+/// Returns `(plaintext, sym_key)` where `sym_key` is the 32-byte key that was
+/// used to encrypt the payload.
+pub fn decrypt_payload_with_key(
+    ciphertext: &[u8],
+    entry: &RecipientEntry,
+    signing_key: &SigningKey,
+) -> Result<(Vec<u8>, [u8; 32])> {
     let blob = &entry.encrypted_key;
     if blob.len() < 32 {
         return Err(KrillnotesError::Swarm("recipient blob too short".to_string()));
@@ -156,7 +182,41 @@ pub fn decrypt_payload(
     let aes_key: [u8; 32] = aes_key_bytes
         .try_into()
         .map_err(|_| KrillnotesError::Swarm("wrapped key wrong length".to_string()))?;
-    aes_decrypt(&aes_key, ciphertext)
+    let plaintext = aes_decrypt(&aes_key, ciphertext)?;
+    Ok((plaintext, aes_key))
+}
+
+/// Encrypt a blob with a raw AES-256-GCM key.
+///
+/// Output: 12-byte random nonce prepended to ciphertext+tag.
+/// Use this for attachment/blob encryption where the key is managed externally
+/// (e.g., stored in a `RecipientEntry` via `encrypt_for_recipients_with_key`).
+pub fn encrypt_blob(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let mut nonce_bytes = [0u8; 12];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ct = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| KrillnotesError::Crypto(format!("encrypt blob: {e}")))?;
+    let mut out = Vec::with_capacity(12 + ct.len());
+    out.extend_from_slice(&nonce_bytes);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Decrypt a blob produced by `encrypt_blob`.
+pub fn decrypt_blob(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
+    if ciphertext.len() < 12 {
+        return Err(KrillnotesError::Crypto(
+            "blob ciphertext too short".to_string(),
+        ));
+    }
+    let nonce = Nonce::from_slice(&ciphertext[..12]);
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    cipher
+        .decrypt(nonce, &ciphertext[12..])
+        .map_err(|e| KrillnotesError::Crypto(format!("decrypt blob: {e}")))
 }
 
 #[cfg(test)]
@@ -165,13 +225,18 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
 
+    fn make_key() -> SigningKey {
+        SigningKey::generate(&mut OsRng)
+    }
+
     #[test]
     fn test_encrypt_decrypt_single_recipient() {
-        let recipient_key = SigningKey::generate(&mut OsRng);
+        let recipient_key = make_key();
         let verifying_key = recipient_key.verifying_key();
         let plaintext = b"hello swarm payload";
 
-        let (ciphertext, entry): (Vec<u8>, Vec<RecipientEntry>) = encrypt_for_recipients(plaintext, &[&verifying_key]).unwrap();
+        let (ciphertext, entry): (Vec<u8>, Vec<RecipientEntry>) =
+            encrypt_for_recipients(plaintext, &[&verifying_key]).unwrap();
         assert_eq!(entry.len(), 1);
 
         let recovered = decrypt_payload(&ciphertext, &entry[0], &recipient_key).unwrap();
@@ -180,14 +245,15 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt_multi_recipient() {
-        let k1 = SigningKey::generate(&mut OsRng);
-        let k2 = SigningKey::generate(&mut OsRng);
+        let k1 = make_key();
+        let k2 = make_key();
         let plaintext = b"shared payload";
 
         let (ciphertext, entries): (Vec<u8>, Vec<RecipientEntry>) = encrypt_for_recipients(
             plaintext,
             &[&k1.verifying_key(), &k2.verifying_key()],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(entries.len(), 2);
 
         let r1 = decrypt_payload(&ciphertext, &entries[0], &k1).unwrap();
@@ -198,12 +264,62 @@ mod tests {
 
     #[test]
     fn test_wrong_key_fails_decrypt() {
-        let recipient_key = SigningKey::generate(&mut OsRng);
-        let wrong_key = SigningKey::generate(&mut OsRng);
+        let recipient_key = make_key();
+        let wrong_key = make_key();
         let plaintext = b"secret";
 
         let (ciphertext, entries): (Vec<u8>, Vec<RecipientEntry>) =
             encrypt_for_recipients(plaintext, &[&recipient_key.verifying_key()]).unwrap();
         assert!(decrypt_payload(&ciphertext, &entries[0], &wrong_key).is_err());
+    }
+
+    // --- encrypt_blob / decrypt_blob tests ---
+
+    #[test]
+    fn test_encrypt_decrypt_blob_roundtrip() {
+        let key = [42u8; 32];
+        let plaintext = b"hello attachment data";
+        let ct = encrypt_blob(&key, plaintext).unwrap();
+        assert_ne!(ct.as_slice(), plaintext.as_slice());
+        let pt = decrypt_blob(&key, &ct).unwrap();
+        assert_eq!(pt, plaintext);
+    }
+
+    #[test]
+    fn test_decrypt_blob_wrong_key_fails() {
+        let key = [42u8; 32];
+        let wrong = [99u8; 32];
+        let ct = encrypt_blob(&key, b"secret").unwrap();
+        assert!(decrypt_blob(&wrong, &ct).is_err());
+    }
+
+    #[test]
+    fn test_decrypt_blob_truncated_fails() {
+        let key = [1u8; 32];
+        assert!(decrypt_blob(&key, &[0u8; 5]).is_err());
+    }
+
+    // --- key-returning variant tests ---
+
+    #[test]
+    fn test_encrypt_for_recipients_with_key_roundtrip() {
+        let recip = make_key();
+        let vk = recip.verifying_key();
+        let payload = b"test payload";
+        let (ct, sym_key, entries) =
+            encrypt_for_recipients_with_key(payload, &[&vk]).unwrap();
+        assert_eq!(sym_key.len(), 32);
+        let pt = decrypt_payload_with_key(&ct, &entries[0], &recip).unwrap().0;
+        assert_eq!(pt, payload);
+    }
+
+    #[test]
+    fn test_decrypt_payload_with_key_returns_same_key() {
+        let recip = make_key();
+        let vk = recip.verifying_key();
+        let (ct, sym_key, entries) =
+            encrypt_for_recipients_with_key(b"data", &[&vk]).unwrap();
+        let (_, returned_key) = decrypt_payload_with_key(&ct, &entries[0], &recip).unwrap();
+        assert_eq!(returned_key, sym_key);
     }
 }

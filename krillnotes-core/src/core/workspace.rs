@@ -49,6 +49,8 @@ pub struct WorkspaceSnapshot {
     pub version: u32,
     pub notes: Vec<Note>,
     pub user_scripts: Vec<UserScript>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentMeta>,
 }
 
 /// Controls where a new note is inserted relative to the currently selected note.
@@ -311,6 +313,208 @@ impl Workspace {
         Ok(workspace)
     }
 
+    /// Like [`create`] but uses the provided `workspace_id` instead of generating a fresh UUID.
+    /// Use when restoring a workspace from a snapshot so all peers share the same UUID.
+    /// The attachment key derivation uses `workspace_id`, so it must use the supplied ID.
+    pub fn create_with_id<P: AsRef<Path>>(
+        path: P,
+        password: &str,
+        identity_uuid: &str,
+        signing_key: ed25519_dalek::SigningKey,
+        workspace_id: &str,
+    ) -> Result<Self> {
+        let mut storage = Storage::create(&path, password)?;
+        let mut script_registry = ScriptRegistry::new()?;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+
+        // Get hardware-based device ID
+        let device_id = get_device_id()?;
+
+        // Store metadata
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["device_id", &device_id],
+        )?;
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["identity_uuid", identity_uuid],
+        )?;
+
+        // Derive workspace root from db path
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        // Create attachments directory (idempotent, best-effort)
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        // Use the caller-supplied workspace_id instead of generating a fresh UUID.
+        let workspace_id = workspace_id.to_string();
+        storage.connection().execute(
+            "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["workspace_id", &workspace_id],
+        )?;
+
+        // Derive attachment key
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
+
+        // Seed the workspace with bundled starter scripts.
+        let now = chrono::Utc::now().timestamp();
+        let starters = ScriptRegistry::starter_scripts();
+        {
+            let tx = storage.connection_mut().transaction()?;
+            for (load_order, starter) in starters.iter().enumerate() {
+                let fm = user_script::parse_front_matter(&starter.source_code);
+                let id = Uuid::new_v4().to_string();
+                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "presentation" };
+                tx.execute(
+                    "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rusqlite::params![id, fm.name, fm.description, &starter.source_code, load_order as i32, true, now, now, category],
+                )?;
+            }
+            tx.commit()?;
+        }
+
+        // Load all scripts from the DB into the registry.
+        let scripts = {
+            let mut stmt = storage.connection().prepare(
+                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at, category
+                 FROM user_scripts ORDER BY load_order ASC, created_at ASC",
+            )?;
+            let results: Vec<UserScript> = stmt.query_map([], |row| {
+                Ok(UserScript {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    source_code: row.get(3)?,
+                    load_order: row.get(4)?,
+                    enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
+                    created_at: row.get(6)?,
+                    modified_at: row.get(7)?,
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+            results
+        };
+        // Two-phase loading: presentation first, then schema, then resolve.
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
+            script_registry.set_loading_category(Some("presentation".to_string()));
+            if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
+                eprintln!("Failed to load starter script '{}': {}", script.name, e);
+            }
+        }
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
+            script_registry.set_loading_category(Some("schema".to_string()));
+            if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
+                eprintln!("Failed to load starter script '{}': {}", script.name, e);
+            }
+        }
+        script_registry.resolve_bindings();
+
+        // Derive root note title from workspace folder name (parent of notes.db), not the db filename
+        let filename = {
+            let parent_name = path.as_ref()
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str());
+            let db_stem = path.as_ref()
+                .file_stem()
+                .and_then(|s| s.to_str());
+            // If parent is a real named folder (not "" or "."), use it; otherwise fall back to db stem
+            match parent_name {
+                Some(name) if !name.is_empty() && name != "." => name,
+                _ => db_stem.unwrap_or("Untitled"),
+            }
+        };
+        let title = humanize(filename);
+
+        // Derive the base64-encoded public key from the signing key so we can
+        // stamp it onto notes as created_by / modified_by.
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
+
+        let root = Note {
+            id: Uuid::new_v4().to_string(),
+            title,
+            schema: "TextNote".to_string(),
+            parent_id: None,
+            position: 0.0,
+            created_at: now,
+            modified_at: now,
+            created_by: identity_pubkey_b64.clone(),
+            modified_by: identity_pubkey_b64.clone(),
+            fields: script_registry.get_schema("TextNote")?.default_fields(),
+            is_expanded: true,
+            tags: vec![], schema_version: 1,
+        };
+
+        let tx = storage.connection_mut().transaction()?;
+        tx.execute(
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                root.id,
+                root.title,
+                root.schema,
+                root.parent_id,
+                root.position,
+                root.created_at,
+                root.modified_at,
+                root.created_by,
+                root.modified_by,
+                serde_json::to_string(&root.fields)?,
+                true,
+                root.schema_version,
+            ],
+        )?;
+        tx.commit()?;
+
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["undo_limit", "50"],
+        )?;
+        let undo_limit: usize = 50;
+
+        // Initialise HLC for this workspace.
+        let node_id = crate::core::hlc::node_id_from_device(
+            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+        );
+        let hlc = HlcClock::new(node_id);
+
+        let workspace = Self {
+            storage,
+            script_registry,
+            operation_log,
+            device_id,
+            identity_uuid: identity_uuid.to_string(),
+            current_identity_pubkey: identity_pubkey_b64,
+            workspace_root,
+            workspace_id,
+            attachment_key,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            undo_limit,
+            script_undo_stack: Vec::new(),
+            script_redo_stack: Vec::new(),
+            undo_group_buffer: None,
+            inside_undo: false,
+            hlc,
+            signing_key,
+            pending_migration_results: Vec::new(),
+        };
+        let _ = workspace.write_info_json(); // best-effort; non-fatal
+        Ok(workspace)
+    }
+
     /// Like [`create`] but does **not** insert a default root note.
     ///
     /// Use this when the workspace content will immediately be populated from an
@@ -398,6 +602,99 @@ impl Workspace {
             let _ = script_registry.load_script(&script.source_code, &script.name);
         }
         script_registry.resolve_bindings();
+
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
+
+        // No default root note — content will come from the imported snapshot.
+
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["undo_limit", "50"],
+        )?;
+        let undo_limit: usize = 50;
+
+        let node_id = crate::core::hlc::node_id_from_device(
+            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+        );
+        let hlc = HlcClock::new(node_id);
+
+        let workspace = Self {
+            storage,
+            script_registry,
+            operation_log,
+            device_id,
+            identity_uuid: identity_uuid.to_string(),
+            current_identity_pubkey: identity_pubkey_b64,
+            workspace_root,
+            workspace_id,
+            attachment_key,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            undo_limit,
+            script_undo_stack: Vec::new(),
+            script_redo_stack: Vec::new(),
+            undo_group_buffer: None,
+            inside_undo: false,
+            hlc,
+            signing_key,
+            pending_migration_results: Vec::new(),
+        };
+        let _ = workspace.write_info_json();
+        Ok(workspace)
+    }
+
+    /// Like [`create_empty`] but uses the provided `workspace_id` instead of generating a fresh UUID.
+    ///
+    /// Use this when restoring a workspace from a snapshot so all peers share the same UUID,
+    /// and no default root note is inserted (the snapshot import will populate notes itself).
+    pub fn create_empty_with_id<P: AsRef<Path>>(
+        path: P,
+        password: &str,
+        identity_uuid: &str,
+        signing_key: ed25519_dalek::SigningKey,
+        workspace_id: &str,
+    ) -> Result<Self> {
+        let storage = Storage::create(&path, password)?;
+        let script_registry = ScriptRegistry::new()?;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+
+        let device_id = get_device_id()?;
+
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["device_id", &device_id],
+        )?;
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["identity_uuid", identity_uuid],
+        )?;
+
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        // Use the caller-supplied workspace_id instead of generating a fresh UUID.
+        let workspace_id = workspace_id.to_string();
+        storage.connection().execute(
+            "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["workspace_id", &workspace_id],
+        )?;
+
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
+
+        // No starter scripts: this constructor is for snapshot restoration.
+        // The caller (apply_swarm_snapshot) will call reload_all_scripts()
+        // after import_snapshot_json() to run the snapshot's own scripts.
 
         let identity_pubkey_b64 = {
             use base64::Engine as _;
@@ -4404,16 +4701,31 @@ impl Workspace {
 
     // ── Snapshot (peer sync) ───────────────────────────────────────
 
-    /// Serialise all notes and user scripts to JSON bytes for a snapshot bundle.
+    /// Serialise all notes, user scripts, and attachment metadata to JSON bytes for a snapshot bundle.
     pub fn to_snapshot_json(&self) -> Result<Vec<u8>> {
         let notes = self.list_all_notes()?;
         let user_scripts = self.list_user_scripts()?;
+        let attachments = self.list_all_attachments()?;
         let snapshot = WorkspaceSnapshot {
             version: 1,
             notes,
             user_scripts,
+            attachments,
         };
         Ok(serde_json::to_vec(&snapshot)?)
+    }
+
+    /// Returns the `operation_id` of the most recent logged operation, or `None` if log is empty.
+    pub fn get_latest_operation_id(&self) -> Result<Option<String>> {
+        let conn = self.storage.connection();
+        let mut stmt = conn.prepare(
+            "SELECT operation_id FROM operations ORDER BY timestamp_wall_ms DESC, timestamp_counter DESC LIMIT 1"
+        )?;
+        match stmt.query_row([], |row| row.get::<_, String>(0)) {
+            Ok(id) => Ok(Some(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(KrillnotesError::Database(e)),
+        }
     }
 
     /// Populate a workspace from snapshot JSON bytes.
@@ -4561,6 +4873,30 @@ impl Workspace {
         let conn = self.storage.connection();
         let registry = PeerRegistry::new(conn);
         registry.remove_peer(peer_device_id)
+    }
+
+    /// Update last_sent_op for a peer identified by their identity public key.
+    /// Peers added via invite use placeholder device_id = "identity:<pubkey>".
+    /// Uses upsert semantics: inserts a peer row if none exists yet.
+    pub fn update_peer_last_sent_by_identity(&self, identity_pk: &str, op_id: &str) -> Result<()> {
+        let conn = self.storage.connection();
+        let registry = PeerRegistry::new(conn);
+        let placeholder_device_id = format!("identity:{identity_pk}");
+        registry.upsert_last_sent(&placeholder_device_id, identity_pk, op_id)
+    }
+
+    /// Insert or update a sync peer row. Pass `None` for watermark fields that
+    /// should not overwrite an existing value.
+    pub fn upsert_sync_peer(
+        &self,
+        device_id: &str,
+        identity_id: &str,
+        last_sent_op: Option<&str>,
+        last_received_op: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.storage.connection();
+        let registry = PeerRegistry::new(conn);
+        registry.upsert_sync_peer(device_id, identity_id, last_sent_op, last_received_op)
     }
 
 }
@@ -7505,6 +7841,52 @@ schema("SameVerType", #{
     }
 
     #[test]
+    fn test_to_snapshot_json_includes_attachments() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut ws = Workspace::create(&db_path, "", "test-id", key).unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+        ws.attach_file(&root_id, "test.txt", None, b"hello bytes").unwrap();
+        let json = ws.to_snapshot_json().unwrap();
+        let snap: WorkspaceSnapshot = serde_json::from_slice(&json).unwrap();
+        assert_eq!(snap.attachments.len(), 1);
+        assert_eq!(snap.attachments[0].filename, "test.txt");
+    }
+
+    #[test]
+    fn test_get_latest_operation_id_empty_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let ws = Workspace::create(&db_path, "", "test-id", key).unwrap();
+        // A freshly created workspace has no operations logged yet.
+        assert!(ws.get_latest_operation_id().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_create_with_id_preserves_uuid() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let custom_id = "my-fixed-workspace-uuid";
+        let ws = Workspace::create_with_id(&db_path, "", "test-id", key, custom_id).unwrap();
+        assert_eq!(ws.workspace_id(), custom_id);
+    }
+
+    #[test]
+    fn test_create_empty_with_id_no_root_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[4u8; 32]);
+        let custom_id = "snapshot-workspace-uuid";
+        let ws = Workspace::create_empty_with_id(&db_path, "", "test-id", key, custom_id).unwrap();
+        assert_eq!(ws.workspace_id(), custom_id);
+        // No root note should be auto-inserted — snapshot restoration will add its own notes.
+        assert_eq!(ws.list_all_notes().unwrap().len(), 0);
+    }
+
+    #[test]
     fn test_import_snapshot_json_round_trip() {
         let src_temp = NamedTempFile::new().unwrap();
         let mut src = Workspace::create(
@@ -7647,7 +8029,7 @@ schema("SameVerType", #{
 
         let cm_dir = tempfile::tempdir().unwrap();
         let key = [1u8; 32];
-        let mut cm = ContactManager::for_identity(cm_dir.path().to_path_buf(), key).unwrap();
+        let cm = ContactManager::for_identity(cm_dir.path().to_path_buf(), key).unwrap();
         let contact = cm.create_contact("Bob", pubkey, TrustLevel::CodeVerified).unwrap();
 
         let peers = ws.list_peers_info(&cm).unwrap();

@@ -14,6 +14,8 @@ import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
 import { ImportInviteDialog } from './ImportInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
+import { PostAcceptDialog } from './PostAcceptDialog';
+import { SendSnapshotDialog } from './SendSnapshotDialog';
 
 interface Props {
   identityUuid: string;
@@ -33,7 +35,7 @@ const TRUST_BADGE: Record<string, { label: string; class: string }> = {
 export default function WorkspacePeersDialog({
   identityUuid,
   workspaceInfo,
-  unlockedIdentityUuid,
+  unlockedIdentityUuid: _unlockedIdentityUuid,
   onClose,
 }: Props) {
   const { t } = useTranslation();
@@ -47,6 +49,9 @@ export default function WorkspacePeersDialog({
   const [importInviteData, setImportInviteData] = useState<InviteFileData | null>(null);
   const [importInvitePath, setImportInvitePath] = useState<string | null>(null);
   const [pendingResponsePeer, setPendingResponsePeer] = useState<PendingPeer | null>(null);
+  const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
+  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
+  const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -242,6 +247,15 @@ export default function WorkspacePeersDialog({
           >
             {t('invite.importInvite')}
           </button>
+          <button
+            onClick={() => {
+              setSendSnapshotFor(peers.map(p => p.peerIdentityId));
+              setShowSendSnapshot(true);
+            }}
+            className="px-3 py-1.5 text-sm rounded border border-secondary hover:bg-secondary"
+          >
+            Create Snapshot…
+          </button>
         </div>
       </div>
 
@@ -289,10 +303,34 @@ export default function WorkspacePeersDialog({
         <AcceptPeerDialog
           identityUuid={identityUuid}
           pendingPeer={pendingResponsePeer}
-          onAccepted={(_contact: ContactInfo) => { setPendingResponsePeer(null); loadPeers(); }}
+          onAccepted={(contact: ContactInfo) => {
+            setPendingResponsePeer(null);
+            loadPeers();
+            const peerName = contact.localName || contact.declaredName;
+            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
+          }}
           onClose={() => setPendingResponsePeer(null)}
         />
       )}
+
+      <PostAcceptDialog
+        open={postAcceptPeer !== null}
+        peerName={postAcceptPeer?.name ?? ''}
+        onSendNow={() => {
+          setSendSnapshotFor([postAcceptPeer!.publicKey]);
+          setPostAcceptPeer(null);
+          setShowSendSnapshot(true);
+        }}
+        onLater={() => setPostAcceptPeer(null)}
+      />
+
+      <SendSnapshotDialog
+        open={showSendSnapshot}
+        identityUuid={identityUuid}
+        preSelectedPublicKeys={sendSnapshotFor}
+        onClose={() => setShowSendSnapshot(false)}
+        onSuccess={() => {}}
+      />
     </div>
   );
 }

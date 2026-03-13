@@ -123,6 +123,8 @@ function App() {
   const [importName, setImportName] = useState('');
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [importIdentities, setImportIdentities] = useState<IdentityRef[]>([]);
+  const [importSelectedIdentity, setImportSelectedIdentity] = useState<string>('');
   const [showImportPasswordDialog, setShowImportPasswordDialog] = useState(false);
   const [importPassword, setImportPassword] = useState('');
   const [importPasswordError, setImportPasswordError] = useState('');
@@ -272,12 +274,20 @@ function App() {
     return () => { unlisten.then(f => f()); };
   }, [workspace]);
 
-  // Reset import dialog state when it opens
+  // Reset import dialog state when it opens and load unlocked identities
   useEffect(() => {
     if (importState) {
       setImportName('imported-workspace');
       setImportError('');
       setImporting(false);
+      Promise.all([
+        invoke<IdentityRef[]>('list_identities'),
+        invoke<string[]>('get_unlocked_identities'),
+      ]).then(([ids, unlocked]) => {
+        const unlockedIds = ids.filter(i => unlocked.includes(i.uuid));
+        setImportIdentities(unlockedIds);
+        setImportSelectedIdentity(unlockedIds.length > 0 ? unlockedIds[0].uuid : '');
+      }).catch(() => {});
     }
   }, [importState]);
 
@@ -296,6 +306,11 @@ function App() {
       return;
     }
 
+    if (!importSelectedIdentity) {
+      setImportError(t('identity.noUnlockedIdentities'));
+      return;
+    }
+
     setImporting(true);
     setImportError('');
 
@@ -303,21 +318,12 @@ function App() {
       const settings = await invoke<AppSettings>('get_settings');
       const folderPath = `${settings.workspaceDirectory}/${slug}`;
 
-      // Get the first unlocked identity to own this imported workspace.
-      const unlockedIds = await invoke<string[]>('get_unlocked_identities');
-      if (unlockedIds.length === 0) {
-        setImportError(t('identity.noUnlockedIdentities'));
-        setImporting(false);
-        return;
-      }
-      const identityUuid = unlockedIds[0];
-
       const prev = importState;
       await invoke<WorkspaceInfoType>('execute_import', {
         zipPath: importState.zipPath,
         folderPath,
         password: pendingImportPassword ?? null,
-        identityUuid,
+        identityUuid: importSelectedIdentity,
       });
       setImportState(null);
       setPendingImportPassword(null);
@@ -579,6 +585,26 @@ function App() {
               />
             </div>
 
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">{t('identity.selectIdentity')}</label>
+              {importIdentities.length > 0 ? (
+                <select
+                  value={importSelectedIdentity}
+                  onChange={(e) => setImportSelectedIdentity(e.target.value)}
+                  className="w-full bg-secondary border border-secondary rounded px-3 py-2"
+                  disabled={importing}
+                >
+                  {importIdentities.map(i => (
+                    <option key={i.uuid} value={i.uuid}>{i.displayName}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-muted-foreground p-2 bg-secondary/30 rounded border border-secondary">
+                  {t('identity.noUnlockedIdentities')}
+                </p>
+              )}
+            </div>
+
             {importError && (
               <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
                 {importError}
@@ -596,7 +622,7 @@ function App() {
               <button
                 onClick={handleImportConfirm}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
-                disabled={importing || !importName.trim()}
+                disabled={importing || !importName.trim() || !importSelectedIdentity}
               >
                 {importing ? t('common.importing') : t('common.import')}
               </button>

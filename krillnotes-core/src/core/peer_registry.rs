@@ -115,12 +115,58 @@ impl<'a> PeerRegistry<'a> {
         Ok(peers)
     }
 
-    /// Update the last-sent operation marker for a peer.
+    /// Update the last-sent operation marker for a peer (peer row must already exist).
     pub fn update_last_sent(&self, peer_device_id: &str, operation_id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "UPDATE sync_peers SET last_sent_op = ?1, last_sync = ?2 WHERE peer_device_id = ?3",
             rusqlite::params![operation_id, now, peer_device_id],
+        )?;
+        Ok(())
+    }
+
+    /// Upsert last-sent marker: inserts a peer row if absent, always updates last_sent_op.
+    ///
+    /// Use this when the peer may not yet have a row (e.g. after first snapshot send).
+    pub fn upsert_last_sent(
+        &self,
+        peer_device_id: &str,
+        peer_identity_id: &str,
+        operation_id: &str,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO sync_peers (peer_device_id, peer_identity_id, last_sent_op, last_sync)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(peer_device_id) DO UPDATE SET
+                 last_sent_op = excluded.last_sent_op,
+                 last_sync = excluded.last_sync",
+            rusqlite::params![peer_device_id, peer_identity_id, operation_id, now],
+        )?;
+        Ok(())
+    }
+
+    /// Insert or update a sync peer row with optional watermark fields.
+    ///
+    /// On conflict, only non-null incoming values overwrite existing ones
+    /// (preserves existing watermarks when called with `None`).
+    pub fn upsert_sync_peer(
+        &self,
+        peer_device_id: &str,
+        peer_identity_id: &str,
+        last_sent_op: Option<&str>,
+        last_received_op: Option<&str>,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO sync_peers (peer_device_id, peer_identity_id, last_sent_op, last_received_op, last_sync)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(peer_device_id) DO UPDATE SET
+                 peer_identity_id = excluded.peer_identity_id,
+                 last_sent_op = COALESCE(excluded.last_sent_op, last_sent_op),
+                 last_received_op = COALESCE(excluded.last_received_op, last_received_op),
+                 last_sync = excluded.last_sync",
+            rusqlite::params![peer_device_id, peer_identity_id, last_sent_op, last_received_op, now],
         )?;
         Ok(())
     }

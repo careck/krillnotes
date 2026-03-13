@@ -218,7 +218,7 @@ export interface IdentityRef {
 
 export interface WorkspaceBindingInfo {
   workspaceUuid: string;
-  dbPath: string;
+  folderPath: string;
 }
 
 export type TrustLevel = 'Tofu' | 'CodeVerified' | 'Vouched' | 'VerifiedInPerson';
@@ -276,4 +276,10 @@ export interface InviteFileData {
   inviterDeclaredName: string;
   inviterFingerprint: string;
   expiresAt: string | null;
+}
+
+export interface SnapshotCreatedResult {
+  savedPath: string;
+  peerCount: number;
+  asOfOperationId: string;
 }
