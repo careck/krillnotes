@@ -317,7 +317,8 @@
     "manageScripts": "Gérer les scripts…",
     "operationsLog": "Journal des opérations…",
     "refresh": "Actualiser",
-    "aboutKrillnotes": "À propos de Krillnotes"
+    "aboutKrillnotes": "À propos de Krillnotes",
+    "createDeltaSwarm": "Create delta Swarm"
   },
   "identity": {
     "manageTitle": "Identities",

@@ -4009,6 +4009,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("file_identities",       "File > Manage Identities clicked"),
     ("file_invite_peer",      "File > Invite Peer clicked"),
     ("file_open_swarm",       "File > Open Swarm File clicked"),
+    ("create_delta_swarm",    "Edit > Create delta Swarm clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event

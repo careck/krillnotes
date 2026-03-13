@@ -189,6 +189,10 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         s(strings, "workspacePeers", "Workspace Peers"))
         .enabled(false)
         .build(app)?;
+    let create_delta_swarm_item = MenuItemBuilder::with_id("create_delta_swarm",
+        s(strings, "createDeltaSwarm", "Create delta Swarm"))
+        .enabled(true)
+        .build(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
     let undo       = PredefinedMenuItem::undo(app, None)?;
     let redo       = PredefinedMenuItem::redo(app, None)?;
@@ -199,7 +203,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
 
     let builder = SubmenuBuilder::new(app, s(strings, "edit", "Edit"))
         .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling,
-                 &sep2, &workspace_properties, &workspace_peers_item, &sep3]);
+                 &sep2, &workspace_properties, &workspace_peers_item, &create_delta_swarm_item, &sep3]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {

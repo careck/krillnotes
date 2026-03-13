@@ -315,7 +315,8 @@
     "manageScripts": "スクリプトを管理…",
     "operationsLog": "操作ログ…",
     "refresh": "更新",
-    "aboutKrillnotes": "Krillnotesについて"
+    "aboutKrillnotes": "Krillnotesについて",
+    "createDeltaSwarm": "Create delta Swarm"
   },
   "identity": {
     "manageTitle": "Identities",

@@ -319,7 +319,8 @@
     "manageScripts": "Manage Scripts…",
     "operationsLog": "Operations Log…",
     "refresh": "Refresh",
-    "aboutKrillnotes": "About Krillnotes"
+    "aboutKrillnotes": "About Krillnotes",
+    "createDeltaSwarm": "Create delta Swarm"
   },
   "identity": {
     "manageTitle": "Identities",

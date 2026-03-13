@@ -315,7 +315,8 @@
     "manageScripts": "管理脚本…",
     "operationsLog": "操作日志…",
     "refresh": "刷新",
-    "aboutKrillnotes": "关于 Krillnotes"
+    "aboutKrillnotes": "关于 Krillnotes",
+    "createDeltaSwarm": "Create delta Swarm"
   },
   "identity": {
     "manageTitle": "Identities",

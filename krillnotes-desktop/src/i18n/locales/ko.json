@@ -315,7 +315,8 @@
     "manageScripts": "스크립트 관리…",
     "operationsLog": "작업 로그…",
     "refresh": "새로 고침",
-    "aboutKrillnotes": "Krillnotes 정보"
+    "aboutKrillnotes": "Krillnotes 정보",
+    "createDeltaSwarm": "Create delta Swarm"
   },
   "identity": {
     "manageTitle": "Identities",
