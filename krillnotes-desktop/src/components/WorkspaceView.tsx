@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useResizablePanels } from '../hooks/useResizablePanels';
 import { useHoverTooltip } from '../hooks/useHoverTooltip';
 import { useUndoRedo } from '../hooks/useUndoRedo';
+import { useTagCloud } from '../hooks/useTagCloud';
 import { Undo2, Redo2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -91,8 +92,8 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     useResizablePanels();
 
   // Tag cloud
-  const [workspaceTags, setWorkspaceTags] = useState<string[]>([]);
-  const [tagFilterQuery, setTagFilterQuery] = useState<string | undefined>(undefined);
+  const { workspaceTags, setWorkspaceTags, tagFilterQuery, handleTagClick } =
+    useTagCloud();
 
   selectedNoteIdRef.current = selectedNoteId;
 
@@ -660,7 +661,7 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
             <TagPill
               key={tag}
               tag={tag}
-              onClick={() => setTagFilterQuery(tag)}
+              onClick={() => handleTagClick(tag)}
             />
           ))}
           {workspaceTags.length === 0 && (
