@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useResizablePanels } from '../hooks/useResizablePanels';
 import { useHoverTooltip } from '../hooks/useHoverTooltip';
+import { useUndoRedo } from '../hooks/useUndoRedo';
 import { Undo2, Redo2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -21,7 +22,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, UndoResult, SchemaMigratedEvent } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, flattenVisibleTree, findNoteInTree, getAncestorIds, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -89,68 +90,11 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
   const { treeWidth, tagCloudHeight, handleDividerMouseDown, handleTagDividerMouseDown } =
     useResizablePanels();
 
-  // Undo/redo state
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const [noteRefreshSignal, setNoteRefreshSignal] = useState(0);
-  // Tracks whether a note-creation undo group is currently open.
-  // Set to true just before create_note_with_type; cleared when edit mode ends.
-  const pendingUndoGroupRef = useRef(false);
-
   // Tag cloud
   const [workspaceTags, setWorkspaceTags] = useState<string[]>([]);
   const [tagFilterQuery, setTagFilterQuery] = useState<string | undefined>(undefined);
 
   selectedNoteIdRef.current = selectedNoteId;
-
-  const refreshUndoState = useCallback(async () => {
-    const [u, r] = await Promise.all([
-      invoke<boolean>('can_undo'),
-      invoke<boolean>('can_redo'),
-    ]);
-    setCanUndo(u);
-    setCanRedo(r);
-  }, []);
-
-  const performUndo = useCallback(async () => {
-    try {
-      const result = await invoke<UndoResult>('undo');
-      await loadNotes();
-      if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
-      setNoteRefreshSignal(s => s + 1);
-      await refreshUndoState();
-    } catch (e) {
-      const msg = String(e);
-      if (!msg.includes('Nothing to undo') && !msg.includes('Nothing to redo')) {
-        console.error('[undo/redo]', e);
-      }
-    }
-  }, [refreshUndoState]);
-
-  const performRedo = useCallback(async () => {
-    try {
-      const result = await invoke<UndoResult>('redo');
-      await loadNotes();
-      if (result.affectedNoteId) setSelectedNoteId(result.affectedNoteId);
-      setNoteRefreshSignal(s => s + 1);
-      await refreshUndoState();
-    } catch (e) {
-      const msg = String(e);
-      if (!msg.includes('Nothing to undo') && !msg.includes('Nothing to redo')) {
-        console.error('[undo/redo]', e);
-      }
-    }
-  }, [refreshUndoState]);
-
-  // Closes the pending note-creation undo group (if one is open) and refreshes state.
-  // Safe to call at any time — if no group is open, end_undo_group is a no-op.
-  const closePendingUndoGroup = useCallback(async () => {
-    if (pendingUndoGroupRef.current) {
-      pendingUndoGroupRef.current = false;
-      await invoke('end_undo_group');
-      await refreshUndoState();
-    }
-  }, [refreshUndoState]);
 
   // Load notes on mount
   useEffect(() => {
@@ -238,6 +182,10 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
       return [];
     }
   };
+
+  // Undo/redo state — placed after loadNotes so the function reference is available
+  const { canUndo, canRedo, noteRefreshSignal, refreshUndoState, performUndo, performRedo, closePendingUndoGroup, pendingUndoGroupRef } =
+    useUndoRedo(loadNotes, setSelectedNoteId);
 
   const copyNote = useCallback((noteId: string) => {
     setCopiedNoteId(noteId);
