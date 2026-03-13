@@ -219,6 +219,14 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     return () => { unlisten.then(f => f()); };
   }, []);
 
+  // Refresh the tree when a delta bundle has been applied to this workspace.
+  useEffect(() => {
+    const unlisten = getCurrentWebviewWindow().listen('workspace-updated', () => {
+      loadNotes();
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
   // Set up menu listener
   useEffect(() => {
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {

@@ -37,6 +37,7 @@ pub use core::{
     undo::{RetractInverse, UndoResult},
     user_script::UserScript,
     peer_registry::PeerInfo,
+    swarm::sync::ApplyResult,
     workspace::{AddPosition, NoteSearchResult, Workspace},
 };
 

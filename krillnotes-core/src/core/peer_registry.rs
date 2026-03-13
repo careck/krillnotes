@@ -171,6 +171,57 @@ impl<'a> PeerRegistry<'a> {
         Ok(())
     }
 
+    /// Upsert a peer when processing a received delta bundle.
+    ///
+    /// Uses `peer_identity_id` (not `peer_device_id`) as the merge key so that
+    /// placeholder rows (`"identity:{pk}"`) created at snapshot-send time are
+    /// consolidated with the real device ID learned from the incoming bundle.
+    ///
+    /// Preserves the best `last_sent_op` from any existing row for this identity,
+    /// then replaces all rows for that identity with a single clean row keyed by
+    /// the real device ID.
+    pub fn upsert_peer_from_delta(
+        &self,
+        real_device_id: &str,
+        peer_identity_id: &str,
+        last_received_op: Option<&str>,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+
+        // Carry forward the best last_sent_op from any existing row.
+        let existing_last_sent: Option<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT last_sent_op FROM sync_peers \
+                 WHERE peer_identity_id = ?1 AND last_sent_op IS NOT NULL \
+                 LIMIT 1",
+            )?;
+            match stmt.query_row([peer_identity_id], |row| row.get::<_, String>(0)) {
+                Ok(v) => Some(v),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(crate::KrillnotesError::Database(e)),
+            }
+        };
+
+        // Drop all placeholder / stale rows for this identity, then insert one clean row.
+        self.conn.execute(
+            "DELETE FROM sync_peers WHERE peer_identity_id = ?1",
+            [peer_identity_id],
+        )?;
+        self.conn.execute(
+            "INSERT INTO sync_peers \
+                 (peer_device_id, peer_identity_id, last_sent_op, last_received_op, last_sync) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                real_device_id,
+                peer_identity_id,
+                existing_last_sent,
+                last_received_op,
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Update the last-received operation marker for a peer.
     pub fn update_last_received(&self, peer_device_id: &str, operation_id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();

@@ -26,18 +26,22 @@ pub struct DeltaParams<'a> {
     pub workspace_id: String,
     pub workspace_name: String,
     pub source_device_id: String,
+    pub source_display_name: String,
     /// operation_id of the last operation the recipient has seen from us.
     pub since_operation_id: String,
     pub operations: Vec<Operation>,
     pub sender_key: &'a SigningKey,
     pub recipient_keys: Vec<&'a VerifyingKey>,
     pub recipient_peer_ids: Vec<String>,
+    /// Base64 public key of the intended recipient (for target_peer in header).
+    pub recipient_identity_id: String,
 }
 
 pub struct ParsedDelta {
     pub workspace_id: String,
     pub since_operation_id: String,
     pub sender_public_key: String,
+    pub sender_device_id: String,
     pub operations: Vec<Operation>,
 }
 
@@ -60,7 +64,7 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         workspace_name: params.workspace_name,
         source_device_id: params.source_device_id,
         source_identity: pubkey_b64,
-        source_display_name: String::new(),
+        source_display_name: params.source_display_name,
         created_at: Utc::now().to_rfc3339(),
         pairing_token: None,
         offered_role: None,
@@ -71,7 +75,7 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         accepted_fingerprint: None,
         as_of_operation_id: None,
         since_operation_id: Some(params.since_operation_id),
-        target_peer: None,
+        target_peer: Some(params.recipient_identity_id),
         recipients: Some(entries),
         has_attachments: false,
     };
@@ -149,6 +153,7 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
         workspace_id: header.workspace_id,
         since_operation_id: header.since_operation_id.unwrap_or_default(),
         sender_public_key: header.source_identity,
+        sender_device_id: header.source_device_id,
         operations,
     })
 }
@@ -185,14 +190,17 @@ mod tests {
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
+            source_display_name: "Alice".to_string(),
             since_operation_id: "op-0".to_string(),
             operations: ops.clone(),
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_key.verifying_key()],
             recipient_peer_ids: vec!["dev-2".to_string()],
+            recipient_identity_id: "pk-dev-2".to_string(),
         }).unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
+        assert_eq!(parsed.sender_device_id, "dev-1");
         assert_eq!(parsed.operations.len(), 2);
         assert_eq!(parsed.operations[0].operation_id(), "op-1");
         assert_eq!(parsed.since_operation_id, "op-0");
@@ -207,11 +215,13 @@ mod tests {
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
+            source_display_name: "Alice".to_string(),
             since_operation_id: "op-0".to_string(),
             operations: vec![],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_key.verifying_key()],
             recipient_peer_ids: vec!["dev-2".to_string()],
+            recipient_identity_id: "pk-dev-2".to_string(),
         }).unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();

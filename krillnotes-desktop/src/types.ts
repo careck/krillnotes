@@ -283,3 +283,9 @@ export interface SnapshotCreatedResult {
   peerCount: number;
   asOfOperationId: string;
 }
+
+export interface GenerateDeltasResult {
+  succeeded: string[];
+  failed: [string, string][];
+  filesWritten: string[];
+}

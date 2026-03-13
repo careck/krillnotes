@@ -98,3 +98,7 @@ CREATE TABLE IF NOT EXISTS sync_peers (
     last_received_op TEXT,
     last_sync        TEXT
 );
+
+-- HLC covering index for delta generation and operations_since queries
+CREATE INDEX IF NOT EXISTS idx_operations_hlc
+    ON operations(timestamp_wall_ms, timestamp_counter, timestamp_node_id);

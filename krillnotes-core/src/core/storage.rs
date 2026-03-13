@@ -390,6 +390,20 @@ impl Storage {
             )?;
         }
 
+        // Migration: add HLC covering index for operations_since queries.
+        let hlc_index_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_operations_hlc'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !hlc_index_exists {
+            conn.execute(
+                "CREATE INDEX idx_operations_hlc \
+                 ON operations(timestamp_wall_ms, timestamp_counter, timestamp_node_id)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -713,5 +727,17 @@ mod tests {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_hlc_index_exists_after_migration() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        let s = Storage::create(f.path(), "").unwrap();
+        let count: i64 = s.connection().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_operations_hlc'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1, "HLC index should exist after create");
     }
 }

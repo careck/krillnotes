@@ -21,6 +21,7 @@ import SwarmInviteDialog from './components/SwarmInviteDialog';
 import SwarmOpenDialog from './components/SwarmOpenDialog';
 import WorkspacePeersDialog from './components/WorkspacePeersDialog';
 import { ImportInviteDialog } from './components/ImportInviteDialog';
+import { CreateDeltaDialog } from './components/CreateDeltaDialog';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import i18n from './i18n';
@@ -50,6 +51,7 @@ const createMenuHandlers = (
   setShowSwarmInvite: (show: boolean) => void,
   openSwarmFile: (path: string) => void,
   setShowWorkspacePeers: (show: boolean) => void,
+  setShowCreateDeltaDialog: (show: boolean) => void,
 ) => ({
   'File > New Workspace clicked': () => {
     setShowNewWorkspace(true);
@@ -93,6 +95,10 @@ const createMenuHandlers = (
 
   'Edit > Workspace Peers clicked': () => {
     setShowWorkspacePeers(true);
+  },
+
+  'Edit > Create delta Swarm clicked': () => {
+    setShowCreateDeltaDialog(true);
   },
 
   'File > Open Swarm File clicked': async () => {
@@ -142,6 +148,7 @@ function App() {
   const [pendingInviteData, setPendingInviteData] = useState<InviteFileData | null>(null);
   const [unlockedIdentityUuid, setUnlockedIdentityUuid] = useState<string | null>(null);
   const [showWorkspacePeers, setShowWorkspacePeers] = useState(false);
+  const [showCreateDeltaDialog, setShowCreateDeltaDialog] = useState(false);
 
   const refreshUnlockedIdentity = () => {
     invoke<string[]>('get_unlocked_identities')
@@ -264,6 +271,7 @@ function App() {
       setShowSwarmInvite,
       openSwarmFile,
       setShowWorkspacePeers,
+      setShowCreateDeltaDialog,
     );
 
     const unlisten = getCurrentWebviewWindow().listen<string>('menu-action', (event) => {
@@ -670,6 +678,9 @@ function App() {
           unlockedIdentityUuid={unlockedIdentityUuid}
           onClose={() => setShowWorkspacePeers(false)}
         />
+      )}
+      {showCreateDeltaDialog && (
+        <CreateDeltaDialog onClose={() => setShowCreateDeltaDialog(false)} />
       )}
     </div>
     </ThemeProvider>
