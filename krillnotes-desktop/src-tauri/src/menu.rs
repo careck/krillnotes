@@ -191,7 +191,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         .build(app)?;
     let create_delta_swarm_item = MenuItemBuilder::with_id("create_delta_swarm",
         s(strings, "createDeltaSwarm", "Create delta Swarm"))
-        .enabled(true)
+        .enabled(false)
         .build(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
     let undo       = PredefinedMenuItem::undo(app, None)?;
@@ -219,7 +219,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         submenu,
         paste_as_child: paste_child,
         paste_as_sibling: paste_sibling,
-        workspace_items: vec![add_note, delete_note, copy_note, workspace_properties, workspace_peers_item],
+        workspace_items: vec![add_note, delete_note, copy_note, workspace_properties, workspace_peers_item, create_delta_swarm_item],
     })
 }
 
