@@ -15,6 +15,9 @@ pub mod menu;
 pub mod settings;
 pub mod themes;
 
+mod commands;
+use commands::*;
+
 use tauri::Emitter;
 
 // Re-export all public core library types into this crate's namespace.
