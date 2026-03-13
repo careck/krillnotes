@@ -3726,8 +3726,8 @@ async fn apply_swarm_snapshot(
     let _ = ws.upsert_sync_peer(
         &placeholder_device_id,
         &parsed.sender_public_key,
-        None,
-        Some(&parsed.as_of_operation_id),
+        Some(&parsed.as_of_operation_id),  // last_sent_op — snapshot is the baseline
+        Some(&parsed.as_of_operation_id),  // last_received_op
     );
 
     // 8. Bind workspace to identity so it can be reopened on next launch.
