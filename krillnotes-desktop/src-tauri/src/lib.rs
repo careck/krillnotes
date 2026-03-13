@@ -2268,6 +2268,26 @@ fn list_workspace_peers(
     workspace.list_peers_info(cm).map_err(|e| e.to_string())
 }
 
+/// Returns resolved peer info for the current workspace's sync_peers.
+/// Used to populate the CreateDeltaDialog peer checklist.
+#[tauri::command]
+fn get_workspace_peers(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<krillnotes_core::core::peer_registry::PeerInfo>, String> {
+    let identity_uuid_str = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
+        ws.identity_uuid().to_string()
+    };
+    let identity_uuid = Uuid::parse_str(&identity_uuid_str).map_err(|e| e.to_string())?;
+    let cm_guard = state.contact_managers.lock().expect("Mutex poisoned");
+    let cm = cm_guard.get(&identity_uuid).ok_or("Contact manager not available")?;
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
+    ws.list_peers_info(cm).map_err(|e| e.to_string())
+}
+
 /// Removes a sync peer from the calling window's workspace by device ID.
 #[tauri::command]
 fn remove_workspace_peer(
@@ -4062,6 +4082,7 @@ pub fn run() {
             delete_contact,
             get_fingerprint,
             list_workspace_peers,
+            get_workspace_peers,
             remove_workspace_peer,
             add_contact_as_peer,
             create_snapshot_for_peers,
