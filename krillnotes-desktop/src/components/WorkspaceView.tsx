@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useResizablePanels } from '../hooks/useResizablePanels';
+import { useHoverTooltip } from '../hooks/useHoverTooltip';
 import { Undo2, Redo2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -80,11 +81,9 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     [notes, draggedNoteId]
   );
 
-  // Hover tooltip state
-  const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
-  const [tooltipAnchorY, setTooltipAnchorY] = useState(0);
-  const [hoverHtml, setHoverHtml] = useState<string | null>(null);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Hover tooltip
+  const { hoveredNoteId, tooltipAnchorY, hoverHtml, handleHoverStart, handleHoverEnd } =
+    useHoverTooltip(draggedNoteId, notes, schemas);
 
   // Resizable panels
   const { treeWidth, tagCloudHeight, handleDividerMouseDown, handleTagDividerMouseDown } =
@@ -353,39 +352,6 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     });
     return () => { unlisten.then(f => f()); };
   }, [selectedNoteId, copiedNoteId, copyNote, pasteNote]);
-
-  const handleHoverEnd = useCallback(() => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = null;
-    setHoveredNoteId(null);
-    setHoverHtml(null);
-  }, []);
-
-  const handleHoverStart = useCallback((noteId: string, anchorY: number) => {
-    if (draggedNoteId !== null) return;
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(async () => {
-      const noteSchema = notes.find(n => n.id === noteId)?.schema ?? '';
-      const schema = schemas[noteSchema] ?? null;
-      if (schema?.hasHover) {
-        try {
-          const html = await invoke<string | null>('get_note_hover', { noteId });
-          setHoverHtml(html);
-        } catch {
-          setHoverHtml(null);
-        }
-      } else {
-        setHoverHtml(null);
-      }
-      setHoveredNoteId(noteId);
-      setTooltipAnchorY(anchorY);
-    }, 600);
-  }, [draggedNoteId, notes, schemas]);
-
-  // Dismiss tooltip immediately when a drag starts
-  useEffect(() => {
-    if (draggedNoteId !== null) handleHoverEnd();
-  }, [draggedNoteId, handleHoverEnd]);
 
   const handleSelectNote = async (noteId: string) => {
     // Close any pending note-creation undo group before switching notes.
