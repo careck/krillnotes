@@ -26,13 +26,7 @@ import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import i18n from './i18n';
 import { useTranslation } from 'react-i18next';
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify } from './utils/slugify';
 
 interface ImportState {
   zipPath: string;
