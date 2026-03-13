@@ -3129,6 +3129,20 @@ pub enum SwarmFileInfo {
         #[serde(rename = "targetIdentityName")]
         target_identity_name: Option<String>,
     },
+    Delta {
+        #[serde(rename = "workspaceName")]
+        workspace_name: String,
+        #[serde(rename = "senderDisplayName")]
+        sender_display_name: String,
+        #[serde(rename = "senderFingerprint")]
+        sender_fingerprint: String,
+        #[serde(rename = "sinceOperationId")]
+        since_operation_id: Option<String>,
+        #[serde(rename = "targetIdentityUuid")]
+        target_identity_uuid: Option<String>,
+        #[serde(rename = "targetIdentityName")]
+        target_identity_name: Option<String>,
+    },
 }
 
 /// Read and deserialise just the header.json from a .swarm zip bundle.
@@ -3246,7 +3260,37 @@ fn open_swarm_file_cmd(
                 target_identity_name,
             })
         }
-        SwarmMode::Delta => Err("Delta bundles are not yet supported in this version.".to_string()),
+        SwarmMode::Delta => {
+            // Identify which local identity this delta is addressed to.
+            let (target_identity_uuid, target_identity_name) = {
+                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+                let identities = mgr.list_identities().unwrap_or_default();
+                let target_pubkey = header.target_peer.as_deref().unwrap_or("");
+                let mut found_uuid = None;
+                let mut found_name = None;
+                for identity_ref in &identities {
+                    let full_path = mgr.identity_file_path(&identity_ref.uuid);
+                    if let Ok(file_data) = std::fs::read_to_string(&full_path) {
+                        if let Ok(file) = serde_json::from_str::<krillnotes_core::core::identity::IdentityFile>(&file_data) {
+                            if file.public_key == target_pubkey {
+                                found_uuid = Some(identity_ref.uuid.to_string());
+                                found_name = Some(identity_ref.display_name.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+                (found_uuid, found_name)
+            };
+            Ok(SwarmFileInfo::Delta {
+                workspace_name: header.workspace_name,
+                sender_display_name: header.source_display_name,
+                sender_fingerprint: fingerprint,
+                since_operation_id: header.since_operation_id,
+                target_identity_uuid,
+                target_identity_name,
+            })
+        }
     }
 }
 
@@ -3781,6 +3825,48 @@ async fn apply_swarm_snapshot(
     get_workspace_info_internal(&state, &label)
 }
 
+/// Apply a `.swarm` delta bundle to the currently open workspace.
+///
+/// Decrypts, verifies, and applies operations from the delta to the workspace.
+/// Emits `workspace-updated` so the frontend refreshes the tree view.
+#[tauri::command]
+async fn apply_swarm_delta(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    path: String,
+    identity_uuid: String,
+) -> std::result::Result<String, String> {
+    use krillnotes_core::core::swarm::sync::apply_delta;
+
+    let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    let bundle_bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+
+    let recipient_key = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes())
+    };
+
+    let apply_result = {
+        let mut cm_guard = state.contact_managers.lock().expect("Mutex poisoned");
+        let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get_mut(window.label()).ok_or("Workspace not open")?;
+        let cm = cm_guard.get_mut(&identity_uuid_parsed).ok_or("Contact manager not available")?;
+        apply_delta(&bundle_bytes, ws, &recipient_key, cm).map_err(|e| e.to_string())?
+    };
+
+    // Emit workspace-updated so the frontend refreshes the tree view.
+    let _ = window.emit("workspace-updated", ());
+
+    Ok(serde_json::json!({
+        "mode": "delta",
+        "operationsApplied": apply_result.operations_applied,
+        "operationsSkipped": apply_result.operations_skipped,
+        "newTofu": apply_result.new_tofu_contacts,
+    }).to_string())
+}
+
 /// Serialisable result returned after one or more delta bundles are written.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -4207,6 +4293,7 @@ pub fn run() {
             add_contact_as_peer,
             create_snapshot_for_peers,
             apply_swarm_snapshot,
+            apply_swarm_delta,
             generate_deltas_for_peers,
         ])
         .build(tauri::generate_context!())
