@@ -21,7 +21,7 @@ use crate::{
     ScriptError, ScriptRegistry, Storage, UndoResult, UserScript,
 };
 use rhai::Dynamic;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -4728,6 +4728,74 @@ impl Workspace {
         }
     }
 
+    /// Returns all operations in HLC order that occurred strictly after `since_op_id`,
+    /// excluding operations from `exclude_device_id` (echo prevention).
+    ///
+    /// Used by `swarm::sync::generate_delta` to build the operation list for a delta bundle.
+    /// `RetractOperation { propagate: false }` is filtered out (local-only undo markers).
+    ///
+    /// If `since_op_id` is `None`, all operations except those from `exclude_device_id`
+    /// are returned (used when peer has no watermark set).
+    pub fn operations_since(
+        &self,
+        since_op_id: Option<&str>,
+        exclude_device_id: &str,
+    ) -> Result<Vec<Operation>> {
+        let conn = self.storage.connection();
+
+        let op_jsons: Vec<String> = if let Some(op_id) = since_op_id {
+            // Look up HLC tuple for the watermark operation.
+            let hlc_row: Option<(i64, i64, i64)> = conn.query_row(
+                "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
+                 FROM operations WHERE operation_id = ?1",
+                [op_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).optional().map_err(KrillnotesError::Database)?;
+
+            if let Some((wall_ms, counter, node_id)) = hlc_row {
+                // Three-column strictly-greater comparison (single-column > would silently
+                // drop ops that share the same wall_ms as the watermark).
+                let mut stmt = conn.prepare(
+                    "SELECT operation_data FROM operations \
+                     WHERE ((timestamp_wall_ms > ?1) \
+                        OR  (timestamp_wall_ms = ?1 AND timestamp_counter > ?2) \
+                        OR  (timestamp_wall_ms = ?1 AND timestamp_counter = ?2 \
+                             AND timestamp_node_id > ?3)) \
+                     AND device_id != ?4 \
+                     ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
+                              timestamp_node_id ASC",
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![wall_ms, counter, node_id, exclude_device_id],
+                    |row| row.get::<_, String>(0),
+                )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+                rows
+            } else {
+                vec![] // watermark op not found in this workspace — nothing to send
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT operation_data FROM operations WHERE device_id != ?1 \
+                 ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
+                          timestamp_node_id ASC",
+            )?;
+            let rows = stmt.query_map([exclude_device_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+            rows
+        };
+
+        let mut ops: Vec<Operation> = op_jsons
+            .iter()
+            .filter_map(|json| serde_json::from_str(json).ok())
+            .collect();
+
+        // Filter local-only retracts (propagate = false) in Rust
+        // (the propagate flag is inside the JSON blob, not a SQL column).
+        ops.retain(|op| !matches!(op, Operation::RetractOperation { propagate: false, .. }));
+
+        Ok(ops)
+    }
+
     /// Populate a workspace from snapshot JSON bytes.
     ///
     /// Notes and user scripts are inserted. Returns the number of notes imported.
@@ -8056,5 +8124,71 @@ schema("SameVerType", #{
         ws.remove_peer(&placeholder).unwrap();
         let peers = ws.list_peers_info(&cm).unwrap();
         assert_eq!(peers.len(), 0);
+    }
+
+    #[test]
+    fn test_operations_since_empty() {
+        let temp = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp.path(), "", "id-1",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        // No operations yet, so operations_since(None, "other-device") returns empty
+        let ops = ws.operations_since(None, "other-device").unwrap();
+        assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn test_operations_since_watermark() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "id-1",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        // Create two child notes to generate two CreateNote operations
+        let _id1 = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        let _id2 = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+
+        // Get all ops (excluding this device — but we need to use "nonexistent-device" so local ops show)
+        let all_ops = ws.operations_since(None, "nonexistent-device").unwrap();
+        assert_eq!(all_ops.len(), 2);
+        let first_op_id = all_ops[0].operation_id().to_string();
+
+        // Only second op should be returned when watermark = first_op_id
+        let since_ops = ws.operations_since(Some(&first_op_id), "nonexistent-device").unwrap();
+        assert_eq!(since_ops.len(), 1);
+        assert_eq!(since_ops[0].operation_id(), all_ops[1].operation_id());
+    }
+
+    #[test]
+    fn test_operations_since_excludes_device() {
+        // ops_since should never return ops from the excluded device
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "id-1",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let _id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        // Get device_id from workspace_meta
+        let current_device_id: String = ws.connection().query_row(
+            "SELECT value FROM workspace_meta WHERE key='device_id'", [],
+            |row| row.get::<_, String>(0)).unwrap();
+        let ops = ws.operations_since(None, &current_device_id).unwrap();
+        assert!(ops.is_empty(), "ops from own device should be excluded");
+    }
+
+    #[test]
+    fn test_operations_since_filters_local_retract() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "id-1",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let _id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+        // Undo should create a RetractOperation with propagate=false
+        ws.undo().unwrap();
+
+        let ops = ws.operations_since(None, "other-device").unwrap();
+        // RetractOperation(propagate=false) must be absent
+        for op in &ops {
+            if let Operation::RetractOperation { propagate, .. } = op {
+                assert!(propagate, "local-only retract must be filtered from delta");
+            }
+        }
     }
 }
