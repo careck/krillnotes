@@ -559,8 +559,8 @@ async fn open_workspace(
 
             // Read workspace_id from info.json
             let (ws_uuid_opt, _, _, _) = read_info_json_full(&folder);
-            let workspace_uuid = ws_uuid_opt
-                .ok_or_else(|| "IDENTITY_REQUIRED".to_string())?;
+            // Guard: workspace must have a UUID to be bound; frontend checks for "IDENTITY_REQUIRED"
+            ws_uuid_opt.ok_or_else(|| "IDENTITY_REQUIRED".to_string())?;
 
             // Look up which identity this workspace is bound to and decrypt the DB password.
             // Lock ordering: always acquire identity_manager before unlocked_identities,
@@ -2250,7 +2250,8 @@ fn list_workspace_peers(
         let folder = paths.get(&window_label).ok_or("Workspace path not found")?.clone();
         drop(paths);
         let (ws_uuid_opt, _, _, _) = read_info_json_full(&folder);
-        let workspace_uuid = ws_uuid_opt.ok_or("Workspace UUID missing from info.json")?;
+        // Guard: workspace must have a UUID in info.json to be valid
+        ws_uuid_opt.ok_or("Workspace UUID missing from info.json")?;
         let mgr = state.identity_manager.lock().expect("Mutex poisoned");
         mgr.get_workspace_binding(&folder)
             .map_err(|e| e.to_string())?
@@ -2779,8 +2780,8 @@ fn duplicate_workspace(
     // Lock ordering: identity_manager then unlocked_identities, never both held simultaneously.
     let source_password = {
         let (ws_uuid_opt, _, _, _) = read_info_json_full(&source_folder);
-        let ws_uuid = ws_uuid_opt
-            .ok_or_else(|| "Source workspace has no UUID in info.json".to_string())?;
+        // Guard: source workspace must have a UUID in info.json
+        ws_uuid_opt.ok_or_else(|| "Source workspace has no UUID in info.json".to_string())?;
 
         // Step 1: Get identity_uuid from identity_manager (drop lock after)
         let identity_uuid = {

@@ -1182,7 +1182,6 @@ mod tests {
         std::fs::create_dir_all(config_dir.join("identities")).unwrap();
         let mgr = IdentityManager::new(config_dir.clone()).unwrap();
 
-        let identity_uuid = Uuid::new_v4();
         let seed = [1u8; 32];
         let ws_dir = tmp.path().join("ws");
         std::fs::create_dir_all(&ws_dir).unwrap();
