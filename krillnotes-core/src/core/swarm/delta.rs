@@ -38,6 +38,7 @@ pub struct ParsedDelta {
     pub workspace_id: String,
     pub since_operation_id: String,
     pub sender_public_key: String,
+    pub sender_device_id: String,
     pub operations: Vec<Operation>,
 }
 
@@ -149,6 +150,7 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
         workspace_id: header.workspace_id,
         since_operation_id: header.since_operation_id.unwrap_or_default(),
         sender_public_key: header.source_identity,
+        sender_device_id: header.source_device_id,
         operations,
     })
 }
@@ -193,6 +195,7 @@ mod tests {
         }).unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
+        assert_eq!(parsed.sender_device_id, "dev-1");
         assert_eq!(parsed.operations.len(), 2);
         assert_eq!(parsed.operations[0].operation_id(), "op-1");
         assert_eq!(parsed.since_operation_id, "op-0");
