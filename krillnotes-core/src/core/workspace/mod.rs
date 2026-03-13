@@ -1168,23 +1168,12 @@ impl Workspace {
 
 // ── Domain sub-modules (split from this file for readability) ──────
 
-#[path = "workspace_undo.rs"]
-mod workspace_undo;
-
-#[path = "workspace_notes.rs"]
-mod workspace_notes;
-
-#[path = "workspace_hooks.rs"]
-mod workspace_hooks;
-
-#[path = "workspace_scripts.rs"]
-mod workspace_scripts;
-
-#[path = "workspace_attachments.rs"]
-mod workspace_attachments;
-
-#[path = "workspace_sync.rs"]
-mod workspace_sync;
+mod undo;
+mod notes;
+mod hooks;
+mod scripts;
+mod attachments;
+mod sync;
 
 // ── Free functions shared across domain sub-modules ─────────────────
 
@@ -1307,5 +1296,4 @@ fn humanize(filename: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "workspace_tests.rs"]
 mod tests;
