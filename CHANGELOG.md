@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Relay configure dialog** — clicking "Configure" on a relay peer in the Workspace Peers dialog
+  now opens a `ConfigureRelayDialog` with Register and Login tabs. Registration runs the 3-step
+  PoP flow (register → decrypt challenge with identity key → verify); login re-authenticates with
+  stored credentials. Credentials are encrypted with a per-identity relay key (HKDF-SHA256) and
+  stored at `<config_dir>/relay/<identity_uuid>.json`. On the next `poll_sync` call the relay
+  channel is automatically registered if credentials are present. New Tauri commands:
+  `configure_relay`, `relay_login`, `get_relay_info`, `has_relay_credentials`.
+  New core method: `UnlockedIdentity::relay_key()`.
 - **Delta bundle sync (A12 + A13)** — bidirectional delta sync between workspace peers. A workspace
   owner can generate a `.swarm` delta file for one or more peers via the new "Create delta Swarm"
   menu item, which opens `CreateDeltaDialog` listing accepted peers with their last-sync operation
