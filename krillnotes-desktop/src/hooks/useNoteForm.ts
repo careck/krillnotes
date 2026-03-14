@@ -137,7 +137,7 @@ export function useNoteForm(
     } catch {
       // ignore validation errors silently
     }
-  }, [selectedNote, schemaInfo, editedFields, setFieldErrors, t]);
+  }, [selectedNote, editedFields, setFieldErrors]);
 
   const handleCancel = useCallback(async () => {
     if (isDirty) {
@@ -208,7 +208,7 @@ export function useNoteForm(
     } catch (err) {
       alert(t('notes.saveFailed', { error: String(err) }));
     }
-  }, [selectedNote, schemaInfo, editedTitle, editedFields, editedTags, activeTab, previousTab,
+  }, [selectedNote, editedTitle, editedFields, editedTags, previousTab,
       setActiveTab, setPreviousTab, setIsEditing, setIsDirty, setViewHtml,
       setEditedTitle, setEditedFields, setEditedTags, setFieldErrors, setNoteErrors,
       onNoteUpdated, onEditDone, t]);
