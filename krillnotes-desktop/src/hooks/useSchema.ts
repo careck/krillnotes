@@ -58,10 +58,12 @@ export function useSchema(
   onSchemaLoadedRef.current = onSchemaLoaded;
 
   // Effect 1: Schema & views fetch — re-runs when the selected note changes.
-  // Uses a cancellation flag so in-flight promises don't update state or call
-  // the callback after the note has been deselected or changed.
+  // Intentionally has no cancellation flag to match the original InfoPanel behaviour:
+  // stale-note callbacks are harmless because they only call setState setters, and
+  // the most-recently-resolved fetch always wins. Adding a cancelled flag introduced
+  // a regression in React StrictMode (double-invocation cancels the first fetch before
+  // it can chain to get_views_for_type), leaving views=[] on first load.
   useEffect(() => {
-    let cancelled = false;
     schemaLoadedRef.current = false;
     if (!selectedNote) {
       setSchemaInfo(emptySchemaInfo);
@@ -73,14 +75,12 @@ export function useSchema(
 
     invoke<SchemaInfo>('get_schema_fields', { schema: selectedNote.schema })
       .then(info => {
-        if (cancelled) return;
         setSchemaInfo(info);
         schemaLoadedRef.current = true;
         onSchemaLoadedRef.current(info);
         // Fetch registered views for this note type
         invoke<ViewInfo[]>('get_views_for_type', { schemaName: selectedNote.schema })
           .then(v => {
-            if (cancelled) return;
             setViews(v);
             setViewHtml({});
             // Default tab: first displayFirst view, or first view, or "fields"
@@ -89,14 +89,13 @@ export function useSchema(
             );
             setActiveTab(sorted.length > 0 ? sorted[0].label : 'fields');
           })
-          .catch(() => {
-            if (cancelled) return;
+          .catch(err => {
+            console.error('Failed to fetch views:', err);
             setViews([]);
             setActiveTab('fields');
           });
       })
       .catch(err => {
-        if (cancelled) return;
         console.error('Failed to fetch schema fields:', err);
         setSchemaInfo(emptySchemaInfo);
         setViews([]);
@@ -105,7 +104,6 @@ export function useSchema(
         schemaLoadedRef.current = true;
         onSchemaLoadedRef.current(emptySchemaInfo);
       });
-    return () => { cancelled = true; };
   }, [selectedNote?.id]);
 
   // Effect 4: Render view HTML when the active tab changes
