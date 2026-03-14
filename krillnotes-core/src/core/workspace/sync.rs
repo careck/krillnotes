@@ -243,40 +243,46 @@ impl Workspace {
             }
 
             Operation::CreateUserScript {
-                script_id, name, description, source_code, load_order, enabled, ..
+                created_by, script_id, name, description, source_code, load_order, enabled, ..
             } => {
-                let now_ms = ts.wall_ms as i64;
-                tx.execute(
-                    "INSERT OR IGNORE INTO user_scripts \
-                     (id, name, description, source_code, load_order, enabled, \
-                      created_at, modified_at, category) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user')",
-                    rusqlite::params![
-                        script_id, name, description, source_code,
-                        load_order, *enabled as i32, now_ms, now_ms,
-                    ],
-                )?;
+                if created_by == &self.owner_pubkey {
+                    let now_ms = ts.wall_ms as i64;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO user_scripts \
+                         (id, name, description, source_code, load_order, enabled, \
+                          created_at, modified_at, category) \
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user')",
+                        rusqlite::params![
+                            script_id, name, description, source_code,
+                            load_order, *enabled as i32, now_ms, now_ms,
+                        ],
+                    )?;
+                }
             }
 
             Operation::UpdateUserScript {
-                script_id, name, description, source_code, load_order, enabled, ..
+                modified_by, script_id, name, description, source_code, load_order, enabled, ..
             } => {
-                let now_ms = ts.wall_ms as i64;
-                tx.execute(
-                    "UPDATE user_scripts SET name = ?1, description = ?2, source_code = ?3, \
-                     load_order = ?4, enabled = ?5, modified_at = ?6 WHERE id = ?7",
-                    rusqlite::params![
-                        name, description, source_code,
-                        load_order, *enabled as i32, now_ms, script_id,
-                    ],
-                )?;
+                if modified_by == &self.owner_pubkey {
+                    let now_ms = ts.wall_ms as i64;
+                    tx.execute(
+                        "UPDATE user_scripts SET name = ?1, description = ?2, source_code = ?3, \
+                         load_order = ?4, enabled = ?5, modified_at = ?6 WHERE id = ?7",
+                        rusqlite::params![
+                            name, description, source_code,
+                            load_order, *enabled as i32, now_ms, script_id,
+                        ],
+                    )?;
+                }
             }
 
-            Operation::DeleteUserScript { script_id, .. } => {
-                tx.execute(
-                    "DELETE FROM user_scripts WHERE id = ?1",
-                    [script_id],
-                )?;
+            Operation::DeleteUserScript { deleted_by, script_id, .. } => {
+                if deleted_by == &self.owner_pubkey {
+                    tx.execute(
+                        "DELETE FROM user_scripts WHERE id = ?1",
+                        [script_id],
+                    )?;
+                }
             }
 
             // Log-only variants — no working table change in this phase.

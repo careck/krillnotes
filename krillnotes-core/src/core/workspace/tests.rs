@@ -3370,3 +3370,69 @@ schema("SameVerType", #{
         assert!(workspace.is_owner());
         assert_eq!(workspace.owner_pubkey(), workspace.identity_pubkey());
     }
+
+    #[test]
+    fn test_apply_incoming_script_op_from_owner_applied() {
+        let temp = NamedTempFile::new().unwrap();
+        let key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut workspace = Workspace::create(temp.path(), "", "test-id", key.clone()).unwrap();
+        let owner_pubkey = workspace.identity_pubkey().to_string();
+
+        // Build a CreateUserScript op signed by the owner
+        let mut op = Operation::CreateUserScript {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 99 },
+            device_id: "remote-device".to_string(),
+            script_id: uuid::Uuid::new_v4().to_string(),
+            name: "Owner Script".to_string(),
+            description: "From owner".to_string(),
+            source_code: "// @name: Owner Script\n".to_string(),
+            load_order: 99,
+            enabled: true,
+            created_by: owner_pubkey,
+            signature: String::new(),
+        };
+        op.sign(&key);
+
+        let applied = workspace.apply_incoming_operation(op).unwrap();
+        assert!(applied);
+    }
+
+    #[test]
+    fn test_apply_incoming_script_op_from_non_owner_skipped() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut workspace = Workspace::create(temp.path(), "", "identity-a", key_a).unwrap();
+
+        // Build a CreateUserScript op signed by a different identity
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let pubkey_b = {
+            use base64::Engine as _;
+            let vk = ed25519_dalek::VerifyingKey::from(&key_b);
+            base64::engine::general_purpose::STANDARD.encode(vk.as_bytes())
+        };
+        let script_id = uuid::Uuid::new_v4().to_string();
+
+        let mut op = Operation::CreateUserScript {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 99 },
+            device_id: "attacker-device".to_string(),
+            script_id: script_id.clone(),
+            name: "Evil Script".to_string(),
+            description: "From attacker".to_string(),
+            source_code: "// @name: Evil Script\n".to_string(),
+            load_order: 99,
+            enabled: true,
+            created_by: pubkey_b,
+            signature: String::new(),
+        };
+        op.sign(&key_b);
+
+        // Op is logged (returns true) but script should NOT appear in user_scripts
+        let result = workspace.apply_incoming_operation(op).unwrap();
+        assert!(result); // Logged to operations table
+
+        // Verify the script was NOT applied to the working table
+        let scripts = workspace.list_user_scripts().unwrap();
+        assert!(!scripts.iter().any(|s| s.id == script_id));
+    }
