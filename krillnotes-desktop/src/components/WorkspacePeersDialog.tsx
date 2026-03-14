@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useTranslation } from 'react-i18next';
 import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
@@ -30,6 +31,23 @@ const TRUST_BADGE: Record<string, { label: string; class: string }> = {
   VerifiedInPerson: { label: 'Verified', class: 'bg-green-500/20 text-green-400' },
 };
 
+// Maps channel type strings to badge CSS classes
+const CHANNEL_BADGE: Record<string, { label: string; class: string }> = {
+  relay:  { label: 'Relay',  class: 'bg-sky-500/20 text-sky-400' },
+  folder: { label: 'Folder', class: 'bg-teal-500/20 text-teal-400' },
+  manual: { label: 'Manual', class: 'bg-orange-500/20 text-orange-400' },
+};
+
+// Returns Tailwind classes for the sync status dot
+function syncStatusDotClass(status: string): string {
+  switch (status) {
+    case 'syncing':      return 'bg-blue-400';
+    case 'error':
+    case 'auth_expired': return 'bg-red-500';
+    default:             return 'bg-gray-400';
+  }
+}
+
 export default function WorkspacePeersDialog({
   identityUuid,
   workspaceInfo,
@@ -48,6 +66,8 @@ export default function WorkspacePeersDialog({
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
   const [showSendSnapshot, setShowSendSnapshot] = useState(false);
   const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
+  // Per-peer pending channel type selection (before "Configure" is clicked)
+  const [pendingChannelType, setPendingChannelType] = useState<Record<string, string>>({});
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -80,6 +100,27 @@ export default function WorkspacePeersDialog({
     try {
       await invoke('remove_workspace_peer', { peerDeviceId: peer.peerDeviceId });
       setConfirmRemoveId(null);
+      await loadPeers();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleUpdateChannel = async (peer: PeerInfo, channelType: string) => {
+    try {
+      const workspaceLabel = getCurrentWebviewWindow().label;
+      await invoke('update_peer_channel', {
+        workspaceLabel,
+        peerDeviceId: peer.peerDeviceId,
+        channelType,
+        channelParams: '{}',
+      });
+      // Clear the pending selection for this peer and refresh
+      setPendingChannelType(prev => {
+        const next = { ...prev };
+        delete next[peer.peerDeviceId];
+        return next;
+      });
       await loadPeers();
     } catch (e) {
       setError(String(e));
@@ -133,6 +174,9 @@ export default function WorkspacePeersDialog({
           )}
           {peers.map((peer) => {
             const badge = peer.trustLevel ? (TRUST_BADGE[peer.trustLevel] ?? TRUST_BADGE.Tofu) : null;
+            const channelBadge = CHANNEL_BADGE[peer.channelType] ?? { label: peer.channelType, class: 'bg-gray-500/20 text-gray-400' };
+            const dotClass = syncStatusDotClass(peer.syncStatus);
+            const selectedChannelType = pendingChannelType[peer.peerDeviceId] ?? peer.channelType;
             return (
               <div
                 key={peer.peerDeviceId}
@@ -155,12 +199,40 @@ export default function WorkspacePeersDialog({
                         Owner
                       </span>
                     )}
+                    {/* Channel type badge */}
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${channelBadge.class}`}>
+                      {channelBadge.label}
+                    </span>
+                    {/* Sync status dot with optional tooltip */}
+                    <span
+                      title={peer.syncStatusDetail ?? undefined}
+                      className={`inline-block w-2 h-2 rounded-full ${dotClass} shrink-0`}
+                    />
                   </div>
                   <div className="text-xs text-[var(--color-muted-foreground)] font-mono mt-0.5">
                     {peer.fingerprint}
                   </div>
                   <div className="text-xs text-[var(--color-muted-foreground)] mt-0.5">
                     {formatLastSync(peer.lastSync)}
+                  </div>
+                  {/* Channel config controls */}
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <select
+                      value={selectedChannelType}
+                      onChange={e => setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: e.target.value }))}
+                      className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)]"
+                    >
+                      <option value="relay">Relay</option>
+                      <option value="folder">Folder</option>
+                      <option value="manual">Manual</option>
+                    </select>
+                    <button
+                      onClick={() => handleUpdateChannel(peer, selectedChannelType)}
+                      disabled={selectedChannelType === peer.channelType && !(peer.peerDeviceId in pendingChannelType)}
+                      className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+                    >
+                      {t('peers.configure', 'Configure')}
+                    </button>
                   </div>
                 </div>
 
