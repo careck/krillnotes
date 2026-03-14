@@ -15,6 +15,7 @@ import { InviteManagerDialog } from './InviteManagerDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
+import ConfigureRelayDialog from './ConfigureRelayDialog';
 
 interface Props {
   identityUuid: string;
@@ -68,6 +69,7 @@ export default function WorkspacePeersDialog({
   const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
   // Per-peer pending channel type selection (before "Configure" is clicked)
   const [pendingChannelType, setPendingChannelType] = useState<Record<string, string>>({});
+  const [showConfigureRelay, setShowConfigureRelay] = useState<PeerInfo | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
@@ -256,8 +258,19 @@ export default function WorkspacePeersDialog({
                         <option value="manual">Manual</option>
                       </select>
                       <button
-                        onClick={() => handleUpdateChannel(peer, selectedChannelType)}
-                        disabled={selectedChannelType !== 'folder' && selectedChannelType === peer.channelType && !(peer.peerDeviceId in pendingChannelType)}
+                        onClick={() => {
+                          if (selectedChannelType === 'relay') {
+                            setShowConfigureRelay(peer);
+                          } else {
+                            handleUpdateChannel(peer, selectedChannelType);
+                          }
+                        }}
+                        disabled={
+                          selectedChannelType !== 'relay' &&
+                          selectedChannelType !== 'folder' &&
+                          selectedChannelType === peer.channelType &&
+                          !(peer.peerDeviceId in pendingChannelType)
+                        }
                         className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
                       >
                         {t('peers.configure', 'Configure')}
@@ -412,6 +425,18 @@ export default function WorkspacePeersDialog({
         onClose={() => setShowSendSnapshot(false)}
         onSuccess={() => {}}
       />
+
+      {showConfigureRelay && (
+        <ConfigureRelayDialog
+          identityUuid={identityUuid}
+          peerDeviceId={showConfigureRelay.peerDeviceId}
+          onClose={() => setShowConfigureRelay(null)}
+          onConfigured={async () => {
+            setShowConfigureRelay(null);
+            await loadPeers();
+          }}
+        />
+      )}
     </div>
   );
 }
