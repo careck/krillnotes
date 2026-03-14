@@ -96,7 +96,12 @@ CREATE TABLE IF NOT EXISTS sync_peers (
     peer_identity_id TEXT NOT NULL,
     last_sent_op     TEXT,
     last_received_op TEXT,
-    last_sync        TEXT
+    last_sync        TEXT,
+    channel_type     TEXT NOT NULL DEFAULT 'manual',
+    channel_params   TEXT NOT NULL DEFAULT '{}',
+    sync_status      TEXT NOT NULL DEFAULT 'idle',
+    sync_status_detail TEXT,
+    last_sync_error  TEXT
 );
 
 -- HLC covering index for delta generation and operations_since queries
