@@ -3232,3 +3232,141 @@ schema("SameVerType", #{
         assert!(stored2 as u64 >= far_future_ms,
             "second op wall_ms must be >= first far-future timestamp");
     }
+
+    #[test]
+    fn test_create_user_script_rejected_for_non_owner() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let workspace = Workspace::create(temp.path(), "", "identity-a", key_a).unwrap();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let mut workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+
+        let source = "// @name: Evil Script\nschema(\"Evil\", #{ version: 1, fields: [] });";
+        let result = workspace.create_user_script(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("owner"));
+    }
+
+    #[test]
+    fn test_update_user_script_rejected_for_non_owner() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut workspace = Workspace::create(temp.path(), "", "identity-a", key_a.clone()).unwrap();
+        let source = "// @name: My Script\nschema(\"MyType\", #{ version: 1, fields: [] });";
+        let (script, _) = workspace.create_user_script(source).unwrap();
+        let script_id = script.id.clone();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let mut workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        let result = workspace.update_user_script(&script_id, "// @name: Hacked\nschema(\"Hacked\", #{ version: 1, fields: [] });");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("owner"));
+    }
+
+    #[test]
+    fn test_delete_user_script_rejected_for_non_owner() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut workspace = Workspace::create(temp.path(), "", "identity-a", key_a.clone()).unwrap();
+        let source = "// @name: My Script\nschema(\"MyType\", #{ version: 1, fields: [] });";
+        let (script, _) = workspace.create_user_script(source).unwrap();
+        let script_id = script.id.clone();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let mut workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        let result = workspace.delete_user_script(&script_id);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("owner"));
+    }
+
+    #[test]
+    fn test_toggle_user_script_rejected_for_non_owner() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut workspace = Workspace::create(temp.path(), "", "identity-a", key_a.clone()).unwrap();
+        let source = "// @name: My Script\nschema(\"MyType\", #{ version: 1, fields: [] });";
+        let (script, _) = workspace.create_user_script(source).unwrap();
+        let script_id = script.id.clone();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let mut workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        let result = workspace.toggle_user_script(&script_id, false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("owner"));
+    }
+
+    #[test]
+    fn test_reorder_user_script_rejected_for_non_owner() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let mut workspace = Workspace::create(temp.path(), "", "identity-a", key_a.clone()).unwrap();
+        let source = "// @name: My Script\nschema(\"MyType\", #{ version: 1, fields: [] });";
+        let (script, _) = workspace.create_user_script(source).unwrap();
+        let script_id = script.id.clone();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let mut workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        let result = workspace.reorder_user_script(&script_id, 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("owner"));
+    }
+
+    #[test]
+    fn test_reorder_all_user_scripts_rejected_for_non_owner() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let workspace = Workspace::create(temp.path(), "", "identity-a", key_a).unwrap();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let mut workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        let result = workspace.reorder_all_user_scripts(&[]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("owner"));
+    }
+
+    #[test]
+    fn test_owner_pubkey_matches_creator() {
+        let temp = NamedTempFile::new().unwrap();
+        let key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let workspace = Workspace::create(temp.path(), "", "test-id", key.clone()).unwrap();
+
+        assert_eq!(workspace.owner_pubkey(), workspace.identity_pubkey());
+        assert!(workspace.is_owner());
+    }
+
+    #[test]
+    fn test_is_owner_false_for_different_identity() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let workspace = Workspace::create(temp.path(), "", "identity-a", key_a).unwrap();
+        drop(workspace);
+
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        assert!(!workspace.is_owner());
+    }
+
+    #[test]
+    fn test_open_legacy_workspace_without_owner_pubkey_assigns_opener() {
+        let temp = NamedTempFile::new().unwrap();
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let workspace = Workspace::create(temp.path(), "", "identity-a", key_a.clone()).unwrap();
+        // Manually remove owner_pubkey to simulate a pre-existing workspace
+        workspace.connection().execute(
+            "DELETE FROM workspace_meta WHERE key = 'owner_pubkey'", [],
+        ).unwrap();
+        drop(workspace);
+
+        // Re-open — opener should become owner
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let workspace = Workspace::open(temp.path(), "", "identity-b", key_b).unwrap();
+        assert!(workspace.is_owner());
+        assert_eq!(workspace.owner_pubkey(), workspace.identity_pubkey());
+    }

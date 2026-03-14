@@ -75,6 +75,9 @@ impl Workspace {
         source_code: &str,
         category: &str,
     ) -> Result<(UserScript, Vec<ScriptError>)> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -145,6 +148,9 @@ impl Workspace {
     /// Returns an error if `@name` is missing from the front matter, or if Rhai
     /// compilation fails. On failure nothing is written to the database.
     pub fn update_user_script(&mut self, script_id: &str, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -234,6 +240,9 @@ impl Workspace {
 
     /// Deletes a user script by ID and reloads remaining scripts.
     pub fn delete_user_script(&mut self, script_id: &str) -> Result<Vec<ScriptError>> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         // Capture old script state BEFORE deletion for undo.
         let old_script = self.get_user_script(script_id)?;
 
@@ -279,6 +288,9 @@ impl Workspace {
 
     /// Toggles the enabled state of a user script and reloads.
     pub fn toggle_user_script(&mut self, script_id: &str, enabled: bool) -> Result<Vec<ScriptError>> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;
@@ -321,6 +333,9 @@ impl Workspace {
 
     /// Changes the load order of a user script and reloads.
     pub fn reorder_user_script(&mut self, script_id: &str, new_load_order: i32) -> Result<Vec<ScriptError>> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;
@@ -363,6 +378,9 @@ impl Workspace {
 
     /// Re-assigns sequential load_order (0-based) to all scripts given in `ids` order, then reloads.
     pub fn reorder_all_user_scripts(&mut self, ids: &[String]) -> Result<Vec<ScriptError>> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         // Bulk reorder is not logged to the operation log — it's a UI ordering gesture, not a sync-relevant change.
         {
             let conn = self.storage.connection_mut();
