@@ -360,6 +360,7 @@ pub fn run() {
             import_invite_response,
             import_invite,
             respond_to_invite,
+            save_invite_file,
             accept_peer,
             attach_file,
             attach_file_bytes,
