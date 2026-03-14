@@ -5,7 +5,6 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 import { useEffect, useState } from 'react';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
@@ -24,10 +23,10 @@ import { ImportInviteDialog } from './components/ImportInviteDialog';
 import { CreateDeltaDialog } from './components/CreateDeltaDialog';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
-import i18n from './i18n';
 import { useTranslation } from 'react-i18next';
 import { slugify } from './utils/slugify';
 import { useMenuEvents } from './hooks/useMenuEvents';
+import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle';
 
 interface ImportState {
   zipPath: string;
@@ -37,7 +36,6 @@ interface ImportState {
 
 function App() {
   const { t } = useTranslation();
-  const [workspace, setWorkspace] = useState<WorkspaceInfoType | null>(null);
   const [status, setStatus] = useState('');
   const [isError, setIsError] = useState(false);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
@@ -64,112 +62,8 @@ function App() {
   const [swarmFilePath, setSwarmFilePath] = useState<string | null>(null);
   const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
   const [pendingInviteData, setPendingInviteData] = useState<InviteFileData | null>(null);
-  const [unlockedIdentityUuid, setUnlockedIdentityUuid] = useState<string | null>(null);
   const [showWorkspacePeers, setShowWorkspacePeers] = useState(false);
   const [showCreateDeltaDialog, setShowCreateDeltaDialog] = useState(false);
-
-  const refreshUnlockedIdentity = () => {
-    invoke<string[]>('get_unlocked_identities')
-      .then(ids => setUnlockedIdentityUuid(ids.length > 0 ? ids[0] : null))
-      .catch(() => {});
-  };
-
-  // Route a .swarm file to the correct dialog: Phase C invite → ImportInviteDialog,
-  // all other formats (WP-A header.json based) → SwarmOpenDialog.
-  const openSwarmFile = (path: string) => {
-    invoke<InviteFileData>('import_invite', { path })
-      .then(data => {
-        setPendingInvitePath(path);
-        setPendingInviteData(data);
-      })
-      .catch(() => {
-        // Not a Phase C invite file — fall through to the WP-A swarm open dialog.
-        setSwarmFilePath(path);
-        setShowSwarmOpen(true);
-      });
-  };
-
-  useEffect(() => {
-    // If this is a workspace window (not "main"), fetch workspace info immediately
-    {
-      const window = getCurrentWebviewWindow();
-      if (window.label !== 'main') {
-        invoke<WorkspaceInfoType>('get_workspace_info')
-          .then(info => {
-            setWorkspace(info);
-          })
-          .catch(err => console.error('Failed to fetch workspace info:', err));
-      }
-    }
-
-    // First-launch identity check: only on main window
-    if (getCurrentWebviewWindow().label === 'main') {
-      invoke<IdentityRef[]>('list_identities').then(identities => {
-        if (identities.length === 0) {
-          setShowCreateFirstIdentity(true);
-        }
-      }).catch(err => console.error('Failed to check identities:', err));
-    }
-
-    // Load first unlocked identity UUID for swarm operations
-    refreshUnlockedIdentity();
-  }, []);
-
-  // Refresh unlocked identity whenever a swarm dialog opens, so a recently
-  // unlocked identity is always picked up even if it happened after mount.
-  useEffect(() => {
-    if (showSwarmInvite || showSwarmOpen) refreshUnlockedIdentity();
-  }, [showSwarmInvite, showSwarmOpen]);
-
-  // Cold-start: pull any file path that arrived via OS file-open before JS
-  // listeners were registered. Only the "main" (launcher) window handles imports.
-  useEffect(() => {
-    const win = getCurrentWebviewWindow();
-    if (win.label !== 'main') return;
-    invoke<string | null>('consume_pending_file_open').then(path => {
-      if (path) proceedWithImport(path, null);
-    });
-    invoke<string | null>('consume_pending_swarm_file').then(path => {
-      if (path) openSwarmFile(path);
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Warm-start (macOS): the backend emits "file-opened" when the app is already
-  // running and the user opens a .krillnotes file from the OS.
-  useEffect(() => {
-    const win = getCurrentWebviewWindow();
-    if (win.label !== 'main') return;
-    const unlisten = win.listen<string>('file-opened', () => {
-      // Path is already stored in AppState; use the canonical pull command so
-      // both paths (cold and warm start) share the same read-and-clear logic.
-      invoke<string | null>('consume_pending_file_open').then(p => {
-        if (p) proceedWithImport(p, null);
-      });
-    });
-    return () => { unlisten.then(f => f()); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Warm-start (macOS): the backend emits "swarm-file-opened" when the app is already
-  // running and the user opens a .swarm file from the OS.
-  useEffect(() => {
-    const win = getCurrentWebviewWindow();
-    if (win.label !== 'main') return;
-    const unlisten = win.listen<string>('swarm-file-opened', (event) => {
-      openSwarmFile(event.payload);
-    });
-    return () => { unlisten.then(f => f()); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Apply saved language on startup
-  useEffect(() => {
-    invoke<AppSettings>('get_settings')
-      .then(s => {
-        if (s.language) {
-          i18n.changeLanguage(s.language);
-        }
-      })
-      .catch(err => console.error('Failed to load settings for language:', err));
-  }, []);
 
   const statusSetter = (msg: string, error = false) => {
     setStatus(msg);
@@ -298,6 +192,18 @@ function App() {
       }
     }
   };
+
+  const { workspace, unlockedIdentityUuid, refreshUnlockedIdentity, openSwarmFile } =
+    useWorkspaceLifecycle({
+      setShowCreateFirstIdentity,
+      setShowSwarmOpen,
+      showSwarmInvite,
+      showSwarmOpen,
+      proceedWithImport,
+      setPendingInvitePath,
+      setPendingInviteData,
+      setSwarmFilePath,
+    });
 
   useMenuEvents(workspace, {
     setShowNewWorkspace, setShowOpenWorkspace, setShowSettings,
