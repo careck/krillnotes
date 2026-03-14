@@ -12,6 +12,7 @@ pub mod notes;
 pub mod scripting;
 pub mod scripts;
 pub mod swarm;
+pub mod sync;
 pub mod workspace;
 
 pub use attachments::*;
@@ -22,4 +23,5 @@ pub use notes::*;
 pub use scripting::*;
 pub use scripts::*;
 pub use swarm::*;
+pub use sync::*;
 pub use workspace::*;

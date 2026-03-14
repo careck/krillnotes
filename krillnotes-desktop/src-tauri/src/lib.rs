@@ -55,6 +55,9 @@ pub struct AppState {
     pub contact_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::contact::ContactManager>>>,
     /// Per-identity invite managers — keyed by identity UUID, created on unlock.
     pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
+    /// Per-identity sync engines — keyed by identity UUID string.
+    /// Created lazily when a relay is configured for that identity.
+    pub sync_engines: Arc<Mutex<HashMap<String, krillnotes_core::core::sync::SyncEngine>>>,
     /// In-memory map of currently unlocked identities (UUID → unlocked state).
     /// Entries are removed when an identity is locked or the app exits.
     pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
@@ -157,6 +160,7 @@ pub fn run() {
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
             invite_managers: Arc::new(Mutex::new(HashMap::new())),
+            sync_engines: Arc::new(Mutex::new(HashMap::new())),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
@@ -390,6 +394,10 @@ pub fn run() {
             apply_swarm_snapshot,
             apply_swarm_delta,
             generate_deltas_for_peers,
+            update_peer_channel,
+            poll_sync,
+            configure_relay,
+            relay_login,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
