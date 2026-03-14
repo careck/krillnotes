@@ -171,42 +171,48 @@ pub async fn configure_relay(
 
     // device_public_key is hex-encoded (not Base64 — relay API uses hex throughout).
     let device_public_key = hex::encode(verifying_key.to_bytes());
-
-    let client = RelayClient::new(&relay_url);
-
-    // Step 1: Register → receive PoP challenge.
-    let result = client
-        .register(&email, &password, &identity_uuid, &device_public_key)
-        .map_err(|e| e.to_string())?;
-
-    // Step 2: Decrypt the PoP challenge using the identity's Ed25519 signing key.
-    let nonce_bytes = decrypt_pop_challenge(
-        &signing_key,
-        &result.challenge.encrypted_nonce,
-        &result.challenge.server_public_key,
-    )
-    .map_err(|e| e.to_string())?;
-    let nonce_hex = hex::encode(&nonce_bytes);
-
-    // Step 3: Verify registration — obtain session token.
-    let session = client
-        .register_verify(&device_public_key, &nonce_hex)
-        .map_err(|e| e.to_string())?;
-
-    // Build and save credentials (encrypted with relay_key via AES-256-GCM).
-    let creds = RelayCredentials {
-        relay_url,
-        email,
-        session_token: session.session_token,
-        // 30 days is a local approximation; relay server governs actual expiry.
-        session_expires_at: Utc::now() + chrono::Duration::days(30),
-        device_public_key,
-    };
     let relay_dir = crate::settings::config_dir().join("relay");
-    save_relay_credentials(&relay_dir, &identity_uuid, &creds, &relay_key)
-        .map_err(|e| e.to_string())?;
 
-    Ok(())
+    // RelayClient uses reqwest::blocking, which owns its own Tokio runtime.
+    // Dropping it inside an async context panics. Run everything in spawn_blocking
+    // so the client's lifetime is entirely within a non-async thread.
+    tokio::task::spawn_blocking(move || {
+        let client = RelayClient::new(&relay_url);
+
+        // Step 1: Register → receive PoP challenge.
+        let result = client
+            .register(&email, &password, &identity_uuid, &device_public_key)
+            .map_err(|e| e.to_string())?;
+
+        // Step 2: Decrypt the PoP challenge using the identity's Ed25519 signing key.
+        let nonce_bytes = decrypt_pop_challenge(
+            &signing_key,
+            &result.challenge.encrypted_nonce,
+            &result.challenge.server_public_key,
+        )
+        .map_err(|e| e.to_string())?;
+        let nonce_hex = hex::encode(&nonce_bytes);
+
+        // Step 3: Verify registration — obtain session token.
+        let session = client
+            .register_verify(&device_public_key, &nonce_hex)
+            .map_err(|e| e.to_string())?;
+
+        let creds = RelayCredentials {
+            relay_url,
+            email,
+            session_token: session.session_token,
+            // 30 days is a local approximation; relay server governs actual expiry.
+            session_expires_at: Utc::now() + chrono::Duration::days(30),
+            device_public_key,
+        };
+        save_relay_credentials(&relay_dir, &identity_uuid, &creds, &relay_key)
+            .map_err(|e| e.to_string())?;
+
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── relay_login ────────────────────────────────────────────────────────────
@@ -248,22 +254,28 @@ pub async fn relay_login(
         }
     };
 
-    let client = RelayClient::new(&relay_url);
-    let session = client
-        .login(&email, &password)
-        .map_err(|e| e.to_string())?;
+    // Same spawn_blocking pattern as configure_relay — reqwest::blocking must not
+    // be dropped inside an async context.
+    tokio::task::spawn_blocking(move || {
+        let client = RelayClient::new(&relay_url);
+        let session = client
+            .login(&email, &password)
+            .map_err(|e| e.to_string())?;
 
-    let creds = RelayCredentials {
-        relay_url,
-        email,
-        session_token: session.session_token,
-        session_expires_at: Utc::now() + chrono::Duration::days(30),
-        device_public_key,
-    };
-    save_relay_credentials(&relay_dir, &identity_uuid, &creds, &relay_key)
-        .map_err(|e| e.to_string())?;
+        let creds = RelayCredentials {
+            relay_url,
+            email,
+            session_token: session.session_token,
+            session_expires_at: Utc::now() + chrono::Duration::days(30),
+            device_public_key,
+        };
+        save_relay_credentials(&relay_dir, &identity_uuid, &creds, &relay_key)
+            .map_err(|e| e.to_string())?;
 
-    Ok(())
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── create_relay_invite ────────────────────────────────────────────────────
