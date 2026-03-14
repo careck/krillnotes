@@ -129,10 +129,71 @@ pub async fn poll_sync(
 
 /// Register with a relay server and store credentials, then create a
 /// `SyncEngine` with a `RelayChannel` for the given identity.
-///
-/// TODO: Run registration + PoP flow, save credentials, create SyncEngine
-///       with RelayChannel.
 #[tauri::command]
+#[cfg(feature = "relay")]
+pub async fn configure_relay(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    relay_url: String,
+    email: String,
+    password: String,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Capture signing key, verifying key, and relay encryption key in one lock.
+    let (signing_key, verifying_key, relay_key) = {
+        let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
+        let id = m.get(&uuid)
+            .ok_or("Identity is not unlocked — please unlock your identity first")?;
+        // Use .clone() — consistent with how poll_sync clones the signing key.
+        let sk = id.signing_key.clone();
+        let vk = id.verifying_key;
+        let rk = id.relay_key();
+        (sk, vk, rk)
+    };
+
+    // device_public_key is hex-encoded (not Base64 — relay API uses hex throughout).
+    let device_public_key = hex::encode(verifying_key.to_bytes());
+
+    let client = RelayClient::new(&relay_url);
+
+    // Step 1: Register → receive PoP challenge.
+    let result = client
+        .register(&email, &password, &identity_uuid, &device_public_key)
+        .map_err(|e| e.to_string())?;
+
+    // Step 2: Decrypt the PoP challenge using the identity's Ed25519 signing key.
+    let nonce_bytes = decrypt_pop_challenge(
+        &signing_key,
+        &result.challenge.encrypted_nonce,
+        &result.challenge.server_public_key,
+    )
+    .map_err(|e| e.to_string())?;
+    let nonce_hex = hex::encode(&nonce_bytes);
+
+    // Step 3: Verify registration — obtain session token.
+    let session = client
+        .register_verify(&device_public_key, &nonce_hex)
+        .map_err(|e| e.to_string())?;
+
+    // Build and save credentials (encrypted with relay_key via AES-256-GCM).
+    let creds = RelayCredentials {
+        relay_url,
+        email,
+        session_token: session.session_token,
+        // 30 days is a local approximation; relay server governs actual expiry.
+        session_expires_at: Utc::now() + chrono::Duration::days(30),
+        device_public_key,
+    };
+    let relay_dir = crate::settings::config_dir().join("relay");
+    save_relay_credentials(&relay_dir, &identity_uuid, &creds, &relay_key)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+#[cfg(not(feature = "relay"))]
 pub async fn configure_relay(
     _state: State<'_, AppState>,
     _identity_uuid: String,
