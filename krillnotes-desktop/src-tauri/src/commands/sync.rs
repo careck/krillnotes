@@ -81,3 +81,79 @@ pub async fn relay_login(
 ) -> Result<(), String> {
     Err("relay_login not yet implemented".to_string())
 }
+
+// ── create_relay_invite ────────────────────────────────────────────────────
+
+/// Upload an invite to the relay and return the shareable URL.
+///
+/// `token` is the invite token previously created by `create_invite`.
+///
+/// TODO: Upload invite bytes to relay, return hosted URL.
+#[tauri::command]
+pub async fn create_relay_invite(
+    _window: Window,
+    _state: State<'_, AppState>,
+    token: String,
+) -> Result<String, String> {
+    let _ = token;
+    Err("Relay not yet configured".to_string())
+}
+
+// ── fetch_relay_invite ─────────────────────────────────────────────────────
+
+/// Fetch an invite file from the relay by token and return the raw bytes.
+///
+/// `token` is the path component extracted from the relay invite URL.
+///
+/// TODO: Download invite bytes from relay and return them.
+#[tauri::command]
+pub async fn fetch_relay_invite(
+    _window: Window,
+    _state: State<'_, AppState>,
+    token: String,
+) -> Result<Vec<u8>, String> {
+    let _ = token;
+    Err("Relay not yet configured".to_string())
+}
+
+// ── has_relay_credentials ──────────────────────────────────────────────────
+
+/// Return `true` if the current identity has relay credentials configured.
+///
+/// TODO: Check relay credentials for the active identity.
+#[tauri::command]
+pub async fn has_relay_credentials(
+    _window: Window,
+    _state: State<'_, AppState>,
+) -> Result<bool, String> {
+    Ok(false)
+}
+
+// ── parse_invite_bytes ─────────────────────────────────────────────────────
+
+/// Parse raw invite bytes (e.g. from relay download) and return invite info.
+///
+/// TODO: Parse and verify invite from raw bytes once relay is implemented.
+#[tauri::command]
+pub async fn parse_invite_bytes(
+    _window: Window,
+    _state: State<'_, AppState>,
+    _bytes: Vec<u8>,
+) -> Result<crate::commands::invites::InviteFileData, String> {
+    Err("parse_invite_bytes not yet implemented".to_string())
+}
+
+// ── write_temp_swarm_bytes ─────────────────────────────────────────────────
+
+/// Write raw invite bytes to a temporary file and return the path.
+///
+/// This is used to save relay-fetched invite bytes so they can be passed
+/// to `respond_to_invite` which requires a file path.
+///
+/// TODO: Write bytes to OS temp dir and return path.
+#[tauri::command]
+pub async fn write_temp_swarm_bytes(
+    _bytes: Vec<u8>,
+) -> Result<String, String> {
+    Err("write_temp_swarm_bytes not yet implemented".to_string())
+}

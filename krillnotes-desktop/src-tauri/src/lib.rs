@@ -398,6 +398,11 @@ pub fn run() {
             poll_sync,
             configure_relay,
             relay_login,
+            create_relay_invite,
+            fetch_relay_invite,
+            has_relay_credentials,
+            parse_invite_bytes,
+            write_temp_swarm_bytes,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
