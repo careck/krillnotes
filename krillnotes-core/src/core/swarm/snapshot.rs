@@ -97,6 +97,7 @@ pub fn create_snapshot_bundle(params: SnapshotParams<'_>) -> Result<Vec<u8>> {
         target_peer: None,
         recipients: Some(entries),
         has_attachments,
+        owner_pubkey: None,
     };
     header.validate()?;
 

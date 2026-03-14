@@ -79,6 +79,7 @@ pub fn create_invite_bundle(params: InviteParams<'_>) -> Result<Vec<u8>> {
         target_peer: params.contact_public_key.clone(),
         recipients: None,
         has_attachments: false,
+        owner_pubkey: None,
     };
     header.validate()?;
 
@@ -210,6 +211,7 @@ pub fn create_accept_bundle(params: AcceptParams<'_>) -> Result<Vec<u8>> {
         target_peer: None,
         recipients: None,
         has_attachments: false,
+        owner_pubkey: None,
     };
     header.validate()?;
 

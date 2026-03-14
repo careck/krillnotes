@@ -78,6 +78,7 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         target_peer: Some(params.recipient_identity_id),
         recipients: Some(entries),
         has_attachments: false,
+        owner_pubkey: None,
     };
     header.validate()?;
 

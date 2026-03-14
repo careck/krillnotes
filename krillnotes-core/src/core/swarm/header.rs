@@ -71,6 +71,9 @@ pub struct SwarmHeader {
     // Snapshot + Delta
     pub recipients: Option<Vec<RecipientEntry>>,
     pub has_attachments: bool,
+
+    /// Ed25519 public key of the workspace owner (base64). Present in all new bundles.
+    pub owner_pubkey: Option<String>,
 }
 
 impl SwarmHeader {
@@ -148,6 +151,7 @@ mod tests {
             target_peer: None,
             recipients: None,
             has_attachments: false,
+            owner_pubkey: None,
         }
     }
 
@@ -185,5 +189,25 @@ mod tests {
     fn test_validate_invite_requires_pairing_token() {
         let h = sample_header(SwarmMode::Invite);
         assert!(h.validate().is_err());
+    }
+
+    #[test]
+    fn test_header_roundtrip_with_owner_pubkey() {
+        let mut h = sample_header(SwarmMode::Delta);
+        h.since_operation_id = Some("op-uuid".to_string());
+        h.owner_pubkey = Some("owner_b64_key".to_string());
+        let json = serde_json::to_string(&h).unwrap();
+        let back: SwarmHeader = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.owner_pubkey.as_deref(), Some("owner_b64_key"));
+    }
+
+    #[test]
+    fn test_header_roundtrip_without_owner_pubkey() {
+        let mut h = sample_header(SwarmMode::Delta);
+        h.since_operation_id = Some("op-uuid".to_string());
+        // owner_pubkey is None (backward compat)
+        let json = serde_json::to_string(&h).unwrap();
+        let back: SwarmHeader = serde_json::from_str(&json).unwrap();
+        assert!(back.owner_pubkey.is_none());
     }
 }
