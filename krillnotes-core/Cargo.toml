@@ -8,6 +8,10 @@ license = "MPL-2.0"
 repository = "https://github.com/2pisoftware/krillnotes"
 homepage = "https://krillnotes.org"
 
+[features]
+default = []
+relay = ["dep:reqwest", "dep:crypto_box"]
+
 [dependencies]
 rusqlite = { workspace = true }
 rhai = { workspace = true }
@@ -35,6 +39,10 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 bip39 = "2"
 argon2 = "0.5"
 aes-gcm = "0.10"
+
+# Relay (optional)
+reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }
+crypto_box = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tempfile = "3.8"

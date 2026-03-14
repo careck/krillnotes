@@ -378,6 +378,24 @@ impl Storage {
             )?;
         }
 
+        // Migration: sync engine channel and status columns on sync_peers.
+        let has_channel_type: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sync_peers') WHERE name = 'channel_type'",
+                [],
+                |row| row.get::<_, i64>(0).map(|c| c > 0),
+            )
+            .unwrap_or(false);
+        if !has_channel_type {
+            conn.execute_batch(
+                "ALTER TABLE sync_peers ADD COLUMN channel_type TEXT NOT NULL DEFAULT 'manual';
+                 ALTER TABLE sync_peers ADD COLUMN channel_params TEXT NOT NULL DEFAULT '{}';
+                 ALTER TABLE sync_peers ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'idle';
+                 ALTER TABLE sync_peers ADD COLUMN sync_status_detail TEXT;
+                 ALTER TABLE sync_peers ADD COLUMN last_sync_error TEXT;",
+            )?;
+        }
+
         // Migration: rename node_type column to schema (if the old column name still exists).
         let node_type_exists: bool = conn.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='node_type'",

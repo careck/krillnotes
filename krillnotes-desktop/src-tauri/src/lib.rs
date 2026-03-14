@@ -55,6 +55,9 @@ pub struct AppState {
     pub contact_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::contact::ContactManager>>>,
     /// Per-identity invite managers — keyed by identity UUID, created on unlock.
     pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
+    /// Per-identity sync engines — keyed by identity UUID string.
+    /// Created lazily when a relay is configured for that identity.
+    pub sync_engines: Arc<Mutex<HashMap<String, krillnotes_core::core::sync::SyncEngine>>>,
     /// In-memory map of currently unlocked identities (UUID → unlocked state).
     /// Entries are removed when an identity is locked or the app exits.
     pub unlocked_identities: Arc<Mutex<HashMap<Uuid, UnlockedIdentity>>>,
@@ -157,6 +160,7 @@ pub fn run() {
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
             invite_managers: Arc::new(Mutex::new(HashMap::new())),
+            sync_engines: Arc::new(Mutex::new(HashMap::new())),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
@@ -170,12 +174,14 @@ pub fn run() {
                 // file can be reopened after its window has been closed.
                 tauri::WindowEvent::Destroyed => {
                     // Persist cached metadata before dropping the workspace.
-                    if let Some(ws) = state.workspaces.lock().expect("Mutex poisoned").get(&label) {
+                    // Use unwrap_or_else to recover from a poisoned mutex (e.g. after a panic
+                    // in a command that held the lock) rather than double-panicking on destroy.
+                    if let Some(ws) = state.workspaces.lock().unwrap_or_else(|e| e.into_inner()).get(&label) {
                         let _ = ws.write_info_json();
                     }
-                    state.workspaces.lock().expect("Mutex poisoned").remove(&label);
-                    state.workspace_paths.lock().expect("Mutex poisoned").remove(&label);
-                    state.workspace_identities.lock().expect("Mutex poisoned").remove(&label);
+                    state.workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
+                    state.workspace_paths.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
+                    state.workspace_identities.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
 
                     // On macOS the menu bar is global. If this was the last
                     // workspace window, disable workspace-specific items so
@@ -356,6 +362,7 @@ pub fn run() {
             import_invite_response,
             import_invite,
             respond_to_invite,
+            save_invite_file,
             accept_peer,
             attach_file,
             attach_file_bytes,
@@ -390,6 +397,16 @@ pub fn run() {
             apply_swarm_snapshot,
             apply_swarm_delta,
             generate_deltas_for_peers,
+            update_peer_channel,
+            poll_sync,
+            configure_relay,
+            relay_login,
+            create_relay_invite,
+            fetch_relay_invite,
+            has_relay_credentials,
+            get_relay_info,
+            parse_invite_bytes,
+            write_temp_swarm_bytes,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

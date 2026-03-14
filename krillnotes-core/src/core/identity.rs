@@ -143,6 +143,16 @@ impl UnlockedIdentity {
             .expect("HKDF expand failed — output length is valid");
         okm
     }
+
+    /// Derives a 32-byte encryption key for this identity's relay credentials.
+    /// Uses HKDF-SHA256 with the Ed25519 seed as IKM.
+    pub fn relay_key(&self) -> [u8; 32] {
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, self.signing_key.as_bytes());
+        let mut okm = [0u8; 32];
+        hk.expand(b"krillnotes-relay-v1", &mut okm)
+            .expect("HKDF expand failed — output length is valid");
+        okm
+    }
 }
 
 // ---------------------------------------------------------------------------

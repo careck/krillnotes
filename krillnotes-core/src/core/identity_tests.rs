@@ -785,3 +785,33 @@ fn migration_pass2_drops_stale_entry_for_missing_workspace() {
     let raw = std::fs::read_to_string(config_dir.join("identity_settings.json")).unwrap();
     assert!(!raw.contains("workspaces"));
 }
+
+#[test]
+fn test_relay_key_differs_from_contacts_key() {
+    // All imports (SigningKey, Uuid, UnlockedIdentity) are in scope via super::*
+    let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+    let verifying_key = signing_key.verifying_key();
+    let unlocked = UnlockedIdentity {
+        identity_uuid: Uuid::new_v4(),
+        display_name: "Test".to_string(),
+        signing_key,
+        verifying_key,
+    };
+    assert_ne!(unlocked.relay_key(), unlocked.contacts_key(),
+        "relay_key and contacts_key must differ");
+}
+
+#[test]
+fn test_relay_key_deterministic() {
+    let seed = [0x11u8; 32];
+    let signing_key = SigningKey::from_bytes(&seed);
+    let verifying_key = signing_key.verifying_key();
+    let unlocked = UnlockedIdentity {
+        identity_uuid: Uuid::new_v4(),
+        display_name: "Test".to_string(),
+        signing_key,
+        verifying_key,
+    };
+    assert_eq!(unlocked.relay_key(), unlocked.relay_key(),
+        "relay_key must be deterministic");
+}

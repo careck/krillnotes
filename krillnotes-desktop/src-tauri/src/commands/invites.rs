@@ -137,6 +137,87 @@ pub fn create_invite(
     Ok(InviteInfo::from(record))
 }
 
+/// Re-export an existing invite as a `.swarm` file.
+/// Re-builds the InviteFile from the stored record + current identity + current workspace
+/// metadata, then writes it to `save_path`. This allows the user to save the file again
+/// from the share step without creating a duplicate invite record.
+#[tauri::command]
+pub fn save_invite_file(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_id: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let invite_uuid = Uuid::parse_str(&invite_id).map_err(|e| e.to_string())?;
+
+    // Get signing key + declared name from unlocked identity.
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+
+    // Look up the existing invite record.
+    let record = {
+        let ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get(&uuid).ok_or("Identity not unlocked")?;
+        im.get_invite(invite_uuid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Invite {} not found", invite_id))?
+    };
+
+    // Get workspace metadata from the current window's workspace.
+    let (ws_desc, ws_author, ws_org, ws_url, ws_license, ws_tags) = {
+        let wss = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = wss.get(window.label()).ok_or("No workspace open")?;
+        let meta = ws.get_workspace_metadata().map_err(|e| e.to_string())?;
+        (
+            meta.description,
+            meta.author_name,
+            meta.author_org,
+            meta.homepage_url,
+            meta.license,
+            meta.tags,
+        )
+    };
+
+    // Re-build and re-sign the InviteFile from the stored record.
+    let pubkey_b64 = {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        STANDARD.encode(signing_key.verifying_key().to_bytes())
+    };
+    let mut file = krillnotes_core::core::invite::InviteFile {
+        file_type: "krillnotes-invite-v1".to_string(),
+        invite_id: record.invite_id.to_string(),
+        workspace_id: record.workspace_id.clone(),
+        workspace_name: record.workspace_name.clone(),
+        workspace_description: ws_desc,
+        workspace_author_name: ws_author,
+        workspace_author_org: ws_org,
+        workspace_homepage_url: ws_url,
+        workspace_license: ws_license,
+        workspace_language: None,
+        workspace_tags: ws_tags,
+        inviter_public_key: pubkey_b64,
+        inviter_declared_name: declared_name,
+        expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
+        signature: String::new(),
+    };
+    let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
+    file.signature = krillnotes_core::core::invite::sign_payload(&payload, &signing_key);
+
+    krillnotes_core::core::invite::InviteManager::save_invite_file(
+        &file,
+        std::path::Path::new(&save_path),
+    )
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn revoke_invite(
     state: State<'_, AppState>,

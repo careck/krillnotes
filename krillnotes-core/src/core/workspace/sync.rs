@@ -7,6 +7,8 @@
 //! Snapshot sync, delta operations, and peer registry management.
 
 use super::*;
+use crate::core::peer_registry::SyncPeer;
+use crate::core::sync::channel::{ChannelType, PeerSyncInfo};
 
 impl Workspace {
     // ── Snapshot (peer sync) ───────────────────────────────────────
@@ -447,6 +449,11 @@ impl Workspace {
                     contact_id: contact.map(|c| c.contact_id.to_string()),
                     last_sync: peer.last_sync,
                     is_owner: peer.peer_identity_id == self.owner_pubkey,
+                    channel_type: peer.channel_type,
+                    channel_params: peer.channel_params,
+                    sync_status: peer.sync_status,
+                    sync_status_detail: peer.sync_status_detail,
+                    last_sync_error: peer.last_sync_error,
                 }
             })
             .collect();
@@ -516,6 +523,54 @@ impl Workspace {
         let conn = self.storage.connection();
         let registry = PeerRegistry::new(conn);
         registry.upsert_sync_peer(device_id, identity_id, last_sent_op, last_received_op)
+    }
+
+    /// Update a peer's channel configuration.
+    pub fn update_peer_channel(
+        &self,
+        peer_device_id: &str,
+        channel_type: &str,
+        channel_params: &str,
+    ) -> Result<()> {
+        PeerRegistry::new(self.storage.connection())
+            .update_channel_config(peer_device_id, channel_type, channel_params)
+    }
+
+    /// Update a peer's sync status.
+    pub fn update_peer_sync_status(
+        &self,
+        peer_device_id: &str,
+        sync_status: &str,
+        detail: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<()> {
+        PeerRegistry::new(self.storage.connection())
+            .update_sync_status(peer_device_id, sync_status, detail, error)
+    }
+
+    /// List peers filtered by channel type.
+    pub fn list_peers_with_channel(&self, channel_type: &str) -> Result<Vec<SyncPeer>> {
+        PeerRegistry::new(self.storage.connection())
+            .list_peers_by_channel(channel_type)
+    }
+
+    /// Get `PeerSyncInfo` for all non-manual peers (used by the SyncEngine).
+    pub fn get_active_sync_peers(&self) -> Result<Vec<PeerSyncInfo>> {
+        let peers = PeerRegistry::new(self.storage.connection())
+            .list_peers_by_channel_not("manual")?;
+        Ok(peers.into_iter().map(|p| PeerSyncInfo {
+            peer_device_id: p.peer_device_id,
+            peer_identity_id: p.peer_identity_id,
+            channel_type: match p.channel_type.as_str() {
+                "relay" => ChannelType::Relay,
+                "folder" => ChannelType::Folder,
+                _ => ChannelType::Manual,
+            },
+            channel_params: serde_json::from_str(&p.channel_params)
+                .unwrap_or(serde_json::Value::Object(Default::default())),
+            last_sent_op: p.last_sent_op,
+            last_received_op: p.last_received_op,
+        }).collect())
     }
 
 }

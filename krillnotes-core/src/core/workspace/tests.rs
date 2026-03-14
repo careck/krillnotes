@@ -3123,7 +3123,6 @@ schema("SameVerType", #{
 
     #[test]
     fn test_apply_incoming_create_note() {
-        use crate::core::hlc::HlcTimestamp;
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "", "local-device",
             ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
@@ -3210,7 +3209,7 @@ schema("SameVerType", #{
         ws.apply_incoming_operation(op).unwrap();
 
         // Now create a local note — its HLC timestamp must be >= far_future_ms.
-        let root = ws.list_all_notes().unwrap()[0].clone();
+        let _root = ws.list_all_notes().unwrap()[0].clone();
         // We can't call create_note easily because it may fail validation,
         // but we can check the HLC state directly from the operations log.
         // Instead, verify that the remote op's wall_ms is stored correctly.
@@ -3435,4 +3434,25 @@ schema("SameVerType", #{
         // Verify the script was NOT applied to the working table
         let scripts = workspace.list_user_scripts().unwrap();
         assert!(!scripts.iter().any(|s| s.id == script_id));
+    }
+
+    #[test]
+    fn test_list_peers_by_channel() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path().join("ws.db"), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32])).unwrap();
+
+        // Add two peers with different channels.
+        // add_contact_as_peer creates a placeholder device_id = "identity:<identity_id>"
+        ws.add_contact_as_peer("relay-identity").unwrap();
+        ws.update_peer_channel("identity:relay-identity", "relay", r#"{"relay_url":"https://example.com"}"#).unwrap();
+
+        ws.add_contact_as_peer("manual-identity").unwrap();
+
+        let relay_peers = ws.list_peers_with_channel("relay").unwrap();
+        assert_eq!(relay_peers.len(), 1);
+        assert_eq!(relay_peers[0].peer_device_id, "identity:relay-identity");
+
+        let manual_peers = ws.list_peers_with_channel("manual").unwrap();
+        assert_eq!(manual_peers.len(), 1);
+        assert_eq!(manual_peers[0].peer_device_id, "identity:manual-identity");
     }

@@ -35,7 +35,7 @@ fn ed25519_pub_to_x25519(key: &VerifyingKey) -> X25519PublicKey {
 /// Derive an X25519 static secret from an Ed25519 signing key.
 ///
 /// Algorithm: SHA-512(seed)[0..32], clamped per RFC 7748.
-fn ed25519_sk_to_x25519(key: &SigningKey) -> StaticSecret {
+pub(crate) fn ed25519_sk_to_x25519(key: &SigningKey) -> StaticSecret {
     use sha2::Digest;
     let mut h = sha2::Sha512::new();
     h.update(key.as_bytes());

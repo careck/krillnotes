@@ -20,6 +20,16 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
   const [unlockedIdentities, setUnlockedIdentities] = useState<IdentityRef[]>([]);
   const [selectedUuid, setSelectedUuid] = useState(initialIdentityUuid ?? '');
 
+  // Relay URL import state
+  const [relayUrl, setRelayUrl] = useState('');
+  const [fetchingRelay, setFetchingRelay] = useState(false);
+  const [relayInviteData, setRelayInviteData] = useState<InviteFileData | null>(null);
+  const [relayInvitePath, setRelayInvitePath] = useState<string | null>(null);
+
+  // Use relay-fetched data if available, otherwise fall back to file-based data
+  const effectiveInviteData = relayInviteData ?? inviteData;
+  const effectiveInvitePath = relayInvitePath ?? invitePath;
+
   useEffect(() => {
     Promise.all([
       invoke<IdentityRef[]>('list_identities'),
@@ -35,9 +45,41 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isExpired = inviteData.expiresAt
-    ? new Date(inviteData.expiresAt) < new Date()
+  const isExpired = effectiveInviteData.expiresAt
+    ? new Date(effectiveInviteData.expiresAt) < new Date()
     : false;
+
+  // Extract the token from a relay invite URL (last path segment)
+  const extractRelayToken = (url: string): string | null => {
+    try {
+      const parsed = new URL(url.trim());
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      return segments[segments.length - 1] ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleFetchRelay = async () => {
+    const token = extractRelayToken(relayUrl);
+    if (!token) {
+      setError(t('invite.relayInvalidUrl', 'Invalid relay URL'));
+      return;
+    }
+    setFetchingRelay(true);
+    setError(null);
+    try {
+      const bytes = await invoke<number[]>('fetch_relay_invite', { token });
+      const parsed = await invoke<InviteFileData>('parse_invite_bytes', { bytes });
+      const tempPath = await invoke<string>('write_temp_swarm_bytes', { bytes });
+      setRelayInviteData(parsed);
+      setRelayInvitePath(tempPath);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setFetchingRelay(false);
+    }
+  };
 
   const handleRespond = async () => {
     if (!selectedUuid) {
@@ -48,14 +90,14 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     setError(null);
     try {
       const savePath = await save({
-        defaultPath: `response_${inviteData.workspaceName.replace(/\s+/g, '_')}.swarm`,
+        defaultPath: `response_${effectiveInviteData.workspaceName.replace(/\s+/g, '_')}.swarm`,
         filters: [{ name: 'Swarm Response', extensions: ['swarm'] }],
       });
       if (!savePath) { setLoading(false); return; }
 
       await invoke('respond_to_invite', {
         identityUuid: selectedUuid,
-        invitePath,
+        invitePath: effectiveInvitePath,
         savePath,
       });
       onResponded();
@@ -73,23 +115,54 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
         <h2 className="text-lg font-semibold mb-1">{t('invite.importTitle')}</h2>
         <p className="text-sm text-zinc-500 mb-4">{t('invite.importSubtitle')}</p>
 
-        <div className="mb-4 p-4 border rounded dark:border-zinc-700 space-y-1">
-          <p className="font-medium">{inviteData.workspaceName}</p>
-          {inviteData.workspaceDescription && (
-            <p className="text-sm text-zinc-500">{inviteData.workspaceDescription}</p>
-          )}
-          {inviteData.workspaceAuthorName && (
-            <p className="text-xs text-zinc-500">
-              {t('invite.by')} {inviteData.workspaceAuthorName}
-              {inviteData.workspaceAuthorOrg && ` (${inviteData.workspaceAuthorOrg})`}
+        {/* Relay URL import */}
+        <div className="mb-4 p-3 border rounded dark:border-zinc-700">
+          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+            {t('invite.relayUrlLabel', 'Or paste a relay invite URL')}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={relayUrl}
+              onChange={e => setRelayUrl(e.target.value)}
+              placeholder="https://relay.example.com/i/abc123"
+              className="flex-1 border border-zinc-300 dark:border-zinc-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-zinc-800"
+              disabled={fetchingRelay || loading}
+            />
+            <button
+              onClick={handleFetchRelay}
+              disabled={!relayUrl.trim() || fetchingRelay || loading}
+              className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+            >
+              {fetchingRelay
+                ? t('common.loading', 'Loading…')
+                : t('invite.fetchRelay', 'Fetch')}
+            </button>
+          </div>
+          {relayInviteData && (
+            <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+              {t('invite.relayFetched', 'Invite loaded from relay.')}
             </p>
           )}
-          {inviteData.workspaceLicense && (
-            <p className="text-xs text-zinc-400">{t('invite.license')}: {inviteData.workspaceLicense}</p>
+        </div>
+
+        <div className="mb-4 p-4 border rounded dark:border-zinc-700 space-y-1">
+          <p className="font-medium">{effectiveInviteData.workspaceName}</p>
+          {effectiveInviteData.workspaceDescription && (
+            <p className="text-sm text-zinc-500">{effectiveInviteData.workspaceDescription}</p>
           )}
-          {inviteData.workspaceTags.length > 0 && (
+          {effectiveInviteData.workspaceAuthorName && (
+            <p className="text-xs text-zinc-500">
+              {t('invite.by')} {effectiveInviteData.workspaceAuthorName}
+              {effectiveInviteData.workspaceAuthorOrg && ` (${effectiveInviteData.workspaceAuthorOrg})`}
+            </p>
+          )}
+          {effectiveInviteData.workspaceLicense && (
+            <p className="text-xs text-zinc-400">{t('invite.license')}: {effectiveInviteData.workspaceLicense}</p>
+          )}
+          {effectiveInviteData.workspaceTags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
-              {inviteData.workspaceTags.map(tag => (
+              {effectiveInviteData.workspaceTags.map(tag => (
                 <span key={tag} className="text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
                   {tag}
                 </span>
@@ -102,8 +175,8 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
             {t('invite.invitedBy')}
           </p>
-          <p className="text-sm font-medium">{inviteData.inviterDeclaredName}</p>
-          <p className="text-xs font-mono text-zinc-500 mt-1">{inviteData.inviterFingerprint}</p>
+          <p className="text-sm font-medium">{effectiveInviteData.inviterDeclaredName}</p>
+          <p className="text-xs font-mono text-zinc-500 mt-1">{effectiveInviteData.inviterFingerprint}</p>
         </div>
 
         <div className="mb-4">

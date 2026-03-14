@@ -26,6 +26,7 @@ pub mod save_transaction;
 pub mod scripting;
 pub mod swarm;
 pub mod storage;
+pub mod sync;
 pub mod user_script;
 pub mod undo;
 pub mod workspace;

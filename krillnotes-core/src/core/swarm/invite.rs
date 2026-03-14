@@ -14,11 +14,36 @@ use std::io::{Cursor, Read, Write};
 use uuid::Uuid;
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
+use serde::{Deserialize, Serialize};
+
 use crate::core::hlc::HlcTimestamp;
 use crate::core::operation::Operation;
 use crate::core::swarm::header::{SwarmHeader, SwarmMode};
 use crate::core::swarm::signature::{sign_manifest, verify_manifest};
 use crate::{KrillnotesError, Result};
+
+// ---------------------------------------------------------------------------
+// Channel preference types
+// ---------------------------------------------------------------------------
+
+/// A channel the inviter offers for ongoing sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplyChannel {
+    #[serde(rename = "type")]
+    pub channel_type: String, // "relay", "folder", "manual"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>, // relay URL if type == "relay"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>, // human description for manual
+}
+
+/// The acceptor's chosen channel preference.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ChannelPreference {
+    pub channel_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_url: Option<String>,
+}
 
 // ---------------------------------------------------------------------------
 // Invite
@@ -35,6 +60,8 @@ pub struct InviteParams<'a> {
     pub inviter_key: &'a SigningKey,
     /// Base64 public key of the workspace owner.
     pub owner_pubkey: String,
+    /// Channels the inviter offers for ongoing sync (empty = none offered).
+    pub reply_channels: Vec<ReplyChannel>,
 }
 
 pub struct ParsedInvite {
@@ -181,6 +208,8 @@ pub struct AcceptParams<'a> {
     pub acceptor_key: &'a SigningKey,
     /// Base64 public key of the workspace owner (propagated from the invite).
     pub owner_pubkey: Option<String>,
+    /// The acceptor's chosen channel preference (defaults to empty/unset).
+    pub channel_preference: ChannelPreference,
 }
 
 pub struct ParsedAccept {
@@ -330,6 +359,7 @@ mod tests {
             contact_public_key: None,
             inviter_key: &inviter_key,
             owner_pubkey: "owner-pk".to_string(),
+            reply_channels: vec![],
         }).unwrap();
 
         let parsed = parse_invite_bundle(&bundle).unwrap();
@@ -351,6 +381,7 @@ mod tests {
             contact_public_key: None,
             inviter_key: &inviter_key,
             owner_pubkey: "owner-pk".to_string(),
+            reply_channels: vec![],
         }).unwrap();
 
         let parsed_invite = parse_invite_bundle(&invite).unwrap();
@@ -363,6 +394,7 @@ mod tests {
             pairing_token: parsed_invite.pairing_token.clone(),
             acceptor_key: &acceptor_key,
             owner_pubkey: parsed_invite.owner_pubkey.clone(),
+            channel_preference: ChannelPreference::default(),
         }).unwrap();
 
         let parsed_accept = parse_accept_bundle(&accept_bundle).unwrap();
@@ -383,6 +415,7 @@ mod tests {
             contact_public_key: None,
             inviter_key: &inviter_key,
             owner_pubkey: "owner-pk".to_string(),
+            reply_channels: vec![],
         }).unwrap();
         // Flip a byte in the middle of the bundle
         let len = bundle.len();

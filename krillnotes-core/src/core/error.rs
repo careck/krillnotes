@@ -111,6 +111,22 @@ pub enum KrillnotesError {
 
     #[error("Only the workspace owner can modify scripts")]
     NotOwner,
+
+    /// Relay session has expired or token is invalid (HTTP 401).
+    #[error("Relay auth expired: {0}")]
+    RelayAuthExpired(String),
+
+    /// Relay rate limit exceeded (HTTP 429).
+    #[error("Relay rate limited: {0}")]
+    RelayRateLimited(String),
+
+    /// Relay resource not found or expired (HTTP 404/410).
+    #[error("Relay not found: {0}")]
+    RelayNotFound(String),
+
+    /// Relay server unreachable or returned a server error.
+    #[error("Relay unavailable: {0}")]
+    RelayUnavailable(String),
 }
 
 #[cfg(test)]
@@ -191,6 +207,10 @@ impl KrillnotesError {
             Self::InviteExpiredOrRevoked => "This invite has expired or been revoked.".to_string(),
             Self::Zip(e) => format!("Bundle archive error: {e}"),
             Self::NotOwner => "Only the workspace owner can modify scripts".to_string(),
+            Self::RelayAuthExpired(_) => "Relay session expired. Please log in again.".to_string(),
+            Self::RelayRateLimited(_) => "Relay is rate limiting requests. Please try again later.".to_string(),
+            Self::RelayNotFound(_) => "The requested relay resource was not found or has expired.".to_string(),
+            Self::RelayUnavailable(msg) => format!("Relay server unavailable: {msg}"),
         }
     }
 }
