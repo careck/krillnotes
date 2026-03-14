@@ -286,6 +286,25 @@ impl<'a> PeerRegistry<'a> {
             }
         };
 
+        // Carry forward channel config if peer already has one configured.
+        let existing_channel: Option<(String, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT channel_type, channel_params FROM sync_peers \
+                 WHERE peer_identity_id = ?1 AND channel_type != 'manual' \
+                 LIMIT 1",
+            )?;
+            match stmt.query_row([peer_identity_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }) {
+                Ok(v) => Some(v),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(crate::KrillnotesError::Database(e)),
+            }
+        };
+
+        let (channel_type, channel_params) = existing_channel
+            .unwrap_or_else(|| ("manual".to_string(), "{}".to_string()));
+
         // Drop all placeholder / stale rows for this identity, then insert one clean row.
         self.conn.execute(
             "DELETE FROM sync_peers WHERE peer_identity_id = ?1",
@@ -293,14 +312,17 @@ impl<'a> PeerRegistry<'a> {
         )?;
         self.conn.execute(
             "INSERT INTO sync_peers \
-                 (peer_device_id, peer_identity_id, last_sent_op, last_received_op, last_sync) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+                 (peer_device_id, peer_identity_id, last_sent_op, last_received_op, last_sync, \
+                  channel_type, channel_params) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 real_device_id,
                 peer_identity_id,
                 existing_last_sent,
                 last_received_op,
-                now
+                now,
+                channel_type,
+                channel_params,
             ],
         )?;
         Ok(())

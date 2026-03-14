@@ -560,8 +560,11 @@ impl Workspace {
         Ok(peers.into_iter().map(|p| PeerSyncInfo {
             peer_device_id: p.peer_device_id,
             peer_identity_id: p.peer_identity_id,
-            channel_type: serde_json::from_str(&format!("\"{}\"", p.channel_type))
-                .unwrap_or(ChannelType::Manual),
+            channel_type: match p.channel_type.as_str() {
+                "relay" => ChannelType::Relay,
+                "folder" => ChannelType::Folder,
+                _ => ChannelType::Manual,
+            },
             channel_params: serde_json::from_str(&p.channel_params)
                 .unwrap_or(serde_json::Value::Object(Default::default())),
             last_sent_op: p.last_sent_op,

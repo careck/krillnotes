@@ -9,7 +9,7 @@ repository = "https://github.com/2pisoftware/krillnotes"
 homepage = "https://krillnotes.org"
 
 [features]
-default = ["relay"]
+default = []
 relay = ["dep:reqwest", "dep:crypto_box"]
 
 [dependencies]

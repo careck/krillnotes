@@ -341,12 +341,40 @@ impl SyncEngine {
                         }
                     }
                     SwarmMode::Snapshot => {
-                        events.push(SyncEvent::UnexpectedBundleMode {
-                            workspace_id: workspace_id.clone(),
-                            mode: "snapshot".to_string(),
-                        });
-                        // Acknowledge anyway to avoid reprocessing
-                        let _ = channel.acknowledge(bundle_ref);
+                        // Decrypt and parse the snapshot bundle, then import it.
+                        match crate::core::swarm::snapshot::parse_snapshot_bundle(
+                            &bundle_ref.data,
+                            ctx.signing_key,
+                        ) {
+                            Ok(parsed) => {
+                                match workspace.import_snapshot_json(&parsed.workspace_json) {
+                                    Ok(_) => {
+                                        let _ = channel.acknowledge(bundle_ref);
+                                        events.push(SyncEvent::BundleApplied {
+                                            workspace_id: workspace_id.clone(),
+                                            peer_device_id: header.source_device_id.clone(),
+                                            op_count: 0,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        events.push(SyncEvent::IngestError {
+                                            workspace_id: workspace_id.clone(),
+                                            peer_device_id: header.source_device_id.clone(),
+                                            error: format!("import_snapshot_json: {e}"),
+                                        });
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                events.push(SyncEvent::IngestError {
+                                    workspace_id: workspace_id.clone(),
+                                    peer_device_id: header.source_device_id.clone(),
+                                    error: format!("parse_snapshot_bundle: {e}"),
+                                });
+                                // Acknowledge to avoid reprocessing unreadable bundles
+                                let _ = channel.acknowledge(bundle_ref);
+                            }
+                        }
                     }
                     other => {
                         events.push(SyncEvent::UnexpectedBundleMode {

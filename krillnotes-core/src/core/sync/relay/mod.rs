@@ -48,20 +48,16 @@ impl SyncChannel for RelayChannel {
         Ok(())
     }
 
-    fn receive_bundles(&self, _workspace_id: &str) -> Result<Vec<BundleRef>, KrillnotesError> {
+    fn receive_bundles(&self, workspace_id: &str) -> Result<Vec<BundleRef>, KrillnotesError> {
         let metas = self.client.list_bundles()?;
+        let metas: Vec<_> = metas.into_iter().filter(|m| m.workspace_id == workspace_id).collect();
         let mut bundles = Vec::new();
         for meta in metas {
-            match self.client.download_bundle(&meta.bundle_id) {
-                Ok(data) => bundles.push(BundleRef {
-                    id: meta.bundle_id,
-                    data,
-                }),
-                Err(e) => {
-                    // Log but continue — don't fail the whole receive for one bad bundle
-                    eprintln!("Failed to download bundle {}: {}", meta.bundle_id, e);
-                }
-            }
+            let data = self.client.download_bundle(&meta.bundle_id)?;
+            bundles.push(BundleRef {
+                id: meta.bundle_id,
+                data,
+            });
         }
         Ok(bundles)
     }
