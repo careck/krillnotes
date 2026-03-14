@@ -219,13 +219,23 @@ impl RelayClient {
     fn map_error(resp: reqwest::blocking::Response) -> KrillnotesError {
         let status = resp.status().as_u16();
         let body = resp.text().unwrap_or_default();
+        // Extract human-readable message from {"error":{"message":"..."}} envelope.
+        let message = Self::extract_error_message(&body)
+            .unwrap_or_else(|| if body.is_empty() { format!("HTTP {status}") } else { body.clone() });
         match status {
-            401 => KrillnotesError::RelayAuthExpired(body),
-            404 | 410 => KrillnotesError::RelayNotFound(body),
-            429 => KrillnotesError::RelayRateLimited(body),
-            500..=599 => KrillnotesError::RelayUnavailable(format!("HTTP {status}: {body}")),
-            _ => KrillnotesError::RelayUnavailable(format!("HTTP {status}: {body}")),
+            401 => KrillnotesError::RelayAuthExpired(message),
+            404 | 410 => KrillnotesError::RelayNotFound(message),
+            409 => KrillnotesError::RelayUnavailable(format!("HTTP 409: {message}")),
+            429 => KrillnotesError::RelayRateLimited(message),
+            _ => KrillnotesError::RelayUnavailable(format!("HTTP {status}: {message}")),
         }
+    }
+
+    /// Try to extract the human-readable message from the relay server's error envelope:
+    /// `{"error":{"code":"...","message":"..."}}`
+    fn extract_error_message(body: &str) -> Option<String> {
+        let v: serde_json::Value = serde_json::from_str(body).ok()?;
+        v.get("error")?.get("message")?.as_str().map(str::to_string)
     }
 
     fn handle_response<T: DeserializeOwned>(

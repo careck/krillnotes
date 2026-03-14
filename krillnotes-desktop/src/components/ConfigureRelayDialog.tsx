@@ -21,10 +21,8 @@ function mapError(raw: string): string {
   const s = raw.toLowerCase();
   if (s.includes('identity') && (s.includes('lock') || s.includes('unlock')))
     return 'Please unlock your identity before configuring relay.';
-  if (s.includes('http 409'))
-    return 'Email already registered — try the Login tab.';
-  if (s.includes('http 401'))
-    return 'Invalid credentials. Please check your email and password.';
+  if (s.includes('http 409') || s.includes('email_exists') || s.includes('already exists'))
+    return 'Email already registered on this relay — use the Login tab instead.';
   // Fall back to the raw error so the user always sees what went wrong.
   return raw;
 }
