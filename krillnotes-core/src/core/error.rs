@@ -108,6 +108,9 @@ pub enum KrillnotesError {
     /// A zip archive operation failed (bundle encoding/decoding).
     #[error("zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
+
+    #[error("Only the workspace owner can modify scripts")]
+    NotOwner,
 }
 
 #[cfg(test)]
@@ -187,6 +190,7 @@ impl KrillnotesError {
             Self::InvalidSignature => "Invalid signature — the file may be tampered or corrupted.".to_string(),
             Self::InviteExpiredOrRevoked => "This invite has expired or been revoked.".to_string(),
             Self::Zip(e) => format!("Bundle archive error: {e}"),
+            Self::NotOwner => "Only the workspace owner can modify scripts".to_string(),
         }
     }
 }
