@@ -97,15 +97,15 @@ fn relay_registration_flow() {
     let client = RelayClient::new(&relay_url);
 
     // 2. Register account — receive PoP challenge.
-    let challenge = client
+    let reg = client
         .register(&email, password, &identity_uuid, &device_pubkey_b64)
         .expect("register should succeed");
 
     // 3. Solve PoP challenge: decrypt the nonce and re-encode as hex.
     let plaintext_nonce = decrypt_pop_challenge(
         &device_key,
-        &challenge.encrypted_nonce,
-        &challenge.server_public_key,
+        &reg.challenge.encrypted_nonce,
+        &reg.challenge.server_public_key,
     )
     .expect("decrypt_pop_challenge should succeed");
     let nonce_hex = hex::encode(&plaintext_nonce);
@@ -166,8 +166,8 @@ fn relay_delta_roundtrip() {
     let register_and_verify = |key: &SigningKey, uuid: &str, email: &str| -> RelayClient {
         let relay = RelayClient::new(&relay_url);
         let pk = b64_pubkey(key);
-        let challenge = relay.register(email, password, uuid, &pk).expect("register");
-        let nonce = decrypt_pop_challenge(key, &challenge.encrypted_nonce, &challenge.server_public_key)
+        let reg = relay.register(email, password, uuid, &pk).expect("register");
+        let nonce = decrypt_pop_challenge(key, &reg.challenge.encrypted_nonce, &reg.challenge.server_public_key)
             .expect("decrypt_pop_challenge");
         let session = relay
             .register_verify(&pk, &hex::encode(&nonce))
@@ -216,7 +216,15 @@ fn relay_delta_roundtrip() {
     )
     .expect("generate_delta");
 
-    let bundle_id = alice_client.upload_bundle(&bundle).expect("upload_bundle");
+    use krillnotes_core::core::sync::relay::client::BundleHeader;
+    let header = BundleHeader {
+        workspace_id: alice_ws.workspace_id().to_string(),
+        sender_device_key: b64_pubkey(&alice_key),
+        recipient_device_keys: vec![bob_pubkey_b64.clone()],
+        mode: Some("delta".to_string()),
+    };
+    let bundle_ids = alice_client.upload_bundle(&header, &bundle).expect("upload_bundle");
+    let bundle_id = bundle_ids.into_iter().next().expect("relay returned at least one bundle_id");
 
     // ── 5. Bob downloads and applies the delta ─────────────────────────────
     // Drop alice_ws before Bob opens the same DB file to avoid concurrent access.

@@ -27,9 +27,23 @@ pub struct RegisterChallenge {
     pub server_public_key: String,
 }
 
+/// Result of a successful account registration.
+#[derive(Debug, Deserialize)]
+pub struct RegisterResult {
+    pub account_id: String,
+    pub challenge: RegisterChallenge,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SessionResponse {
     pub session_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceKeyInfo {
+    pub device_public_key: String,
+    pub verified: bool,
+    pub added_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,7 +51,7 @@ pub struct AccountInfo {
     pub account_id: String,
     pub email: String,
     pub identity_uuid: String,
-    pub device_keys: Vec<String>,
+    pub device_keys: Vec<DeviceKeyInfo>,
     pub role: String,
     pub storage_used: u64,
 }
@@ -45,6 +59,7 @@ pub struct AccountInfo {
 #[derive(Debug, Deserialize)]
 pub struct MailboxInfo {
     pub workspace_id: String,
+    pub registered_at: String,
     pub pending_bundles: u32,
     pub storage_used: u64,
 }
@@ -54,7 +69,8 @@ pub struct BundleMeta {
     pub bundle_id: String,
     pub workspace_id: String,
     pub sender_device_key: String,
-    pub size: u64,
+    pub mode: String,
+    pub size_bytes: u64,
     pub created_at: String,
 }
 
@@ -128,14 +144,27 @@ struct EnsureMailboxRequest<'a> {
     workspace_id: &'a str,
 }
 
+/// Routing header for a bundle upload. Serialised to JSON and sent as the `header` field.
+#[derive(Serialize)]
+pub struct BundleHeader {
+    pub workspace_id: String,
+    pub sender_device_key: String,
+    pub recipient_device_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
 #[derive(Serialize)]
 struct UploadBundleRequest {
+    header: String,  // JSON-encoded BundleHeader
     payload: String, // base64
 }
 
 #[derive(Deserialize)]
-struct BundleIdResponse {
-    bundle_id: String,
+struct UploadBundleResponse {
+    #[allow(dead_code)]
+    routed_to: u32,
+    bundle_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -222,14 +251,14 @@ impl RelayClient {
 
     // ── Auth endpoints ───────────────────────────────────────────────────────
 
-    /// Register a new account. Returns a challenge containing an encrypted nonce.
+    /// Register a new account. Returns the new account ID and a PoP challenge.
     pub fn register(
         &self,
         email: &str,
         password: &str,
         identity_uuid: &str,
         device_public_key: &str,
-    ) -> Result<RegisterChallenge, KrillnotesError> {
+    ) -> Result<RegisterResult, KrillnotesError> {
         let body = RegisterRequest {
             email,
             password,
@@ -393,12 +422,19 @@ impl RelayClient {
 
     // ── Bundles ──────────────────────────────────────────────────────────────
 
-    /// Upload a bundle. Returns the assigned bundle ID.
-    pub fn upload_bundle(&self, bundle_bytes: &[u8]) -> Result<String, KrillnotesError> {
+    /// Upload a bundle. Returns the list of bundle IDs created (one per routed recipient).
+    pub fn upload_bundle(
+        &self,
+        header: &BundleHeader,
+        bundle_bytes: &[u8],
+    ) -> Result<Vec<String>, KrillnotesError> {
         use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
         let auth = self.auth_header()?;
         let payload = BASE64.encode(bundle_bytes);
-        let body = UploadBundleRequest { payload };
+        let header_json = serde_json::to_string(header).map_err(|e| {
+            KrillnotesError::RelayUnavailable(format!("failed to serialize bundle header: {e}"))
+        })?;
+        let body = UploadBundleRequest { header: header_json, payload };
         let resp = self
             .http
             .post(self.url("/bundles"))
@@ -406,8 +442,8 @@ impl RelayClient {
             .json(&body)
             .send()
             .map_err(|e| KrillnotesError::RelayUnavailable(e.to_string()))?;
-        let result: BundleIdResponse = Self::handle_response(resp)?;
-        Ok(result.bundle_id)
+        let result: UploadBundleResponse = Self::handle_response(resp)?;
+        Ok(result.bundle_ids)
     }
 
     /// List all pending bundles for the authenticated account.

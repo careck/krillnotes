@@ -24,12 +24,14 @@ use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SyncChann
 #[cfg(feature = "relay")]
 pub struct RelayChannel {
     client: RelayClient,
+    workspace_id: String,
+    sender_device_key: String,
 }
 
 #[cfg(feature = "relay")]
 impl RelayChannel {
-    pub fn new(client: RelayClient) -> Self {
-        Self { client }
+    pub fn new(client: RelayClient, workspace_id: String, sender_device_key: String) -> Self {
+        Self { client, workspace_id, sender_device_key }
     }
 
     pub fn client(&self) -> &RelayClient {
@@ -43,8 +45,14 @@ impl RelayChannel {
 
 #[cfg(feature = "relay")]
 impl SyncChannel for RelayChannel {
-    fn send_bundle(&self, _peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<(), KrillnotesError> {
-        self.client.upload_bundle(bundle_bytes)?;
+    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<(), KrillnotesError> {
+        let header = client::BundleHeader {
+            workspace_id: self.workspace_id.clone(),
+            sender_device_key: self.sender_device_key.clone(),
+            recipient_device_keys: vec![peer.peer_device_id.clone()],
+            mode: None,
+        };
+        self.client.upload_bundle(&header, bundle_bytes)?;
         Ok(())
     }
 
@@ -84,7 +92,7 @@ mod tests {
     fn test_relay_channel_construction() {
         let client = RelayClient::new("https://relay.example.com")
             .with_session_token("tok_test");
-        let channel = RelayChannel::new(client);
+        let channel = RelayChannel::new(client, "ws-test".to_string(), "sender-key".to_string());
         assert_eq!(channel.channel_type(), ChannelType::Relay);
     }
 }
