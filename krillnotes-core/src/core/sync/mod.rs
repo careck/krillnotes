@@ -5,9 +5,11 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 pub mod channel;
+pub mod folder;
 pub mod manual;
 
 #[cfg(feature = "relay")]
 pub mod relay;
 
 pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SyncChannel};
+pub use folder::FolderChannel;
