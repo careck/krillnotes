@@ -9,7 +9,7 @@
 //! [`ScriptRegistry`] is the public entry point. It owns the Rhai [`Engine`],
 //! loads scripts, and delegates schema and hook concerns to internal sub-registries.
 
-mod display_helpers;
+pub(crate) mod display_helpers;
 mod hooks;
 mod schema;
 

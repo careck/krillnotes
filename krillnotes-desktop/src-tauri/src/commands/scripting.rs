@@ -252,6 +252,20 @@ pub fn render_view(
     workspace.render_view(&note_id, &view_label).map_err(|e| e.to_string())
 }
 
+/// Renders a single textarea field value as markdown HTML with attachment images embedded.
+#[tauri::command]
+pub fn render_markdown_field(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    text: String,
+) -> std::result::Result<String, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.render_markdown_field(&note_id, &text).map_err(|e| e.to_string())
+}
+
 /// Returns script warnings (unresolved bindings).
 #[tauri::command]
 pub fn get_script_warnings(

@@ -286,6 +286,7 @@ pub fn run() {
             get_note_hover,
             get_views_for_type,
             render_view,
+            render_markdown_field,
             get_script_warnings,
             update_note,
             save_note,

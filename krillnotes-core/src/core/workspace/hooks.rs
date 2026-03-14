@@ -443,4 +443,18 @@ impl Workspace {
             .map(|html| self.embed_attachment_images(html))
     }
 
+    /// Renders a single textarea field value as markdown HTML with attachment images embedded.
+    pub fn render_markdown_field(&self, note_id: &str, text: &str) -> Result<String> {
+        use crate::core::scripting::display_helpers;
+        let note = self.get_note(note_id)?;
+        let attachments = self.get_attachments(&note.id).unwrap_or_default();
+        let after_images = display_helpers::preprocess_image_blocks(text, &note.fields, &attachments);
+        let preprocessed = display_helpers::preprocess_media_embeds(&after_images);
+        let html = format!(
+            "<div class=\"kn-view-markdown\">{}</div>",
+            display_helpers::render_markdown_to_html(&preprocessed)
+        );
+        Ok(self.embed_attachment_images(html))
+    }
+
 }
