@@ -7,12 +7,32 @@
 //! Tauri commands for relay-based sync operations.
 
 use crate::AppState;
+use chrono::Utc;
 use tauri::{Emitter, State, Window};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use uuid::Uuid;
 use krillnotes_core::core::{
     device::get_device_id,
     sync::{FolderChannel, SyncContext, SyncEngine, SyncEvent},
+    sync::relay::{
+        RelayCredentials,
+        load_relay_credentials,
+        save_relay_credentials,
+    },
 };
+#[cfg(feature = "relay")]
+use krillnotes_core::core::sync::relay::{RelayChannel, RelayClient};
+#[cfg(feature = "relay")]
+use krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge;
+
+/// Relay account info returned by `get_relay_info`.
+/// Serialised with camelCase keys so the TypeScript interface matches.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayInfo {
+    pub relay_url: String,
+    pub email: String,
+}
 
 // ── update_peer_channel ────────────────────────────────────────────────────
 
