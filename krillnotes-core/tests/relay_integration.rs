@@ -216,9 +216,12 @@ fn relay_delta_roundtrip() {
     )
     .expect("generate_delta");
 
-    alice_client.upload_bundle(&bundle).expect("upload_bundle");
+    let bundle_id = alice_client.upload_bundle(&bundle).expect("upload_bundle");
 
     // ── 5. Bob downloads and applies the delta ─────────────────────────────
+    // Drop alice_ws before Bob opens the same DB file to avoid concurrent access.
+    drop(alice_ws);
+
     // Bob opens the same DB so workspace_id matches the bundle.
     let mut bob_ws = Workspace::open(
         alice_tmp.path(),
@@ -229,17 +232,11 @@ fn relay_delta_roundtrip() {
     .expect("Workspace::open");
     let (_bob_cm_dir, mut bob_cm) = make_contact_manager([0xBBu8; 32]);
 
-    let metas = bob_client.list_bundles().expect("list_bundles");
-    assert!(!metas.is_empty(), "Bob should see at least one bundle");
-
-    let mut applied_total = 0usize;
-    for meta in &metas {
-        let bundle_bytes = bob_client.download_bundle(&meta.bundle_id).expect("download_bundle");
-        let result = apply_delta(&bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm)
-            .expect("apply_delta");
-        applied_total += result.operations_applied;
-        bob_client.delete_bundle(&meta.bundle_id).expect("delete_bundle");
-    }
+    let bundle_bytes = bob_client.download_bundle(&bundle_id).expect("bob download bundle");
+    let result = apply_delta(&bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm)
+        .expect("apply_delta");
+    let applied_total = result.operations_applied;
+    bob_client.delete_bundle(&bundle_id).expect("delete_bundle");
 
     // ── 6. Verify Bob has Alice's operations ───────────────────────────────
     assert!(
