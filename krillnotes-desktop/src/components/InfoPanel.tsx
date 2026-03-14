@@ -89,6 +89,13 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   // - Schema still loading: set pendingEditModeRef so the schema .then() picks it up.
   // This prevents both the "title flash" (entering edit mode before titleCanEdit arrives)
   // and the inverse race where the schema resolves before requestEditMode fires.
+  //
+  // IMPORTANT: selectedNote is intentionally omitted from the dep array.
+  // Including it would cause this effect to re-fire on every note selection while
+  // requestEditMode > 0 (i.e. after the user has ever pressed Enter), spuriously
+  // setting pendingEditModeRef = true and forcing every subsequently selected note
+  // into edit mode — which also blocks the render_view effect (!isEditing guard).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (requestEditMode > 0 && selectedNote) {
       if (schemaLoadedRef.current) {
@@ -97,7 +104,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         pendingEditModeRef.current = true;
       }
     }
-  }, [requestEditMode, selectedNote]);
+  }, [requestEditMode]);
 
   // Fetch HTML for the active custom view tab
   const activeViewHtml = activeTab !== 'fields' ? viewHtml[activeTab] ?? null : null;
