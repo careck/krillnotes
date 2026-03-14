@@ -641,7 +641,12 @@ impl IdentityManager {
     pub fn export_swarmid(&self, identity_uuid: &Uuid, passphrase: &str) -> Result<SwarmIdFile> {
         // Verify passphrase by attempting an unlock (propagates IdentityWrongPassphrase on mismatch)
         self.unlock_identity(identity_uuid, passphrase)?;
+        self.export_swarmid_no_verify(identity_uuid)
+    }
 
+    /// Export without passphrase verification.
+    /// Caller MUST ensure the identity is already unlocked (ownership proven).
+    pub fn export_swarmid_no_verify(&self, identity_uuid: &Uuid) -> Result<SwarmIdFile> {
         // Read the raw IdentityFile from disk
         let file_path = self.identity_file_path(identity_uuid);
         let data = std::fs::read_to_string(&file_path)

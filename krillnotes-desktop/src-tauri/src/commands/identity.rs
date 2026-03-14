@@ -210,10 +210,10 @@ pub fn delete_identity(
 ) -> std::result::Result<(), String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    // Must be locked first
+    // Must be unlocked (proves ownership via passphrase)
     let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
-    if is_unlocked {
-        return Err("Lock the identity before deleting it".to_string());
+    if !is_unlocked {
+        return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
     let workspace_base_dir = PathBuf::from(&crate::settings::load_settings().workspace_directory);
@@ -229,6 +229,13 @@ pub fn rename_identity(
     new_name: String,
 ) -> std::result::Result<(), String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Must be unlocked
+    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    if !is_unlocked {
+        return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
+    }
+
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     mgr.rename_identity(&uuid, &new_name).map_err(|e| e.to_string())
 }
@@ -242,6 +249,13 @@ pub fn change_identity_passphrase(
     new_passphrase: String,
 ) -> std::result::Result<(), String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Must be unlocked
+    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    if !is_unlocked {
+        return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
+    }
+
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     mgr.change_passphrase(&uuid, &old_passphrase, &new_passphrase)
         .map_err(|e| match e {
@@ -295,23 +309,23 @@ pub fn get_workspaces_for_identity(
 }
 
 /// Export an identity to a `.swarmid` file at the given path.
-/// Verifies the passphrase before writing.
-/// Returns `"WRONG_PASSPHRASE"` on passphrase mismatch.
+/// Identity must already be unlocked (ownership proven via passphrase at unlock time).
 #[tauri::command]
 pub fn export_swarmid_cmd(
     state: State<'_, AppState>,
     identity_uuid: String,
-    passphrase: String,
     path: String,
 ) -> std::result::Result<(), String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Must be unlocked (proves ownership)
+    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    if !is_unlocked {
+        return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
+    }
+
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    let swarmid = mgr.export_swarmid(&uuid, &passphrase).map_err(|e| {
-        match e {
-            crate::KrillnotesError::IdentityWrongPassphrase => "WRONG_PASSPHRASE".to_string(),
-            other => other.to_string(),
-        }
-    })?;
+    let swarmid = mgr.export_swarmid_no_verify(&uuid).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(&swarmid).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())

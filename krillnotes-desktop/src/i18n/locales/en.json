@@ -46,10 +46,7 @@
     "failedLoad": "Failed to load settings: {{error}}",
     "failedSave": "Failed to save settings: {{error}}",
     "tabGeneral": "General",
-    "tabSync": "Sync",
     "tabAppearance": "Appearance",
-    "sync": "Sync",
-    "syncHint": "Sync keeps your notes up to date across devices. Coming soon.",
     "undoHistoryLimit": "Undo history limit",
     "undoHistoryLimitHint": "Number of actions that can be undone (1–500)"
   },
@@ -300,7 +297,7 @@
   "menu": {
     "file": "File",
     "edit": "Edit",
-    "tools": "Tools",
+    "workspace": "Workspace",
     "view": "View",
     "help": "Help",
     "newWorkspace": "New Workspace",
@@ -356,7 +353,7 @@
     "noUnlockedIdentities": "No unlocked identities. Unlock an identity first.",
     "workspaceNotBound": "This workspace is not bound to any identity.",
     "export": "Export…",
-    "importSwarmid": "Import .swarmid…",
+    "importSwarmid": "Import…",
     "exportPassphrasePrompt": "Enter your passphrase to export",
     "exportSuccess": "Identity exported successfully",
     "importSuccess": "Identity imported successfully",

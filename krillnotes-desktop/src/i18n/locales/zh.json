@@ -46,10 +46,7 @@
     "failedLoad": "加载设置失败：{{error}}",
     "failedSave": "保存设置失败：{{error}}",
     "tabGeneral": "通用",
-    "tabSync": "同步",
     "tabAppearance": "外观",
-    "sync": "同步",
-    "syncHint": "同步可让您的笔记在各设备间保持最新状态。即将推出。",
     "undoHistoryLimit": "撤销历史限制",
     "undoHistoryLimitHint": "可撤销的操作数量（1–500）"
   },
@@ -296,7 +293,7 @@
   "menu": {
     "file": "文件",
     "edit": "编辑",
-    "tools": "工具",
+    "workspace": "工作区",
     "view": "视图",
     "help": "帮助",
     "newWorkspace": "新建工作区",
@@ -352,7 +349,7 @@
     "noUnlockedIdentities": "No unlocked identities. Unlock an identity first.",
     "workspaceNotBound": "This workspace is not bound to any identity.",
     "export": "Export…",
-    "importSwarmid": "Import .swarmid…",
+    "importSwarmid": "导入…",
     "exportPassphrasePrompt": "Enter your passphrase to export",
     "exportSuccess": "Identity exported successfully",
     "importSuccess": "Identity imported successfully",

@@ -46,10 +46,7 @@
     "failedLoad": "설정을 불러오지 못했습니다: {{error}}",
     "failedSave": "설정을 저장하지 못했습니다: {{error}}",
     "tabGeneral": "일반",
-    "tabSync": "동기화",
     "tabAppearance": "외관",
-    "sync": "동기화",
-    "syncHint": "동기화는 기기 간에 노트를 최신 상태로 유지합니다. 곧 출시됩니다.",
     "undoHistoryLimit": "실행 취소 기록 한도",
     "undoHistoryLimitHint": "실행 취소할 수 있는 작업 수 (1–500)"
   },
@@ -296,7 +293,7 @@
   "menu": {
     "file": "파일",
     "edit": "편집",
-    "tools": "도구",
+    "workspace": "워크스페이스",
     "view": "보기",
     "help": "도움말",
     "newWorkspace": "새 작업 공간",
@@ -352,7 +349,7 @@
     "noUnlockedIdentities": "No unlocked identities. Unlock an identity first.",
     "workspaceNotBound": "This workspace is not bound to any identity.",
     "export": "Export…",
-    "importSwarmid": "Import .swarmid…",
+    "importSwarmid": "가져오기…",
     "exportPassphrasePrompt": "Enter your passphrase to export",
     "exportSuccess": "Identity exported successfully",
     "importSuccess": "Identity imported successfully",

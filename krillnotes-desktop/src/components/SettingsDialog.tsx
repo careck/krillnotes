@@ -27,7 +27,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [originalLanguage, setOriginalLanguage] = useState(() => i18n.language ?? 'en');
   const { activeMode, lightThemeName, darkThemeName, themes, setMode, setLightTheme, setDarkTheme } = useTheme();
   const [manageThemesOpen, setManageThemesOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'sync'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance'>('general');
   const [undoLimit, setUndoLimit] = useState<number | undefined>(undefined);
 
   useEffect(() => {
@@ -127,16 +127,6 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             }`}
           >
             {t('settings.tabAppearance')}
-          </button>
-          <button
-            onClick={() => setActiveTab('sync')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-              activeTab === 'sync'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t('settings.tabSync')}
           </button>
         </div>
 
@@ -271,24 +261,6 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           </div>
         )}
 
-        {activeTab === 'sync' && (
-          <div className="py-2">
-            <label className="flex items-center gap-3 opacity-50 cursor-not-allowed">
-              <input
-                type="checkbox"
-                checked={false}
-                disabled
-                className="w-4 h-4"
-              />
-              <div>
-                <span className="block text-sm font-medium">{t('settings.sync')}</span>
-                <span className="block text-xs text-muted-foreground mt-0.5">
-                  {t('settings.syncHint')}
-                </span>
-              </div>
-            </label>
-          </div>
-        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">

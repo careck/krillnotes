@@ -153,8 +153,10 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
   };
 
   // --- Delete flow ---
+  const isIdentityLocked = selected?.identityUuid != null && !unlockedIds.includes(selected.identityUuid);
+
   const handleDeleteBegin = () => {
-    if (!selected || selected.isOpen) return;
+    if (!selected || selected.isOpen || isIdentityLocked) return;
     setActiveView('delete-confirm');
   };
 
@@ -177,7 +179,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
 
   // --- Duplicate flow ---
   const handleDuplicateBegin = () => {
-    if (!selected) return;
+    if (!selected || isIdentityLocked) return;
     setDupNewName(t('workspaceManager.duplicateCopyPrefix', { name: selected.name }));
     setDupError('');
     setActiveView('duplicate-form');
@@ -432,14 +434,16 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
               </button>
               <button
                 onClick={handleDuplicateBegin}
-                disabled={!selected}
+                disabled={!selected || isIdentityLocked}
+                title={isIdentityLocked ? t('workspaceManager.unlockToDelete', 'Unlock identity to delete') : undefined}
                 className="px-3 py-1.5 border border-secondary rounded hover:bg-secondary disabled:opacity-50 text-sm"
               >
                 {t('workspaceManager.duplicate')}
               </button>
               <button
                 onClick={handleDeleteBegin}
-                disabled={!selected || selected.isOpen}
+                disabled={!selected || selected.isOpen || isIdentityLocked}
+                title={isIdentityLocked ? t('workspaceManager.unlockToDelete', 'Unlock identity to delete') : undefined}
                 className="px-3 py-1.5 border border-red-500/40 text-red-500 rounded hover:bg-red-500/10 disabled:opacity-50 text-sm"
               >
                 {t('workspaceManager.delete')}

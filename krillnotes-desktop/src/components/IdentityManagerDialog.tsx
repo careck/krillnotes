@@ -42,12 +42,10 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
 
   // New state for selection-based UX
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
-  const [activeForm, setActiveForm] = useState<'rename' | 'passphrase' | 'export' | 'publickey' | null>(null);
+  const [activeForm, setActiveForm] = useState<'rename' | 'passphrase' | 'publickey' | null>(null);
   const [publicKey, setPublicKey] = useState('');
   const [fingerprint, setFingerprint] = useState('');
   const [publicKeyCopied, setPublicKeyCopied] = useState(false);
-  const [exportPassphrase, setExportPassphrase] = useState('');
-  const [exportError, setExportError] = useState('');
   const [exporting, setExporting] = useState(false);
 
   const loadData = async () => {
@@ -80,8 +78,6 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
     setUnlocking(null);
     setSelectedUuid(null);
     setActiveForm(null);
-    setExportPassphrase('');
-    setExportError('');
     loadData();
   }, [isOpen]);
 
@@ -90,8 +86,6 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
   const handleSelectRow = (uuid: string) => {
     if (uuid !== selectedUuid) {
       setActiveForm(null);
-      setExportPassphrase('');
-      setExportError('');
       setRenameError('');
       setPassphraseError('');
       setPassphraseSuccess('');
@@ -99,14 +93,15 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
     setSelectedUuid(uuid);
   };
 
-  const toggleForm = (form: 'rename' | 'passphrase' | 'export' | 'publickey') => {
-    if (activeForm === form) {
+  const toggleForm = (form: 'rename' | 'passphrase' | 'publickey', targetUuid?: string) => {
+    const uuid = targetUuid ?? selectedUuid;
+    if (activeForm === form && selectedUuid === uuid) {
       setActiveForm(null);
       return;
     }
     setActiveForm(form);
     if (form === 'rename') {
-      const identity = identities.find(i => i.uuid === selectedUuid);
+      const identity = identities.find(i => i.uuid === uuid);
       setRenamingValue(identity?.displayName ?? '');
       setRenameError('');
     }
@@ -117,15 +112,11 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
       setPassphraseError('');
       setPassphraseSuccess('');
     }
-    if (form === 'export') {
-      setExportPassphrase('');
-      setExportError('');
-    }
     if (form === 'publickey') {
       setPublicKey('');
       setFingerprint('');
       setPublicKeyCopied(false);
-      invoke<{ publicKey: string; fingerprint: string }>('get_identity_public_key', { identityUuid: selectedUuid })
+      invoke<{ publicKey: string; fingerprint: string }>('get_identity_public_key', { identityUuid: uuid })
         .then(info => { setPublicKey(info.publicKey); setFingerprint(info.fingerprint); })
         .catch(e => setError(String(e)));
     }
@@ -226,12 +217,12 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
   };
 
   const handleExport = async () => {
-    if (!selectedUuid || !exportPassphrase) return;
+    if (!selectedUuid) return;
     const identity = identities.find(i => i.uuid === selectedUuid);
     if (!identity) return;
 
     setExporting(true);
-    setExportError('');
+    setError('');
     try {
       const path = await save({
         filters: [{ name: 'Swarm Identity', extensions: ['swarmid'] }],
@@ -242,18 +233,10 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
 
       await invoke('export_swarmid_cmd', {
         identityUuid: selectedUuid,
-        passphrase: exportPassphrase,
         path,
       });
-      setActiveForm(null);
-      setExportPassphrase('');
     } catch (err) {
-      const msg = String(err);
-      if (msg === 'WRONG_PASSPHRASE') {
-        setExportError(t('identity.wrongPassphrase'));
-      } else {
-        setExportError(msg);
-      }
+      setError(String(err));
     } finally {
       setExporting(false);
     }
@@ -325,19 +308,62 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
                       key={identity.uuid}
                       onClick={() => handleSelectRow(identity.uuid)}
                       className={[
-                        'flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer select-none',
+                        'flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer select-none group',
                         selected
                           ? 'bg-primary/10 border border-primary/30'
                           : 'hover:bg-secondary border border-transparent',
                       ].join(' ')}
                     >
-                      <span
-                        className="text-lg shrink-0"
-                        title={unlocked ? t('identity.unlocked') : t('identity.locked')}
+                      <button
+                        className={`shrink-0 hover:scale-110 transition-transform ${unlocked ? 'text-green-600' : 'text-red-500'}`}
+                        title={unlocked ? t('identity.lock') : t('identity.unlock')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (unlocked) {
+                            handleLock(identity.uuid);
+                          } else {
+                            setUnlocking(identity.uuid);
+                          }
+                        }}
                       >
-                        {unlocked ? '🔓' : '🔒'}
-                      </span>
+                        {unlocked ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                            <path fillRule="evenodd" d="M14.5 1A4.5 4.5 0 0 0 10 5.5V9H3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5V5.5a3 3 0 1 1 6 0v2.75a.75.75 0 0 0 1.5 0V5.5A4.5 4.5 0 0 0 14.5 1Z" clipRule="evenodd" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                            <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
                       <span className="flex-1 min-w-0 font-medium truncate">{identity.displayName}</span>
+                      {unlocked && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            className="p-1 rounded hover:bg-secondary/80 text-muted-foreground hover:text-foreground"
+                            title={t('identity.publicKey', 'Public Key')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectRow(identity.uuid);
+                              toggleForm('publickey', identity.uuid);
+                            }}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                              <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                          <button
+                            className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 text-sm"
+                            title={t('identity.delete')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(identity);
+                            }}
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -459,66 +485,7 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
               )}
 
               {/* Export passphrase form */}
-              {activeForm === 'export' && (
-                <div className="px-4 pb-3 pt-2 bg-secondary/30 space-y-2">
-                  <p className="text-xs text-muted-foreground">{t('identity.exportPassphrasePrompt')}</p>
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={exportPassphrase}
-                      onChange={(e) => setExportPassphrase(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleExport();
-                        if (e.key === 'Escape') setActiveForm(null);
-                      }}
-                      className="flex-1 bg-background border border-border rounded px-2 py-1 text-sm"
-                      autoFocus
-                      disabled={exporting}
-                    />
-                    <button
-                      onClick={handleExport}
-                      disabled={!exportPassphrase || exporting}
-                      className="px-3 py-1 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      {exporting ? t('common.saving') : t('identity.export')}
-                    </button>
-                  </div>
-                  {exportError && <p className="text-xs text-red-500">{exportError}</p>}
-                </div>
-              )}
 
-              {/* Public key panel */}
-              {activeForm === 'publickey' && (
-                <div className="px-4 pb-3 pt-2 bg-secondary/30 space-y-3">
-                  <p className="text-xs text-muted-foreground">{t('identity.publicKeyPrompt', 'Share this with anyone who wants to invite you to their workspace.')}</p>
-                  <div>
-                    <p className="text-xs font-medium mb-1">{t('identity.fingerprintLabel', 'Fingerprint (read aloud to verify)')}</p>
-                    <code className="block text-sm font-mono bg-background border border-border rounded px-2 py-2 tracking-wide select-all">
-                      {fingerprint || '…'}
-                    </code>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium mb-1">{t('identity.publicKeyLabel', 'Public Key')}</p>
-                    <code className="block text-xs font-mono bg-background border border-border rounded px-2 py-2 break-all select-all">
-                      {publicKey || '…'}
-                    </code>
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(publicKey).then(() => {
-                          setPublicKeyCopied(true);
-                          setTimeout(() => setPublicKeyCopied(false), 2000);
-                        });
-                      }}
-                      disabled={!publicKey}
-                      className="px-3 py-1 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      {publicKeyCopied ? t('identity.publicKeyCopied', 'Copied!') : t('identity.copyPublicKey', 'Copy')}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -526,22 +493,6 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
           <div className="flex items-center justify-between px-4 py-3 border-t border-border gap-2 flex-wrap">
             {/* Identity-specific actions */}
             <div className="flex items-center gap-1 flex-wrap">
-              {selectedUuid && isUnlocked(selectedUuid) ? (
-                <button
-                  onClick={() => handleLock(selectedUuid)}
-                  className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary"
-                >
-                  {t('identity.lock')}
-                </button>
-              ) : (
-                <button
-                  onClick={() => selectedUuid && setUnlocking(selectedUuid)}
-                  disabled={!selectedUuid}
-                  className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {t('identity.unlock')}
-                </button>
-              )}
               {selectedUuid && isUnlocked(selectedUuid) && (
                 <button
                   onClick={() => setShowContactBook(selectedUuid)}
@@ -552,41 +503,24 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
               )}
               <button
                 onClick={() => selectedUuid && toggleForm('rename')}
-                disabled={!selectedUuid}
+                disabled={!selectedUuid || !isUnlocked(selectedUuid)}
                 className={['px-2 py-1 text-xs border border-border rounded hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed', activeForm === 'rename' ? 'bg-secondary' : ''].join(' ')}
               >
                 {t('identity.rename')}
               </button>
               <button
                 onClick={() => selectedUuid && toggleForm('passphrase')}
-                disabled={!selectedUuid}
+                disabled={!selectedUuid || !isUnlocked(selectedUuid)}
                 className={['px-2 py-1 text-xs border border-border rounded hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed', activeForm === 'passphrase' ? 'bg-secondary' : ''].join(' ')}
               >
                 {t('identity.changePassphrase')}
               </button>
               <button
-                onClick={() => selectedUuid && toggleForm('export')}
-                disabled={!selectedUuid}
-                className={['px-2 py-1 text-xs border border-border rounded hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed', activeForm === 'export' ? 'bg-secondary' : ''].join(' ')}
+                onClick={handleExport}
+                disabled={!selectedUuid || !isUnlocked(selectedUuid) || exporting}
+                className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {t('identity.export')}
-              </button>
-              <button
-                onClick={() => selectedUuid && toggleForm('publickey')}
-                disabled={!selectedUuid}
-                className={['px-2 py-1 text-xs border border-border rounded hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed', activeForm === 'publickey' ? 'bg-secondary' : ''].join(' ')}
-              >
-                {t('identity.publicKey', 'Public Key')}
-              </button>
-              <button
-                onClick={() => {
-                  const id = identities.find(i => i.uuid === selectedUuid);
-                  if (id) handleDelete(id);
-                }}
-                disabled={!selectedUuid}
-                className="px-2 py-1 text-xs border border-red-500/40 text-red-500 rounded hover:bg-red-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {t('identity.delete')}
               </button>
             </div>
 
@@ -635,6 +569,47 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
         }}
         onCancel={() => setUnlocking(null)}
       />
+
+      {activeForm === 'publickey' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-background border border-border rounded-lg w-[420px] p-5 space-y-4">
+            <h3 className="text-lg font-bold">{t('identity.publicKey', 'Public Key')}</h3>
+            <p className="text-xs text-muted-foreground">{t('identity.publicKeyPrompt', 'Share this with anyone who wants to invite you to their workspace.')}</p>
+            <div>
+              <p className="text-xs font-medium mb-1">{t('identity.fingerprintLabel', 'Fingerprint (read aloud to verify)')}</p>
+              <code className="block text-sm font-mono bg-secondary border border-border rounded px-2 py-2 tracking-wide select-all">
+                {fingerprint || '…'}
+              </code>
+            </div>
+            <div>
+              <p className="text-xs font-medium mb-1">{t('identity.publicKeyLabel', 'Public Key')}</p>
+              <code className="block text-xs font-mono bg-secondary border border-border rounded px-2 py-2 break-all select-all">
+                {publicKey || '…'}
+              </code>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setActiveForm(null)}
+                className="px-3 py-1.5 border border-border rounded text-sm hover:bg-secondary"
+              >
+                {t('common.close')}
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(publicKey).then(() => {
+                    setPublicKeyCopied(true);
+                    setTimeout(() => setPublicKeyCopied(false), 2000);
+                  });
+                }}
+                disabled={!publicKey}
+                className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90 disabled:opacity-50"
+              >
+                {publicKeyCopied ? t('identity.publicKeyCopied', 'Copied!') : t('identity.copyPublicKey', 'Copy')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showContactBook && (
         <ContactBookDialog

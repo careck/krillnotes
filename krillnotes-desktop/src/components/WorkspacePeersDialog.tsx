@@ -6,13 +6,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo, InviteFileData, PendingPeer, ContactInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
-import { ImportInviteDialog } from './ImportInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
@@ -46,8 +44,6 @@ export default function WorkspacePeersDialog({
   const [showAddFromContacts, setShowAddFromContacts] = useState(false);
   const [addContactForPeer, setAddContactForPeer] = useState<PeerInfo | null>(null);
   const [showInviteManager, setShowInviteManager] = useState(false);
-  const [importInviteData, setImportInviteData] = useState<InviteFileData | null>(null);
-  const [importInvitePath, setImportInvitePath] = useState<string | null>(null);
   const [pendingResponsePeer, setPendingResponsePeer] = useState<PendingPeer | null>(null);
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
   const [showSendSnapshot, setShowSendSnapshot] = useState(false);
@@ -85,28 +81,6 @@ export default function WorkspacePeersDialog({
       await invoke('remove_workspace_peer', { peerDeviceId: peer.peerDeviceId });
       setConfirmRemoveId(null);
       await loadPeers();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const handleImportInvite = async () => {
-    const path = await open({ filters: [{ name: 'Swarm File', extensions: ['swarm'] }] });
-    if (!path) return;
-    const p = typeof path === 'string' ? path : path[0];
-    // Try invite file first; if it's a response file, fall through to response import.
-    try {
-      const data = await invoke<InviteFileData>('import_invite', { path: p });
-      setImportInvitePath(p);
-      setImportInviteData(data);
-      return;
-    } catch { /* not an invite file — try response */ }
-    try {
-      const peer = await invoke<PendingPeer>('import_invite_response', {
-        identityUuid,
-        path: p,
-      });
-      setPendingResponsePeer(peer);
     } catch (e) {
       setError(String(e));
     }
@@ -231,28 +205,22 @@ export default function WorkspacePeersDialog({
         <div className="flex items-center gap-2 p-4 border-t border-[var(--color-border)]">
           <button
             onClick={() => setShowAddFromContacts(true)}
-            className="px-3 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="flex-1 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
             {t('peers.addFromContacts', '＋ Add from Contacts')}
           </button>
           <button
             onClick={() => setShowInviteManager(true)}
-            className="px-3 py-1.5 text-sm rounded border dark:border-zinc-700"
+            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
           >
             {t('invite.manageInvites')}
-          </button>
-          <button
-            onClick={handleImportInvite}
-            className="px-3 py-1.5 text-sm rounded border dark:border-zinc-700"
-          >
-            {t('invite.importInvite')}
           </button>
           <button
             onClick={() => {
               setSendSnapshotFor(peers.map(p => p.peerIdentityId));
               setShowSendSnapshot(true);
             }}
-            className="px-3 py-1.5 text-sm rounded border border-secondary hover:bg-secondary"
+            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
           >
             Create Snapshot…
           </button>
@@ -288,15 +256,6 @@ export default function WorkspacePeersDialog({
           identityUuid={identityUuid}
           workspaceName={workspaceInfo.filename}
           onClose={() => setShowInviteManager(false)}
-        />
-      )}
-      {importInviteData && importInvitePath && (
-        <ImportInviteDialog
-          initialIdentityUuid={identityUuid}
-          invitePath={importInvitePath}
-          inviteData={importInviteData}
-          onResponded={() => {}}
-          onClose={() => { setImportInviteData(null); setImportInvitePath(null); }}
         />
       )}
       {pendingResponsePeer !== null && (

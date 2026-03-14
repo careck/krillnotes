@@ -46,10 +46,7 @@
     "failedLoad": "設定の読み込みに失敗しました: {{error}}",
     "failedSave": "設定の保存に失敗しました: {{error}}",
     "tabGeneral": "一般",
-    "tabSync": "同期",
     "tabAppearance": "外観",
-    "sync": "同期",
-    "syncHint": "同期により、デバイス間でノートを常に最新の状態に保ちます。近日公開。",
     "undoHistoryLimit": "元に戻す履歴の上限",
     "undoHistoryLimitHint": "元に戻せる操作の数（1〜500）"
   },
@@ -296,7 +293,7 @@
   "menu": {
     "file": "ファイル",
     "edit": "編集",
-    "tools": "ツール",
+    "workspace": "ワークスペース",
     "view": "表示",
     "help": "ヘルプ",
     "newWorkspace": "新しいワークスペース",
@@ -352,7 +349,7 @@
     "noUnlockedIdentities": "No unlocked identities. Unlock an identity first.",
     "workspaceNotBound": "This workspace is not bound to any identity.",
     "export": "Export…",
-    "importSwarmid": "Import .swarmid…",
+    "importSwarmid": "インポート…",
     "exportPassphrasePrompt": "Enter your passphrase to export",
     "exportSuccess": "Identity exported successfully",
     "importSuccess": "Identity imported successfully",

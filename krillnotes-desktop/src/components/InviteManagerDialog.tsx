@@ -49,6 +49,26 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
     }
   };
 
+  const handleDelete = async (inviteId: string) => {
+    try {
+      await invoke('delete_invite', { identityUuid, inviteId });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handlePurgeRevoked = async () => {
+    try {
+      await invoke('delete_revoked_invites', { identityUuid });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const hasRevoked = invites.some(i => i.revoked);
+
   const handleImportResponse = async () => {
     const path = await open({ filters: [{ name: 'Swarm Response', extensions: ['swarm'] }] });
     if (!path) return;
@@ -99,6 +119,14 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
             >
               {t('invite.importResponse')}
             </button>
+            {hasRevoked && (
+              <button
+                onClick={handlePurgeRevoked}
+                className="px-3 py-1.5 text-sm rounded border border-red-300 text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
+              >
+                {t('invite.purgeRevoked', 'Purge Revoked')}
+              </button>
+            )}
           </div>
 
           <div className="overflow-y-auto flex-1">
@@ -122,14 +150,25 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
                         )}
                       </p>
                     </div>
-                    {!invite.revoked && (
-                      <button
-                        onClick={() => handleRevoke(invite.inviteId)}
-                        className="text-xs text-red-500 hover:underline"
-                      >
-                        {t('invite.revoke')}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {!invite.revoked && (
+                        <button
+                          onClick={() => handleRevoke(invite.inviteId)}
+                          className="text-xs text-red-500 hover:underline"
+                        >
+                          {t('invite.revoke')}
+                        </button>
+                      )}
+                      {invite.revoked && (
+                        <button
+                          onClick={() => handleDelete(invite.inviteId)}
+                          className="p-1.5 rounded hover:bg-[var(--color-secondary)] text-[var(--color-muted-foreground)] hover:text-red-500 text-sm"
+                          title={t('invite.deleteInvite', 'Delete invite')}
+                        >
+                          🗑
+                        </button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

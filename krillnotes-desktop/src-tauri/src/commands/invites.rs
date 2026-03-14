@@ -151,6 +151,30 @@ pub fn revoke_invite(
 }
 
 #[tauri::command]
+pub fn delete_invite(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_id: String,
+) -> std::result::Result<(), String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let invite_uuid = Uuid::parse_str(&invite_id).map_err(|e| e.to_string())?;
+    let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+    let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+    im.delete_invite(invite_uuid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_revoked_invites(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+) -> std::result::Result<u32, String> {
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+    let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+    im.delete_revoked_invites().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn import_invite_response(
     state: State<'_, AppState>,
     identity_uuid: String,

@@ -29,7 +29,7 @@ struct FileMenuResult<R: Runtime> {
     workspace_items: Vec<MenuItem<R>>,
 }
 
-struct ToolsMenuResult<R: Runtime> {
+struct WorkspaceMenuResult<R: Runtime> {
     submenu: Submenu<R>,
     workspace_items: Vec<MenuItem<R>>,
 }
@@ -37,12 +37,12 @@ struct ToolsMenuResult<R: Runtime> {
 /// Builds the application menu with labels from `strings` (the `menu` section
 /// of a locale JSON, as returned by [`crate::locales::menu_strings`]).
 ///
-/// On macOS: App menu (Krillnotes), File, Edit, Tools, View.
-/// On other platforms: File, Edit, Tools, View, Help.
+/// On macOS: App menu (Krillnotes), File, Edit, Workspace, View.
+/// On other platforms: File, Edit, Workspace, View, Help.
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<MenuResult<R>, tauri::Error> {
     let file_result = build_file_menu(app, strings)?;
     let edit_result = build_edit_menu(app, strings)?;
-    let tools_result = build_tools_menu(app, strings)?;
+    let tools_result = build_workspace_menu(app, strings)?;
     let view_menu = build_view_menu(app, strings)?;
 
     let mut workspace_items = Vec::new();
@@ -95,7 +95,19 @@ fn build_view_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Su
         .build()
 }
 
-fn build_tools_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<ToolsMenuResult<R>, tauri::Error> {
+fn build_workspace_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<WorkspaceMenuResult<R>, tauri::Error> {
+    let workspace_properties = MenuItemBuilder::with_id("workspace_properties", s(strings, "workspaceProperties", "Workspace Properties\u{2026}"))
+        .enabled(false)
+        .build(app)?;
+    let workspace_peers_item = MenuItemBuilder::with_id("workspace_peers",
+        s(strings, "workspacePeers", "Workspace Peers"))
+        .enabled(false)
+        .build(app)?;
+    let create_delta_swarm_item = MenuItemBuilder::with_id("create_delta_swarm",
+        s(strings, "createDeltaSwarm", "Create delta Swarm"))
+        .enabled(false)
+        .build(app)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
     let manage_scripts = MenuItemBuilder::with_id("edit_manage_scripts", s(strings, "manageScripts", "Manage Scripts..."))
         .enabled(false)
         .build(app)?;
@@ -103,13 +115,13 @@ fn build_tools_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<T
         .enabled(false)
         .build(app)?;
 
-    let submenu = SubmenuBuilder::new(app, s(strings, "tools", "Tools"))
-        .items(&[&manage_scripts, &operations_log])
+    let submenu = SubmenuBuilder::new(app, s(strings, "workspace", "Workspace"))
+        .items(&[&workspace_properties, &workspace_peers_item, &create_delta_swarm_item, &sep1, &manage_scripts, &operations_log])
         .build()?;
 
-    Ok(ToolsMenuResult {
+    Ok(WorkspaceMenuResult {
         submenu,
-        workspace_items: vec![manage_scripts, operations_log],
+        workspace_items: vec![workspace_properties, workspace_peers_item, create_delta_swarm_item, manage_scripts, operations_log],
     })
 }
 
@@ -133,12 +145,6 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
         .build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let close_item = PredefinedMenuItem::close_window(app, None)?;
-    let invite_item = MenuItemBuilder::with_id(
-        "file_invite_peer",
-        s(strings, "invitePeer", "Invite Peer\u{2026}"),
-    )
-    .enabled(false)
-    .build(app)?;
     let open_swarm_item = MenuItemBuilder::with_id(
         "file_open_swarm",
         s(strings, "openSwarmFile", "Open .swarm File\u{2026}"),
@@ -147,7 +153,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let sep_sync = PredefinedMenuItem::separator(app)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "file", "File"))
-        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &invite_item, &open_swarm_item, &sep2, &close_item]);
+        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &open_swarm_item, &sep2, &close_item]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -158,7 +164,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let submenu = builder.build()?;
     Ok(FileMenuResult {
         submenu,
-        workspace_items: vec![export_item, invite_item],
+        workspace_items: vec![export_item],
     })
 }
 
@@ -182,18 +188,6 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         .enabled(false)
         .build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let workspace_properties = MenuItemBuilder::with_id("workspace_properties", s(strings, "workspaceProperties", "Workspace Properties\u{2026}"))
-        .enabled(false)
-        .build(app)?;
-    let workspace_peers_item = MenuItemBuilder::with_id("workspace_peers",
-        s(strings, "workspacePeers", "Workspace Peers"))
-        .enabled(false)
-        .build(app)?;
-    let create_delta_swarm_item = MenuItemBuilder::with_id("create_delta_swarm",
-        s(strings, "createDeltaSwarm", "Create delta Swarm"))
-        .enabled(false)
-        .build(app)?;
-    let sep3 = PredefinedMenuItem::separator(app)?;
     let undo       = PredefinedMenuItem::undo(app, None)?;
     let redo       = PredefinedMenuItem::redo(app, None)?;
     let cut        = PredefinedMenuItem::cut(app, None)?;
@@ -202,8 +196,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
     let select_all = PredefinedMenuItem::select_all(app, None)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "edit", "Edit"))
-        .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling,
-                 &sep2, &workspace_properties, &workspace_peers_item, &create_delta_swarm_item, &sep3]);
+        .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling, &sep2]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -219,7 +212,7 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
         submenu,
         paste_as_child: paste_child,
         paste_as_sibling: paste_sibling,
-        workspace_items: vec![add_note, delete_note, copy_note, workspace_properties, workspace_peers_item, create_delta_swarm_item],
+        workspace_items: vec![add_note, delete_note, copy_note],
     })
 }
 

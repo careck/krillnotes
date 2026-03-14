@@ -46,10 +46,7 @@
     "failedLoad": "Error al cargar los ajustes: {{error}}",
     "failedSave": "Error al guardar los ajustes: {{error}}",
     "tabGeneral": "General",
-    "tabSync": "Sync",
     "tabAppearance": "Apariencia",
-    "sync": "Sync",
-    "syncHint": "La sincronización mantiene tus notas actualizadas en todos tus dispositivos. Próximamente.",
     "undoHistoryLimit": "Límite del historial de deshacer",
     "undoHistoryLimitHint": "Número de acciones que se pueden deshacer (1–500)"
   },
@@ -298,7 +295,7 @@
   "menu": {
     "file": "Archivo",
     "edit": "Editar",
-    "tools": "Herramientas",
+    "workspace": "Espacio de trabajo",
     "view": "Ver",
     "help": "Ayuda",
     "newWorkspace": "Nuevo espacio de trabajo",
@@ -354,7 +351,7 @@
     "noUnlockedIdentities": "No unlocked identities. Unlock an identity first.",
     "workspaceNotBound": "This workspace is not bound to any identity.",
     "export": "Export…",
-    "importSwarmid": "Import .swarmid…",
+    "importSwarmid": "Importar…",
     "exportPassphrasePrompt": "Enter your passphrase to export",
     "exportSuccess": "Identity exported successfully",
     "importSuccess": "Identity imported successfully",

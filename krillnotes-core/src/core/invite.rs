@@ -277,6 +277,29 @@ impl InviteManager {
         self.save_record(&record)
     }
 
+    /// Delete an invite record from disk permanently.
+    pub fn delete_invite(&mut self, invite_id: Uuid) -> Result<()> {
+        let path = self.path_for(invite_id);
+        if !path.exists() {
+            return Err(KrillnotesError::Swarm(format!("Invite {} not found", invite_id)));
+        }
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    /// Delete all revoked invite records from disk. Returns the number deleted.
+    pub fn delete_revoked_invites(&mut self) -> Result<u32> {
+        let records = self.list_invites()?;
+        let mut count = 0u32;
+        for record in records {
+            if record.revoked {
+                std::fs::remove_file(self.path_for(record.invite_id))?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     pub fn increment_use_count(&mut self, invite_id: Uuid) -> Result<()> {
         let mut record = self
             .get_invite(invite_id)?
@@ -376,6 +399,40 @@ mod manager_tests {
         mgr.revoke_invite(record.invite_id).unwrap();
         let list = mgr.list_invites().unwrap();
         assert!(list[0].revoked);
+    }
+
+    #[test]
+    fn delete_invite() {
+        let (dir, key) = setup();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let (record, _) = mgr
+            .create_invite("ws-id", "My Workspace", None, &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        assert_eq!(mgr.list_invites().unwrap().len(), 1);
+        mgr.delete_invite(record.invite_id).unwrap();
+        assert_eq!(mgr.list_invites().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn delete_revoked_invites() {
+        let (dir, key) = setup();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let (r1, _) = mgr
+            .create_invite("ws-id", "WS1", None, &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        let (_r2, _) = mgr
+            .create_invite("ws-id", "WS2", None, &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        let (r3, _) = mgr
+            .create_invite("ws-id", "WS3", None, &key, "Alice", None, None, None, None, None, vec![])
+            .unwrap();
+        mgr.revoke_invite(r1.invite_id).unwrap();
+        mgr.revoke_invite(r3.invite_id).unwrap();
+        let deleted = mgr.delete_revoked_invites().unwrap();
+        assert_eq!(deleted, 2);
+        let remaining = mgr.list_invites().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert!(!remaining[0].revoked);
     }
 
     #[test]
