@@ -1135,6 +1135,17 @@ pub fn duplicate_workspace(
     Ok(())
 }
 
+#[tauri::command]
+pub fn is_workspace_owner(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<bool, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    Ok(workspace.is_owner())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

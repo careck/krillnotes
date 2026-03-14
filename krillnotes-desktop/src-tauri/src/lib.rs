@@ -331,6 +331,7 @@ pub fn run() {
             list_workspace_files,
             delete_workspace,
             duplicate_workspace,
+            is_workspace_owner,
             list_identities,
             resolve_identity_name,
             create_identity,
