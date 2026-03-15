@@ -8,7 +8,6 @@ pub mod channel;
 pub mod folder;
 pub mod manual;
 
-#[cfg(feature = "relay")]
 pub mod relay;
 
 pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};

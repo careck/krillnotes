@@ -5,6 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 pub mod auth;
+pub mod relay_account;
 
 #[cfg(feature = "relay")]
 pub mod client;
@@ -12,6 +13,7 @@ pub mod client;
 pub use auth::{
     delete_relay_credentials, load_relay_credentials, save_relay_credentials, RelayCredentials,
 };
+pub use relay_account::{RelayAccount, RelayAccountManager};
 
 #[cfg(feature = "relay")]
 pub use client::RelayClient;
