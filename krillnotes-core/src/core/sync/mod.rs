@@ -164,6 +164,10 @@ impl SyncEngine {
 
         let active_peers = workspace.get_active_sync_peers()?;
 
+        // Track peers that sent us bundles so we know which 0-op outbound
+        // bundles actually need to carry a fresh ACK.
+        let mut peers_with_inbound: HashSet<String> = HashSet::new();
+
         // ── 1. Inbound: receive + apply bundles ────────────────────────────
         //    Process inbound BEFORE outbound so that:
         //    (a) ACK-behind checks compare against the PRE-outbound watermark,
@@ -252,6 +256,7 @@ impl SyncEngine {
                             Ok(result) => {
                                 log::info!(target: "krillnotes::sync", "applied delta from peer {}: {} ops", result.sender_device_id, result.operations_applied);
                                 let _ = channel.acknowledge(bundle_ref);
+                                peers_with_inbound.insert(result.sender_device_id.clone());
                                 events.push(SyncEvent::BundleApplied {
                                     workspace_id: workspace_id.clone(),
                                     peer_device_id: result.sender_device_id,
@@ -381,6 +386,18 @@ impl SyncEngine {
                     continue;
                 }
             };
+
+            // Skip 0-op bundles unless we received from this peer in the
+            // inbound phase (meaning we have a fresh ACK to deliver).
+            if delta.op_count == 0 && !peers_with_inbound.contains(&peer.peer_device_id) {
+                let _ = workspace.update_peer_sync_status(
+                    &peer.peer_device_id,
+                    "idle",
+                    None,
+                    None,
+                );
+                continue;
+            }
 
             // Send via channel
             log::debug!(target: "krillnotes::sync", "sending bundle ({} bytes, {} ops) to peer {}",
