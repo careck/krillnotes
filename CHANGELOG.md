@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Folder sync addressing** — Recipient-prefixed filenames and inbox filtering so bundles in a shared folder are only picked up by the intended peer, with base64 slash sanitization for safe path handling
+- **Watermark feedback loop** — ACK now tracks the last bundle op (not just applied ops), eliminating infinite full-resend loops in multi-device topologies
+- **Poll order** — Inbound-first processing prevents false ACK-behind resets from one-cycle timing lag
+- **0-op bundle suppression** — No bundles sent when idle; no ACK ping-pong between peers
+- **Echo prevention** — `received_from_peer` tracking prevents hub nodes from echoing forwarded ops back to the original sender
+- **HLC-ordered delta application** — Delta ops from all channels are collected and sorted by HLC timestamp before applying, preventing watermark issues when bundles arrive out of order across channels
+
 ## [0.4.0] — 2026-03-15
 
 > **Sync is here.** This release adds multi-device workspace sync — via a relay server, a shared folder, or manual `.swarm` file exchange. It also introduces an encrypted contact book, a peer invite workflow, workspace snapshots, and owner-only script enforcement.
