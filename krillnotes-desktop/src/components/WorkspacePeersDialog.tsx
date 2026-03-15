@@ -270,22 +270,24 @@ export default function WorkspacePeersDialog({
                     <div className="flex items-center gap-1.5">
                       <select
                         value={selectedChannelType}
-                        onChange={e => setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: e.target.value }))}
+                        onChange={async (e) => {
+                          const newType = e.target.value;
+                          setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: newType }));
+                          // "manual" applies immediately — no configuration needed
+                          if (newType === 'manual') {
+                            await handleUpdateChannel(peer, newType);
+                          }
+                        }}
                         className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)]"
                       >
                         <option value="relay">Relay</option>
                         <option value="folder">Folder</option>
                         <option value="manual">Manual</option>
                       </select>
-                      {selectedChannelType !== 'relay' && (
+                      {selectedChannelType === 'folder' && (
                         <button
                           onClick={() => handleUpdateChannel(peer, selectedChannelType)}
-                          disabled={
-                            selectedChannelType !== 'folder' &&
-                            selectedChannelType === peer.channelType &&
-                            !(peer.peerDeviceId in pendingChannelType)
-                          }
-                          className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+                          className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
                         >
                           {t('peers.configure', 'Configure')}
                         </button>
