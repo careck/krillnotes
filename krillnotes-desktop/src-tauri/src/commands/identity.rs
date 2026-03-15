@@ -225,12 +225,13 @@ pub fn unlock_identity(
         }
     }
 
-    // Fire-and-forget: auto-login expired relay sessions in the background.
-    // `unlock_identity` is `pub fn` (synchronous), but Tauri v2 runs sync commands
-    // within a Tokio runtime context, so `tokio::task::spawn` works here.
+    // Fire-and-forget: auto-login expired relay sessions on a background thread.
+    // Uses std::thread::spawn (not tokio::task::spawn) because sync Tauri commands
+    // may not have a Tokio runtime context. RelayClient uses reqwest::blocking which
+    // manages its own internal runtime, so no Tokio runtime is needed here.
     let ram_clone = state.relay_account_managers.clone();
     let uuid_clone = uuid;
-    tokio::task::spawn(async move {
+    std::thread::spawn(move || {
         let accounts = {
             let mgrs = match ram_clone.lock() {
                 Ok(m) => m,
@@ -250,38 +251,28 @@ pub fn unlock_identity(
                 continue; // session still valid or no password stored
             }
 
-            let dpk = acct.device_public_key.clone();
             let url = acct.relay_url.clone();
-            let email = acct.email.clone();
-            let pw = acct.password.clone();
-            let acct_id = acct.relay_account_id;
-
-            let result = tokio::task::spawn_blocking(move || {
-                let client = krillnotes_core::core::sync::relay::RelayClient::new(&url);
-                client.login(&email, &pw, &dpk)
-            })
-            .await;
+            let client = krillnotes_core::core::sync::relay::RelayClient::new(&url);
+            let result = client.login(&acct.email, &acct.password, &acct.device_public_key);
 
             let mgrs = match ram_clone.lock() {
                 Ok(m) => m,
                 Err(_) => continue,
             };
             if let Some(mgr) = mgrs.get(&uuid_clone) {
-                if let Ok(Some(mut updated)) = mgr.get_relay_account(acct_id) {
+                if let Ok(Some(mut updated)) = mgr.get_relay_account(acct.relay_account_id) {
                     match result {
-                        Ok(Ok(session)) => {
+                        Ok(session) => {
                             updated.session_token = session.session_token;
                             updated.session_expires_at = chrono::Utc::now() + chrono::Duration::days(30);
                             let _ = mgr.save_relay_account(&updated);
+                            log::info!("Auto-login succeeded for relay {url}");
                         }
-                        Ok(Err(_login_err)) => {
+                        Err(e) => {
                             // Auth failure: mark session as invalid
                             updated.session_expires_at = chrono::DateTime::<chrono::Utc>::MIN_UTC;
                             let _ = mgr.save_relay_account(&updated);
-                            log::warn!("Auto-login failed for relay {}, marking session invalid", acct.relay_url);
-                        }
-                        Err(_join_err) => {
-                            // spawn_blocking panicked — skip
+                            log::warn!("Auto-login failed for relay {url}: {e}");
                         }
                     }
                 }
