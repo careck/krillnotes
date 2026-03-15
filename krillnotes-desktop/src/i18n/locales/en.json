@@ -451,7 +451,11 @@
     "confirmRemove": "Remove this peer from the workspace?",
     "removePeer": "Remove peer",
     "addFromContacts": "Add from contacts",
-    "createInviteFile": "Create invite file"
+    "createInviteFile": "Create invite file",
+    "syncNow": "Sync Now",
+    "syncing": "Syncing…",
+    "configure": "Configure",
+    "forceResync": "Force Resync"
   },
   "invite": {
     "createTitle": "Create Invite",

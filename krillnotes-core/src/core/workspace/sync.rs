@@ -600,10 +600,18 @@ impl Workspace {
     }
 
     /// Returns true if there are operations to send to at least one non-manual peer.
+    ///
+    /// Returns true if:
+    /// - A peer has no watermark at all (needs a snapshot), OR
+    /// - A peer's watermark is set but newer ops exist after it (needs a delta).
     pub fn has_pending_ops_for_any_peer(&self) -> Result<bool> {
         let peers = self.get_active_sync_peers()?;
         let conn = self.storage.connection();
         for peer in &peers {
+            if peer.last_sent_op.is_none() {
+                // Peer hasn't received a snapshot yet — work is needed.
+                return Ok(true);
+            }
             if let Some(ref op_id) = peer.last_sent_op {
                 // Check if any ops exist after the watermark using HLC comparison.
                 let hlc = conn.query_row(

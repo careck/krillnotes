@@ -446,3 +446,41 @@ pub async fn write_temp_swarm_bytes(
 ) -> Result<String, String> {
     Err("write_temp_swarm_bytes not yet implemented".to_string())
 }
+
+// ── reset_peer_watermark ───────────────────────────────────────────────────
+
+/// Reset the `last_sent_op` watermark for a peer to `None`.
+///
+/// This forces the next sync cycle to generate a full delta from the beginning,
+/// which is useful when the peer has reported they are missing operations.
+#[tauri::command]
+pub fn reset_peer_watermark(
+    window: Window,
+    state: State<'_, AppState>,
+    peer_device_id: String,
+) -> Result<(), String> {
+    log::info!("reset_peer_watermark(window={}, peer={})", window.label(), peer_device_id);
+    let workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
+    let ws = workspaces
+        .get(window.label())
+        .ok_or("No workspace open for this window")?;
+    ws.reset_peer_watermark(&peer_device_id, None)
+        .map_err(|e| e.to_string())
+}
+
+// ── has_pending_sync_ops ───────────────────────────────────────────────────
+
+/// Returns true if there are operations queued to send to at least one non-manual peer.
+///
+/// Used by the frontend to grey out the "Sync Now" button when nothing is pending.
+#[tauri::command]
+pub fn has_pending_sync_ops(
+    window: Window,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
+    let ws = workspaces
+        .get(window.label())
+        .ok_or("No workspace open for this window")?;
+    ws.has_pending_ops_for_any_peer().map_err(|e| e.to_string())
+}

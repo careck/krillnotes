@@ -447,7 +447,11 @@
     "confirmRemove": "このピアをワークスペースから削除しますか？",
     "removePeer": "ピアを削除",
     "addFromContacts": "連絡先から追加",
-    "createInviteFile": "招待ファイルを作成"
+    "createInviteFile": "招待ファイルを作成",
+    "syncNow": "今すぐ同期",
+    "syncing": "同期中…",
+    "configure": "設定",
+    "forceResync": "強制再同期"
   },
   "invite": {
     "createTitle": "Create Invite",

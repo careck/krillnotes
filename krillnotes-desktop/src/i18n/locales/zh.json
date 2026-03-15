@@ -447,7 +447,11 @@
     "confirmRemove": "从工作区移除此对等节点？",
     "removePeer": "移除节点",
     "addFromContacts": "从联系人添加",
-    "createInviteFile": "创建邀请文件"
+    "createInviteFile": "创建邀请文件",
+    "syncNow": "立即同步",
+    "syncing": "同步中…",
+    "configure": "配置",
+    "forceResync": "强制重新同步"
   },
   "invite": {
     "createTitle": "Create Invite",

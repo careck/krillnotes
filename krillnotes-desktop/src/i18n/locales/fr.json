@@ -449,7 +449,11 @@
     "confirmRemove": "Supprimer ce pair de l'espace de travail ?",
     "removePeer": "Supprimer le pair",
     "addFromContacts": "Ajouter depuis les contacts",
-    "createInviteFile": "Créer un fichier d'invitation"
+    "createInviteFile": "Créer un fichier d'invitation",
+    "syncNow": "Synchroniser maintenant",
+    "syncing": "Synchronisation…",
+    "configure": "Configurer",
+    "forceResync": "Forcer la resynchronisation"
   },
   "invite": {
     "createTitle": "Create Invite",

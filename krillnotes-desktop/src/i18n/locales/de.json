@@ -449,7 +449,11 @@
     "confirmRemove": "Diesen Peer aus dem Arbeitsbereich entfernen?",
     "removePeer": "Peer entfernen",
     "addFromContacts": "Aus Kontakten hinzufügen",
-    "createInviteFile": "Einladungsdatei erstellen"
+    "createInviteFile": "Einladungsdatei erstellen",
+    "syncNow": "Jetzt synchronisieren",
+    "syncing": "Synchronisiert…",
+    "configure": "Konfigurieren",
+    "forceResync": "Neu synchronisieren"
   },
   "invite": {
     "createTitle": "Create Invite",

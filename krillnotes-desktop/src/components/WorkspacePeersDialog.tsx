@@ -72,6 +72,8 @@ export default function WorkspacePeersDialog({
   const [showConfigureRelay, setShowConfigureRelay] = useState<PeerInfo | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [hasPendingOps, setHasPendingOps] = useState(true);
+  const [resyncingPeer, setResyncingPeer] = useState<string | null>(null);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -86,9 +88,19 @@ export default function WorkspacePeersDialog({
     }
   }, []);
 
+  const checkPendingOps = useCallback(async () => {
+    try {
+      const pending = await invoke<boolean>('has_pending_sync_ops');
+      setHasPendingOps(pending);
+    } catch {
+      setHasPendingOps(true); // fail open: assume there's something to send
+    }
+  }, []);
+
   useEffect(() => {
     loadPeers();
-  }, [loadPeers]);
+    checkPendingOps();
+  }, [loadPeers, checkPendingOps]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -149,10 +161,24 @@ export default function WorkspacePeersDialog({
         setSyncResult(`Sent ${sent} bundle(s), applied ${applied} bundle(s)`);
       }
       await loadPeers();
+      await checkPendingOps();
     } catch (e) {
       setSyncResult(`Error: ${String(e)}`);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleForceResync = async (peer: PeerInfo) => {
+    setResyncingPeer(peer.peerDeviceId);
+    setError(null);
+    try {
+      await invoke('reset_peer_watermark', { peerDeviceId: peer.peerDeviceId });
+      await checkPendingOps();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setResyncingPeer(null);
     }
   };
 
@@ -285,6 +311,16 @@ export default function WorkspacePeersDialog({
                 </div>
 
                 <div className="flex items-center gap-1 ml-2 shrink-0">
+                  {peer.channelType !== 'manual' && (
+                    <button
+                      title={t('peers.forceResync', 'Force full resync from this peer')}
+                      onClick={() => handleForceResync(peer)}
+                      disabled={resyncingPeer === peer.peerDeviceId}
+                      className="p-1.5 rounded hover:bg-[var(--color-secondary)] text-[var(--color-muted-foreground)] hover:text-amber-400 text-sm disabled:opacity-40"
+                    >
+                      ↺
+                    </button>
+                  )}
                   {!peer.contactId && (
                     <button
                       title={t('peers.addToContacts', 'Add to contacts')}
@@ -354,7 +390,7 @@ export default function WorkspacePeersDialog({
           </button>
           <button
             onClick={handleSyncNow}
-            disabled={syncing || peers.filter(p => p.channelType !== 'manual').length === 0}
+            disabled={syncing || !hasPendingOps || peers.filter(p => p.channelType !== 'manual').length === 0}
             className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
           >
             {syncing ? t('peers.syncing', 'Syncing…') : t('peers.syncNow', 'Sync Now')}

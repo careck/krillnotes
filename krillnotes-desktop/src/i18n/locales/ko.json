@@ -447,7 +447,11 @@
     "confirmRemove": "이 피어를 워크스페이스에서 제거하시겠습니까?",
     "removePeer": "피어 제거",
     "addFromContacts": "연락처에서 추가",
-    "createInviteFile": "초대 파일 만들기"
+    "createInviteFile": "초대 파일 만들기",
+    "syncNow": "지금 동기화",
+    "syncing": "동기화 중…",
+    "configure": "구성",
+    "forceResync": "강제 재동기화"
   },
   "invite": {
     "createTitle": "Create Invite",

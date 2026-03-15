@@ -416,6 +416,8 @@ pub fn run() {
             get_relay_info,
             parse_invite_bytes,
             write_temp_swarm_bytes,
+            sync::reset_peer_watermark,
+            sync::has_pending_sync_ops,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
