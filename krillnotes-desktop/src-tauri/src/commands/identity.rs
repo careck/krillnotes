@@ -108,6 +108,26 @@ pub fn create_identity(
         Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
     }
 
+    // Initialize per-identity RelayAccountManager (no migration needed for fresh identity)
+    let relay_key = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        ids.get(&uuid).map(|u| u.relay_key())
+    };
+    if let Some(relay_key) = relay_key {
+        let relays_dir = crate::settings::config_dir()
+            .join("identities")
+            .join(uuid.to_string())
+            .join("relays");
+        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
+            Ok(relay_mgr) => {
+                state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
+            }
+        }
+    }
+
     // Return the IdentityRef
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let identities = mgr.list_identities().map_err(|e| e.to_string())?;
@@ -159,6 +179,52 @@ pub fn unlock_identity(
         Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
         Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
     }
+
+    // Initialize per-identity RelayAccountManager (encrypted relay accounts)
+    let relay_key = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        ids.get(&uuid).map(|u| u.relay_key())
+    };
+    if let Some(relay_key) = relay_key {
+        let relays_dir = crate::settings::config_dir()
+            .join("identities")
+            .join(uuid.to_string())
+            .join("relays");
+        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
+            Ok(relay_mgr) => {
+                // Migrate old-style single relay credentials if they exist
+                let old_relay_dir = crate::settings::config_dir().join("relay");
+                if let Ok(Some(old_creds)) = krillnotes_core::core::sync::relay::load_relay_credentials(
+                    &old_relay_dir,
+                    &identity_uuid,
+                    &relay_key,
+                ) {
+                    if relay_mgr.find_by_url(&old_creds.relay_url).unwrap_or(None).is_none() {
+                        match relay_mgr.create_relay_account(
+                            &old_creds.relay_url,
+                            &old_creds.email,
+                            "",  // old format has no password
+                            &old_creds.session_token,
+                            old_creds.session_expires_at,
+                            &old_creds.device_public_key,
+                        ) {
+                            Ok(_) => log::info!("Migrated old relay credentials for {uuid}"),
+                            Err(e) => log::warn!("Failed to migrate old relay credentials for {uuid}: {e}"),
+                        }
+                    }
+                    let _ = krillnotes_core::core::sync::relay::delete_relay_credentials(
+                        &old_relay_dir,
+                        &identity_uuid,
+                    );
+                }
+                state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -197,10 +263,11 @@ pub fn lock_identity(
     }
 
     // Wipe identity from memory.
-    // Remove contact_managers and invite_managers first so there is no window where
+    // Remove per-identity managers first so there is no window where
     // the identity is "locked" but its managers are still live.
     state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.relay_account_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
     Ok(())
 }
