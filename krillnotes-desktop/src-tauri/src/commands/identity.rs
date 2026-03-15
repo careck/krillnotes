@@ -232,7 +232,13 @@ pub fn unlock_identity(
     let uuid_clone = uuid;
     tokio::task::spawn(async move {
         let accounts = {
-            let mgrs = ram_clone.lock().unwrap();
+            let mgrs = match ram_clone.lock() {
+                Ok(m) => m,
+                Err(e) => {
+                    log::warn!("relay_account_managers mutex poisoned: {e}");
+                    return;
+                }
+            };
             match mgrs.get(&uuid_clone) {
                 Some(mgr) => mgr.list_relay_accounts().unwrap_or_default(),
                 None => return,
@@ -256,7 +262,10 @@ pub fn unlock_identity(
             })
             .await;
 
-            let mgrs = ram_clone.lock().unwrap();
+            let mgrs = match ram_clone.lock() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
             if let Some(mgr) = mgrs.get(&uuid_clone) {
                 if let Ok(Some(mut updated)) = mgr.get_relay_account(acct_id) {
                     match result {

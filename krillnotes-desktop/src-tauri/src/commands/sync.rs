@@ -180,8 +180,9 @@ pub async fn poll_sync(
             // Auto-login if session expired and password stored
             if acct.session_expires_at < chrono::Utc::now() && !acct.password.is_empty() {
                 let client = RelayClient::new(&acct.relay_url);
-                if let Ok(session) = client.login(&acct.email, &acct.password, &acct.device_public_key) {
-                    token = session.session_token;
+                match client.login(&acct.email, &acct.password, &acct.device_public_key) {
+                    Ok(session) => token = session.session_token,
+                    Err(e) => log::warn!("poll_sync: inline auto-login failed for {}: {e}", acct.relay_url),
                 }
             }
             let relay_client = RelayClient::new(&acct.relay_url)
