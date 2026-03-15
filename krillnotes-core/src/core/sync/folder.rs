@@ -11,20 +11,33 @@ use crate::core::error::KrillnotesError;
 use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};
 
 pub struct FolderChannel {
-    /// Short prefix of local identity UUID for filename generation
+    /// Short prefix of local identity UUID for inbox filtering
     identity_short: String,
-    /// Short prefix of local device key for filename generation
-    device_short: String,
+    /// Short prefix of local device key; retained for future use, not in filenames
+    _device_short: String,
     /// All unique folder paths configured on peers using this channel.
     /// Updated by the SyncEngine before each poll cycle.
     folder_paths: std::sync::Mutex<Vec<String>>,
 }
 
 impl FolderChannel {
+    /// Compute a filesystem-safe 8-char prefix from a base64 identity string.
+    /// Maps `/`→`-` and `+`→`_` (URL-safe base64) to avoid path-separator issues.
+    fn identity_short(id: &str) -> String {
+        id.chars()
+            .take(8)
+            .map(|c| match c {
+                '/' => '-',
+                '+' => '_',
+                c => c,
+            })
+            .collect()
+    }
+
     pub fn new(identity_id: String, device_id: String) -> Self {
         Self {
-            identity_short: identity_id.chars().take(8).collect(),
-            device_short: device_id.chars().take(8).collect(),
+            identity_short: Self::identity_short(&identity_id),
+            _device_short: Self::identity_short(&device_id),
             folder_paths: std::sync::Mutex::new(vec![]),
         }
     }
@@ -52,7 +65,6 @@ impl FolderChannel {
             return Err(KrillnotesError::Swarm(format!("Folder not found: {}", dir.display())));
         }
 
-        let own_prefix = format!("{}_{}", self.identity_short, self.device_short);
         let mut bundles = Vec::new();
 
         let entries = std::fs::read_dir(dir).map_err(|e| {
@@ -65,11 +77,25 @@ impl FolderChannel {
                 continue;
             }
 
-            // Filename-based fast filter: skip files we wrote ourselves
+            // Inbox filter: only process files addressed to this device.
             let filename = path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
-            if filename.starts_with(&own_prefix) {
+            let inbox_prefix = format!("{}_", self.identity_short);
+            if !filename.starts_with(&inbox_prefix) {
+                continue;
+            }
+
+            // Format guard: new-format files have a 14-digit timestamp as the second segment.
+            // Old-format files (sender_device_ts_uuid) have an 8-char device short there — skip them.
+            let rest = &filename[inbox_prefix.len()..];
+            let next_segment = rest.split('_').next().unwrap_or("");
+            if next_segment.len() != 14 || !next_segment.chars().all(|c| c.is_ascii_digit()) {
+                log::debug!(
+                    target: "krillnotes::sync::folder",
+                    "skipping old-format or misaddressed file: {}",
+                    filename
+                );
                 continue;
             }
 
@@ -104,11 +130,15 @@ impl SyncChannel for FolderChannel {
             return Err(KrillnotesError::Swarm(format!("Folder not found: {}", dir.display())));
         }
 
+        let recipient_short = Self::identity_short(&peer.peer_identity_id);
+        if recipient_short.is_empty() {
+            return Err(crate::core::error::KrillnotesError::Swarm(
+                "folder channel peer has no identity key".to_string(),
+            ));
+        }
         let timestamp = Utc::now().format("%Y%m%d%H%M%S");
-        let uuid_short = &Uuid::new_v4().to_string()[..8];
-        let filename = format!("{}_{}_{}_{}.swarm",
-            self.identity_short, self.device_short, timestamp, uuid_short
-        );
+        let uuid_short: String = Uuid::new_v4().to_string().chars().take(8).collect();
+        let filename = format!("{}_{}_{}.swarm", recipient_short, timestamp, uuid_short);
 
         let path = dir.join(filename);
         std::fs::write(&path, bundle_bytes).map_err(|e| {
@@ -190,29 +220,74 @@ mod tests {
             .filter(|e| e.path().extension().map_or(false, |ext| ext == "swarm"))
             .collect();
         assert_eq!(files.len(), 1);
+
+        // New format: {RECIPIENT_identity_short}_{14-digit-ts}_{8-char-uuid}.swarm
+        let filename = files[0]
+            .path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let stem = filename.strip_suffix(".swarm").unwrap();
+        // Use splitn(3) so the uuid part is kept whole even if it contains '_'
+        let parts: Vec<&str> = stem.splitn(3, '_').collect();
+        assert_eq!(parts.len(), 3, "filename must have exactly 3 '_'-separated segments");
+        // First segment = recipient_short = "peer-id".chars().take(8).collect() = "peer-id" (7 chars)
+        assert_eq!(parts[0], "peer-id", "first segment must be recipient identity short");
+        // Second segment = 14-digit timestamp
+        assert_eq!(parts[1].len(), 14, "second segment must be 14-digit timestamp");
+        assert!(
+            parts[1].chars().all(|c| c.is_ascii_digit()),
+            "second segment must be all digits"
+        );
+        // Third segment = 8-char uuid short
+        assert_eq!(parts[2].len(), 8, "third segment must be 8-char uuid");
     }
 
     #[test]
-    fn test_folder_channel_receive_filters_own_bundles() {
+    fn test_folder_channel_inbox_prefix_filtering() {
         let dir = tempfile::tempdir().unwrap();
+        // identity_short = first 8 chars of "my-identity" = "my-ident"
         let channel = FolderChannel::new(
             "my-identity".to_string(),
             "my-device".to_string(),
         );
 
-        // Write a bundle from "our" identity+device — should be filtered out
-        // identity_short = first 8 chars of "my-identity" = "my-ident"
-        // device_short   = first 8 chars of "my-device"   = "my-devic"
-        let own_file = dir.path().join("my-ident_my-devic_20260314_test.swarm");
-        std::fs::write(&own_file, b"own bundle").unwrap();
+        // File addressed TO this device (new format) — must be returned
+        let inbox_file = dir.path().join("my-ident_20260315120000_abcdef01.swarm");
+        std::fs::write(&inbox_file, b"for me").unwrap();
 
-        // Write a bundle from a different identity — should be picked up
-        let peer_file = dir.path().join("other-id_other-de_20260314_test.swarm");
-        std::fs::write(&peer_file, b"peer bundle").unwrap();
+        // File addressed to a different device — must be skipped
+        let other_file = dir.path().join("other-ide_20260315120000_abcdef02.swarm");
+        std::fs::write(&other_file, b"not for me").unwrap();
 
         let bundles = channel.receive_bundles_from_dir(dir.path()).unwrap();
         assert_eq!(bundles.len(), 1);
-        assert_eq!(bundles[0].data, b"peer bundle");
+        assert_eq!(bundles[0].data, b"for me");
+    }
+
+    #[test]
+    fn test_folder_channel_ignores_old_format_files() {
+        let dir = tempfile::tempdir().unwrap();
+        // identity_short = "my-ident"
+        let channel = FolderChannel::new(
+            "my-identity".to_string(),
+            "my-device".to_string(),
+        );
+
+        // Old-format file: starts with MY identity short but second segment is NOT 14 digits
+        // (it's "my-devic", an 8-char device short)
+        let old_file = dir.path().join("my-ident_my-devic_20260315_abcdef.swarm");
+        std::fs::write(&old_file, b"old format").unwrap();
+
+        // New-format file addressed to this device — must be returned
+        let new_file = dir.path().join("my-ident_20260315120000_abcdef01.swarm");
+        std::fs::write(&new_file, b"new format").unwrap();
+
+        let bundles = channel.receive_bundles_from_dir(dir.path()).unwrap();
+        assert_eq!(bundles.len(), 1);
+        assert_eq!(bundles[0].data, b"new format");
     }
 
     #[test]

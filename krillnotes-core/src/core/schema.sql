@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS operations (
     device_id TEXT NOT NULL,
     operation_type TEXT NOT NULL,
     operation_data TEXT NOT NULL,
-    synced INTEGER NOT NULL DEFAULT 0
+    synced INTEGER NOT NULL DEFAULT 0,
+    received_from_peer TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_operations_timestamp_wall_ms ON operations(timestamp_wall_ms);

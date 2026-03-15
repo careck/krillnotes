@@ -361,8 +361,10 @@ fn folder_channel_delta_roundtrip() {
     assert_eq!(files_in_dir.len(), 1, "exactly one .swarm file should exist");
 
     // ── Step 5: Bob's FolderChannel picks up the bundle ────────────────────
+    // Bob must use the same identity_id that Alice used as peer_identity_id
+    // so that the inbox-prefix filter matches the filename Alice wrote.
     let bob_folder_ch = FolderChannel::new(
-        "bob-identity-uuid".to_string(),
+        bob_pubkey_b64.clone(),
         "bob-device-uuid".to_string(),
     );
     let received = bob_folder_ch
@@ -433,17 +435,17 @@ fn sync_engine_poll_outbound_folder() {
     let (_alice_tmp, mut alice_ws) = make_workspace(&alice_key, "alice-id");
     let (_alice_cm_dir, mut alice_cm) = make_contact_manager([0x33u8; 32]);
 
+    // Create a note so there are ops to send.
+    alice_ws.create_note_root("TextNote").expect("create note");
+
     // Shared folder.
     let shared_dir = tempfile::tempdir().expect("shared_dir");
     let shared_path = shared_dir.path().to_str().expect("valid path").to_string();
 
-    // Record snapshot watermark, then register Bob as a folder-channel peer.
-    let snap_op = alice_ws
-        .get_latest_operation_id()
-        .expect("get_latest_operation_id")
-        .unwrap_or_default();
+    // Register Bob as a folder-channel peer with no watermark (force full delta)
+    // so the outbound includes all ops and isn't suppressed as a 0-op bundle.
     alice_ws
-        .upsert_sync_peer("dev-bob", &bob_pubkey_b64, Some(&snap_op), None)
+        .upsert_sync_peer("dev-bob", &bob_pubkey_b64, None, None)
         .expect("upsert_sync_peer");
 
     // Store Bob's folder channel_params on the peer record.

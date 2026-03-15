@@ -288,6 +288,25 @@ impl<'a> PeerRegistry<'a> {
             }
         };
 
+        // Carry forward the best last_received_op from any existing row.
+        // When the caller passes None (no new ops applied this cycle), preserve
+        // the existing value so the ACK in outbound bundles stays accurate.
+        let existing_last_received: Option<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT last_received_op FROM sync_peers \
+                 WHERE peer_identity_id = ?1 AND last_received_op IS NOT NULL \
+                 LIMIT 1",
+            )?;
+            match stmt.query_row([peer_identity_id], |row| row.get::<_, String>(0)) {
+                Ok(v) => Some(v),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(crate::KrillnotesError::Database(e)),
+            }
+        };
+        let effective_last_received = last_received_op
+            .map(|s| s.to_string())
+            .or(existing_last_received);
+
         // Carry forward channel config if peer already has one configured.
         let existing_channel: Option<(String, String)> = {
             let mut stmt = self.conn.prepare(
@@ -321,7 +340,7 @@ impl<'a> PeerRegistry<'a> {
                 real_device_id,
                 peer_identity_id,
                 existing_last_sent,
-                last_received_op,
+                effective_last_received,
                 now,
                 channel_type,
                 channel_params,
@@ -347,10 +366,15 @@ impl<'a> PeerRegistry<'a> {
         channel_type: &str,
         channel_params: &str,
     ) -> Result<()> {
-        self.conn.execute(
+        let rows = self.conn.execute(
             "UPDATE sync_peers SET channel_type = ?1, channel_params = ?2 WHERE peer_device_id = ?3",
             rusqlite::params![channel_type, channel_params, peer_device_id],
         )?;
+        if rows == 0 {
+            return Err(crate::KrillnotesError::Swarm(format!(
+                "peer not found: {peer_device_id}"
+            )));
+        }
         Ok(())
     }
 
@@ -478,6 +502,19 @@ mod tests {
         let peer = reg.get_peer("dev-1").unwrap().unwrap();
         assert_eq!(peer.channel_type, "relay");
         assert_eq!(peer.channel_params, r#"{"url":"https://relay.example.com"}"#);
+    }
+
+    #[test]
+    fn test_update_channel_config_unknown_peer_returns_error() {
+        let (_f, s) = open_db();
+        let reg = PeerRegistry::new(s.connection());
+        // No peer was added — update should fail, not silently succeed
+        let result = reg.update_channel_config(
+            "nonexistent-device",
+            "folder",
+            r#"{"path":"/tmp"}"#,
+        );
+        assert!(result.is_err(), "expected Err when device_id not found");
     }
 
     #[test]

@@ -143,6 +143,7 @@ pub fn update_note(
     fields: BTreeMap<String, crate::FieldValue>,
 ) -> std::result::Result<crate::Note, String> {
     let label = window.label();
+    log::warn!(target: "krillnotes::ghost_ops", "update_note called: window={}, note_id={}, title={:?}", label, note_id, title);
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label)
@@ -163,6 +164,7 @@ pub fn save_note(
     fields: BTreeMap<String, crate::FieldValue>,
 ) -> std::result::Result<crate::SaveResult, String> {
     let label = window.label();
+    log::warn!(target: "krillnotes::ghost_ops", "save_note called: window={}, note_id={}, title={:?}", label, note_id, title);
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label)
@@ -277,6 +279,7 @@ pub fn update_note_tags(
     tags: Vec<String>,
 ) -> std::result::Result<(), String> {
     let label = window.label();
+    log::warn!(target: "krillnotes::ghost_ops", "update_note_tags called: window={}, note_id={}, tags={:?}", label, note_id, tags);
     let mut workspaces = state.workspaces.lock()
         .expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label)

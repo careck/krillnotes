@@ -57,6 +57,10 @@ impl Workspace {
     ) -> Result<Vec<Operation>> {
         let conn = self.storage.connection();
 
+        // Two exclusions per query:
+        //   device_id != ?  — don't send a peer their own authored ops
+        //   received_from_peer IS NULL OR received_from_peer != ?
+        //     — don't echo back ops the peer already delivered to us
         let op_jsons: Vec<String> = if let Some(op_id) = since_op_id {
             // Look up HLC tuple for the watermark operation.
             let hlc_row: Option<(i64, i64, i64)> = conn.query_row(
@@ -76,11 +80,12 @@ impl Workspace {
                         OR  (timestamp_wall_ms = ?1 AND timestamp_counter = ?2 \
                              AND timestamp_node_id > ?3)) \
                      AND device_id != ?4 \
+                     AND (received_from_peer IS NULL OR received_from_peer != ?5) \
                      ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
                               timestamp_node_id ASC",
                 )?;
                 let rows = stmt.query_map(
-                    rusqlite::params![wall_ms, counter, node_id, exclude_device_id],
+                    rusqlite::params![wall_ms, counter, node_id, exclude_device_id, exclude_device_id],
                     |row| row.get::<_, String>(0),
                 )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
                 rows
@@ -90,22 +95,30 @@ impl Workspace {
                 // Fall back to sending everything — the recipient's INSERT OR IGNORE
                 // handles any duplicates safely.
                 let mut stmt = conn.prepare(
-                    "SELECT operation_data FROM operations WHERE device_id != ?1 \
+                    "SELECT operation_data FROM operations \
+                     WHERE device_id != ?1 \
+                     AND (received_from_peer IS NULL OR received_from_peer != ?2) \
                      ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
                               timestamp_node_id ASC",
                 )?;
-                let rows = stmt.query_map([exclude_device_id], |row| row.get::<_, String>(0))?
-                    .collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+                let rows = stmt.query_map(
+                    rusqlite::params![exclude_device_id, exclude_device_id],
+                    |row| row.get::<_, String>(0),
+                )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
                 rows
             }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT operation_data FROM operations WHERE device_id != ?1 \
+                "SELECT operation_data FROM operations \
+                 WHERE device_id != ?1 \
+                 AND (received_from_peer IS NULL OR received_from_peer != ?2) \
                  ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
                           timestamp_node_id ASC",
             )?;
-            let rows = stmt.query_map([exclude_device_id], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+            let rows = stmt.query_map(
+                rusqlite::params![exclude_device_id, exclude_device_id],
+                |row| row.get::<_, String>(0),
+            )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
             rows
         };
 
@@ -128,7 +141,7 @@ impl Workspace {
     ///
     /// Idempotent: calling this twice with the same operation is safe — the second call
     /// returns `Ok(false)` without modifying any data.
-    pub fn apply_incoming_operation(&mut self, op: Operation) -> Result<bool> {
+    pub fn apply_incoming_operation(&mut self, op: Operation, received_from_peer: &str) -> Result<bool> {
         // 1. Skip local-only retracts — they must never cross device boundaries.
         if matches!(op, Operation::RetractOperation { propagate: false, .. }) {
             log::debug!(target: "krillnotes::sync", "skipping local-only retract operation {}", op.operation_id());
@@ -150,8 +163,8 @@ impl Workspace {
             let rows = tx.execute(
                 "INSERT OR IGNORE INTO operations \
                  (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, \
-                  device_id, operation_type, operation_data, synced) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+                  device_id, operation_type, operation_data, synced, received_from_peer) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
                 rusqlite::params![
                     op.operation_id(),
                     ts.wall_ms as i64,
@@ -160,6 +173,7 @@ impl Workspace {
                     op.device_id(),
                     op_type,
                     op_json,
+                    received_from_peer,
                 ],
             )?;
             tx.commit()?;

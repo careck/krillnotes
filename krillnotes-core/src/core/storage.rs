@@ -422,6 +422,20 @@ impl Storage {
             )?;
         }
 
+        // Migration: add received_from_peer column to operations if absent.
+        // Tracks which peer delivered each op so we don't echo it back to them.
+        let received_from_peer_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='received_from_peer'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !received_from_peer_exists {
+            conn.execute(
+                "ALTER TABLE operations ADD COLUMN received_from_peer TEXT",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

@@ -169,7 +169,6 @@ pub fn apply_delta(
     let mut applied = 0usize;
     let mut skipped = 0usize;
     let mut new_tofu_contacts: Vec<String> = Vec::new();
-    let mut last_applied_op_id = String::new();
 
     // 3. Apply each operation in chronological order.
     for op in &parsed.operations {
@@ -186,20 +185,23 @@ pub fn apply_delta(
             new_tofu_contacts.push(name);
         }
 
-        if workspace.apply_incoming_operation(op.clone())? {
+        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id)? {
             applied += 1;
-            last_applied_op_id = op.operation_id().to_string();
         } else {
             skipped += 1;
         }
     }
 
     // 4. Upsert sender in peer registry, consolidating any placeholder row.
-    let last_received = if last_applied_op_id.is_empty() {
-        None
-    } else {
-        Some(last_applied_op_id.as_str())
-    };
+    //    Use the last op in the bundle (not just the last applied op) so the ACK
+    //    we echo back matches the sender's `last_sent_op`.  When later ops in a
+    //    bundle are duplicates, tracking only applied ops makes the ACK lag behind
+    //    the sender's watermark, triggering an infinite full-resend loop.
+    let last_bundle_op_id = parsed
+        .operations
+        .last()
+        .map(|op| op.operation_id().to_string());
+    let last_received = last_bundle_op_id.as_deref();
     workspace.upsert_peer_from_delta(
         &parsed.sender_device_id,
         &parsed.sender_public_key,
@@ -509,5 +511,101 @@ mod tests {
         assert!(result.is_err(), "workspace_id mismatch must be an error");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("workspace_id mismatch"), "unexpected error: {err}");
+    }
+
+    /// Regression test: when all incoming ops are duplicates, last_received_op
+    /// must still be set to the last op in the bundle so the ACK echoed back
+    /// matches the sender's watermark.  The old code only tracked the last
+    /// *applied* op, causing an infinite full-resend loop.
+    #[test]
+    fn test_last_received_op_set_on_all_duplicates() {
+        let alice_key = make_key();
+        let bob_key = make_key();
+        let alice_pubkey_b64 = b64(&alice_key);
+        let bob_pubkey_b64 = b64(&bob_key);
+
+        // ── Alice workspace ──
+        let alice_temp = tempfile::NamedTempFile::new().unwrap();
+        let mut alice_ws = crate::core::workspace::Workspace::create(
+            alice_temp.path(),
+            "",
+            "alice-id",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+        )
+        .unwrap();
+
+        // Create some notes so there are ops in the log.
+        alice_ws.create_note_root("TextNote").unwrap();
+        alice_ws.create_note_root("TextNote").unwrap();
+
+        // Watermark = None → full resync, which is the exact scenario that
+        // triggers the feedback loop when ACKs don't match.
+        alice_ws
+            .upsert_sync_peer("dev-bob", &bob_pubkey_b64, None, None)
+            .unwrap();
+
+        let alice_cm_dir = tempfile::tempdir().unwrap();
+        let alice_cm = crate::core::contact::ContactManager::for_identity(
+            alice_cm_dir.path().to_path_buf(),
+            [20u8; 32],
+        )
+        .unwrap();
+        alice_cm
+            .find_or_create_by_public_key(
+                "Bob",
+                &bob_pubkey_b64,
+                crate::core::contact::TrustLevel::Tofu,
+            )
+            .unwrap();
+
+        let bundle = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "Test",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
+        assert!(bundle.op_count > 0, "need ops to test");
+        let sent_last_op = bundle.last_included_op.clone().unwrap();
+
+        // ── Bob workspace (shares DB → already has all ops) ──
+        let mut bob_ws = crate::core::workspace::Workspace::open(
+            alice_temp.path(),
+            "",
+            "bob-id",
+            SigningKey::from_bytes(&bob_key.to_bytes()),
+        )
+        .unwrap();
+        let bob_cm_dir = tempfile::tempdir().unwrap();
+        let mut bob_cm = crate::core::contact::ContactManager::for_identity(
+            bob_cm_dir.path().to_path_buf(),
+            [21u8; 32],
+        )
+        .unwrap();
+
+        let result =
+            super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
+
+        // All ops should be duplicates since Bob shares Alice's DB.
+        assert_eq!(
+            result.operations_applied, 0,
+            "expected all duplicates, got {} applied",
+            result.operations_applied
+        );
+        assert!(result.operations_skipped > 0, "should have skipped some ops");
+
+        // Key assertion: Bob's peer record for Alice must have last_received_op
+        // matching the last op in the bundle, even though all ops were duplicates.
+        let peer = bob_ws
+            .get_sync_peer(&result.sender_device_id)
+            .unwrap()
+            .expect("peer should exist after apply_delta");
+        assert_eq!(
+            peer.last_received_op.as_deref(),
+            Some(sent_last_op.as_str()),
+            "last_received_op must match last bundle op even when all ops are duplicates"
+        );
     }
 }
