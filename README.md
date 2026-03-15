@@ -2,7 +2,7 @@
 
 # Krillnotes
 
-A local-first, hierarchical note-taking application. Notes live in a tree, each note has a schema-defined type, and every change is recorded in an operation log — laying the groundwork for offline-first sync.
+A local-first, hierarchical note-taking application with multi-device sync. Notes live in a tree, each note has a schema-defined type, and every change is recorded in an operation log that syncs between peers via relay server, shared folder, or manual file exchange.
 
 Built with Rust, Tauri v2, React, and SQLCipher (encrypted SQLite).
 
@@ -22,8 +22,11 @@ Built with Rust, Tauri v2, React, and SQLCipher (encrypted SQLite).
 - **Export / Import** — Export an entire workspace as a `.krillnotes` archive (notes + attachments + user scripts), with an optional AES-256 password. Import an archive into a new workspace; the app detects encrypted archives and prompts for the password before importing.
 - **File attachments** — Attach any file to a note. Attachments are encrypted at rest alongside the database. Images render as thumbnails; all file types can be downloaded or opened. Attachment size limit is configurable per workspace.
 - **Undo / Redo** — Cmd+Z / Cmd+Shift+Z (toolbar buttons also available). Undoes note creates, edits, deletes, and moves. Multi-step tree actions collapse into a single undo step. History limit is configurable per workspace (default 50, max 500). The script editor has its own independent undo stack that does not mix with the note-tree history.
+- **Multi-device sync** — Sync workspaces between devices using three channels: **Relay** (HTTP relay server with mailbox routing), **Folder** (shared local/network directory), or **Manual** (export/import `.swarm` delta files). Each peer can use a different channel, switchable at any time. Delta bundles carry only new operations since the last sync; watermarks self-heal via delivery confirmation and ACK-based correction. All data in transit is end-to-end encrypted (X25519 + AES-256-GCM).
+- **Peer management** — Invite peers via signed `.swarm` invite files, exchange workspace snapshots for initial sync, and manage peers from the Workspace Peers dialog (trust badges, sync status, channel config, force resync). The workspace owner controls script mutations; non-owners receive script updates via sync but cannot modify them directly.
+- **Contact book** — An encrypted per-identity address book stores peer contacts with trust levels (TOFU, verified-in-person), local names, and notes. Contacts are AES-256-GCM encrypted at rest under an HKDF-derived key that only exists in memory while the identity is unlocked.
 - **Operations log viewer** — Browse the full mutation history, filter by operation type or date range, and purge old entries to reclaim space.
-- **Operation log** — Every mutation (create, update, move, delete, script changes, undo/redo) is appended to an immutable log before being applied, enabling device sync when it ships.
+- **Operation log** — Every mutation (create, update, move, delete, script changes, undo/redo) is appended to an immutable log before being applied, forming the basis for CRDT-style sync between peers.
 - **Identity system** — A cryptographic identity (Ed25519 keypair, passphrase-protected via Argon2id) manages workspace access. Unlock your identity once per session with your passphrase; all bound workspaces open without additional prompts. Identities are portable via `.swarmid` export/import — move your identity to another device and all your workspaces follow.
 - **Workspace Manager** — Browse, open, duplicate, and delete workspaces from a dedicated manager. Each entry shows name, size, last-modified date, note count, and attachment count — all without needing to unlock the workspace.
 - **Internationalisation** — 7 language packs ship out of the box: English, German, French, Spanish, Japanese, Korean, and Simplified Chinese. The active language is chosen from Settings and takes effect immediately, including the native application menu.
@@ -32,7 +35,7 @@ Built with Rust, Tauri v2, React, and SQLCipher (encrypted SQLite).
 - **Context menu** — Right-click on any tree node for quick actions (Add Note, Edit, Delete).
 - **Multi-window** — Open multiple workspaces simultaneously, each in its own window.
 - **Encrypted workspaces** — Every workspace is encrypted at rest with SQLCipher (AES-256-CBC, PBKDF2-HMAC-SHA512 key derivation). Workspace passwords are randomly generated and managed by the identity system — you never type a workspace password directly.
-- **Local-first** — All data is stored on disk. No account, no cloud dependency, no internet connection required.
+- **Local-first** — All data is stored on disk. No account, no cloud dependency, no internet connection required. Sync is opt-in and works offline — changes are queued and exchanged when peers reconnect.
 - **Cross-platform** — Runs on macOS, Linux, and Windows via Tauri.
 
 ---
@@ -88,16 +91,17 @@ Each workspace is a **folder** on disk containing:
 - `attachments/` — per-attachment encrypted files (ChaCha20-Poly1305)
 - `info.json` — unencrypted metadata sidecar (name, note count, size, workspace UUID) readable without a password
 
-The database contains six tables:
+The database contains seven tables:
 
 | Table | Purpose |
 |-------|---------|
 | `notes` | The note tree (id, title, type, parent, position, fields, `schema_version`) |
 | `note_tags` | Many-to-many junction between notes and tags |
-| `operations` | Append-only mutation log (CRDT-style, includes `UpdateSchema` migration entries) |
-| `workspace_meta` | Per-device metadata (device ID, selection state, undo limit) |
+| `operations` | Append-only mutation log (CRDT-style, HLC-timestamped, Ed25519-signed) |
+| `workspace_meta` | Per-device metadata (device ID, selection state, undo limit, `owner_pubkey`) |
 | `user_scripts` | Per-workspace Rhai scripts (id, name, source code, load order, enabled flag, `category`) |
 | `attachments` | Attachment metadata (id, note_id, filename, MIME type, size, hash) |
+| `peer_registry` | Known sync peers and their state (device ID, identity ID, channel type, watermarks, sync status) |
 
 The database uses AES-256-CBC encryption (SQLCipher v4 defaults: PBKDF2-HMAC-SHA512, 256,000 iterations). Workspace passwords are randomly generated and stored encrypted under your identity key — you need SQLCipher-aware tooling **and** the correct randomly-generated password to open the file outside of Krillnotes.
 

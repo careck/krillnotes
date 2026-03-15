@@ -7,89 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Relay configure dialog** — clicking "Configure" on a relay peer in the Workspace Peers dialog
-  now opens a `ConfigureRelayDialog` with Register and Login tabs. Registration runs the 3-step
-  PoP flow (register → decrypt challenge with identity key → verify); login re-authenticates with
-  stored credentials. Credentials are encrypted with a per-identity relay key (HKDF-SHA256) and
-  stored at `<config_dir>/relay/<identity_uuid>.json`. On the next `poll_sync` call the relay
-  channel is automatically registered if credentials are present. New Tauri commands:
-  `configure_relay`, `relay_login`, `get_relay_info`, `has_relay_credentials`.
-  New core method: `UnlockedIdentity::relay_key()`.
-- **Delta bundle sync (A12 + A13)** — bidirectional delta sync between workspace peers. A workspace
-  owner can generate a `.swarm` delta file for one or more peers via the new "Create delta Swarm"
-  menu item, which opens `CreateDeltaDialog` listing accepted peers with their last-sync operation
-  ID. A recipient opens the file to apply the delta operations via `apply_swarm_delta`, which
-  decrypts and verifies the bundle, replays only new operations (skipping duplicates via HLC
-  ordering), and emits `workspace-updated` so the tree view refreshes automatically. New core
-  module `swarm/sync.rs` with `generate_delta` and `apply_delta`; new Tauri commands
-  `generate_delta_for_peers` and `apply_swarm_delta`; new `peer_registry` table tracks per-peer
-  last-seen operation ID. Localised in all 7 languages.
+> **Sync is here.** This release adds multi-device workspace sync — via a relay server, a shared folder, or manual `.swarm` file exchange. It also introduces an encrypted contact book, a peer invite workflow, workspace snapshots, and owner-only script enforcement.
 
-### Fixed
-- **Tree view not refreshing after delta apply** — `WorkspaceView` now listens for the
-  `workspace-updated` event emitted by `apply_swarm_delta` and calls `loadNotes()` to reload the
-  tree automatically, eliminating the need to restart the app after receiving a delta bundle.
-- **Workspace Peers dialog (Phase B)** — new "Workspace Peers" item in the Edit menu opens a
-  dedicated dialog listing all sync peers for the open workspace with resolved display name,
-  4-word BIP-39 fingerprint, trust-level badge (from the contact book), and last-sync time.
-  Actions: remove a peer (inline confirmation), add a contact as a pre-authorised peer before
-  any `.swarm` exchange, and create an invite file. Unknown peers (not in contacts) show an
-  "Add to contacts" button that opens `AddContactDialog` pre-filled with their public key.
-  Three new Tauri commands (`list_workspace_peers`, `remove_workspace_peer`,
-  `add_contact_as_peer`) and three new `Workspace` methods in `krillnotes-core`
-  (`list_peers_info`, `add_contact_as_peer`, `remove_peer`). Localised in all 7 languages.
-- **Per-identity encrypted contact book (Phase A)** — contacts are stored per identity under
-  `~/.config/krillnotes/identities/<uuid>/contacts/` as AES-256-GCM encrypted blobs. The
-  encryption key is derived via HKDF-SHA256 from the identity seed and is only in memory while
-  the identity is unlocked. Full CRUD via six new Tauri commands (`list_contacts`, `get_contact`,
-  `create_contact`, `update_contact`, `delete_contact`, `get_fingerprint`). UI accessible via
-  a "Contacts (n)" button in the Identity Manager — opens `ContactBookDialog` with search,
-  trust-level badges, `AddContactDialog` (with live fingerprint preview and in-person
-  verification gate), and `EditContactDialog` (with local name override, notes, and delete).
-- **`is_leaf` schema option** — When `is_leaf: true` is set on a schema, notes of that
-  type cannot have children. Blocked in core (`create_note`, `move_note`, `deep_copy_note`)
-  and observed in the UI ("Add Child" and "Paste as Child" are greyed out; drag-drop onto
-  leaf notes is blocked).
-- **Swarm contacts data model** — `Contact` struct and core CRUD in `krillnotes-core`; UI not yet wired (A1)
-- **Sync peers table and PeerRegistry** — tracks known peers and their sync state per workspace (A2)
-- **SwarmHeader codec and bundle-level signatures** — all `.swarm` file payloads are signed with Ed25519 and verified on open (A3, A4)
-- **Hybrid encryption for `.swarm` payloads** — X25519 key exchange + AES-256-GCM payload encryption (A5)
-- **Invite and accept bundle codec** — generate and parse peer invite bundles (A6, A7)
-- **Snapshot bundle generation and parsing** — full workspace snapshot serialised to `.swarm` file (A10, A11)
-- **Delta bundle generation and ingest stub** — incremental sync payload codec (A12, A13)
-- **`SetPermission`, `RevokePermission`, `JoinWorkspace` operation variants** — CRDT operations for future RBAC sync
-- **`.swarm` file association** — OS registers `.swarm` files with Krillnotes; double-click opens the correct dialog
+### Added
+
+#### Sync engine
+- **Three sync channels** — Sync with peers via **relay** (HTTP relay server with mailbox routing), **folder** (shared local/network folder), or **manual** (export/import `.swarm` delta files by hand). Each peer can use a different channel; switch at any time from the Workspace Peers dialog.
+- **Relay sync** — Register an account on a relay server, bind your device key, and exchange encrypted delta bundles over HTTP. Session tokens are persisted locally (AES-256-GCM encrypted); expired sessions prompt re-login. Configure Relay dialog with register/login tabs. Relay credentials stored per-identity under `~/.config/krillnotes/identities/<uuid>/relay/`.
+- **Folder sync** — Point a peer at a shared directory (local disk, NAS, Dropbox, etc.) and Krillnotes writes `.swarm` delta files into it. The peer's next poll picks up the file, applies it, and deletes the consumed bundle.
+- **Manual delta export** — "Create delta Swarm" in the Edit menu opens `CreateDeltaDialog` listing accepted peers with their last-sync operation ID. One `.swarm` file is generated per selected peer, encrypted for that peer's public key. The recipient opens the file to apply the delta.
+- **Sync Now button** — One-click sync from the Workspace Peers dialog triggers a full send-and-receive cycle across all configured channels.
+- **Force Resync** — Per-peer "↺" button in the Workspace Peers dialog resets the watermark so the next sync re-sends all operations from the last snapshot baseline.
+- **Delivery-confirmed watermarks** — `last_sent_op` only advances when the transport confirms the bundle was routed, preventing silent data loss when a relay skips unknown or unverified devices.
+- **ACK-based watermark self-correction** — Each outbound delta carries `ack_operation_id` (the last op received from that peer). When a peer sees that the remote's ACK is behind its own `last_sent_op`, it rewinds its watermark automatically — peers self-heal from missed deltas without manual intervention.
+- **Sync event streaming** — `SyncEvent` enum (`DeltaSent`, `BundleApplied`, `AuthExpired`, `SyncError`, `IngestError`, `SendSkipped`) published to the frontend for real-time status updates.
+- **Peer sync status tracking** — Each peer tracks sync state (`idle`, `syncing`, `error`, `auth_expired`, `not_delivered`) with detail and error messages, displayed as status badges in the Workspace Peers dialog.
+
+#### Peer management and invites
+- **Per-identity encrypted contact book** — Contacts are stored per identity under `~/.config/krillnotes/identities/<uuid>/contacts/` as AES-256-GCM encrypted blobs. Encryption key derived via HKDF-SHA256 from the identity seed; only in memory while unlocked. Full CRUD via six Tauri commands. UI: `ContactBookDialog` with search, trust-level badges, `AddContactDialog` (live fingerprint preview, in-person verification gate), and `EditContactDialog` (local name, notes, delete). Accessible via "Contacts (n)" button in Identity Manager.
+- **Workspace Peers dialog** — New "Workspace Peers" item in the Edit menu lists all sync peers with resolved display name, 4-word BIP-39 fingerprint, trust-level badge, channel type, sync status, and last-sync time. Actions: remove peer (inline confirmation), add contact as peer, switch channel, configure relay, force resync, and create invite.
+- **Multi-use signed invite flow** — `InviteManager` with `InviteRecord`, `InviteFile`, `InviteResponseFile` structs. Ed25519 signing/verification with canonical JSON. Create/list/revoke invites; full invite→response round-trip. Seven Tauri commands. Four React dialogs (`CreateInviteDialog`, `AcceptPeerDialog`, `ImportInviteDialog`, `InviteManagerDialog`). Localised in all 7 languages.
+- **Workspace snapshot exchange** — A workspace owner can send a full snapshot to a new peer via a `.swarm` file. `WorkspaceSnapshot` struct with `to_snapshot_json` / `import_snapshot_json` for complete workspace serialisation. Snapshot baseline sets both watermarks so bidirectional delta sync works immediately.
+- **`.swarm` file association** — OS registers `.swarm` files with Krillnotes; double-click opens the correct dialog (invite, snapshot, or delta).
 - **File > Invite Peer and Open .swarm File menu items**
-- **SwarmInviteDialog** — UI for generating and sharing a peer invite bundle
-- **SwarmOpenDialog** — UI for accepting an invite, opening a snapshot, or ingesting a delta bundle
-- **`create_snapshot_bundle_cmd` and `open_swarm_file_cmd` Tauri commands**
-- **`WorkspaceSnapshot` struct and `to_snapshot_json` / `import_snapshot_json`** — serialise/deserialise full workspace state for peer handoff
-- **Show and copy public key and fingerprint in Identity Manager** — for sharing with peers
-- Auto-prompt to unlock required identity when opening an invite or snapshot file
-- i18n strings for all swarm dialogs (invite, accept, snapshot modes)
+- **Show and copy public key and fingerprint in Identity Manager** — for sharing with peers.
+- Auto-prompt to unlock required identity when opening an invite or snapshot file.
 
-### Added
-- **Hover indicator caret on tree nodes** — a subtle `›` is shown on the right of tree node rows when the note type has an `on_hover` hook or `showOnHover` fields defined
-- **Identity/contact name in note Info panel** — Created and Modified timestamps now show the author's display name inline (local identity first, then contact address book, then 8-char fingerprint for unknown keys)
-- **`resolve_identity_name` Tauri command** — resolves a public key to a display name; used by both the info panel and the operations log
-- **`ContactManager` wired into `AppState`** — enables contact address book lookups from any Tauri command
+#### Owner-only script enforcement
+- **Owner-only scripts** — `owner_pubkey` stored in `workspace_meta` at creation. All six script mutation methods (`create`, `update`, `delete`, `toggle`, `reorder`, `reorder_all`) return `NotOwner` error for non-owners. Non-owner script ops are skipped during sync ingest (logged but not applied). `.swarm` bundle headers embed and validate `owner_pubkey`. UI disables script mutation controls (save, delete, new, toggle, drag-reorder, editor) for non-owners with an info banner. "Owner" badge shown in Workspace Peers dialog.
+
+#### UI improvements
+- **Hover indicator caret on tree nodes** — A subtle `›` is shown on the right of tree node rows when the note type has an `on_hover` hook or `showOnHover` fields defined.
+- **Identity/contact name in note Info panel** — Created and Modified timestamps show the author's display name inline (local identity first, then contact address book, then 8-char fingerprint for unknown keys).
+- **`resolve_identity_name` Tauri command** — Resolves a public key to a display name; used by both the info panel and the operations log.
+- **`is_leaf` schema option** — When `is_leaf: true` is set on a schema, notes of that type cannot have children. Blocked in core (`create_note`, `move_note`, `deep_copy_note`) and observed in the UI ("Add Child" and "Paste as Child" are greyed out; drag-drop onto leaf notes is blocked).
+
+#### Swarm protocol internals
+- **SwarmHeader codec and bundle-level signatures** — All `.swarm` file payloads are signed with Ed25519 and verified on open.
+- **Hybrid encryption for `.swarm` payloads** — X25519 key exchange + AES-256-GCM payload encryption.
+- **`ack_operation_id` field in SwarmHeader** — Threaded through delta codec for watermark self-correction.
+- **`owner_pubkey` field in SwarmHeader** — Embedded in all bundle types; validated on receive.
+- **`SetPermission`, `RevokePermission`, `JoinWorkspace` operation variants** — CRDT operations for future RBAC sync.
+- **`peer_registry` table** — Tracks known peers and their sync state per workspace (device ID, identity ID, channel type, channel params, watermarks, sync status).
+- **Structured logging** — `log` crate macros throughout sync engine, relay client, folder channel, and Tauri commands (replaces `eprintln`).
 
 ### Fixed
-- **Workspace Properties dialog no longer crashes on workspaces with no tags** — `meta.tags` is now guarded with `?? []` before calling `.join()` (was `TypeError: undefined is not an object`)
-- **Script category preserved on export/import** — `ScriptManifestEntry` now includes the `category` field so schema vs. presentation classification survives a `.krillnotes` archive round-trip. Previously all scripts were imported as `"presentation"`, causing schema scripts to fail with *"schema() can only be called from schema-category scripts"* and library-defined functions to be unavailable (PR #89)
-- Library script functions are now visible to schema scripts and their hooks — library source is prepended when compiling schema scripts so functions defined in `.rhai` library scripts are available at both load time and hook call time
-- `register_view` and `register_menu` no longer produce duplicate tabs/entries when a library script is loaded alongside multiple schema scripts (deduplication by type + label in `resolve_bindings`)
-- Snapshot import no longer seeds a default root note, preserving the imported workspace structure
-- Identity file path resolved relative to `config_dir` in `get_identity_public_key`
-- `source_display_name` correctly populated in invite bundles
-- Unlocked identity UUID refreshes when Identity Manager closes or Swarm dialog opens
-- Documented that top-level `const`/variable declarations in library scripts are not available inside hook closures — use `fn` returning a value instead; SCRIPTING.md updated with examples
-- Schema script pre-validation in `update_user_script` now sets the loading category so library functions are available during validation — previously caused false "function not found" errors when saving a schema script that calls a library function
-- Hover tooltip no longer appears for notes whose type has no `on_hover` hook and no `showOnHover` fields
-- Operations log now checks the contact address book when resolving author names, in addition to local identities
-- Note Info panel metadata now uses the same `dl/dt/dd` grid layout as the fields view
-- Note Info panel metadata section is hidden on custom view tabs and only shown on the Fields tab
+- **Rhai engine reloaded after sync ingest and snapshot import** — Applying script operations via delta sync or snapshot import now reloads the Rhai engine so new/updated schemas take effect immediately without restarting the app.
+- **Relay recipient device key encoding** — `RelayChannel` now converts peer device keys to hex (matching the relay server's format) instead of sending internal identity placeholders, fixing silent bundle drops.
+- **Relay mailbox registration on poll** — `receive_bundles` now calls `ensure_mailbox()` so the relay routes incoming bundles to this account (was silently dropping them).
+- **Tokio runtime drop panic** — `poll_sync` restructured to run the sync engine inside `spawn_blocking`, releasing all `MutexGuard`s before spawning, preventing a panic when reqwest's internal Tokio runtime is dropped on an async thread.
+- **Poisoned mutex on window close** — Destroyed window handler uses `unwrap_or_else(|e| e.into_inner())` instead of `expect()`, preventing a secondary panic from a poisoned mutex during cleanup.
+- **`generate_delta` with no watermark** — Force Resync clears `last_sent_op` to `None`. Previously `generate_delta` rejected this with "snapshot must precede delta"; now it returns all ops and the recipient's `INSERT OR IGNORE` handles duplicates.
+- **Workspace Properties dialog crash** — `meta.tags` is now guarded with `?? []` before calling `.join()` (was `TypeError: undefined is not an object`).
+- **Script category preserved on export/import** — `ScriptManifestEntry` now includes the `category` field so schema vs. presentation classification survives a `.krillnotes` archive round-trip. Previously all scripts were imported as `"presentation"` (PR #89).
+- Library script functions are now visible to schema scripts and their hooks — library source is prepended when compiling schema scripts.
+- `register_view` and `register_menu` no longer produce duplicate tabs/entries when a library script is loaded alongside multiple schema scripts.
+- Snapshot import no longer seeds a default root note, preserving the imported workspace structure.
+- Identity file path resolved relative to `config_dir` in `get_identity_public_key`.
+- `source_display_name` correctly populated in invite bundles.
+- Unlocked identity UUID refreshes when Identity Manager closes or Swarm dialog opens.
+- Schema script pre-validation now sets the loading category so library functions are available during validation.
+- Hover tooltip no longer appears for notes whose type has no `on_hover` hook and no `showOnHover` fields.
+- Operations log now checks the contact address book when resolving author names, in addition to local identities.
+- Note Info panel metadata uses the same `dl/dt/dd` grid layout as the fields view and is hidden on custom view tabs.
 
 ### Changed
 - **Breaking (Rhai scripts):** `note.node_type` renamed to `note.schema` in all Rhai script contexts.
@@ -100,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `allowed_children_types` → `allowed_children_schemas`. Update any schema definitions that use the old keys.
 - **Breaking (Rhai scripts):** `note_link` field option `target_type` renamed to `target_schema`.
   Update any schema definitions that use `target_type` on a `note_link` field.
+- **Identity storage refactored** — `identities/<uuid>.json` moved to `identities/<uuid>/identity.json`; per-workspace `binding.json` replaces `identity_settings.json.workspaces`. Auto-migrates on first launch.
+- **Codebase refactored** — `krillnotes-core` large files split into focused modules; `lib.rs` Tauri commands split into `commands/` directory with per-domain modules; frontend hooks extracted from large components (PRs #97–#99).
 
 ## [0.3.0] — 2026-03-07
 

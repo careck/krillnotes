@@ -29,6 +29,7 @@
       "Bash(git status *)",
       "Bash(git branch *)",
       "Bash(git -C *)",
+      "Bash(gh pr create:*)",
       "Bash(gh pr view *)",
       "Bash(gh pr list *)",
       "Bash(gh pr checks *)",
@@ -50,11 +51,8 @@
       "Bash(sudo *)",
       "Bash(cargo publish *)",
       "Bash(gh repo delete *)",
-      "Bash(gh pr create *)",
-      "Bash(gh pr merge *)",
       "Bash(gh pr close *)",
       "Bash(gh issue create *)",
-      "Bash(gh issue close *)",
       "Read(.env*)"
     ]
   }
