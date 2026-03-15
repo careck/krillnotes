@@ -256,7 +256,13 @@ impl SyncEngine {
                             Ok(result) => {
                                 log::info!(target: "krillnotes::sync", "applied delta from peer {}: {} ops", result.sender_device_id, result.operations_applied);
                                 let _ = channel.acknowledge(bundle_ref);
-                                peers_with_inbound.insert(result.sender_device_id.clone());
+                                // Only mark peer as needing an ACK response if the
+                                // bundle had ops (which updates our last_received_op).
+                                // 0-op bundles are pure ACK carriers and don't change
+                                // our ACK — responding would create a ping-pong loop.
+                                if result.operations_applied + result.operations_skipped > 0 {
+                                    peers_with_inbound.insert(result.sender_device_id.clone());
+                                }
                                 events.push(SyncEvent::BundleApplied {
                                     workspace_id: workspace_id.clone(),
                                     peer_device_id: result.sender_device_id,
