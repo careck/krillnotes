@@ -108,6 +108,26 @@ pub fn create_identity(
         Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
     }
 
+    // Initialize per-identity RelayAccountManager (no migration needed for fresh identity)
+    let relay_key = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        ids.get(&uuid).map(|u| u.relay_key())
+    };
+    if let Some(relay_key) = relay_key {
+        let relays_dir = crate::settings::config_dir()
+            .join("identities")
+            .join(uuid.to_string())
+            .join("relays");
+        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
+            Ok(relay_mgr) => {
+                state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
+            }
+        }
+    }
+
     // Return the IdentityRef
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let identities = mgr.list_identities().map_err(|e| e.to_string())?;
@@ -159,6 +179,107 @@ pub fn unlock_identity(
         Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
         Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
     }
+
+    // Initialize per-identity RelayAccountManager (encrypted relay accounts)
+    let relay_key = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        ids.get(&uuid).map(|u| u.relay_key())
+    };
+    if let Some(relay_key) = relay_key {
+        let relays_dir = crate::settings::config_dir()
+            .join("identities")
+            .join(uuid.to_string())
+            .join("relays");
+        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
+            Ok(relay_mgr) => {
+                // Migrate old-style single relay credentials if they exist
+                let old_relay_dir = crate::settings::config_dir().join("relay");
+                if let Ok(Some(old_creds)) = krillnotes_core::core::sync::relay::load_relay_credentials(
+                    &old_relay_dir,
+                    &identity_uuid,
+                    &relay_key,
+                ) {
+                    if relay_mgr.find_by_url(&old_creds.relay_url).unwrap_or(None).is_none() {
+                        match relay_mgr.create_relay_account(
+                            &old_creds.relay_url,
+                            &old_creds.email,
+                            "",  // old format has no password
+                            &old_creds.session_token,
+                            old_creds.session_expires_at,
+                            &old_creds.device_public_key,
+                        ) {
+                            Ok(_) => log::info!("Migrated old relay credentials for {uuid}"),
+                            Err(e) => log::warn!("Failed to migrate old relay credentials for {uuid}: {e}"),
+                        }
+                    }
+                    let _ = krillnotes_core::core::sync::relay::delete_relay_credentials(
+                        &old_relay_dir,
+                        &identity_uuid,
+                    );
+                }
+                state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
+            }
+        }
+    }
+
+    // Fire-and-forget: auto-login expired relay sessions on a background thread.
+    // Uses std::thread::spawn (not tokio::task::spawn) because sync Tauri commands
+    // may not have a Tokio runtime context. RelayClient uses reqwest::blocking which
+    // manages its own internal runtime, so no Tokio runtime is needed here.
+    let ram_clone = state.relay_account_managers.clone();
+    let uuid_clone = uuid;
+    std::thread::spawn(move || {
+        let accounts = {
+            let mgrs = match ram_clone.lock() {
+                Ok(m) => m,
+                Err(e) => {
+                    log::warn!("relay_account_managers mutex poisoned: {e}");
+                    return;
+                }
+            };
+            match mgrs.get(&uuid_clone) {
+                Some(mgr) => mgr.list_relay_accounts().unwrap_or_default(),
+                None => return,
+            }
+        };
+
+        for acct in accounts {
+            if acct.session_expires_at > chrono::Utc::now() || acct.password.is_empty() {
+                continue; // session still valid or no password stored
+            }
+
+            let url = acct.relay_url.clone();
+            let client = krillnotes_core::core::sync::relay::RelayClient::new(&url);
+            let result = client.login(&acct.email, &acct.password, &acct.device_public_key);
+
+            let mgrs = match ram_clone.lock() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if let Some(mgr) = mgrs.get(&uuid_clone) {
+                if let Ok(Some(mut updated)) = mgr.get_relay_account(acct.relay_account_id) {
+                    match result {
+                        Ok(session) => {
+                            updated.session_token = session.session_token;
+                            updated.session_expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+                            let _ = mgr.save_relay_account(&updated);
+                            log::info!("Auto-login succeeded for relay {url}");
+                        }
+                        Err(e) => {
+                            // Auth failure: mark session as invalid
+                            updated.session_expires_at = chrono::DateTime::<chrono::Utc>::MIN_UTC;
+                            let _ = mgr.save_relay_account(&updated);
+                            log::warn!("Auto-login failed for relay {url}: {e}");
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     Ok(())
 }
 
@@ -197,10 +318,11 @@ pub fn lock_identity(
     }
 
     // Wipe identity from memory.
-    // Remove contact_managers and invite_managers first so there is no window where
+    // Remove per-identity managers first so there is no window where
     // the identity is "locked" but its managers are still live.
     state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.relay_account_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
     Ok(())
 }

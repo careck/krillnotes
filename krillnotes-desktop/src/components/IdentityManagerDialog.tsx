@@ -8,10 +8,11 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm, save, open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { IdentityRef, ContactInfo } from '../types';
+import type { IdentityRef, ContactInfo, RelayAccountInfo } from '../types';
 import CreateIdentityDialog from './CreateIdentityDialog';
 import UnlockIdentityDialog from './UnlockIdentityDialog';
 import ContactBookDialog from './ContactBookDialog';
+import RelayBookDialog from './RelayBookDialog';
 
 interface IdentityManagerDialogProps {
   isOpen: boolean;
@@ -39,6 +40,8 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
 
   const [showContactBook, setShowContactBook] = useState<string | null>(null); // identity UUID when open
   const [contactCounts, setContactCounts] = useState<Record<string, number>>({}); // identityUuid → count
+  const [showRelayBook, setShowRelayBook] = useState<string | null>(null); // identity UUID when open
+  const [relayCounts, setRelayCounts] = useState<Record<string, number>>({}); // identityUuid → count
 
   // New state for selection-based UX
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
@@ -58,10 +61,13 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
       setIdentities(ids);
       const unlockedSet = new Set(unlocked);
       setUnlockedIds(unlockedSet);
-      // Load contact counts for unlocked identities (silently ignore errors)
+      // Load contact and relay counts for unlocked identities (silently ignore errors)
       ids.filter(id => unlockedSet.has(id.uuid)).forEach(identity => {
         invoke<ContactInfo[]>('list_contacts', { identityUuid: identity.uuid })
           .then(contacts => setContactCounts(prev => ({ ...prev, [identity.uuid]: contacts.length })))
+          .catch(() => {});
+        invoke<RelayAccountInfo[]>('list_relay_accounts', { identityUuid: identity.uuid })
+          .then(relays => setRelayCounts(prev => ({ ...prev, [identity.uuid]: relays.length })))
           .catch(() => {});
       });
     } catch (err) {
@@ -494,12 +500,20 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
             {/* Identity-specific actions */}
             <div className="flex items-center gap-1 flex-wrap">
               {selectedUuid && isUnlocked(selectedUuid) && (
-                <button
-                  onClick={() => setShowContactBook(selectedUuid)}
-                  className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary"
-                >
-                  {t('contacts.contactsButton', { count: contactCounts[selectedUuid] ?? 0 })}
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowContactBook(selectedUuid)}
+                    className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary"
+                  >
+                    {t('contacts.contactsButton', { count: contactCounts[selectedUuid] ?? 0 })}
+                  </button>
+                  <button
+                    onClick={() => setShowRelayBook(selectedUuid)}
+                    className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary"
+                  >
+                    {t('identityManager.relays')} ({relayCounts[selectedUuid] ?? 0})
+                  </button>
+                </>
               )}
               <button
                 onClick={() => selectedUuid && toggleForm('rename')}
@@ -616,6 +630,14 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
           identityUuid={showContactBook}
           identityName={identities.find(i => i.uuid === showContactBook)?.displayName ?? ''}
           onClose={() => { setShowContactBook(null); loadData(); }}
+        />
+      )}
+
+      {showRelayBook && (
+        <RelayBookDialog
+          identityUuid={showRelayBook}
+          identityName={identities.find(i => i.uuid === showRelayBook)?.displayName ?? ''}
+          onClose={() => { setShowRelayBook(null); loadData(); }}
         />
       )}
     </>

@@ -55,6 +55,8 @@ pub struct AppState {
     pub contact_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::contact::ContactManager>>>,
     /// Per-identity invite managers — keyed by identity UUID, created on unlock.
     pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
+    /// Per-identity relay account managers — keyed by identity UUID, created on unlock.
+    pub relay_account_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::sync::relay::RelayAccountManager>>>,
     /// Per-identity sync engines — keyed by identity UUID string.
     /// Created lazily when a relay is configured for that identity.
     pub sync_engines: Arc<Mutex<HashMap<String, krillnotes_core::core::sync::SyncEngine>>>,
@@ -169,6 +171,7 @@ pub fn run() {
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
             invite_managers: Arc::new(Mutex::new(HashMap::new())),
+            relay_account_managers: Arc::new(Mutex::new(HashMap::new())),
             sync_engines: Arc::new(Mutex::new(HashMap::new())),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
@@ -408,12 +411,14 @@ pub fn run() {
             generate_deltas_for_peers,
             update_peer_channel,
             poll_sync,
-            configure_relay,
-            relay_login,
+            list_relay_accounts,
+            register_relay_account,
+            login_relay_account,
+            delete_relay_account,
+            set_peer_relay,
             create_relay_invite,
             fetch_relay_invite,
             has_relay_credentials,
-            get_relay_info,
             parse_invite_bytes,
             write_temp_swarm_bytes,
             sync::reset_peer_watermark,

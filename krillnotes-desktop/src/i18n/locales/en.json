@@ -457,6 +457,37 @@
     "configure": "Configure",
     "forceResync": "Force Resync"
   },
+  "workspacePeers": {
+    "noRelayAccounts": "No relay accounts configured. Add one in Identity Manager → Relays.",
+    "selectRelay": "Select relay account"
+  },
+  "identityManager": {
+    "relays": "Relays"
+  },
+  "relayBook": {
+    "title": "Relay Accounts",
+    "addRelay": "Add Relay Account",
+    "noRelays": "No relay accounts configured.",
+    "sessionValid": "Session active",
+    "sessionExpired": "Session expired"
+  },
+  "addRelay": {
+    "title": "Add Relay Account",
+    "register": "Register",
+    "login": "Log in",
+    "relayUrl": "Relay URL",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "passwordMismatch": "Passwords do not match",
+    "submit": "Submit"
+  },
+  "editRelay": {
+    "title": "Relay Account",
+    "status": "Status",
+    "delete": "Delete",
+    "confirmDelete": "Confirm Delete"
+  },
   "invite": {
     "createTitle": "Create Invite",
     "createDescription": "Create a signed invite for {{workspaceName}}. Share the file with anyone you want to invite.",

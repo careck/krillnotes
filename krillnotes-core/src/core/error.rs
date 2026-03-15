@@ -63,6 +63,10 @@ pub enum KrillnotesError {
     #[error("Contact encryption error: {0}")]
     ContactEncryption(String),
 
+    /// Relay account encryption or decryption failed.
+    #[error("Relay encryption error: {0}")]
+    RelayEncryption(String),
+
     /// Attachment exceeds the workspace size limit.
     #[error("Attachment too large: {size} bytes (limit: {limit} bytes)")]
     AttachmentTooLarge { size: u64, limit: u64 },
@@ -176,6 +180,7 @@ impl KrillnotesError {
             Self::UnencryptedWorkspace => "This workspace was created with an older version of Krillnotes. Please open it in the previous version, export it via File → Export Workspace, then import it here.".to_string(),
             Self::AttachmentEncryption(_) => "Could not encrypt or decrypt the attachment".to_string(),
             Self::ContactEncryption(msg) => msg.clone(),
+            Self::RelayEncryption(msg) => msg.clone(),
             Self::AttachmentTooLarge { size, limit } => {
                 format!("File too large ({} bytes). This workspace limits attachments to {} bytes.", size, limit)
             }

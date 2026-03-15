@@ -260,9 +260,11 @@ export interface SyncEvent {
   mode?: string;
 }
 
-export interface RelayInfo {
+export interface RelayAccountInfo {
+  relayAccountId: string;
   relayUrl: string;
   email: string;
+  sessionValid: boolean;
 }
 
 export interface InviteInfo {
