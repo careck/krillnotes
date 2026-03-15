@@ -21,10 +21,23 @@ pub struct FolderChannel {
 }
 
 impl FolderChannel {
+    /// Compute a filesystem-safe 8-char prefix from a base64 identity string.
+    /// Maps `/`→`-` and `+`→`_` (URL-safe base64) to avoid path-separator issues.
+    fn identity_short(id: &str) -> String {
+        id.chars()
+            .take(8)
+            .map(|c| match c {
+                '/' => '-',
+                '+' => '_',
+                c => c,
+            })
+            .collect()
+    }
+
     pub fn new(identity_id: String, device_id: String) -> Self {
         Self {
-            identity_short: identity_id.chars().take(8).collect(),
-            _device_short: device_id.chars().take(8).collect(),
+            identity_short: Self::identity_short(&identity_id),
+            _device_short: Self::identity_short(&device_id),
             folder_paths: std::sync::Mutex::new(vec![]),
         }
     }
@@ -117,7 +130,7 @@ impl SyncChannel for FolderChannel {
             return Err(KrillnotesError::Swarm(format!("Folder not found: {}", dir.display())));
         }
 
-        let recipient_short: String = peer.peer_identity_id.chars().take(8).collect();
+        let recipient_short = Self::identity_short(&peer.peer_identity_id);
         if recipient_short.is_empty() {
             return Err(crate::core::error::KrillnotesError::Swarm(
                 "folder channel peer has no identity key".to_string(),
