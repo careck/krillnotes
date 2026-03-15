@@ -265,6 +265,13 @@ export interface RelayInfo {
   email: string;
 }
 
+export interface RelayAccountInfo {
+  relayAccountId: string;
+  relayUrl: string;
+  email: string;
+  sessionValid: boolean;
+}
+
 export interface InviteInfo {
   inviteId: string;
   workspaceId: string;
