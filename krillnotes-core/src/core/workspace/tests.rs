@@ -3129,7 +3129,7 @@ schema("SameVerType", #{
 
         let op = make_create_note_op("op-remote-1", "note-remote-1", "remote-device", 1_000_000);
 
-        let applied = ws.apply_incoming_operation(op).unwrap();
+        let applied = ws.apply_incoming_operation(op, "test-peer").unwrap();
         assert!(applied, "first application must return true");
 
         // The note must exist in the working table.
@@ -3155,10 +3155,10 @@ schema("SameVerType", #{
 
         let op = make_create_note_op("op-dup-1", "note-dup-1", "remote-device", 2_000_000);
 
-        let first = ws.apply_incoming_operation(op.clone()).unwrap();
+        let first = ws.apply_incoming_operation(op.clone(), "test-peer").unwrap();
         assert!(first, "first call must return true");
 
-        let second = ws.apply_incoming_operation(op).unwrap();
+        let second = ws.apply_incoming_operation(op, "test-peer").unwrap();
         assert!(!second, "duplicate must return false");
 
         // Only one row must exist.
@@ -3186,7 +3186,7 @@ schema("SameVerType", #{
             propagate: false,
         };
 
-        let applied = ws.apply_incoming_operation(op).unwrap();
+        let applied = ws.apply_incoming_operation(op, "test-peer").unwrap();
         assert!(!applied, "local-only retract must be skipped");
 
         // Nothing must have been inserted into operations.
@@ -3206,7 +3206,7 @@ schema("SameVerType", #{
         // Use a far-future wall_ms so the local clock must be advanced.
         let far_future_ms: u64 = 9_999_999_999_999;
         let op = make_create_note_op("op-future-1", "note-future-1", "remote-device", far_future_ms);
-        ws.apply_incoming_operation(op).unwrap();
+        ws.apply_incoming_operation(op, "test-peer").unwrap();
 
         // Now create a local note — its HLC timestamp must be >= far_future_ms.
         let _root = ws.list_all_notes().unwrap()[0].clone();
@@ -3222,7 +3222,7 @@ schema("SameVerType", #{
 
         // Create a second remote op slightly ahead — its timestamp must exceed the first.
         let op2 = make_create_note_op("op-future-2", "note-future-2", "remote-device", far_future_ms + 1);
-        ws.apply_incoming_operation(op2).unwrap();
+        ws.apply_incoming_operation(op2, "test-peer").unwrap();
 
         let stored2: i64 = ws.connection().query_row(
             "SELECT timestamp_wall_ms FROM operations WHERE operation_id = 'op-future-2'", [],
@@ -3393,7 +3393,7 @@ schema("SameVerType", #{
         };
         op.sign(&key);
 
-        let applied = workspace.apply_incoming_operation(op).unwrap();
+        let applied = workspace.apply_incoming_operation(op, "test-peer").unwrap();
         assert!(applied);
     }
 
@@ -3428,7 +3428,7 @@ schema("SameVerType", #{
         op.sign(&key_b);
 
         // Op is logged (returns true) but script should NOT appear in user_scripts
-        let result = workspace.apply_incoming_operation(op).unwrap();
+        let result = workspace.apply_incoming_operation(op, "test-peer").unwrap();
         assert!(result); // Logged to operations table
 
         // Verify the script was NOT applied to the working table
