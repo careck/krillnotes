@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Relay accounts moved to Identity Manager** — Relay server credentials are now managed per-identity (like contacts) instead of per-peer. A new "Relays" button in Identity Manager opens a relay account book for registering, viewing, and deleting relay accounts. Workspace peer configuration uses a simple dropdown picker instead of the old Configure Relay dialog. (PR #103)
+- **Automatic relay session renewal** — Relay account passwords are stored (encrypted) so sessions are automatically refreshed on identity unlock — no more re-entering credentials when sessions expire.
+- **Old relay credentials auto-migrated** — Existing relay credentials are automatically migrated to the new per-identity format on first unlock.
+
 ### Fixed
 - **Folder sync addressing** — Recipient-prefixed filenames and inbox filtering so bundles in a shared folder are only picked up by the intended peer, with base64 slash sanitization for safe path handling
 - **Watermark feedback loop** — ACK now tracks the last bundle op (not just applied ops), eliminating infinite full-resend loops in multi-device topologies
