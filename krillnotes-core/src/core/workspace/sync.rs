@@ -565,6 +565,71 @@ impl Workspace {
             .list_peers_by_channel(channel_type)
     }
 
+    /// Reset `last_sent_op` for a peer to a specific op ID, or `None` to trigger full resend.
+    pub fn reset_peer_watermark(&self, peer_device_id: &str, to_op: Option<&str>) -> Result<()> {
+        PeerRegistry::new(self.storage.connection())
+            .reset_last_sent(peer_device_id, to_op)
+    }
+
+    /// Returns true if `op_a` is strictly before `op_b` in HLC order.
+    /// Returns false if either operation is not found in the log.
+    pub fn is_operation_before(&self, op_a: &str, op_b: &str) -> Result<bool> {
+        let conn = self.storage.connection();
+        let get_hlc = |op_id: &str| -> Result<Option<(i64, i64, i64)>> {
+            conn.query_row(
+                "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
+                 FROM operations WHERE operation_id = ?1",
+                [op_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+            ).optional().map_err(KrillnotesError::Database)
+        };
+        let Some(hlc_a) = get_hlc(op_a)? else { return Ok(false) };
+        let Some(hlc_b) = get_hlc(op_b)? else { return Ok(false) };
+        Ok(hlc_a < hlc_b)
+    }
+
+    /// Returns true if the given operation_id exists in the operations log.
+    pub fn operation_exists(&self, operation_id: &str) -> Result<bool> {
+        let conn = self.storage.connection();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM operations WHERE operation_id = ?1",
+            [operation_id],
+            |row| row.get(0),
+        ).map_err(KrillnotesError::Database)?;
+        Ok(count > 0)
+    }
+
+    /// Returns true if there are operations to send to at least one non-manual peer.
+    pub fn has_pending_ops_for_any_peer(&self) -> Result<bool> {
+        let peers = self.get_active_sync_peers()?;
+        let conn = self.storage.connection();
+        for peer in &peers {
+            if let Some(ref op_id) = peer.last_sent_op {
+                // Check if any ops exist after the watermark using HLC comparison.
+                let hlc = conn.query_row(
+                    "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
+                     FROM operations WHERE operation_id = ?1",
+                    [op_id.as_str()],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+                ).optional().map_err(KrillnotesError::Database)?;
+                if let Some((wall_ms, counter, node_id)) = hlc {
+                    let count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM operations WHERE \
+                         (timestamp_wall_ms > ?1 \
+                          OR (timestamp_wall_ms = ?1 AND timestamp_counter > ?2) \
+                          OR (timestamp_wall_ms = ?1 AND timestamp_counter = ?2 AND timestamp_node_id > ?3))",
+                        rusqlite::params![wall_ms, counter, node_id],
+                        |row| row.get(0),
+                    ).unwrap_or(0);
+                    if count > 0 {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// Get `PeerSyncInfo` for all non-manual peers (used by the SyncEngine).
     pub fn get_active_sync_peers(&self) -> Result<Vec<PeerSyncInfo>> {
         let peers = PeerRegistry::new(self.storage.connection())

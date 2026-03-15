@@ -369,6 +369,16 @@ impl<'a> PeerRegistry<'a> {
         Ok(())
     }
 
+    /// Reset `last_sent_op` for a peer to a specific operation (or None for full resync).
+    /// Used when an inbound ACK reveals the peer is behind our watermark.
+    pub fn reset_last_sent(&self, peer_device_id: &str, to_op: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sync_peers SET last_sent_op = ?1 WHERE peer_device_id = ?2",
+            rusqlite::params![to_op, peer_device_id],
+        )?;
+        Ok(())
+    }
+
     /// Remove a peer from the registry.
     pub fn remove_peer(&self, peer_device_id: &str) -> Result<()> {
         self.conn.execute(

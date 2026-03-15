@@ -210,6 +210,42 @@ pub fn apply_delta(
         last_received,
     )?;
 
+    // 5. Process inbound ACK: if the sender tells us the last op they received FROM us,
+    //    and that's behind our last_sent_op for them, reset our watermark so we resend.
+    let sender_device_id = &parsed.sender_device_id;
+    if let Some(ref ack_op_id) = parsed.ack_operation_id {
+        if let Some(peer) = workspace.get_sync_peer(sender_device_id)? {
+            if let Some(ref our_last_sent) = peer.last_sent_op {
+                if workspace.is_operation_before(ack_op_id, our_last_sent)? {
+                    log::warn!(target: "krillnotes::sync",
+                        "peer {} ACK ({}) is behind our last_sent ({}), resetting watermark",
+                        sender_device_id, ack_op_id, our_last_sent
+                    );
+                    workspace.reset_peer_watermark(sender_device_id, Some(ack_op_id))?;
+                } else if !workspace.operation_exists(ack_op_id)? {
+                    // ACK references an operation we don't have (purged?) — force full resend.
+                    log::warn!(target: "krillnotes::sync",
+                        "peer {} ACK ({}) references unknown operation, resetting watermark",
+                        sender_device_id, ack_op_id
+                    );
+                    workspace.reset_peer_watermark(sender_device_id, None)?;
+                }
+            }
+        }
+    } else {
+        // Peer sent no ACK — they have never received anything from us.
+        // If our watermark says we've sent something, reset it for a full resend.
+        if let Some(peer) = workspace.get_sync_peer(sender_device_id)? {
+            if peer.last_sent_op.is_some() {
+                log::warn!(target: "krillnotes::sync",
+                    "peer {} sent no ACK but we have a watermark — resetting to force full delta",
+                    sender_device_id
+                );
+                workspace.reset_peer_watermark(sender_device_id, None)?;
+            }
+        }
+    }
+
     Ok(ApplyResult {
         operations_applied: applied,
         operations_skipped: skipped,
