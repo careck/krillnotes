@@ -14,7 +14,6 @@ use uuid::Uuid;
 use krillnotes_core::core::{
     device::get_device_id,
     sync::{FolderChannel, SyncContext, SyncEngine, SyncEvent},
-    sync::relay::load_relay_credentials,
 };
 use krillnotes_core::core::sync::relay::{RelayAccount, RelayChannel, RelayClient};
 
@@ -160,7 +159,10 @@ pub async fn poll_sync(
         let mut engine = SyncEngine::new();
         engine.register_channel(Box::new(FolderChannel::new(identity_pubkey, device_id)));
 
-        for acct in &relay_accounts {
+        // NOTE: SyncEngine supports one channel per ChannelType (HashMap keyed by type).
+        // Multiple relay accounts would overwrite each other. For now, register only the
+        // first relay account. Multi-relay support requires SyncEngine architecture changes.
+        if let Some(acct) = relay_accounts.first() {
             let mut token = acct.session_token.clone();
             // Auto-login if session expired and password stored
             if acct.session_expires_at < chrono::Utc::now() && !acct.password.is_empty() {
@@ -253,9 +255,7 @@ pub async fn fetch_relay_invite(
 
 // ── has_relay_credentials ──────────────────────────────────────────────────
 
-/// Return `true` if the current identity has relay credentials configured.
-///
-/// TODO: Check relay credentials for the active identity.
+/// Return `true` if the current identity has any relay accounts configured.
 #[tauri::command]
 pub async fn has_relay_credentials(
     window: Window,
@@ -267,19 +267,13 @@ pub async fn has_relay_credentials(
         let m = state.workspace_identities.lock().map_err(|e| e.to_string())?;
         *m.get(&workspace_label).ok_or("No identity bound to this workspace")?
     };
-    let relay_key = {
-        let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
-        m.get(&identity_uuid)
-            .ok_or("Identity not unlocked")?
-            .relay_key()
-    };
-    let relay_dir = crate::settings::config_dir().join("relay");
-    let creds = load_relay_credentials(&relay_dir, &identity_uuid.to_string(), &relay_key)
-        .map_err(|e| {
-            log::error!("has_relay_credentials(identity={identity_uuid}) failed: {e}");
-            e.to_string()
-        })?;
-    Ok(creds.is_some())
+    let managers = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+    if let Some(mgr) = managers.get(&identity_uuid) {
+        let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
+        Ok(!accounts.is_empty())
+    } else {
+        Ok(false)
+    }
 }
 
 // ── parse_invite_bytes ─────────────────────────────────────────────────────

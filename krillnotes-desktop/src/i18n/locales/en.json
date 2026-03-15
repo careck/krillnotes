@@ -486,7 +486,7 @@
     "title": "Relay Account",
     "status": "Status",
     "delete": "Delete",
-    "confirmDelete": "Are you sure you want to delete this relay account?"
+    "confirmDelete": "Confirm Delete"
   },
   "invite": {
     "createTitle": "Create Invite",
