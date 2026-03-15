@@ -51,12 +51,14 @@ pub struct ApplyResult {
 
 /// Generate a delta `.swarm` bundle for a specific peer.
 ///
-/// Queries all operations since `last_sent_op` for `peer_device_id`, encrypts them
-/// for the peer's public key, and updates the `last_sent_op` watermark.
+/// Queries all operations since `last_sent_op` for `peer_device_id` and encrypts
+/// them for the peer's public key. The poll loop advances the watermark after delivery.
 ///
 /// # Errors
 /// - `KrillnotesError::Swarm("peer not found")` if the peer is not registered.
-/// - `KrillnotesError::Swarm("snapshot must precede delta")` if `last_sent_op` is `None`.
+///
+/// When `last_sent_op` is `None` (e.g. after a force-resync reset), all operations
+/// are included in the delta so the peer can catch up from scratch.
 pub fn generate_delta(
     workspace: &mut Workspace,
     peer_device_id: &str,
@@ -72,15 +74,9 @@ pub fn generate_delta(
             KrillnotesError::Swarm(format!("peer {peer_device_id} not found in registry"))
         })?;
 
-    // 2. Require snapshot baseline.
-    let last_sent_op = peer.last_sent_op.as_deref().ok_or_else(|| {
-        KrillnotesError::Swarm(
-            "snapshot must precede delta — no last_sent_op for this peer".to_string(),
-        )
-    })?;
-
-    // 3. Collect operations since watermark, excluding this peer's own ops.
-    let ops = workspace.operations_since(Some(last_sent_op), &peer.peer_device_id)?;
+    // 2. Collect operations since watermark, excluding this peer's own ops.
+    //    When last_sent_op is None (force-resync), operations_since(None) returns all ops.
+    let ops = workspace.operations_since(peer.last_sent_op.as_deref(), &peer.peer_device_id)?;
 
     // 4. Resolve peer's public key from contacts.
     let contact = contact_manager
@@ -113,7 +109,7 @@ pub fn generate_delta(
         workspace_name: workspace_name.to_string(),
         source_device_id,
         source_display_name: sender_display_name.to_string(),
-        since_operation_id: last_sent_op.to_string(),
+        since_operation_id: peer.last_sent_op.clone().unwrap_or_default(),
         operations: ops,
         sender_key: signing_key,
         recipient_keys: vec![&recipient_vk],
@@ -325,9 +321,9 @@ mod tests {
         assert_eq!(parsed.workspace_id, alice_ws.workspace_id());
     }
 
-    /// generate_delta must fail when last_sent_op is None (no snapshot baseline).
+    /// generate_delta with last_sent_op = None includes ALL ops (force-resync path).
     #[test]
-    fn test_generate_delta_no_snapshot_errors() {
+    fn test_generate_delta_no_watermark_includes_all_ops() {
         let alice_key = make_key();
         let bob_key = make_key();
         let bob_pubkey_b64 = b64(&bob_key);
@@ -340,6 +336,11 @@ mod tests {
             SigningKey::from_bytes(&alice_key.to_bytes()),
         )
         .unwrap();
+
+        // Create some ops BEFORE registering the peer with no watermark.
+        ws.create_note_root("TextNote").unwrap();
+        ws.create_note_root("TextNote").unwrap();
+
         // Register peer WITHOUT a snapshot watermark (last_sent_op = None).
         ws.upsert_sync_peer("dev-bob", &bob_pubkey_b64, None, None)
             .unwrap();
@@ -348,7 +349,6 @@ mod tests {
         let cm =
             crate::core::contact::ContactManager::for_identity(cm_dir.path().to_path_buf(), [2u8; 32])
                 .unwrap();
-        // Also register Bob as a contact so we don't fail on that lookup first.
         cm.find_or_create_by_public_key(
             "Bob",
             &bob_pubkey_b64,
@@ -356,13 +356,16 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            super::generate_delta(&mut ws, "dev-bob", "TestWorkspace", &alice_key, "Alice", &cm);
-        assert!(result.is_err(), "must error when last_sent_op is None");
-        let err = result.unwrap_err().to_string();
+        let bundle =
+            super::generate_delta(&mut ws, "dev-bob", "TestWorkspace", &alice_key, "Alice", &cm)
+                .expect("generate_delta should succeed when last_sent_op is None");
+
+        // All ops (excluding dev-bob's own device_id, but alice owns all ops here)
+        // should be included.
         assert!(
-            err.contains("snapshot must precede delta"),
-            "unexpected error: {err}"
+            bundle.op_count >= 2,
+            "all ops should be included when watermark is None, got op_count={}",
+            bundle.op_count
         );
     }
 
