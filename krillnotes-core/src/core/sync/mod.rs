@@ -11,7 +11,7 @@ pub mod manual;
 #[cfg(feature = "relay")]
 pub mod relay;
 
-pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SyncChannel};
+pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};
 pub use folder::FolderChannel;
 
 use std::collections::{HashMap, HashSet};
@@ -23,6 +23,7 @@ use zip::ZipArchive;
 use crate::core::contact::ContactManager;
 use crate::core::error::KrillnotesError;
 use crate::core::swarm::header::{SwarmHeader, SwarmMode};
+use crate::core::swarm::sync::DeltaBundle;
 use crate::core::workspace::Workspace;
 
 // ── SyncEvent ──────────────────────────────────────────────────────────────
@@ -67,6 +68,13 @@ pub enum SyncEvent {
     UnexpectedBundleMode {
         workspace_id: String,
         mode: String,
+    },
+    /// Bundle transport succeeded but the relay did not route it to any recipient
+    /// (e.g. peer's device key is unknown or unverified). Watermark NOT advanced.
+    SendSkipped {
+        workspace_id: String,
+        peer_device_id: String,
+        reason: String,
     },
 }
 
@@ -190,7 +198,7 @@ impl SyncEngine {
             };
 
             // Generate delta
-            let bundle_bytes = match crate::core::swarm::sync::generate_delta(
+            let delta: DeltaBundle = match crate::core::swarm::sync::generate_delta(
                 workspace,
                 &peer.peer_device_id,
                 ctx.workspace_name,
@@ -198,7 +206,7 @@ impl SyncEngine {
                 ctx.sender_display_name,
                 ctx.contact_manager,
             ) {
-                Ok(bytes) => bytes,
+                Ok(d) => d,
                 Err(e) => {
                     log::error!(target: "krillnotes::sync", "generate_delta failed for peer {}: {e}", peer.peer_device_id);
                     let _ = workspace.update_peer_sync_status(
@@ -216,14 +224,21 @@ impl SyncEngine {
                 }
             };
 
-            // Count operations in the bundle (peek at header)
-            let op_count = Self::peek_op_count_from_header(&bundle_bytes).unwrap_or(0);
-
             // Send via channel
-            log::debug!(target: "krillnotes::sync", "sending bundle ({} bytes) to peer {}", bundle_bytes.len(), peer.peer_device_id);
-            match channel.send_bundle(peer, &bundle_bytes) {
-                Ok(()) => {
-                    log::info!(target: "krillnotes::sync", "delta sent to peer {} ({} ops)", peer.peer_device_id, op_count);
+            log::debug!(target: "krillnotes::sync", "sending bundle ({} bytes, {} ops) to peer {}",
+                delta.bundle_bytes.len(), delta.op_count, peer.peer_device_id);
+            match channel.send_bundle(peer, &delta.bundle_bytes) {
+                Ok(SendResult::Delivered) => {
+                    log::info!(target: "krillnotes::sync", "delta sent to peer {} ({} ops)", peer.peer_device_id, delta.op_count);
+                    // Advance watermark only after confirmed delivery.
+                    if let Some(ref last_op_id) = delta.last_included_op {
+                        let _ = workspace.upsert_sync_peer(
+                            &peer.peer_device_id,
+                            &peer.peer_identity_id,
+                            Some(last_op_id.as_str()),
+                            None,
+                        );
+                    }
                     let _ = workspace.update_peer_sync_status(
                         &peer.peer_device_id,
                         "idle",
@@ -233,7 +248,23 @@ impl SyncEngine {
                     events.push(SyncEvent::DeltaSent {
                         workspace_id: workspace_id.clone(),
                         peer_device_id: peer.peer_device_id.clone(),
-                        op_count,
+                        op_count: delta.op_count,
+                    });
+                }
+                Ok(SendResult::NotDelivered { reason }) => {
+                    log::warn!(target: "krillnotes::sync",
+                        "bundle not delivered to peer {}: {reason}", peer.peer_device_id);
+                    // Do NOT advance watermark — peer never received the bundle.
+                    let _ = workspace.update_peer_sync_status(
+                        &peer.peer_device_id,
+                        "not_delivered",
+                        Some(&reason),
+                        None,
+                    );
+                    events.push(SyncEvent::SendSkipped {
+                        workspace_id: workspace_id.clone(),
+                        peer_device_id: peer.peer_device_id.clone(),
+                        reason,
                     });
                 }
                 Err(KrillnotesError::RelayAuthExpired(_)) => {
@@ -444,15 +475,6 @@ impl SyncEngine {
         Ok(header)
     }
 
-    /// Peek at the header to estimate how many operations the delta contains.
-    /// Returns 0 if parsing fails (non-critical).
-    fn peek_op_count_from_header(data: &[u8]) -> Option<usize> {
-        // We don't have an operation count in the header, so we can't know
-        // exactly. Return None and let callers use 0 as fallback.
-        // A future improvement could add op_count to the header.
-        let _ = data;
-        None
-    }
 }
 
 impl Default for SyncEngine {

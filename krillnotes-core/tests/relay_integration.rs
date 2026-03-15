@@ -223,7 +223,7 @@ fn relay_delta_roundtrip() {
         recipient_device_keys: vec![bob_pubkey_b64.clone()],
         mode: Some("delta".to_string()),
     };
-    let bundle_ids = alice_client.upload_bundle(&header, &bundle).expect("upload_bundle");
+    let bundle_ids = alice_client.upload_bundle(&header, &bundle.bundle_bytes).expect("upload_bundle");
     let bundle_id = bundle_ids.into_iter().next().expect("relay returned at least one bundle_id");
 
     // ── 5. Bob downloads and applies the delta ─────────────────────────────
@@ -349,7 +349,7 @@ fn folder_channel_delta_roundtrip() {
         "alice-device-uuid".to_string(),
     );
     alice_folder_ch
-        .send_bundle(&alice_peer_for_bob, &bundle)
+        .send_bundle(&alice_peer_for_bob, &bundle.bundle_bytes)
         .expect("send_bundle to shared folder");
 
     // Verify a .swarm file was written.

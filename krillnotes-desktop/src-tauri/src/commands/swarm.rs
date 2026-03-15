@@ -681,7 +681,7 @@ pub async fn generate_deltas_for_peers(
         };
 
         match bundle_result {
-            Ok(bytes) => match std::fs::write(&file_path, &bytes) {
+            Ok(delta) => match std::fs::write(&file_path, &delta.bundle_bytes) {
                 Ok(()) => {
                     result.succeeded.push(peer_id.clone());
                     result.files_written.push(file_path.to_string_lossy().to_string());

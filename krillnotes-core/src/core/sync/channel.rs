@@ -7,6 +7,16 @@
 use serde::{Deserialize, Serialize};
 use crate::core::error::KrillnotesError;
 
+/// Outcome of a `send_bundle` call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendResult {
+    /// Bundle was accepted and routed to at least one recipient.
+    Delivered,
+    /// Transport succeeded but no recipient received the bundle
+    /// (e.g. relay skipped all recipients as unknown/unverified).
+    NotDelivered { reason: String },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
@@ -60,7 +70,7 @@ pub struct BundleRef {
 /// This avoids pushing identity/device context through every trait method.
 pub trait SyncChannel: Send + Sync {
     /// Send a .swarm bundle to a specific peer.
-    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<(), KrillnotesError>;
+    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<SendResult, KrillnotesError>;
 
     /// Check for and download any pending inbound bundles.
     fn receive_bundles(&self, workspace_id: &str) -> Result<Vec<BundleRef>, KrillnotesError>;

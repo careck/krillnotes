@@ -8,7 +8,7 @@ use std::path::Path;
 use chrono::Utc;
 use uuid::Uuid;
 use crate::core::error::KrillnotesError;
-use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SyncChannel};
+use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};
 
 pub struct FolderChannel {
     /// Short prefix of local identity UUID for filename generation
@@ -95,7 +95,7 @@ impl FolderChannel {
 }
 
 impl SyncChannel for FolderChannel {
-    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<(), KrillnotesError> {
+    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<SendResult, KrillnotesError> {
         let folder_path = Self::extract_folder_path(peer)?;
         let dir = Path::new(folder_path);
 
@@ -117,7 +117,8 @@ impl SyncChannel for FolderChannel {
         })?;
 
         log::info!(target: "krillnotes::sync::folder", "wrote bundle to {} ({} bytes)", path.display(), bundle_bytes.len());
-        Ok(())
+        // Folder write succeeds = delivered (file is there for the peer to pick up)
+        Ok(SendResult::Delivered)
     }
 
     fn receive_bundles(&self, _workspace_id: &str) -> Result<Vec<BundleRef>, KrillnotesError> {

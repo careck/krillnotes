@@ -19,7 +19,7 @@ pub use client::RelayClient;
 #[cfg(feature = "relay")]
 use crate::core::error::KrillnotesError;
 #[cfg(feature = "relay")]
-use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SyncChannel};
+use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};
 
 #[cfg(feature = "relay")]
 pub struct RelayChannel {
@@ -45,7 +45,7 @@ impl RelayChannel {
 
 #[cfg(feature = "relay")]
 impl SyncChannel for RelayChannel {
-    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<(), KrillnotesError> {
+    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<SendResult, KrillnotesError> {
         use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
         log::debug!(target: "krillnotes::relay", "sending bundle to peer {} via relay ({} bytes)", peer.peer_device_id, bundle_bytes.len());
         // The relay stores device keys as hex-encoded Ed25519 public keys.
@@ -64,9 +64,16 @@ impl SyncChannel for RelayChannel {
             recipient_device_keys: vec![recipient_key_hex],
             mode: None,
         };
-        self.client.upload_bundle(&header, bundle_bytes)?;
-        log::info!(target: "krillnotes::relay", "bundle sent to peer {} via relay", peer.peer_device_id);
-        Ok(())
+        let bundle_ids = self.client.upload_bundle(&header, bundle_bytes)?;
+        if !bundle_ids.is_empty() {
+            log::info!(target: "krillnotes::relay", "bundle sent to peer {} via relay", peer.peer_device_id);
+            Ok(SendResult::Delivered)
+        } else {
+            log::warn!(target: "krillnotes::relay", "bundle not delivered to peer {} — relay skipped all recipients", peer.peer_device_id);
+            Ok(SendResult::NotDelivered {
+                reason: "relay skipped all recipients (unknown or unverified device key)".to_string(),
+            })
+        }
     }
 
     fn receive_bundles(&self, workspace_id: &str) -> Result<Vec<BundleRef>, KrillnotesError> {

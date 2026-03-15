@@ -25,6 +25,18 @@ use crate::core::swarm::delta::{create_delta_bundle, parse_delta_bundle, DeltaPa
 use crate::core::workspace::Workspace;
 use crate::{KrillnotesError, Result};
 
+/// Result of generating a delta bundle.
+/// Bundles the encoded bytes with metadata needed by the poll loop.
+#[derive(Debug)]
+pub struct DeltaBundle {
+    pub bundle_bytes: Vec<u8>,
+    /// The operation ID of the last op included, if any.
+    /// The poll loop advances the watermark only after confirmed delivery.
+    pub last_included_op: Option<String>,
+    /// Number of operations included.
+    pub op_count: usize,
+}
+
 /// Result of applying a received delta bundle.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +64,7 @@ pub fn generate_delta(
     signing_key: &SigningKey,
     sender_display_name: &str,
     contact_manager: &ContactManager,
-) -> Result<Vec<u8>> {
+) -> Result<DeltaBundle> {
     // 1. Look up peer.
     let peer = workspace
         .get_sync_peer(peer_device_id)?
@@ -93,13 +105,16 @@ pub fn generate_delta(
     // so that multiple identities on the same machine have distinct source IDs.
     let source_device_id = workspace.device_id().to_string();
 
-    let bundle = create_delta_bundle(DeltaParams {
+    let op_count = ops.len();
+    let last_included_op = ops.last().map(|op| op.operation_id().to_string());
+
+    let bundle_bytes = create_delta_bundle(DeltaParams {
         workspace_id: workspace.workspace_id().to_string(),
         workspace_name: workspace_name.to_string(),
         source_device_id,
         source_display_name: sender_display_name.to_string(),
         since_operation_id: last_sent_op.to_string(),
-        operations: ops.clone(),
+        operations: ops,
         sender_key: signing_key,
         recipient_keys: vec![&recipient_vk],
         recipient_peer_ids: vec![peer_device_id.to_string()],
@@ -107,17 +122,10 @@ pub fn generate_delta(
         owner_pubkey: workspace.owner_pubkey().to_string(),
     })?;
 
-    // 6. Update watermark only if we sent at least one operation.
-    if let Some(last_op) = ops.last() {
-        workspace.upsert_sync_peer(
-            peer_device_id,
-            &peer.peer_identity_id,
-            Some(last_op.operation_id()),
-            None,
-        )?;
-    }
+    // NOTE: watermark is NOT advanced here.
+    // The poll loop advances it only after confirmed delivery (SendResult::Delivered).
 
-    Ok(bundle)
+    Ok(DeltaBundle { bundle_bytes, last_included_op, op_count })
 }
 
 /// Apply a received delta `.swarm` bundle to the local workspace.
@@ -274,7 +282,7 @@ mod tests {
 
         // Parse and verify with Bob's key.
         let parsed =
-            crate::core::swarm::delta::parse_delta_bundle(&bundle, &bob_key).unwrap();
+            crate::core::swarm::delta::parse_delta_bundle(&bundle.bundle_bytes, &bob_key).unwrap();
         assert_eq!(parsed.workspace_id, alice_ws.workspace_id());
     }
 
@@ -386,7 +394,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = super::apply_delta(&bundle, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
+        let result = super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
 
         assert_eq!(
             result.operations_applied + result.operations_skipped,
@@ -455,7 +463,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = super::apply_delta(&bundle, &mut bob_ws, &bob_key, &mut bob_cm);
+        let result = super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm);
         assert!(result.is_err(), "workspace_id mismatch must be an error");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("workspace_id mismatch"), "unexpected error: {err}");
