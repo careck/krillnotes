@@ -120,7 +120,9 @@ pub fn generate_delta(
         recipient_peer_ids: vec![peer_device_id.to_string()],
         recipient_identity_id: peer.peer_identity_id.clone(),
         owner_pubkey: workspace.owner_pubkey().to_string(),
-        ack_operation_id: None, // populated in Task 4
+        // ACK: tell the peer the last operation we received FROM them.
+        // They can compare it with their last_sent_op to detect missed deltas.
+        ack_operation_id: peer.last_received_op.clone(),
     })?;
 
     // NOTE: watermark is NOT advanced here.
