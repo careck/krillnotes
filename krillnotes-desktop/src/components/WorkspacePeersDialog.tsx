@@ -297,44 +297,35 @@ export default function WorkspacePeersDialog({
                           {t('workspacePeers.noRelayAccounts')}
                         </p>
                       ) : (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <select
-                            value={pendingRelayAccount[peer.peerDeviceId] ?? ''}
-                            onChange={e => setPendingRelayAccount(prev => ({ ...prev, [peer.peerDeviceId]: e.target.value }))}
-                            className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] flex-1 min-w-0"
-                          >
-                            <option value="" disabled>{t('workspacePeers.selectRelay')}</option>
-                            {relayAccounts.map(acct => (
-                              <option key={acct.relayAccountId} value={acct.relayAccountId}>
-                                {acct.email} @ {acct.relayUrl}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={async () => {
-                              const accountId = pendingRelayAccount[peer.peerDeviceId];
-                              if (!accountId) return;
-                              try {
-                                await invoke('set_peer_relay', {
-                                  peerDeviceId: peer.peerDeviceId,
-                                  relayAccountId: accountId,
-                                });
-                                setPendingRelayAccount(prev => {
-                                  const next = { ...prev };
-                                  delete next[peer.peerDeviceId];
-                                  return next;
-                                });
-                                await loadPeers();
-                              } catch (e) {
-                                setError(String(e));
-                              }
-                            }}
-                            disabled={!pendingRelayAccount[peer.peerDeviceId]}
-                            className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
-                          >
-                            {t('peers.configure', 'Configure')}
-                          </button>
-                        </div>
+                        <select
+                          value={pendingRelayAccount[peer.peerDeviceId] ?? ''}
+                          onChange={async (e) => {
+                            const accountId = e.target.value;
+                            if (!accountId) return;
+                            try {
+                              await invoke('set_peer_relay', {
+                                peerDeviceId: peer.peerDeviceId,
+                                relayAccountId: accountId,
+                              });
+                              setPendingRelayAccount(prev => {
+                                const next = { ...prev };
+                                delete next[peer.peerDeviceId];
+                                return next;
+                              });
+                              await loadPeers();
+                            } catch (err) {
+                              setError(String(err));
+                            }
+                          }}
+                          className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] mt-0.5"
+                        >
+                          <option value="" disabled>{t('workspacePeers.selectRelay')}</option>
+                          {relayAccounts.map(acct => (
+                            <option key={acct.relayAccountId} value={acct.relayAccountId}>
+                              {acct.email} @ {acct.relayUrl}
+                            </option>
+                          ))}
+                        </select>
                       )
                     )}
                     {currentFolderPath && (
