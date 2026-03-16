@@ -275,6 +275,12 @@ export interface InviteInfo {
   expiresAt: string | null;
   revoked: boolean;
   useCount: number;
+  relayUrl: string | null;
+}
+
+export interface FetchedRelayInvite {
+  invite: InviteFileData;
+  tempPath: string;
 }
 
 export interface PendingPeer {
