@@ -401,6 +401,25 @@ impl InviteManager {
         Self::verify_and_parse_response_json(&json)
     }
 
+    /// Build a signed InviteResponseFile without saving to disk.
+    pub fn build_response(
+        invite: &InviteFile,
+        signing_key: &SigningKey,
+        declared_name: &str,
+    ) -> Result<InviteResponseFile> {
+        let invitee_public_key = STANDARD.encode(signing_key.verifying_key().to_bytes());
+        let mut response = InviteResponseFile {
+            file_type: "krillnotes-invite-response-v1".into(),
+            invite_id: invite.invite_id.clone(),
+            invitee_public_key,
+            invitee_declared_name: declared_name.into(),
+            signature: String::new(),
+        };
+        let payload = serde_json::to_value(&response)?;
+        response.signature = sign_payload(&payload, signing_key);
+        Ok(response)
+    }
+
     /// Build and sign a response file (invitee side). Writes to `save_path`.
     pub fn build_and_save_response(
         invite: &InviteFile,
@@ -408,16 +427,7 @@ impl InviteManager {
         declared_name: &str,
         save_path: &Path,
     ) -> Result<()> {
-        let pubkey_b64 = STANDARD.encode(signing_key.verifying_key().to_bytes());
-        let mut response = InviteResponseFile {
-            file_type: "krillnotes-invite-response-v1".to_string(),
-            invite_id: invite.invite_id.clone(),
-            invitee_public_key: pubkey_b64,
-            invitee_declared_name: declared_name.to_string(),
-            signature: String::new(),
-        };
-        let payload = serde_json::to_value(&response)?;
-        response.signature = sign_payload(&payload, signing_key);
+        let response = Self::build_response(invite, signing_key, declared_name)?;
         let json = serde_json::to_string_pretty(&response)?;
         write_json_zip(save_path, "response.json", &json)?;
         Ok(())
@@ -547,6 +557,25 @@ mod manager_tests {
             .unwrap();
         assert!(record.expires_at.is_some());
         assert!(file.expires_at.is_some());
+    }
+
+    #[test]
+    fn build_response_returns_signed_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let inviter_key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let invitee_key = SigningKey::generate(&mut rand::rngs::OsRng);
+
+        let (_record, invite_file) = mgr.create_invite(
+            "ws-1", "Test", Some(7), &inviter_key, "Alice",
+            None, None, None, None, None, vec![],
+        ).unwrap();
+
+        let response = InviteManager::build_response(&invite_file, &invitee_key, "Bob").unwrap();
+        assert_eq!(response.invite_id, invite_file.invite_id);
+        assert_eq!(response.invitee_declared_name, "Bob");
+        assert_eq!(response.file_type, "krillnotes-invite-response-v1");
+        assert!(!response.signature.is_empty());
     }
 
     #[test]
