@@ -5,6 +5,23 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **One-click relay invite sharing** — "Share Invite Link" button in Workspace Peers and Invite Manager creates an invite, uploads it to the relay, and copies the URL to clipboard. No `.swarm` file exchange needed. (PR #104)
+- **File → Accept Invite** — Top-level menu action for invitees to accept an invite by pasting a relay URL or opening a `.swarm` file, without needing a workspace open first.
+- **Full relay invite round-trip** — Inviter shares link → invitee fetches and responds via relay → inviter imports response from link. Both sides exchange URLs instead of files.
+- **Relay account fallback** — If no relay account is configured, the registration dialog opens automatically and continues the action on success.
+
+### Changed
+- `ImportInviteDialog` works standalone (identity selector when no workspace context)
+- `InviteManagerDialog` shows relay URLs on invites with "Copy Link" and "Upload to Relay" actions
+- `has_relay_credentials` accepts optional `identityUuid` parameter for standalone use
+
+### Fixed
+- WKWebView clipboard `NotAllowedError` — falls back to showing URL in a selectable text field
+- `InviteManagerDialog` uses CSS variable theme system (fixes unreadable dark mode)
+
 ## [0.4.1] — 2026-03-15
 
 ### Changed
