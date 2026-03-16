@@ -150,10 +150,15 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
         s(strings, "openSwarmFile", "Open .swarm File\u{2026}"),
     )
     .build(app)?;
+    let accept_invite_item = MenuItemBuilder::with_id(
+        "file_accept_invite",
+        s(strings, "acceptInvite", "Accept Invite\u{2026}"),
+    )
+    .build(app)?;
     let sep_sync = PredefinedMenuItem::separator(app)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "file", "File"))
-        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &open_swarm_item, &sep2, &close_item]);
+        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &open_swarm_item, &accept_invite_item, &sep2, &close_item]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {

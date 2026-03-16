@@ -19,6 +19,7 @@ pub struct InviteInfo {
     pub expires_at: Option<String>,
     pub revoked: bool,
     pub use_count: u32,
+    pub relay_url: Option<String>,
 }
 
 impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
@@ -31,8 +32,16 @@ impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
             expires_at: r.expires_at.map(|dt| dt.to_rfc3339()),
             revoked: r.revoked,
             use_count: r.use_count,
+            relay_url: r.relay_url,
         }
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchedRelayInvite {
+    pub invite: InviteFileData,
+    pub temp_path: String,
 }
 
 #[derive(Serialize)]

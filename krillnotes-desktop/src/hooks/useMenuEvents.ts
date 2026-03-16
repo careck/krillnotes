@@ -16,6 +16,7 @@ export interface MenuEventCallbacks {
   setShowExportPasswordDialog: (show: boolean) => void;
   setShowIdentityManager: (show: boolean) => void;
   setShowSwarmInvite: (show: boolean) => void;
+  setShowAcceptInvite: (show: boolean) => void;
   setShowWorkspacePeers: (show: boolean) => void;
   setShowCreateDeltaDialog: (show: boolean) => void;
   statusSetter: (msg: string, isError?: boolean) => void;
@@ -31,6 +32,7 @@ function createMenuHandlers(callbacks: MenuEventCallbacks) {
     setShowExportPasswordDialog,
     setShowIdentityManager,
     setShowSwarmInvite,
+    setShowAcceptInvite,
     setShowWorkspacePeers,
     setShowCreateDeltaDialog,
     statusSetter,
@@ -77,6 +79,10 @@ function createMenuHandlers(callbacks: MenuEventCallbacks) {
 
     'File > Invite Peer clicked': () => {
       setShowSwarmInvite(true);
+    },
+
+    'File > Accept Invite clicked': () => {
+      setShowAcceptInvite(true);
     },
 
     'Edit > Workspace Peers clicked': () => {

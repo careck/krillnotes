@@ -15,6 +15,7 @@ import { InviteManagerDialog } from './InviteManagerDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
+import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   identityUuid: string;
@@ -74,6 +75,12 @@ export default function WorkspacePeersDialog({
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [resyncingPeer, setResyncingPeer] = useState<string | null>(null);
+  // Share Invite Link state
+  const [sharingLink, setSharingLink] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
+  const [showRelaySetup, setShowRelaySetup] = useState(false);
+  const [pendingShareAction, setPendingShareAction] = useState(false);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -173,6 +180,52 @@ export default function WorkspacePeersDialog({
       setError(String(e));
     } finally {
       setResyncingPeer(null);
+    }
+  };
+
+  const handleShareInviteLink = async () => {
+    if (!workspaceInfo) return;
+    setSharingLink(true);
+    setShareError(null);
+    setShareSuccess(null);
+    try {
+      const hasRelay = await invoke<boolean>('has_relay_credentials');
+      if (!hasRelay) {
+        setPendingShareAction(true);
+        setShowRelaySetup(true);
+        setSharingLink(false);
+        return;
+      }
+      await doShareInviteLink();
+    } catch (e) {
+      setShareError(String(e));
+      setSharingLink(false);
+    }
+  };
+
+  const doShareInviteLink = async () => {
+    if (!workspaceInfo) return;
+    setSharingLink(true);
+    setShareError(null);
+    try {
+      const info = await invoke<{ relayUrl: string | null }>('share_invite_link', {
+        identityUuid,
+        workspaceName: workspaceInfo.filename,
+        expiresInDays: 7,
+      });
+      if (info.relayUrl) {
+        try {
+          await navigator.clipboard.writeText(info.relayUrl);
+          setShareSuccess(t('invite.linkCopied'));
+        } catch {
+          // WKWebView blocks clipboard after async — show URL as fallback
+          setShareSuccess(info.relayUrl);
+        }
+      }
+    } catch (e) {
+      setShareError(String(e));
+    } finally {
+      setSharingLink(false);
     }
   };
 
@@ -394,6 +447,19 @@ export default function WorkspacePeersDialog({
         {syncResult && (
           <p className="px-4 pb-1 text-xs text-[var(--color-muted-foreground)]">{syncResult}</p>
         )}
+        {shareSuccess && (
+          shareSuccess.startsWith('http') ? (
+            <div className="px-4 pb-1">
+              <p className="text-xs text-green-500 mb-1">{t('invite.linkCopied')}</p>
+              <input readOnly value={shareSuccess} className="w-full text-xs font-mono p-1 rounded border border-[var(--color-border)] bg-[var(--color-background)] select-all" onClick={e => (e.target as HTMLInputElement).select()} />
+            </div>
+          ) : (
+            <p className="px-4 pb-1 text-xs text-green-500">{shareSuccess}</p>
+          )
+        )}
+        {shareError && (
+          <p className="px-4 pb-1 text-xs text-red-500">{shareError}</p>
+        )}
         <div className="flex items-center gap-2 p-4 border-t border-[var(--color-border)]">
           <button
             onClick={() => setShowAddFromContacts(true)}
@@ -406,6 +472,13 @@ export default function WorkspacePeersDialog({
             className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
           >
             {t('invite.manageInvites')}
+          </button>
+          <button
+            onClick={handleShareInviteLink}
+            disabled={sharingLink || !workspaceInfo}
+            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+          >
+            {sharingLink ? t('invite.sharing') : t('invite.shareInviteLink')}
           </button>
           <button
             onClick={() => {
@@ -489,6 +562,23 @@ export default function WorkspacePeersDialog({
         onClose={() => setShowSendSnapshot(false)}
         onSuccess={() => {}}
       />
+
+      {showRelaySetup && (
+        <AddRelayAccountDialog
+          identityUuid={identityUuid}
+          onClose={() => {
+            setShowRelaySetup(false);
+            setPendingShareAction(false);
+          }}
+          onCreated={async () => {
+            setShowRelaySetup(false);
+            if (pendingShareAction) {
+              setPendingShareAction(false);
+              await doShareInviteLink();
+            }
+          }}
+        />
+      )}
 
     </div>
   );

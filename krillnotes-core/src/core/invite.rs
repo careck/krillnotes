@@ -29,6 +29,8 @@ pub struct InviteRecord {
     pub expires_at: Option<DateTime<Utc>>,
     pub revoked: bool,
     pub use_count: u32,
+    #[serde(default)]
+    pub relay_url: Option<String>,
 }
 
 // ── .swarm file formats ───────────────────────────────────────────────────────
@@ -138,13 +140,16 @@ pub fn verify_payload(
 
 // ── Zip I/O helpers ───────────────────────────────────────────────────────────
 
-/// Write a single JSON string into a zip archive at `path`, stored as `entry_name`.
-fn write_json_zip(path: &Path, entry_name: &str, json: &str) -> Result<()> {
+/// Write a single JSON entry into a ZIP archive on any writer.
+fn write_json_zip_to_writer<W: std::io::Write + std::io::Seek>(
+    writer: W,
+    entry_name: &str,
+    json: &str,
+) -> Result<()> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
-    let file = std::fs::File::create(path)?;
-    let mut zip = ZipWriter::new(file);
+    let mut zip = ZipWriter::new(writer);
     let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     zip.start_file(entry_name, options)
@@ -155,18 +160,30 @@ fn write_json_zip(path: &Path, entry_name: &str, json: &str) -> Result<()> {
     Ok(())
 }
 
-/// Read the contents of `entry_name` from the zip archive at `path`.
-fn read_json_from_zip(path: &Path, entry_name: &str) -> Result<String> {
+/// Write a single JSON string into a zip archive at `path`, stored as `entry_name`.
+fn write_json_zip(path: &Path, entry_name: &str, json: &str) -> Result<()> {
+    let file = std::fs::File::create(path)?;
+    write_json_zip_to_writer(file, entry_name, json)
+}
+
+/// Read a named entry from ZIP bytes in memory.
+fn read_json_from_zip_bytes(bytes: &[u8], entry_name: &str) -> Result<String> {
     use std::io::Read;
     use zip::ZipArchive;
-    let file = std::fs::File::open(path)?;
-    let mut zip = ZipArchive::new(file)
-        .map_err(|e| KrillnotesError::Swarm(format!("Cannot open .swarm file: {e}")))?;
-    let mut entry = zip.by_name(entry_name)
-        .map_err(|_| KrillnotesError::Swarm(format!("Missing '{}' in .swarm file", entry_name)))?;
-    let mut buf = String::new();
-    entry.read_to_string(&mut buf)?;
-    Ok(buf)
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = ZipArchive::new(cursor)
+        .map_err(|e| KrillnotesError::Swarm(format!("Cannot read .swarm bytes: {e}")))?;
+    let mut file = archive.by_name(entry_name)
+        .map_err(|e| KrillnotesError::Swarm(format!("Missing {entry_name} in archive: {e}")))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+/// Read the contents of `entry_name` from the zip archive at `path`.
+fn read_json_from_zip(path: &Path, entry_name: &str) -> Result<String> {
+    let bytes = std::fs::read(path)?;
+    read_json_from_zip_bytes(&bytes, entry_name)
 }
 
 // ── InviteManager ─────────────────────────────────────────────────────────────
@@ -219,6 +236,7 @@ impl InviteManager {
             expires_at,
             revoked: false,
             use_count: 0,
+            relay_url: None,
         };
         self.save_record(&record)?;
 
@@ -308,12 +326,31 @@ impl InviteManager {
         self.save_record(&record)
     }
 
-    /// Parse and verify a response `.swarm` file (inviter side).
-    /// Returns the PendingPeer data. Does NOT check invite validity here —
-    /// the Tauri command does that after looking up the record.
-    pub fn parse_and_verify_response(path: &Path) -> Result<InviteResponseFile> {
-        let json = read_json_from_zip(path, "response.json")?;
-        let response: InviteResponseFile = serde_json::from_str(&json)?;
+    /// Set the relay URL on an existing invite record.
+    pub fn set_relay_url(&mut self, invite_id: Uuid, url: String) -> Result<()> {
+        let path = self.path_for(invite_id);
+        let json = std::fs::read_to_string(&path)
+            .map_err(|_| KrillnotesError::Swarm(format!("Invite {invite_id} not found")))?;
+        let mut record: InviteRecord = serde_json::from_str(&json)?;
+        record.relay_url = Some(url);
+        self.save_record(&record)?;
+        Ok(())
+    }
+
+    /// Shared: parse JSON + verify invite signature.
+    fn verify_and_parse_invite_json(json: &str) -> Result<InviteFile> {
+        let invite: InviteFile = serde_json::from_str(json)?;
+        if invite.file_type != "krillnotes-invite-v1" {
+            return Err(KrillnotesError::Swarm("Not an invite file".to_string()));
+        }
+        let payload = serde_json::to_value(&invite)?;
+        verify_payload(&payload, &invite.signature, &invite.inviter_public_key)?;
+        Ok(invite)
+    }
+
+    /// Shared: parse response JSON + verify signature.
+    fn verify_and_parse_response_json(json: &str) -> Result<InviteResponseFile> {
+        let response: InviteResponseFile = serde_json::from_str(json)?;
         if response.file_type != "krillnotes-invite-response-v1" {
             return Err(KrillnotesError::Swarm("Not a response file".to_string()));
         }
@@ -322,16 +359,65 @@ impl InviteManager {
         Ok(response)
     }
 
+    /// Parse and verify a response `.swarm` file (inviter side).
+    /// Returns the PendingPeer data. Does NOT check invite validity here —
+    /// the Tauri command does that after looking up the record.
+    pub fn parse_and_verify_response(path: &Path) -> Result<InviteResponseFile> {
+        let json = read_json_from_zip(path, "response.json")?;
+        Self::verify_and_parse_response_json(&json)
+    }
+
     /// Parse and verify an invite `.swarm` file (invitee side).
     pub fn parse_and_verify_invite(path: &Path) -> Result<InviteFile> {
         let json = read_json_from_zip(path, "invite.json")?;
-        let invite: InviteFile = serde_json::from_str(&json)?;
-        if invite.file_type != "krillnotes-invite-v1" {
-            return Err(KrillnotesError::Swarm("Not an invite file".to_string()));
-        }
-        let payload = serde_json::to_value(&invite)?;
-        verify_payload(&payload, &invite.signature, &invite.inviter_public_key)?;
-        Ok(invite)
+        Self::verify_and_parse_invite_json(&json)
+    }
+
+    /// Serialize an InviteFile to ZIP bytes in memory (no file I/O).
+    pub fn serialize_invite_to_bytes(file: &InviteFile) -> Result<Vec<u8>> {
+        let json = serde_json::to_string_pretty(file)?;
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        write_json_zip_to_writer(&mut cursor, "invite.json", &json)?;
+        Ok(cursor.into_inner())
+    }
+
+    /// Parse and verify an invite from raw ZIP bytes.
+    pub fn parse_and_verify_invite_bytes(bytes: &[u8]) -> Result<InviteFile> {
+        let json = read_json_from_zip_bytes(bytes, "invite.json")?;
+        Self::verify_and_parse_invite_json(&json)
+    }
+
+    /// Serialize an InviteResponseFile to ZIP bytes in memory.
+    pub fn serialize_response_to_bytes(response: &InviteResponseFile) -> Result<Vec<u8>> {
+        let json = serde_json::to_string_pretty(response)?;
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        write_json_zip_to_writer(&mut cursor, "response.json", &json)?;
+        Ok(cursor.into_inner())
+    }
+
+    /// Parse and verify a response from raw ZIP bytes.
+    pub fn parse_and_verify_response_bytes(bytes: &[u8]) -> Result<InviteResponseFile> {
+        let json = read_json_from_zip_bytes(bytes, "response.json")?;
+        Self::verify_and_parse_response_json(&json)
+    }
+
+    /// Build a signed InviteResponseFile without saving to disk.
+    pub fn build_response(
+        invite: &InviteFile,
+        signing_key: &SigningKey,
+        declared_name: &str,
+    ) -> Result<InviteResponseFile> {
+        let invitee_public_key = STANDARD.encode(signing_key.verifying_key().to_bytes());
+        let mut response = InviteResponseFile {
+            file_type: "krillnotes-invite-response-v1".into(),
+            invite_id: invite.invite_id.clone(),
+            invitee_public_key,
+            invitee_declared_name: declared_name.into(),
+            signature: String::new(),
+        };
+        let payload = serde_json::to_value(&response)?;
+        response.signature = sign_payload(&payload, signing_key);
+        Ok(response)
     }
 
     /// Build and sign a response file (invitee side). Writes to `save_path`.
@@ -341,16 +427,7 @@ impl InviteManager {
         declared_name: &str,
         save_path: &Path,
     ) -> Result<()> {
-        let pubkey_b64 = STANDARD.encode(signing_key.verifying_key().to_bytes());
-        let mut response = InviteResponseFile {
-            file_type: "krillnotes-invite-response-v1".to_string(),
-            invite_id: invite.invite_id.clone(),
-            invitee_public_key: pubkey_b64,
-            invitee_declared_name: declared_name.to_string(),
-            signature: String::new(),
-        };
-        let payload = serde_json::to_value(&response)?;
-        response.signature = sign_payload(&payload, signing_key);
+        let response = Self::build_response(invite, signing_key, declared_name)?;
         let json = serde_json::to_string_pretty(&response)?;
         write_json_zip(save_path, "response.json", &json)?;
         Ok(())
@@ -360,6 +437,42 @@ impl InviteManager {
     pub fn save_invite_file(file: &InviteFile, save_path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(file)?;
         write_json_zip(save_path, "invite.json", &json)
+    }
+}
+
+#[cfg(test)]
+mod record_tests {
+    use super::*;
+
+    #[test]
+    fn invite_record_deserializes_without_relay_url() {
+        let json = r#"{
+            "inviteId": "00000000-0000-0000-0000-000000000001",
+            "workspaceId": "ws-1",
+            "workspaceName": "Test",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "expiresAt": null,
+            "revoked": false,
+            "useCount": 0
+        }"#;
+        let record: InviteRecord = serde_json::from_str(json).unwrap();
+        assert!(record.relay_url.is_none());
+    }
+
+    #[test]
+    fn invite_record_deserializes_with_relay_url() {
+        let json = r#"{
+            "inviteId": "00000000-0000-0000-0000-000000000001",
+            "workspaceId": "ws-1",
+            "workspaceName": "Test",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "expiresAt": null,
+            "revoked": false,
+            "useCount": 0,
+            "relayUrl": "https://swarm.krillnotes.org/invites/abc123"
+        }"#;
+        let record: InviteRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(record.relay_url.as_deref(), Some("https://swarm.krillnotes.org/invites/abc123"));
     }
 }
 
@@ -444,6 +557,78 @@ mod manager_tests {
             .unwrap();
         assert!(record.expires_at.is_some());
         assert!(file.expires_at.is_some());
+    }
+
+    #[test]
+    fn build_response_returns_signed_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let inviter_key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let invitee_key = SigningKey::generate(&mut rand::rngs::OsRng);
+
+        let (_record, invite_file) = mgr.create_invite(
+            "ws-1", "Test", Some(7), &inviter_key, "Alice",
+            None, None, None, None, None, vec![],
+        ).unwrap();
+
+        let response = InviteManager::build_response(&invite_file, &invitee_key, "Bob").unwrap();
+        assert_eq!(response.invite_id, invite_file.invite_id);
+        assert_eq!(response.invitee_declared_name, "Bob");
+        assert_eq!(response.file_type, "krillnotes-invite-response-v1");
+        assert!(!response.signature.is_empty());
+    }
+
+    #[test]
+    fn serialize_and_parse_invite_bytes_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+
+        let (_record, invite_file) = mgr.create_invite(
+            "ws-1", "Test Workspace", Some(7),
+            &signing_key, "Alice",
+            None, None, None, None, None, vec![],
+        ).unwrap();
+
+        let bytes = InviteManager::serialize_invite_to_bytes(&invite_file).unwrap();
+        assert!(!bytes.is_empty());
+
+        let parsed = InviteManager::parse_and_verify_invite_bytes(&bytes).unwrap();
+        assert_eq!(parsed.invite_id, invite_file.invite_id);
+        assert_eq!(parsed.workspace_name, "Test Workspace");
+    }
+
+    #[test]
+    fn zip_round_trip_in_memory() {
+        use std::io::Cursor;
+        let data = r#"{"hello":"world"}"#;
+        let entry_name = "test.json";
+
+        let mut buf = Cursor::new(Vec::new());
+        write_json_zip_to_writer(&mut buf, entry_name, data).unwrap();
+        let bytes = buf.into_inner();
+
+        let content = read_json_from_zip_bytes(&bytes, entry_name).unwrap();
+        assert_eq!(content, data);
+    }
+
+    #[test]
+    fn set_relay_url_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+
+        let (record, _invite_file) = mgr.create_invite(
+            "ws-1", "Test", Some(7), &signing_key, "Alice",
+            None, None, None, None, None, vec![],
+        ).unwrap();
+        let id = record.invite_id;
+        assert!(record.relay_url.is_none());
+
+        mgr.set_relay_url(id, "https://swarm.krillnotes.org/invites/abc".into()).unwrap();
+
+        let loaded = mgr.get_invite(id).unwrap().unwrap();
+        assert_eq!(loaded.relay_url.as_deref(), Some("https://swarm.krillnotes.org/invites/abc"));
     }
 
     #[test]

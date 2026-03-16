@@ -102,6 +102,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("workspace_peers",       "Edit > Workspace Peers clicked"),
     ("file_identities",       "File > Manage Identities clicked"),
     ("file_open_swarm",       "File > Open Swarm File clicked"),
+    ("file_accept_invite",    "File > Accept Invite clicked"),
     ("create_delta_swarm",    "Edit > Create delta Swarm clicked"),
 ];
 
@@ -416,11 +417,12 @@ pub fn run() {
             login_relay_account,
             delete_relay_account,
             set_peer_relay,
+            share_invite_link,
             create_relay_invite,
             fetch_relay_invite,
             has_relay_credentials,
-            parse_invite_bytes,
-            write_temp_swarm_bytes,
+            send_invite_response_via_relay,
+            fetch_relay_invite_response,
             sync::reset_peer_watermark,
             sync::has_pending_sync_ops,
         ])

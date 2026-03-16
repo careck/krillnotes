@@ -26,7 +26,8 @@
     "undo": "Undo",
     "redo": "Redo",
     "accept": "Accept",
-    "reject": "Reject"
+    "reject": "Reject",
+    "or": "or"
   },
   "settings": {
     "title": "Ajustes",
@@ -315,7 +316,9 @@
     "operationsLog": "Registro de operaciones…",
     "refresh": "Actualizar",
     "aboutKrillnotes": "Acerca de Krillnotes",
-    "createDeltaSwarm": "Create delta Swarm"
+    "createDeltaSwarm": "Create delta Swarm",
+    "openSwarmFile": "Open .swarm File…",
+    "acceptInvite": "Accept Invite…"
   },
   "identity": {
     "manageTitle": "Identities",
@@ -485,6 +488,22 @@
     "fingerprintConfirm": "Yes, the fingerprint matches",
     "respond": "Respond",
     "acceptTitle": "Accept Peer",
-    "duplicateContact": "This peer is already in your contacts. Accepting will update their workspace peer status."
+    "duplicateContact": "This peer is already in your contacts. Accepting will update their workspace peer status.",
+    "shareInviteLink": "Share Invite Link",
+    "sharing": "Sharing...",
+    "linkCopied": "Invite link copied to clipboard!",
+    "copyLink": "Copy Link",
+    "uploadToRelay": "Upload to Relay",
+    "pasteResponseUrl": "Paste response link URL...",
+    "fetchResponse": "Fetch Response",
+    "importResponseFromLink": "Import Response from Link",
+    "sendViaRelay": "Send via Relay",
+    "saveResponseFile": "Save Response File",
+    "responseShared": "Response link copied to clipboard!",
+    "shareResponseUrlWithInviter": "Share this URL with the inviter to complete the connection.",
+    "invalidRelayUrl": "Invalid relay invite URL",
+    "acceptInvite": "Accept Invite",
+    "acceptSubtitle": "Paste a relay invite link or open an invite file.",
+    "openSwarmFile": "Open .swarm Invite File…"
   }
 }

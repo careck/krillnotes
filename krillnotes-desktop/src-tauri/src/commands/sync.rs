@@ -219,51 +219,498 @@ pub async fn poll_sync(
     Ok(events)
 }
 
+// ── share_invite_link ──────────────────────────────────────────────────────
+
+/// One-click command: create an invite + upload it to the relay + return the
+/// shareable URL. The invite record is persisted with `relay_url` set.
+#[tauri::command]
+pub async fn share_invite_link(
+    window: Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    workspace_name: String,
+    expires_in_days: Option<u32>,
+) -> Result<crate::commands::invites::InviteInfo, String> {
+    log::debug!("share_invite_link(identity={identity_uuid})");
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Get signing key + declared name.
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+
+    // Get workspace metadata from the current window's workspace.
+    let (ws_id, ws_desc, ws_author, ws_org, ws_url, ws_license, ws_tags) = {
+        let wss = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = wss.get(window.label()).ok_or("No workspace open")?;
+        let meta = ws.get_workspace_metadata().map_err(|e| e.to_string())?;
+        (
+            ws.workspace_id().to_string(),
+            meta.description,
+            meta.author_name,
+            meta.author_org,
+            meta.homepage_url,
+            meta.license,
+            meta.tags,
+        )
+    };
+
+    // Create the invite record + InviteFile.
+    let (record, file) = {
+        let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+        im.create_invite(
+            &ws_id,
+            &workspace_name,
+            expires_in_days,
+            &signing_key,
+            &declared_name,
+            ws_desc,
+            ws_author,
+            ws_org,
+            ws_url,
+            ws_license,
+            ws_tags,
+        )
+        .map_err(|e| {
+            log::error!("share_invite_link create_invite failed: {e}");
+            e.to_string()
+        })?
+    };
+
+    // Serialize + base64-encode the invite file.
+    let bytes = krillnotes_core::core::invite::InviteManager::serialize_invite_to_bytes(&file)
+        .map_err(|e| e.to_string())?;
+    let payload_b64 = BASE64.encode(&bytes);
+
+    // Compute expiry timestamp.
+    let expires_at = {
+        let days = expires_in_days.unwrap_or(7) as i64;
+        (chrono::Utc::now() + chrono::Duration::days(days)).to_rfc3339()
+    };
+
+    // Build relay client with auto-login.
+    let invite_id = record.invite_id;
+    let relay_account = {
+        let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
+        let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
+        let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
+        accounts.into_iter().next().ok_or("No relay account configured")?
+    };
+
+    let relay_url_result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let mut token = relay_account.session_token.clone();
+        if relay_account.session_expires_at < chrono::Utc::now() && !relay_account.password.is_empty() {
+            let client = RelayClient::new(&relay_account.relay_url);
+            match client.login(&relay_account.email, &relay_account.password, &relay_account.device_public_key) {
+                Ok(session) => token = session.session_token,
+                Err(e) => log::warn!("share_invite_link: auto-login failed: {e}"),
+            }
+        }
+        let client = RelayClient::new(&relay_account.relay_url).with_session_token(&token);
+        let info = client.create_invite(&payload_b64, &expires_at).map_err(|e| {
+            log::error!("share_invite_link: relay create_invite failed: {e}");
+            e.to_string()
+        })?;
+        Ok(info.url)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // Persist the relay URL on the invite record.
+    {
+        let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+        im.set_relay_url(invite_id, relay_url_result.clone())
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Return updated InviteInfo with relay_url populated.
+    let updated_record = {
+        let ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get(&uuid).ok_or("Identity not unlocked")?;
+        im.get_invite(invite_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Invite not found after creation".to_string())?
+    };
+
+    Ok(crate::commands::invites::InviteInfo::from(updated_record))
+}
+
 // ── create_relay_invite ────────────────────────────────────────────────────
 
-/// Upload an invite to the relay and return the shareable URL.
-///
-/// `token` is the invite token previously created by `create_invite`.
-///
-/// TODO: Upload invite bytes to relay, return hosted URL.
+/// Upload an already-created invite to the relay and return the shareable URL.
+/// Persists the relay URL in the invite record.
 #[tauri::command]
 pub async fn create_relay_invite(
-    _window: Window,
-    _state: State<'_, AppState>,
-    token: String,
+    window: Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_id: String,
 ) -> Result<String, String> {
-    let _ = token;
-    Err("Relay not yet configured".to_string())
+    log::debug!("create_relay_invite(identity={identity_uuid}, invite={invite_id})");
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let invite_uuid = Uuid::parse_str(&invite_id).map_err(|e| e.to_string())?;
+
+    // Get signing key + declared name.
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+
+    // Look up the existing invite record.
+    let record = {
+        let ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get(&uuid).ok_or("Identity not unlocked")?;
+        im.get_invite(invite_uuid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Invite {invite_id} not found"))?
+    };
+
+    if record.revoked {
+        return Err("Invite has been revoked".to_string());
+    }
+
+    // Get workspace metadata from the current window's workspace.
+    let (ws_desc, ws_author, ws_org, ws_url, ws_license, ws_tags) = {
+        let wss = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = wss.get(window.label()).ok_or("No workspace open")?;
+        let meta = ws.get_workspace_metadata().map_err(|e| e.to_string())?;
+        (
+            meta.description,
+            meta.author_name,
+            meta.author_org,
+            meta.homepage_url,
+            meta.license,
+            meta.tags,
+        )
+    };
+
+    // Re-build and re-sign the InviteFile from the stored record.
+    let pubkey_b64 = {
+        BASE64.encode(signing_key.verifying_key().to_bytes())
+    };
+    let mut file = krillnotes_core::core::invite::InviteFile {
+        file_type: "krillnotes-invite-v1".to_string(),
+        invite_id: record.invite_id.to_string(),
+        workspace_id: record.workspace_id.clone(),
+        workspace_name: record.workspace_name.clone(),
+        workspace_description: ws_desc,
+        workspace_author_name: ws_author,
+        workspace_author_org: ws_org,
+        workspace_homepage_url: ws_url,
+        workspace_license: ws_license,
+        workspace_language: None,
+        workspace_tags: ws_tags,
+        inviter_public_key: pubkey_b64,
+        inviter_declared_name: declared_name,
+        expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
+        signature: String::new(),
+    };
+    let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
+    file.signature = krillnotes_core::core::invite::sign_payload(&payload, &signing_key);
+
+    // Serialize + base64-encode.
+    let bytes = krillnotes_core::core::invite::InviteManager::serialize_invite_to_bytes(&file)
+        .map_err(|e| e.to_string())?;
+    let payload_b64 = BASE64.encode(&bytes);
+
+    // Compute expiry timestamp (use record's expiry or default 7 days from now).
+    let expires_at = record
+        .expires_at
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339());
+
+    // Build relay client with auto-login.
+    let relay_account = {
+        let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
+        let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
+        let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
+        accounts.into_iter().next().ok_or("No relay account configured")?
+    };
+
+    let relay_url_result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let mut token = relay_account.session_token.clone();
+        if relay_account.session_expires_at < chrono::Utc::now() && !relay_account.password.is_empty() {
+            let client = RelayClient::new(&relay_account.relay_url);
+            match client.login(&relay_account.email, &relay_account.password, &relay_account.device_public_key) {
+                Ok(session) => token = session.session_token,
+                Err(e) => log::warn!("create_relay_invite: auto-login failed: {e}"),
+            }
+        }
+        let client = RelayClient::new(&relay_account.relay_url).with_session_token(&token);
+        let info = client.create_invite(&payload_b64, &expires_at).map_err(|e| {
+            log::error!("create_relay_invite: relay create_invite failed: {e}");
+            e.to_string()
+        })?;
+        Ok(info.url)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // Persist the relay URL on the invite record.
+    {
+        let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+        im.set_relay_url(invite_uuid, relay_url_result.clone())
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(relay_url_result)
 }
 
 // ── fetch_relay_invite ─────────────────────────────────────────────────────
 
-/// Fetch an invite file from the relay by token and return the raw bytes.
-///
-/// `token` is the path component extracted from the relay invite URL.
-///
-/// TODO: Download invite bytes from relay and return them.
+/// Fetch an invite from the relay by token. Downloads, verifies, writes to a
+/// temp file, and returns the invite data along with the temp file path.
 #[tauri::command]
 pub async fn fetch_relay_invite(
     _window: Window,
     _state: State<'_, AppState>,
     token: String,
-) -> Result<Vec<u8>, String> {
-    let _ = token;
-    Err("Relay not yet configured".to_string())
+    relay_base_url: Option<String>,
+) -> Result<crate::commands::invites::FetchedRelayInvite, String> {
+    log::debug!("fetch_relay_invite(token={token})");
+    use krillnotes_core::core::invite::InviteManager;
+    use krillnotes_core::core::contact::generate_fingerprint;
+
+    let base_url = relay_base_url.unwrap_or_else(|| "https://swarm.krillnotes.org".to_string());
+
+    let (invite, bytes) = tokio::task::spawn_blocking(move || -> Result<(krillnotes_core::core::invite::InviteFile, Vec<u8>), String> {
+        let client = RelayClient::new(&base_url);
+        let payload = client.fetch_invite(&token).map_err(|e| {
+            log::error!("fetch_relay_invite: relay fetch failed: {e}");
+            e.to_string()
+        })?;
+        let bytes = BASE64.decode(&payload.payload).map_err(|e| {
+            log::error!("fetch_relay_invite: base64 decode failed: {e}");
+            e.to_string()
+        })?;
+        let invite = InviteManager::parse_and_verify_invite_bytes(&bytes).map_err(|e| {
+            log::error!("fetch_relay_invite: parse/verify failed: {e}");
+            e.to_string()
+        })?;
+        Ok((invite, bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // Write bytes to a temp file for later use by respond_to_invite.
+    let temp_path = {
+        let dir = std::env::temp_dir();
+        let filename = format!("krillnotes-invite-{}.swarm", uuid::Uuid::new_v4());
+        let path = dir.join(&filename);
+        std::fs::write(&path, &bytes).map_err(|e| {
+            log::error!("fetch_relay_invite: failed to write temp file: {e}");
+            e.to_string()
+        })?;
+        path.to_string_lossy().to_string()
+    };
+
+    let fingerprint = generate_fingerprint(&invite.inviter_public_key)
+        .map_err(|e| e.to_string())?;
+
+    let invite_data = crate::commands::invites::InviteFileData {
+        invite_id: invite.invite_id,
+        workspace_id: invite.workspace_id,
+        workspace_name: invite.workspace_name,
+        workspace_description: invite.workspace_description,
+        workspace_author_name: invite.workspace_author_name,
+        workspace_author_org: invite.workspace_author_org,
+        workspace_homepage_url: invite.workspace_homepage_url,
+        workspace_license: invite.workspace_license,
+        workspace_language: invite.workspace_language,
+        workspace_tags: invite.workspace_tags,
+        inviter_public_key: invite.inviter_public_key,
+        inviter_declared_name: invite.inviter_declared_name,
+        inviter_fingerprint: fingerprint,
+        expires_at: invite.expires_at,
+    };
+
+    Ok(crate::commands::invites::FetchedRelayInvite {
+        invite: invite_data,
+        temp_path,
+    })
+}
+
+// ── send_invite_response_via_relay ─────────────────────────────────────────
+
+/// Build a response to a relay-fetched invite and upload it to the relay.
+/// Returns the shareable URL of the uploaded response.
+#[tauri::command]
+pub async fn send_invite_response_via_relay(
+    _window: Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    temp_path: String,
+    expires_in_days: Option<u32>,
+) -> Result<String, String> {
+    log::debug!("send_invite_response_via_relay(identity={identity_uuid}, temp={temp_path})");
+    use krillnotes_core::core::invite::InviteManager;
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // Get signing key + declared name.
+    let (signing_key, declared_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&uuid).ok_or("Identity not unlocked")?;
+        (
+            crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+
+    // Build relay client with auto-login.
+    let relay_account = {
+        let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
+        let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
+        let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
+        accounts.into_iter().next().ok_or("No relay account configured")?
+    };
+
+    let expires_in_days = expires_in_days.unwrap_or(7);
+
+    let url = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        // Parse the invite from the temp file.
+        let invite = InviteManager::parse_and_verify_invite(std::path::Path::new(&temp_path))
+            .map_err(|e| {
+                log::error!("send_invite_response_via_relay: parse invite failed: {e}");
+                e.to_string()
+            })?;
+
+        // Build the response.
+        let response = InviteManager::build_response(&invite, &signing_key, &declared_name)
+            .map_err(|e| {
+                log::error!("send_invite_response_via_relay: build_response failed: {e}");
+                e.to_string()
+            })?;
+
+        // Serialize + base64-encode.
+        let bytes = InviteManager::serialize_response_to_bytes(&response).map_err(|e| {
+            log::error!("send_invite_response_via_relay: serialize failed: {e}");
+            e.to_string()
+        })?;
+        let payload_b64 = BASE64.encode(&bytes);
+        let expires_at = (chrono::Utc::now() + chrono::Duration::days(expires_in_days as i64)).to_rfc3339();
+
+        // Auto-login if needed.
+        let mut token = relay_account.session_token.clone();
+        if relay_account.session_expires_at < chrono::Utc::now() && !relay_account.password.is_empty() {
+            let client = RelayClient::new(&relay_account.relay_url);
+            match client.login(&relay_account.email, &relay_account.password, &relay_account.device_public_key) {
+                Ok(session) => token = session.session_token,
+                Err(e) => log::warn!("send_invite_response_via_relay: auto-login failed: {e}"),
+            }
+        }
+        let client = RelayClient::new(&relay_account.relay_url).with_session_token(&token);
+        let info = client.create_invite(&payload_b64, &expires_at).map_err(|e| {
+            log::error!("send_invite_response_via_relay: relay upload failed: {e}");
+            e.to_string()
+        })?;
+        Ok(info.url)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(url)
+}
+
+// ── fetch_relay_invite_response ────────────────────────────────────────────
+
+/// Fetch an invite response that was uploaded to the relay by the invitee.
+/// Verifies the response, validates the invite, increments use count, and
+/// returns the pending peer data ready for `accept_peer`.
+#[tauri::command]
+pub async fn fetch_relay_invite_response(
+    _window: Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    token: String,
+    relay_base_url: Option<String>,
+) -> Result<crate::commands::invites::PendingPeer, String> {
+    log::debug!("fetch_relay_invite_response(identity={identity_uuid}, token={token})");
+    use krillnotes_core::core::invite::InviteManager;
+    use krillnotes_core::core::contact::generate_fingerprint;
+
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    let base_url = relay_base_url.unwrap_or_else(|| "https://swarm.krillnotes.org".to_string());
+
+    // Fetch + parse response from relay (unauthenticated GET).
+    let response = tokio::task::spawn_blocking(move || -> Result<krillnotes_core::core::invite::InviteResponseFile, String> {
+        let client = RelayClient::new(&base_url);
+        let payload = client.fetch_invite(&token).map_err(|e| {
+            log::error!("fetch_relay_invite_response: relay fetch failed: {e}");
+            e.to_string()
+        })?;
+        let bytes = BASE64.decode(&payload.payload).map_err(|e| {
+            log::error!("fetch_relay_invite_response: base64 decode failed: {e}");
+            e.to_string()
+        })?;
+        let response = InviteManager::parse_and_verify_response_bytes(&bytes).map_err(|e| {
+            log::error!("fetch_relay_invite_response: parse/verify failed: {e}");
+            e.to_string()
+        })?;
+        Ok(response)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // Validate invite is still active and increment use count.
+    let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
+    {
+        let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
+        let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
+        let record = im
+            .get_invite(invite_uuid)
+            .map_err(|e| e.to_string())?
+            .ok_or("Invite not found")?;
+        if record.revoked {
+            return Err("Invite has been revoked".to_string());
+        }
+        if let Some(exp) = record.expires_at {
+            if chrono::Utc::now() > exp {
+                return Err("Invite has expired".to_string());
+            }
+        }
+        im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
+    }
+
+    let fingerprint = generate_fingerprint(&response.invitee_public_key)
+        .map_err(|e| e.to_string())?;
+
+    Ok(crate::commands::invites::PendingPeer {
+        invite_id: response.invite_id,
+        invitee_public_key: response.invitee_public_key,
+        invitee_declared_name: response.invitee_declared_name,
+        fingerprint,
+    })
 }
 
 // ── has_relay_credentials ──────────────────────────────────────────────────
 
-/// Return `true` if the current identity has any relay accounts configured.
+/// Return `true` if the given identity has any relay accounts configured.
+/// Accepts an optional `identity_uuid` param; falls back to workspace lookup.
 #[tauri::command]
 pub async fn has_relay_credentials(
     window: Window,
     state: State<'_, AppState>,
+    identity_uuid: Option<String>,
 ) -> Result<bool, String> {
-    log::debug!("has_relay_credentials(window={})", window.label());
-    let workspace_label = window.label().to_string();
-    let identity_uuid: Uuid = {
+    let identity_uuid: Uuid = if let Some(ref uuid_str) = identity_uuid {
+        Uuid::parse_str(uuid_str).map_err(|e| e.to_string())?
+    } else {
+        log::debug!("has_relay_credentials(window={})", window.label());
+        let workspace_label = window.label().to_string();
         let m = state.workspace_identities.lock().map_err(|e| e.to_string())?;
         *m.get(&workspace_label).ok_or("No identity bound to this workspace")?
     };
@@ -274,35 +721,6 @@ pub async fn has_relay_credentials(
     } else {
         Ok(false)
     }
-}
-
-// ── parse_invite_bytes ─────────────────────────────────────────────────────
-
-/// Parse raw invite bytes (e.g. from relay download) and return invite info.
-///
-/// TODO: Parse and verify invite from raw bytes once relay is implemented.
-#[tauri::command]
-pub async fn parse_invite_bytes(
-    _window: Window,
-    _state: State<'_, AppState>,
-    _bytes: Vec<u8>,
-) -> Result<crate::commands::invites::InviteFileData, String> {
-    Err("parse_invite_bytes not yet implemented".to_string())
-}
-
-// ── write_temp_swarm_bytes ─────────────────────────────────────────────────
-
-/// Write raw invite bytes to a temporary file and return the path.
-///
-/// This is used to save relay-fetched invite bytes so they can be passed
-/// to `respond_to_invite` which requires a file path.
-///
-/// TODO: Write bytes to OS temp dir and return path.
-#[tauri::command]
-pub async fn write_temp_swarm_bytes(
-    _bytes: Vec<u8>,
-) -> Result<String, String> {
-    Err("write_temp_swarm_bytes not yet implemented".to_string())
 }
 
 // ── reset_peer_watermark ───────────────────────────────────────────────────
