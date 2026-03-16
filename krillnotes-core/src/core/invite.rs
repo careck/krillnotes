@@ -140,13 +140,16 @@ pub fn verify_payload(
 
 // ── Zip I/O helpers ───────────────────────────────────────────────────────────
 
-/// Write a single JSON string into a zip archive at `path`, stored as `entry_name`.
-fn write_json_zip(path: &Path, entry_name: &str, json: &str) -> Result<()> {
+/// Write a single JSON entry into a ZIP archive on any writer.
+fn write_json_zip_to_writer<W: std::io::Write + std::io::Seek>(
+    writer: W,
+    entry_name: &str,
+    json: &str,
+) -> Result<()> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
-    let file = std::fs::File::create(path)?;
-    let mut zip = ZipWriter::new(file);
+    let mut zip = ZipWriter::new(writer);
     let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     zip.start_file(entry_name, options)
@@ -157,18 +160,30 @@ fn write_json_zip(path: &Path, entry_name: &str, json: &str) -> Result<()> {
     Ok(())
 }
 
-/// Read the contents of `entry_name` from the zip archive at `path`.
-fn read_json_from_zip(path: &Path, entry_name: &str) -> Result<String> {
+/// Write a single JSON string into a zip archive at `path`, stored as `entry_name`.
+fn write_json_zip(path: &Path, entry_name: &str, json: &str) -> Result<()> {
+    let file = std::fs::File::create(path)?;
+    write_json_zip_to_writer(file, entry_name, json)
+}
+
+/// Read a named entry from ZIP bytes in memory.
+fn read_json_from_zip_bytes(bytes: &[u8], entry_name: &str) -> Result<String> {
     use std::io::Read;
     use zip::ZipArchive;
-    let file = std::fs::File::open(path)?;
-    let mut zip = ZipArchive::new(file)
-        .map_err(|e| KrillnotesError::Swarm(format!("Cannot open .swarm file: {e}")))?;
-    let mut entry = zip.by_name(entry_name)
-        .map_err(|_| KrillnotesError::Swarm(format!("Missing '{}' in .swarm file", entry_name)))?;
-    let mut buf = String::new();
-    entry.read_to_string(&mut buf)?;
-    Ok(buf)
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = ZipArchive::new(cursor)
+        .map_err(|e| KrillnotesError::Swarm(format!("Cannot read .swarm bytes: {e}")))?;
+    let mut file = archive.by_name(entry_name)
+        .map_err(|e| KrillnotesError::Swarm(format!("Missing {entry_name} in archive: {e}")))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+/// Read the contents of `entry_name` from the zip archive at `path`.
+fn read_json_from_zip(path: &Path, entry_name: &str) -> Result<String> {
+    let bytes = std::fs::read(path)?;
+    read_json_from_zip_bytes(&bytes, entry_name)
 }
 
 // ── InviteManager ─────────────────────────────────────────────────────────────
@@ -494,6 +509,20 @@ mod manager_tests {
             .unwrap();
         assert!(record.expires_at.is_some());
         assert!(file.expires_at.is_some());
+    }
+
+    #[test]
+    fn zip_round_trip_in_memory() {
+        use std::io::Cursor;
+        let data = r#"{"hello":"world"}"#;
+        let entry_name = "test.json";
+
+        let mut buf = Cursor::new(Vec::new());
+        write_json_zip_to_writer(&mut buf, entry_name, data).unwrap();
+        let bytes = buf.into_inner();
+
+        let content = read_json_from_zip_bytes(&bytes, entry_name).unwrap();
+        assert_eq!(content, data);
     }
 
     #[test]
