@@ -29,6 +29,8 @@ pub struct InviteRecord {
     pub expires_at: Option<DateTime<Utc>>,
     pub revoked: bool,
     pub use_count: u32,
+    #[serde(default)]
+    pub relay_url: Option<String>,
 }
 
 // ── .swarm file formats ───────────────────────────────────────────────────────
@@ -219,6 +221,7 @@ impl InviteManager {
             expires_at,
             revoked: false,
             use_count: 0,
+            relay_url: None,
         };
         self.save_record(&record)?;
 
@@ -360,6 +363,42 @@ impl InviteManager {
     pub fn save_invite_file(file: &InviteFile, save_path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(file)?;
         write_json_zip(save_path, "invite.json", &json)
+    }
+}
+
+#[cfg(test)]
+mod record_tests {
+    use super::*;
+
+    #[test]
+    fn invite_record_deserializes_without_relay_url() {
+        let json = r#"{
+            "inviteId": "00000000-0000-0000-0000-000000000001",
+            "workspaceId": "ws-1",
+            "workspaceName": "Test",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "expiresAt": null,
+            "revoked": false,
+            "useCount": 0
+        }"#;
+        let record: InviteRecord = serde_json::from_str(json).unwrap();
+        assert!(record.relay_url.is_none());
+    }
+
+    #[test]
+    fn invite_record_deserializes_with_relay_url() {
+        let json = r#"{
+            "inviteId": "00000000-0000-0000-0000-000000000001",
+            "workspaceId": "ws-1",
+            "workspaceName": "Test",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "expiresAt": null,
+            "revoked": false,
+            "useCount": 0,
+            "relayUrl": "https://swarm.krillnotes.org/invites/abc123"
+        }"#;
+        let record: InviteRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(record.relay_url.as_deref(), Some("https://swarm.krillnotes.org/invites/abc123"));
     }
 }
 
