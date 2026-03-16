@@ -80,7 +80,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
     setCopyingLink(true);
     setError(null);
     try {
-      const url = await invoke<string>('create_relay_invite', { token: createdInvite.inviteId });
+      const url = await invoke<string>('create_relay_invite', { identityUuid, inviteId: createdInvite.inviteId });
       setRelayUrl(url);
       await navigator.clipboard.writeText(url);
       setLinkCopied(true);
