@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import type { InviteFileData, IdentityRef, FetchedRelayInvite } from '../types';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   initialIdentityUuid?: string;
-  invitePath: string;
-  inviteData: InviteFileData;
+  invitePath?: string;
+  inviteData?: InviteFileData;
   onResponded: () => void;
   onClose: () => void;
 }
@@ -27,6 +27,10 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
   const [relayInviteData, setRelayInviteData] = useState<InviteFileData | null>(null);
   const [relayInvitePath, setRelayInvitePath] = useState<string | null>(null);
 
+  // File-based import state (when opened from menu without pre-loaded data)
+  const [fileInviteData, setFileInviteData] = useState<InviteFileData | null>(null);
+  const [fileInvitePath, setFileInvitePath] = useState<string | null>(null);
+
   // Relay response state
   const [sendingViaRelay, setSendingViaRelay] = useState(false);
   const [responseRelayUrl, setResponseRelayUrl] = useState<string | null>(null);
@@ -34,9 +38,10 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
   const [showRelaySetup, setShowRelaySetup] = useState(false);
   const [pendingRelayRespond, setPendingRelayRespond] = useState(false);
 
-  // Use relay-fetched data if available, otherwise fall back to file-based data
-  const effectiveInviteData = relayInviteData ?? inviteData;
-  const effectiveInvitePath = relayInvitePath ?? invitePath;
+  // Priority: relay-fetched > file-picked > prop-provided
+  const effectiveInviteData = relayInviteData ?? fileInviteData ?? inviteData ?? null;
+  const effectiveInvitePath = relayInvitePath ?? fileInvitePath ?? invitePath ?? null;
+  const isStandalone = !invitePath && !inviteData;
 
   useEffect(() => {
     Promise.all([
@@ -45,7 +50,6 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     ]).then(([all, unlockedUuids]) => {
       const unlocked = all.filter(id => unlockedUuids.includes(id.uuid));
       setUnlockedIdentities(unlocked);
-      // Pick initial selection: prefer the hint, fall back to first unlocked.
       if (unlocked.length > 0) {
         const hint = unlocked.find(id => id.uuid === initialIdentityUuid);
         setSelectedUuid(hint ? hint.uuid : unlocked[0].uuid);
@@ -53,11 +57,10 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isExpired = effectiveInviteData.expiresAt
+  const isExpired = effectiveInviteData?.expiresAt
     ? new Date(effectiveInviteData.expiresAt) < new Date()
     : false;
 
-  // Extract the token from a relay invite URL (last path segment)
   const extractRelayToken = (url: string): string | null => {
     try {
       const parsed = new URL(url.trim());
@@ -68,7 +71,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     }
   };
 
-  const handleFetchRelay = async () => {
+  const handleFetchRelay = useCallback(async () => {
     const token = extractRelayToken(relayUrl);
     if (!token) {
       setError(t('invite.invalidRelayUrl'));
@@ -85,9 +88,29 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     } finally {
       setFetchingRelay(false);
     }
-  };
+  }, [relayUrl, t]);
 
-  const handleSendViaRelay = async () => {
+  const handleOpenFile = useCallback(async () => {
+    try {
+      const picked = await open({
+        filters: [{ name: 'Swarm Invite', extensions: ['swarm'] }],
+        multiple: false,
+        title: t('invite.openSwarmFile', 'Open .swarm file'),
+      });
+      if (!picked || Array.isArray(picked)) return;
+      setLoading(true);
+      setError(null);
+      const data = await invoke<InviteFileData>('parse_invite', { path: picked });
+      setFileInviteData(data);
+      setFileInvitePath(picked as string);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  const handleSendViaRelay = useCallback(async () => {
     if (!selectedUuid) {
       setError(t('swarm.identityLocked'));
       return;
@@ -107,9 +130,9 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
       setError(String(e));
       setSendingViaRelay(false);
     }
-  };
+  }, [selectedUuid, t]);
 
-  const doSendViaRelay = async () => {
+  const doSendViaRelay = useCallback(async () => {
     setSendingViaRelay(true);
     setError(null);
     try {
@@ -127,10 +150,10 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     } finally {
       setSendingViaRelay(false);
     }
-  };
+  }, [selectedUuid, effectiveInvitePath, onResponded]);
 
-  const handleRespond = async () => {
-    if (!selectedUuid) {
+  const handleRespond = useCallback(async () => {
+    if (!selectedUuid || !effectiveInviteData) {
       setError(t('swarm.identityLocked'));
       return;
     }
@@ -155,27 +178,27 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedUuid, effectiveInviteData, effectiveInvitePath, onResponded, onClose, t]);
 
   // Success state: response was shared via relay
   if (responseShared && responseRelayUrl) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-lg">
+        <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg shadow-xl p-6 w-full max-w-lg">
           <h2 className="text-lg font-semibold mb-2">{t('invite.respond')}</h2>
-          <p className="text-sm text-green-600 dark:text-green-400 mb-3">
+          <p className="text-sm text-green-600 mb-3">
             {t('invite.responseShared')}
           </p>
-          <p className="text-xs font-mono text-zinc-500 break-all mb-2 p-2 bg-zinc-100 dark:bg-zinc-800 rounded">
+          <p className="text-xs font-mono text-[var(--color-muted-foreground)] break-all mb-2 p-2 bg-[var(--color-secondary)]/50 rounded">
             {responseRelayUrl}
           </p>
-          <p className="text-xs text-zinc-500 mb-4">
+          <p className="text-xs text-[var(--color-muted-foreground)] mb-4">
             {t('invite.shareResponseUrlWithInviter')}
           </p>
           <div className="flex justify-end gap-2">
             <button
-              onClick={() => navigator.clipboard.writeText(responseRelayUrl)}
-              className="px-4 py-2 text-sm rounded border dark:border-zinc-700"
+              onClick={() => { try { navigator.clipboard.writeText(responseRelayUrl); } catch { /* fallback: URL is visible above */ } }}
+              className="px-4 py-2 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
             >
               {t('invite.copyLink')}
             </button>
@@ -191,136 +214,180 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
   return (
     <>
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-lg">
-          <h2 className="text-lg font-semibold mb-1">{t('invite.importTitle')}</h2>
-          <p className="text-sm text-zinc-500 mb-4">{t('invite.importSubtitle')}</p>
-
-          {/* Relay URL import */}
-          <div className="mb-4 p-3 border rounded dark:border-zinc-700">
-            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-              {t('invite.relayUrlLabel', 'Or paste a relay invite URL')}
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="url"
-                value={relayUrl}
-                onChange={e => setRelayUrl(e.target.value)}
-                placeholder="https://relay.example.com/i/abc123"
-                className="flex-1 border border-zinc-300 dark:border-zinc-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-zinc-800"
-                disabled={fetchingRelay || loading}
-              />
-              <button
-                onClick={handleFetchRelay}
-                disabled={!relayUrl.trim() || fetchingRelay || loading}
-                className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
-              >
-                {fetchingRelay
-                  ? t('common.loading', 'Loading…')
-                  : t('invite.fetchRelay', 'Fetch')}
-              </button>
-            </div>
-            {relayInviteData && (
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                {t('invite.relayFetched', 'Invite loaded from relay.')}
-              </p>
-            )}
-          </div>
-
-          <div className="mb-4 p-4 border rounded dark:border-zinc-700 space-y-1">
-            <p className="font-medium">{effectiveInviteData.workspaceName}</p>
-            {effectiveInviteData.workspaceDescription && (
-              <p className="text-sm text-zinc-500">{effectiveInviteData.workspaceDescription}</p>
-            )}
-            {effectiveInviteData.workspaceAuthorName && (
-              <p className="text-xs text-zinc-500">
-                {t('invite.by')} {effectiveInviteData.workspaceAuthorName}
-                {effectiveInviteData.workspaceAuthorOrg && ` (${effectiveInviteData.workspaceAuthorOrg})`}
-              </p>
-            )}
-            {effectiveInviteData.workspaceLicense && (
-              <p className="text-xs text-zinc-400">{t('invite.license')}: {effectiveInviteData.workspaceLicense}</p>
-            )}
-            {effectiveInviteData.workspaceTags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
-                {effectiveInviteData.workspaceTags.map(tag => (
-                  <span key={tag} className="text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="mb-4 p-3 bg-zinc-100 dark:bg-zinc-800 rounded">
-            <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-              {t('invite.invitedBy')}
-            </p>
-            <p className="text-sm font-medium">{effectiveInviteData.inviterDeclaredName}</p>
-            <p className="text-xs font-mono text-zinc-500 mt-1">{effectiveInviteData.inviterFingerprint}</p>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-              {t('invite.respondAs', 'Respond as')}
-            </label>
-            {unlockedIdentities.length === 0 ? (
-              <p className="text-sm text-amber-600 dark:text-amber-400">
-                {t('swarm.identityLocked')}
-              </p>
-            ) : (
-              <select
-                value={selectedUuid}
-                onChange={e => setSelectedUuid(e.target.value)}
-                className="w-full border border-zinc-300 dark:border-zinc-600 rounded px-3 py-2 bg-white dark:bg-zinc-800 text-sm"
-                disabled={loading || sendingViaRelay}
-              >
-                {unlockedIdentities.map(id => (
-                  <option key={id.uuid} value={id.uuid}>{id.displayName}</option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <p className="text-sm text-amber-600 dark:text-amber-400 mb-3">
-            {t('invite.fingerprintVerifyPrompt')}
+        <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg shadow-xl p-6 w-full max-w-lg">
+          <h2 className="text-lg font-semibold mb-1">{t('invite.acceptInvite', 'Accept Invite')}</h2>
+          <p className="text-sm text-[var(--color-muted-foreground)] mb-4">
+            {effectiveInviteData
+              ? t('invite.importSubtitle')
+              : t('invite.acceptSubtitle', 'Paste a relay invite link or open an invite file.')}
           </p>
 
-          <label className="flex items-center gap-2 mb-4 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={fingerprintConfirmed}
-              onChange={e => setFingerprintConfirmed(e.target.checked)}
-            />
-            {t('invite.fingerprintConfirm')}
-          </label>
+          {/* Relay URL input — always shown until invite is loaded */}
+          {!effectiveInviteData && (
+            <div className="mb-4 p-3 border border-[var(--color-border)] rounded-md bg-[var(--color-secondary)]/30">
+              <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-1">
+                {t('invite.relayUrlLabel', 'Paste a relay invite URL')}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={relayUrl}
+                  onChange={e => setRelayUrl(e.target.value)}
+                  placeholder="https://swarm.krillnotes.org/invites/..."
+                  className="flex-1 border border-[var(--color-border)] rounded px-3 py-1.5 text-sm bg-[var(--color-background)]"
+                  disabled={fetchingRelay || loading}
+                />
+                <button
+                  onClick={handleFetchRelay}
+                  disabled={!relayUrl.trim() || fetchingRelay || loading}
+                  className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+                >
+                  {fetchingRelay ? t('common.loading', 'Loading…') : t('invite.fetchRelay', 'Fetch')}
+                </button>
+              </div>
 
-          {isExpired && (
-            <p className="text-red-500 text-sm mb-3">{t('invite.expired')}</p>
+              <div className="flex items-center gap-3 my-3">
+                <div className="flex-1 border-t border-[var(--color-border)]" />
+                <span className="text-xs text-[var(--color-muted-foreground)]">{t('common.or', 'or')}</span>
+                <div className="flex-1 border-t border-[var(--color-border)]" />
+              </div>
+
+              <button
+                onClick={handleOpenFile}
+                disabled={loading}
+                className="w-full px-3 py-2 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-50"
+              >
+                {t('invite.openSwarmFile', 'Open .swarm Invite File…')}
+              </button>
+            </div>
           )}
+
+          {/* Once fetched via relay, show a small "change" link */}
+          {effectiveInviteData && isStandalone && (
+            <div className="mb-3 p-3 border border-[var(--color-border)] rounded-md bg-[var(--color-secondary)]/30">
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={relayUrl}
+                  onChange={e => setRelayUrl(e.target.value)}
+                  placeholder="https://swarm.krillnotes.org/invites/..."
+                  className="flex-1 border border-[var(--color-border)] rounded px-3 py-1.5 text-sm bg-[var(--color-background)]"
+                  disabled={fetchingRelay || loading}
+                />
+                <button
+                  onClick={handleFetchRelay}
+                  disabled={!relayUrl.trim() || fetchingRelay || loading}
+                  className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+                >
+                  {fetchingRelay ? t('common.loading', 'Loading…') : t('invite.fetchRelay', 'Fetch')}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Invite details */}
+          {effectiveInviteData && (
+            <>
+              <div className="mb-4 p-4 border border-[var(--color-border)] rounded-md space-y-1">
+                <p className="font-medium">{effectiveInviteData.workspaceName}</p>
+                {effectiveInviteData.workspaceDescription && (
+                  <p className="text-sm text-[var(--color-muted-foreground)]">{effectiveInviteData.workspaceDescription}</p>
+                )}
+                {effectiveInviteData.workspaceAuthorName && (
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    {t('invite.by')} {effectiveInviteData.workspaceAuthorName}
+                    {effectiveInviteData.workspaceAuthorOrg && ` (${effectiveInviteData.workspaceAuthorOrg})`}
+                  </p>
+                )}
+                {effectiveInviteData.workspaceLicense && (
+                  <p className="text-xs text-[var(--color-muted-foreground)]">{t('invite.license')}: {effectiveInviteData.workspaceLicense}</p>
+                )}
+                {effectiveInviteData.workspaceTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {effectiveInviteData.workspaceTags.map(tag => (
+                      <span key={tag} className="text-xs bg-[var(--color-secondary)] px-2 py-0.5 rounded-full">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-4 p-3 bg-[var(--color-secondary)]/50 rounded-md">
+                <p className="text-xs font-medium text-[var(--color-muted-foreground)] mb-1">
+                  {t('invite.invitedBy')}
+                </p>
+                <p className="text-sm font-medium">{effectiveInviteData.inviterDeclaredName}</p>
+                <p className="text-xs font-mono text-[var(--color-muted-foreground)] mt-1">{effectiveInviteData.inviterFingerprint}</p>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-1">
+                  {t('invite.respondAs', 'Respond as')}
+                </label>
+                {unlockedIdentities.length === 0 ? (
+                  <p className="text-sm text-amber-600">
+                    {t('swarm.identityLocked')}
+                  </p>
+                ) : (
+                  <select
+                    value={selectedUuid}
+                    onChange={e => setSelectedUuid(e.target.value)}
+                    className="w-full border border-[var(--color-border)] rounded px-3 py-2 bg-[var(--color-background)] text-sm"
+                    disabled={loading || sendingViaRelay}
+                  >
+                    {unlockedIdentities.map(id => (
+                      <option key={id.uuid} value={id.uuid}>{id.displayName}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <p className="text-sm text-amber-600 mb-3">
+                {t('invite.fingerprintVerifyPrompt')}
+              </p>
+
+              <label className="flex items-center gap-2 mb-4 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={fingerprintConfirmed}
+                  onChange={e => setFingerprintConfirmed(e.target.checked)}
+                />
+                {t('invite.fingerprintConfirm')}
+              </label>
+
+              {isExpired && (
+                <p className="text-red-500 text-sm mb-3">{t('invite.expired')}</p>
+              )}
+            </>
+          )}
+
           {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
 
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm rounded border dark:border-zinc-700">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]">
               {t('common.cancel')}
             </button>
-            {/* Send via Relay — primary option when relay data is available */}
-            {relayInvitePath && (
-              <button
-                onClick={handleSendViaRelay}
-                disabled={sendingViaRelay || loading || !fingerprintConfirmed || isExpired || !selectedUuid}
-                className="px-4 py-2 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
-              >
-                {sendingViaRelay ? t('common.saving') : t('invite.sendViaRelay')}
-              </button>
+            {effectiveInviteData && (
+              <>
+                {/* Send via Relay — primary option */}
+                <button
+                  onClick={handleSendViaRelay}
+                  disabled={sendingViaRelay || loading || !fingerprintConfirmed || isExpired || !selectedUuid}
+                  className="px-4 py-2 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+                >
+                  {sendingViaRelay ? t('common.saving') : t('invite.sendViaRelay')}
+                </button>
+                {/* Save Response File — secondary option */}
+                <button
+                  onClick={handleRespond}
+                  disabled={loading || sendingViaRelay || !fingerprintConfirmed || isExpired || !selectedUuid}
+                  className="px-4 py-2 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-50"
+                >
+                  {loading ? t('common.saving') : t('invite.saveResponseFile')}
+                </button>
+              </>
             )}
-            {/* Save Response File — always available */}
-            <button
-              onClick={handleRespond}
-              disabled={loading || sendingViaRelay || !fingerprintConfirmed || isExpired || !selectedUuid}
-              className="px-4 py-2 text-sm rounded border dark:border-zinc-700 disabled:opacity-50"
-            >
-              {loading ? t('common.saving') : (relayInvitePath ? t('invite.saveResponseFile') : t('invite.respond'))}
-            </button>
           </div>
         </div>
       </div>

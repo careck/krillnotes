@@ -26,7 +26,8 @@
     "undo": "Undo",
     "redo": "Redo",
     "accept": "Accept",
-    "reject": "Reject"
+    "reject": "Reject",
+    "or": "or"
   },
   "settings": {
     "title": "설정",
@@ -498,6 +499,9 @@
     "saveResponseFile": "Save Response File",
     "responseShared": "Response link copied to clipboard!",
     "shareResponseUrlWithInviter": "Share this URL with the inviter to complete the connection.",
-    "invalidRelayUrl": "Invalid relay invite URL"
+    "invalidRelayUrl": "Invalid relay invite URL",
+    "acceptInvite": "Accept Invite",
+    "acceptSubtitle": "Paste a relay invite link or open an invite file.",
+    "openSwarmFile": "Open .swarm Invite File…"
   }
 }
