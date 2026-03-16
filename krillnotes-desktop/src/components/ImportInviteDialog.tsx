@@ -118,7 +118,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
         tempPath: effectiveInvitePath,
         expiresInDays: 7,
       });
-      await navigator.clipboard.writeText(url);
+      try { await navigator.clipboard.writeText(url); } catch { /* WKWebView fallback */ }
       setResponseRelayUrl(url);
       setResponseShared(true);
       onResponded();

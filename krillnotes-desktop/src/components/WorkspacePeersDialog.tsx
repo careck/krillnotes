@@ -214,8 +214,13 @@ export default function WorkspacePeersDialog({
         expiresInDays: 7,
       });
       if (info.relayUrl) {
-        await navigator.clipboard.writeText(info.relayUrl);
-        setShareSuccess(t('invite.linkCopied'));
+        try {
+          await navigator.clipboard.writeText(info.relayUrl);
+          setShareSuccess(t('invite.linkCopied'));
+        } catch {
+          // WKWebView blocks clipboard after async — show URL as fallback
+          setShareSuccess(info.relayUrl);
+        }
       }
     } catch (e) {
       setShareError(String(e));
@@ -443,7 +448,14 @@ export default function WorkspacePeersDialog({
           <p className="px-4 pb-1 text-xs text-[var(--color-muted-foreground)]">{syncResult}</p>
         )}
         {shareSuccess && (
-          <p className="px-4 pb-1 text-xs text-green-500">{shareSuccess}</p>
+          shareSuccess.startsWith('http') ? (
+            <div className="px-4 pb-1">
+              <p className="text-xs text-green-500 mb-1">{t('invite.linkCopied')}</p>
+              <input readOnly value={shareSuccess} className="w-full text-xs font-mono p-1 rounded border border-[var(--color-border)] bg-[var(--color-background)] select-all" onClick={e => (e.target as HTMLInputElement).select()} />
+            </div>
+          ) : (
+            <p className="px-4 pb-1 text-xs text-green-500">{shareSuccess}</p>
+          )
         )}
         {shareError && (
           <p className="px-4 pb-1 text-xs text-red-500">{shareError}</p>

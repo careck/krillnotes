@@ -120,8 +120,13 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         expiresInDays: 7,
       });
       if (info.relayUrl) {
-        await navigator.clipboard.writeText(info.relayUrl);
-        setShareSuccess(t('invite.linkCopied'));
+        try {
+          await navigator.clipboard.writeText(info.relayUrl);
+          setShareSuccess(t('invite.linkCopied'));
+        } catch {
+          // WKWebView blocks clipboard after async — show URL as fallback
+          setShareSuccess(info.relayUrl);
+        }
       }
       await load();
     } catch (e) {
@@ -144,7 +149,7 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         identityUuid,
         inviteId,
       });
-      await navigator.clipboard.writeText(url);
+      try { await navigator.clipboard.writeText(url); } catch { /* WKWebView fallback */ }
       await load();
     } catch (e) {
       setError(String(e));
@@ -212,7 +217,16 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
           </div>
 
           {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
-          {shareSuccess && <p className="text-green-500 text-sm mb-3">{shareSuccess}</p>}
+          {shareSuccess && (
+            shareSuccess.startsWith('http') ? (
+              <div className="mb-3">
+                <p className="text-green-500 text-sm mb-1">{t('invite.linkCopied')}</p>
+                <input readOnly value={shareSuccess} className="w-full text-xs font-mono p-1 rounded border border-[var(--color-border)] bg-[var(--color-background)] select-all" onClick={e => (e.target as HTMLInputElement).select()} />
+              </div>
+            ) : (
+              <p className="text-green-500 text-sm mb-3">{shareSuccess}</p>
+            )
+          )}
           {shareError && <p className="text-red-500 text-sm mb-3">{shareError}</p>}
 
           <div className="flex gap-2 mb-4">
