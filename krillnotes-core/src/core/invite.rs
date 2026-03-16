@@ -311,6 +311,17 @@ impl InviteManager {
         self.save_record(&record)
     }
 
+    /// Set the relay URL on an existing invite record.
+    pub fn set_relay_url(&mut self, invite_id: Uuid, url: String) -> Result<()> {
+        let path = self.path_for(invite_id);
+        let json = std::fs::read_to_string(&path)
+            .map_err(|_| KrillnotesError::Swarm(format!("Invite {invite_id} not found")))?;
+        let mut record: InviteRecord = serde_json::from_str(&json)?;
+        record.relay_url = Some(url);
+        self.save_record(&record)?;
+        Ok(())
+    }
+
     /// Parse and verify a response `.swarm` file (inviter side).
     /// Returns the PendingPeer data. Does NOT check invite validity here —
     /// the Tauri command does that after looking up the record.
@@ -483,6 +494,25 @@ mod manager_tests {
             .unwrap();
         assert!(record.expires_at.is_some());
         assert!(file.expires_at.is_some());
+    }
+
+    #[test]
+    fn set_relay_url_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+
+        let (record, _invite_file) = mgr.create_invite(
+            "ws-1", "Test", Some(7), &signing_key, "Alice",
+            None, None, None, None, None, vec![],
+        ).unwrap();
+        let id = record.invite_id;
+        assert!(record.relay_url.is_none());
+
+        mgr.set_relay_url(id, "https://swarm.krillnotes.org/invites/abc".into()).unwrap();
+
+        let loaded = mgr.get_invite(id).unwrap().unwrap();
+        assert_eq!(loaded.relay_url.as_deref(), Some("https://swarm.krillnotes.org/invites/abc"));
     }
 
     #[test]
