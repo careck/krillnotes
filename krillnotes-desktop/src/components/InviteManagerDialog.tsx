@@ -7,6 +7,7 @@ import { CreateInviteDialog } from './CreateInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
+import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   identityUuid: string;
@@ -25,6 +26,17 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
   const [showSendSnapshot, setShowSendSnapshot] = useState(false);
   const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
+  // Share Invite Link state
+  const [sharingLink, setSharingLink] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
+  const [showRelaySetup, setShowRelaySetup] = useState(false);
+  const [pendingShareAction, setPendingShareAction] = useState(false);
+  // Upload to relay state (per-invite)
+  const [uploadingRelayFor, setUploadingRelayFor] = useState<string | null>(null);
+  // Import response from link state
+  const [responseUrl, setResponseUrl] = useState('');
+  const [fetchingResponse, setFetchingResponse] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -69,6 +81,101 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
 
   const hasRevoked = invites.some(i => i.revoked);
 
+  const extractRelayToken = (url: string): string | null => {
+    try {
+      const parsed = new URL(url.trim());
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      return segments[segments.length - 1] ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleShareInviteLink = async () => {
+    setSharingLink(true);
+    setShareError(null);
+    setShareSuccess(null);
+    try {
+      const hasRelay = await invoke<boolean>('has_relay_credentials');
+      if (!hasRelay) {
+        setPendingShareAction(true);
+        setShowRelaySetup(true);
+        setSharingLink(false);
+        return;
+      }
+      await doShareInviteLink();
+    } catch (e) {
+      setShareError(String(e));
+      setSharingLink(false);
+    }
+  };
+
+  const doShareInviteLink = async () => {
+    setSharingLink(true);
+    setShareError(null);
+    try {
+      const info = await invoke<{ relayUrl: string | null }>('share_invite_link', {
+        identityUuid,
+        workspaceName,
+        expiresInDays: 7,
+      });
+      if (info.relayUrl) {
+        await navigator.clipboard.writeText(info.relayUrl);
+        setShareSuccess(t('invite.linkCopied'));
+      }
+      await load();
+    } catch (e) {
+      setShareError(String(e));
+    } finally {
+      setSharingLink(false);
+    }
+  };
+
+  const handleUploadToRelay = async (inviteId: string) => {
+    setUploadingRelayFor(inviteId);
+    setError(null);
+    try {
+      const hasRelay = await invoke<boolean>('has_relay_credentials');
+      if (!hasRelay) {
+        setError(t('workspacePeers.noRelayAccounts'));
+        return;
+      }
+      const url = await invoke<string>('create_relay_invite', {
+        identityUuid,
+        inviteId,
+      });
+      await navigator.clipboard.writeText(url);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUploadingRelayFor(null);
+    }
+  };
+
+  const handleFetchResponseFromLink = async () => {
+    const token = extractRelayToken(responseUrl);
+    if (!token) {
+      setError(t('invite.invalidRelayUrl'));
+      return;
+    }
+    setFetchingResponse(true);
+    setError(null);
+    try {
+      const peer = await invoke<PendingPeer>('fetch_relay_invite_response', {
+        identityUuid,
+        token,
+      });
+      setPendingPeer(peer);
+      setShowAccept(true);
+      setResponseUrl('');
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setFetchingResponse(false);
+    }
+  };
+
   const handleImportResponse = async () => {
     const path = await open({ filters: [{ name: 'Swarm Response', extensions: ['swarm'] }] });
     if (!path) return;
@@ -105,6 +212,8 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
           </div>
 
           {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+          {shareSuccess && <p className="text-green-500 text-sm mb-3">{shareSuccess}</p>}
+          {shareError && <p className="text-red-500 text-sm mb-3">{shareError}</p>}
 
           <div className="flex gap-2 mb-4">
             <button
@@ -112,6 +221,13 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
               className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white"
             >
               {t('invite.createInvite')}
+            </button>
+            <button
+              onClick={handleShareInviteLink}
+              disabled={sharingLink}
+              className="px-3 py-1.5 text-sm rounded border dark:border-zinc-700 disabled:opacity-50"
+            >
+              {sharingLink ? t('invite.sharing') : t('invite.shareInviteLink')}
             </button>
             <button
               onClick={handleImportResponse}
@@ -129,6 +245,30 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
             )}
           </div>
 
+          {/* Import Response from Link */}
+          <div className="mb-4 p-3 border rounded dark:border-zinc-700">
+            <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+              {t('invite.importResponseFromLink')}
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={responseUrl}
+                onChange={e => setResponseUrl(e.target.value)}
+                placeholder={t('invite.pasteResponseUrl')}
+                className="flex-1 border border-zinc-300 dark:border-zinc-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-zinc-800"
+                disabled={fetchingResponse}
+              />
+              <button
+                onClick={handleFetchResponseFromLink}
+                disabled={!responseUrl.trim() || fetchingResponse}
+                className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+              >
+                {fetchingResponse ? t('common.loading') : t('invite.fetchResponse')}
+              </button>
+            </div>
+          </div>
+
           <div className="overflow-y-auto flex-1">
             {loading ? (
               <p className="text-sm text-zinc-500 text-center py-8">{t('common.loading')}</p>
@@ -141,7 +281,7 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
                     key={invite.inviteId}
                     className="flex items-center justify-between p-3 border rounded dark:border-zinc-700"
                   >
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <p className="text-sm">{formatExpiry(invite)}</p>
                       <p className="text-xs text-zinc-500">
                         {t('invite.usedCount', { count: invite.useCount })}
@@ -149,8 +289,30 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
                           <span className="ml-2 text-red-500">{t('invite.revoked')}</span>
                         )}
                       </p>
+                      {invite.relayUrl && (
+                        <p className="text-xs text-zinc-400 font-mono truncate mt-0.5" title={invite.relayUrl}>
+                          {invite.relayUrl}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                      {invite.relayUrl && (
+                        <button
+                          onClick={() => navigator.clipboard.writeText(invite.relayUrl!)}
+                          className="text-xs px-2 py-1 rounded border dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        >
+                          {t('invite.copyLink')}
+                        </button>
+                      )}
+                      {!invite.relayUrl && !invite.revoked && (
+                        <button
+                          onClick={() => handleUploadToRelay(invite.inviteId)}
+                          disabled={uploadingRelayFor === invite.inviteId}
+                          className="text-xs px-2 py-1 rounded border dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          {uploadingRelayFor === invite.inviteId ? t('common.loading') : t('invite.uploadToRelay')}
+                        </button>
+                      )}
                       {!invite.revoked && (
                         <button
                           onClick={() => handleRevoke(invite.inviteId)}
@@ -217,6 +379,23 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         onClose={() => setShowSendSnapshot(false)}
         onSuccess={() => {}}
       />
+
+      {showRelaySetup && (
+        <AddRelayAccountDialog
+          identityUuid={identityUuid}
+          onClose={() => {
+            setShowRelaySetup(false);
+            setPendingShareAction(false);
+          }}
+          onCreated={async () => {
+            setShowRelaySetup(false);
+            if (pendingShareAction) {
+              setPendingShareAction(false);
+              await doShareInviteLink();
+            }
+          }}
+        />
+      )}
     </>
   );
 }
