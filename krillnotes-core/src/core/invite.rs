@@ -337,12 +337,20 @@ impl InviteManager {
         Ok(())
     }
 
-    /// Parse and verify a response `.swarm` file (inviter side).
-    /// Returns the PendingPeer data. Does NOT check invite validity here —
-    /// the Tauri command does that after looking up the record.
-    pub fn parse_and_verify_response(path: &Path) -> Result<InviteResponseFile> {
-        let json = read_json_from_zip(path, "response.json")?;
-        let response: InviteResponseFile = serde_json::from_str(&json)?;
+    /// Shared: parse JSON + verify invite signature.
+    fn verify_and_parse_invite_json(json: &str) -> Result<InviteFile> {
+        let invite: InviteFile = serde_json::from_str(json)?;
+        if invite.file_type != "krillnotes-invite-v1" {
+            return Err(KrillnotesError::Swarm("Not an invite file".to_string()));
+        }
+        let payload = serde_json::to_value(&invite)?;
+        verify_payload(&payload, &invite.signature, &invite.inviter_public_key)?;
+        Ok(invite)
+    }
+
+    /// Shared: parse response JSON + verify signature.
+    fn verify_and_parse_response_json(json: &str) -> Result<InviteResponseFile> {
+        let response: InviteResponseFile = serde_json::from_str(json)?;
         if response.file_type != "krillnotes-invite-response-v1" {
             return Err(KrillnotesError::Swarm("Not a response file".to_string()));
         }
@@ -351,16 +359,46 @@ impl InviteManager {
         Ok(response)
     }
 
+    /// Parse and verify a response `.swarm` file (inviter side).
+    /// Returns the PendingPeer data. Does NOT check invite validity here —
+    /// the Tauri command does that after looking up the record.
+    pub fn parse_and_verify_response(path: &Path) -> Result<InviteResponseFile> {
+        let json = read_json_from_zip(path, "response.json")?;
+        Self::verify_and_parse_response_json(&json)
+    }
+
     /// Parse and verify an invite `.swarm` file (invitee side).
     pub fn parse_and_verify_invite(path: &Path) -> Result<InviteFile> {
         let json = read_json_from_zip(path, "invite.json")?;
-        let invite: InviteFile = serde_json::from_str(&json)?;
-        if invite.file_type != "krillnotes-invite-v1" {
-            return Err(KrillnotesError::Swarm("Not an invite file".to_string()));
-        }
-        let payload = serde_json::to_value(&invite)?;
-        verify_payload(&payload, &invite.signature, &invite.inviter_public_key)?;
-        Ok(invite)
+        Self::verify_and_parse_invite_json(&json)
+    }
+
+    /// Serialize an InviteFile to ZIP bytes in memory (no file I/O).
+    pub fn serialize_invite_to_bytes(file: &InviteFile) -> Result<Vec<u8>> {
+        let json = serde_json::to_string_pretty(file)?;
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        write_json_zip_to_writer(&mut cursor, "invite.json", &json)?;
+        Ok(cursor.into_inner())
+    }
+
+    /// Parse and verify an invite from raw ZIP bytes.
+    pub fn parse_and_verify_invite_bytes(bytes: &[u8]) -> Result<InviteFile> {
+        let json = read_json_from_zip_bytes(bytes, "invite.json")?;
+        Self::verify_and_parse_invite_json(&json)
+    }
+
+    /// Serialize an InviteResponseFile to ZIP bytes in memory.
+    pub fn serialize_response_to_bytes(response: &InviteResponseFile) -> Result<Vec<u8>> {
+        let json = serde_json::to_string_pretty(response)?;
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        write_json_zip_to_writer(&mut cursor, "response.json", &json)?;
+        Ok(cursor.into_inner())
+    }
+
+    /// Parse and verify a response from raw ZIP bytes.
+    pub fn parse_and_verify_response_bytes(bytes: &[u8]) -> Result<InviteResponseFile> {
+        let json = read_json_from_zip_bytes(bytes, "response.json")?;
+        Self::verify_and_parse_response_json(&json)
     }
 
     /// Build and sign a response file (invitee side). Writes to `save_path`.
@@ -509,6 +547,26 @@ mod manager_tests {
             .unwrap();
         assert!(record.expires_at.is_some());
         assert!(file.expires_at.is_some());
+    }
+
+    #[test]
+    fn serialize_and_parse_invite_bytes_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+
+        let (_record, invite_file) = mgr.create_invite(
+            "ws-1", "Test Workspace", Some(7),
+            &signing_key, "Alice",
+            None, None, None, None, None, vec![],
+        ).unwrap();
+
+        let bytes = InviteManager::serialize_invite_to_bytes(&invite_file).unwrap();
+        assert!(!bytes.is_empty());
+
+        let parsed = InviteManager::parse_and_verify_invite_bytes(&bytes).unwrap();
+        assert_eq!(parsed.invite_id, invite_file.invite_id);
+        assert_eq!(parsed.workspace_name, "Test Workspace");
     }
 
     #[test]
