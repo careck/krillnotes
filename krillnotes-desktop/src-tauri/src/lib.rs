@@ -102,6 +102,7 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("workspace_peers",       "Edit > Workspace Peers clicked"),
     ("file_identities",       "File > Manage Identities clicked"),
     ("file_open_swarm",       "File > Open Swarm File clicked"),
+    ("file_accept_invite",    "File > Accept Invite clicked"),
     ("create_delta_swarm",    "Edit > Create delta Swarm clicked"),
 ];
 

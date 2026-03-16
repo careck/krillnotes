@@ -313,7 +313,9 @@
     "operationsLog": "操作ログ…",
     "refresh": "更新",
     "aboutKrillnotes": "Krillnotesについて",
-    "createDeltaSwarm": "Create delta Swarm"
+    "createDeltaSwarm": "Create delta Swarm",
+    "openSwarmFile": "Open .swarm File…",
+    "acceptInvite": "Accept Invite…"
   },
   "identity": {
     "manageTitle": "Identities",

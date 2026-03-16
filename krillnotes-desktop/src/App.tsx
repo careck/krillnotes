@@ -54,6 +54,7 @@ function App() {
     showCreateFirstIdentity, setShowCreateFirstIdentity,
     showIdentityManager, setShowIdentityManager,
     showSwarmInvite, setShowSwarmInvite,
+    showAcceptInvite, setShowAcceptInvite,
     showSwarmOpen, setShowSwarmOpen,
     swarmFilePath, setSwarmFilePath,
     pendingInvitePath, setPendingInvitePath,
@@ -183,6 +184,7 @@ function App() {
   useMenuEvents(workspace, {
     setShowNewWorkspace, setShowOpenWorkspace, setShowSettings,
     setShowExportPasswordDialog, setShowIdentityManager, setShowSwarmInvite,
+    setShowAcceptInvite,
     setShowWorkspacePeers, setShowCreateDeltaDialog,
     statusSetter, proceedWithImport, openSwarmFile,
   });
@@ -452,6 +454,13 @@ function App() {
           inviteData={pendingInviteData}
           onResponded={() => { setPendingInvitePath(null); setPendingInviteData(null); }}
           onClose={() => { setPendingInvitePath(null); setPendingInviteData(null); }}
+        />
+      )}
+      {showAcceptInvite && (
+        <ImportInviteDialog
+          initialIdentityUuid={unlockedIdentityUuid ?? undefined}
+          onResponded={() => setShowAcceptInvite(false)}
+          onClose={() => setShowAcceptInvite(false)}
         />
       )}
       {showWorkspacePeers && (

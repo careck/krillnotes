@@ -315,7 +315,9 @@
     "operationsLog": "Vorgangsprotokoll…",
     "refresh": "Aktualisieren",
     "aboutKrillnotes": "Über Krillnotes",
-    "createDeltaSwarm": "Create delta Swarm"
+    "createDeltaSwarm": "Create delta Swarm",
+    "openSwarmFile": "Open .swarm File…",
+    "acceptInvite": "Accept Invite…"
   },
   "identity": {
     "manageTitle": "Identities",
