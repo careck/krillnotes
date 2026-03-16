@@ -40,7 +40,6 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
 
   // Priority: relay-fetched > file-picked > prop-provided
   const effectiveInviteData = relayInviteData ?? fileInviteData ?? inviteData ?? null;
-  const effectiveInvitePath = relayInvitePath ?? fileInvitePath ?? invitePath ?? null;
   const isStandalone = !invitePath && !inviteData;
 
   useEffect(() => {
@@ -110,7 +109,33 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     }
   }, [t]);
 
-  const handleSendViaRelay = useCallback(async () => {
+  // Plain functions (not useCallback) to always read fresh state via effectiveInvitePath
+  const doSendViaRelay = async () => {
+    const path = relayInvitePath ?? fileInvitePath ?? invitePath;
+    if (!path) {
+      setError('No invite file path available');
+      return;
+    }
+    setSendingViaRelay(true);
+    setError(null);
+    try {
+      const url = await invoke<string>('send_invite_response_via_relay', {
+        identityUuid: selectedUuid,
+        tempPath: path,
+        expiresInDays: 7,
+      });
+      try { await navigator.clipboard.writeText(url); } catch { /* WKWebView fallback */ }
+      setResponseRelayUrl(url);
+      setResponseShared(true);
+      // Don't call onResponded() here — let user see + copy the URL first
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSendingViaRelay(false);
+    }
+  };
+
+  const handleSendViaRelay = async () => {
     if (!selectedUuid) {
       setError(t('swarm.identityLocked'));
       return;
@@ -130,30 +155,12 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
       setError(String(e));
       setSendingViaRelay(false);
     }
-  }, [selectedUuid, t]);
+  };
 
-  const doSendViaRelay = useCallback(async () => {
-    setSendingViaRelay(true);
-    setError(null);
-    try {
-      const url = await invoke<string>('send_invite_response_via_relay', {
-        identityUuid: selectedUuid,
-        tempPath: effectiveInvitePath,
-        expiresInDays: 7,
-      });
-      try { await navigator.clipboard.writeText(url); } catch { /* WKWebView fallback */ }
-      setResponseRelayUrl(url);
-      setResponseShared(true);
-      onResponded();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSendingViaRelay(false);
-    }
-  }, [selectedUuid, effectiveInvitePath, onResponded]);
-
-  const handleRespond = useCallback(async () => {
-    if (!selectedUuid || !effectiveInviteData) {
+  const handleRespond = async () => {
+    const data = relayInviteData ?? fileInviteData ?? inviteData;
+    const path = relayInvitePath ?? fileInvitePath ?? invitePath;
+    if (!selectedUuid || !data || !path) {
       setError(t('swarm.identityLocked'));
       return;
     }
@@ -161,14 +168,14 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     setError(null);
     try {
       const savePath = await save({
-        defaultPath: `response_${effectiveInviteData.workspaceName.replace(/\s+/g, '_')}.swarm`,
+        defaultPath: `response_${data.workspaceName.replace(/\s+/g, '_')}.swarm`,
         filters: [{ name: 'Swarm Response', extensions: ['swarm'] }],
       });
       if (!savePath) { setLoading(false); return; }
 
       await invoke('respond_to_invite', {
         identityUuid: selectedUuid,
-        invitePath: effectiveInvitePath,
+        invitePath: path,
         savePath,
       });
       onResponded();
@@ -178,7 +185,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     } finally {
       setLoading(false);
     }
-  }, [selectedUuid, effectiveInviteData, effectiveInvitePath, onResponded, onClose, t]);
+  };
 
   // Success state: response was shared via relay
   if (responseShared && responseRelayUrl) {
