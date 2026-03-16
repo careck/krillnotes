@@ -118,7 +118,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
     setSendingViaRelay(true);
     setError(null);
     try {
-      const hasRelay = await invoke<boolean>('has_relay_credentials');
+      const hasRelay = await invoke<boolean>('has_relay_credentials', { identityUuid: selectedUuid });
       if (!hasRelay) {
         setPendingRelayRespond(true);
         setShowRelaySetup(true);

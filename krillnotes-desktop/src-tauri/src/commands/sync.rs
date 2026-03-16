@@ -698,15 +698,19 @@ pub async fn fetch_relay_invite_response(
 
 // ── has_relay_credentials ──────────────────────────────────────────────────
 
-/// Return `true` if the current identity has any relay accounts configured.
+/// Return `true` if the given identity has any relay accounts configured.
+/// Accepts an optional `identity_uuid` param; falls back to workspace lookup.
 #[tauri::command]
 pub async fn has_relay_credentials(
     window: Window,
     state: State<'_, AppState>,
+    identity_uuid: Option<String>,
 ) -> Result<bool, String> {
-    log::debug!("has_relay_credentials(window={})", window.label());
-    let workspace_label = window.label().to_string();
-    let identity_uuid: Uuid = {
+    let identity_uuid: Uuid = if let Some(ref uuid_str) = identity_uuid {
+        Uuid::parse_str(uuid_str).map_err(|e| e.to_string())?
+    } else {
+        log::debug!("has_relay_credentials(window={})", window.label());
+        let workspace_label = window.label().to_string();
         let m = state.workspace_identities.lock().map_err(|e| e.to_string())?;
         *m.get(&workspace_label).ok_or("No identity bound to this workspace")?
     };
