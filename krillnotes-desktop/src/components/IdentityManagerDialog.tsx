@@ -13,6 +13,7 @@ import CreateIdentityDialog from './CreateIdentityDialog';
 import UnlockIdentityDialog from './UnlockIdentityDialog';
 import ContactBookDialog from './ContactBookDialog';
 import RelayBookDialog from './RelayBookDialog';
+import AcceptedInvitesSection from './AcceptedInvitesSection';
 
 interface IdentityManagerDialogProps {
   isOpen: boolean;
@@ -381,6 +382,11 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
               <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-sm">
                 {error}
               </div>
+            )}
+
+            {/* Accepted invites (invitee view) */}
+            {selectedUuid && unlockedIds.has(selectedUuid) && (
+              <AcceptedInvitesSection identityUuid={selectedUuid} />
             )}
           </div>
 
