@@ -230,22 +230,28 @@ export default function WorkspacePeersDialog({
     }
   };
 
+  // Track which ReceivedResponse we're currently accepting (for status update after dialog)
+  const [acceptingResponseId, setAcceptingResponseId] = useState<string | null>(null);
+
   const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
-    // TODO: In the future, wire to AcceptPeerDialog flow
-    // For now, update status to peerAdded
     try {
-      await invoke("update_response_status", {
-        identityUuid,
-        responseId: response.responseId,
-        status: "peerAdded",
+      const fingerprint = await invoke<string>("get_fingerprint", {
+        publicKey: response.inviteePublicKey,
+      });
+      setAcceptingResponseId(response.responseId);
+      setPendingResponsePeer({
+        inviteId: response.inviteId,
+        inviteePublicKey: response.inviteePublicKey,
+        inviteeDeclaredName: response.inviteeDeclaredName,
+        fingerprint,
       });
     } catch (e) {
-      console.error("Failed to update response status:", e);
+      console.error("Failed to prepare accept response:", e);
     }
   };
   const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
-    // TODO: In the future, wire to SendSnapshotDialog flow
-    // For now, update status to snapshotSent
+    setSendSnapshotFor([response.inviteePublicKey]);
+    setShowSendSnapshot(true);
     try {
       await invoke("update_response_status", {
         identityUuid,
@@ -568,13 +574,26 @@ export default function WorkspacePeersDialog({
         <AcceptPeerDialog
           identityUuid={identityUuid}
           pendingPeer={pendingResponsePeer}
-          onAccepted={(contact: ContactInfo) => {
+          onAccepted={async (contact: ContactInfo) => {
             setPendingResponsePeer(null);
             loadPeers();
             const peerName = contact.localName || contact.declaredName;
             setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
+            // Update ReceivedResponse status if this was triggered by polling
+            if (acceptingResponseId) {
+              try {
+                await invoke("update_response_status", {
+                  identityUuid,
+                  responseId: acceptingResponseId,
+                  status: "peerAdded",
+                });
+              } catch (e) {
+                console.error("Failed to update response status:", e);
+              }
+              setAcceptingResponseId(null);
+            }
           }}
-          onClose={() => setPendingResponsePeer(null)}
+          onClose={() => { setPendingResponsePeer(null); setAcceptingResponseId(null); }}
         />
       )}
 
