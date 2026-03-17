@@ -57,6 +57,10 @@ pub struct AppState {
     pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
     /// Per-identity relay account managers — keyed by identity UUID, created on unlock.
     pub relay_account_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::sync::relay::RelayAccountManager>>>,
+    /// Per-identity accepted invite managers — keyed by identity UUID, created on unlock.
+    pub accepted_invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::accepted_invite::AcceptedInviteManager>>>,
+    /// Per-identity received response managers — keyed by identity UUID, created on unlock.
+    pub received_response_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::received_response::ReceivedResponseManager>>>,
     /// Per-identity sync engines — keyed by identity UUID string.
     /// Created lazily when a relay is configured for that identity.
     pub sync_engines: Arc<Mutex<HashMap<String, krillnotes_core::core::sync::SyncEngine>>>,
@@ -173,6 +177,8 @@ pub fn run() {
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
             invite_managers: Arc::new(Mutex::new(HashMap::new())),
             relay_account_managers: Arc::new(Mutex::new(HashMap::new())),
+            accepted_invite_managers: Arc::new(Mutex::new(HashMap::new())),
+            received_response_managers: Arc::new(Mutex::new(HashMap::new())),
             sync_engines: Arc::new(Mutex::new(HashMap::new())),
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
@@ -407,6 +413,7 @@ pub fn run() {
             remove_workspace_peer,
             add_contact_as_peer,
             create_snapshot_for_peers,
+            send_snapshot_via_relay,
             apply_swarm_snapshot,
             apply_swarm_delta,
             generate_deltas_for_peers,
@@ -425,6 +432,16 @@ pub fn run() {
             fetch_relay_invite_response,
             sync::reset_peer_watermark,
             sync::has_pending_sync_ops,
+            list_accepted_invites,
+            save_accepted_invite,
+            update_accepted_invite_status,
+            update_accepted_invite_snapshot_path,
+            list_received_responses,
+            update_response_status,
+            dismiss_response,
+            poll_receive_workspace,
+            poll_receive_identity,
+            poll_all_identity_snapshots,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

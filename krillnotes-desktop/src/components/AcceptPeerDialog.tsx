@@ -69,7 +69,7 @@ export function AcceptPeerDialog({ identityUuid, pendingPeer, onAccepted, onClos
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md">
+      <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-xl shadow-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-semibold mb-4">{t('invite.acceptTitle')}</h2>
 
         {!peer ? (
@@ -81,7 +81,7 @@ export function AcceptPeerDialog({ identityUuid, pendingPeer, onAccepted, onClos
           </div>
         ) : (
           <>
-            <div className="mb-4 p-3 bg-zinc-100 dark:bg-zinc-800 rounded">
+            <div className="mb-4 p-3 bg-[var(--color-muted)] rounded">
               <p className="text-sm font-medium">{peer.inviteeDeclaredName}</p>
               <p className="text-xs text-zinc-500 font-mono mt-1">{peer.fingerprint}</p>
             </div>
@@ -107,7 +107,7 @@ export function AcceptPeerDialog({ identityUuid, pendingPeer, onAccepted, onClos
 
             <label className="block text-sm font-medium mb-1">{t('contacts.trustLevel')}</label>
             <select
-              className="w-full border rounded px-3 py-2 mb-4 dark:bg-zinc-800 dark:border-zinc-700"
+              className="w-full border rounded px-3 py-2 mb-4 bg-[var(--color-muted)] border-[var(--color-border)]"
               value={trustLevel}
               onChange={e => setTrustLevel(e.target.value)}
             >
@@ -118,7 +118,7 @@ export function AcceptPeerDialog({ identityUuid, pendingPeer, onAccepted, onClos
             <input
               type="text"
               placeholder={t('contacts.localNamePlaceholder')}
-              className="w-full border rounded px-3 py-2 mb-4 dark:bg-zinc-800 dark:border-zinc-700"
+              className="w-full border rounded px-3 py-2 mb-4 bg-[var(--color-muted)] border-[var(--color-border)]"
               value={localName}
               onChange={e => setLocalName(e.target.value)}
             />
@@ -126,7 +126,7 @@ export function AcceptPeerDialog({ identityUuid, pendingPeer, onAccepted, onClos
             {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
 
             <div className="flex justify-end gap-2">
-              <button onClick={onClose} className="px-4 py-2 text-sm rounded border dark:border-zinc-700">
+              <button onClick={onClose} className="px-4 py-2 text-sm rounded border border-[var(--color-border)]">
                 {t('common.reject')}
               </button>
               <button

@@ -578,6 +578,7 @@ pub async fn send_invite_response_via_relay(
     };
 
     let expires_in_days = expires_in_days.unwrap_or(7);
+    let relay_account_url = relay_account.relay_url.clone();
 
     let url = tokio::task::spawn_blocking(move || -> Result<String, String> {
         // Parse the invite from the temp file.
@@ -616,6 +617,49 @@ pub async fn send_invite_response_via_relay(
             log::error!("send_invite_response_via_relay: relay upload failed: {e}");
             e.to_string()
         })?;
+
+        // Also upload an Accept bundle so the inviter can discover the response
+        // via list_bundles() during polling. This is best-effort — the invite URL
+        // was already created successfully above.
+        let device_id = krillnotes_core::core::device::get_device_id().unwrap_or_default();
+        let accept_bundle_bytes = krillnotes_core::core::swarm::invite::create_accept_bundle(
+            krillnotes_core::core::swarm::invite::AcceptParams {
+                workspace_id: invite.workspace_id.clone(),
+                workspace_name: invite.workspace_name.clone(),
+                source_device_id: device_id,
+                declared_name: declared_name.clone(),
+                pairing_token: String::new(), // Not available from InviteFile; left empty
+                acceptor_key: &signing_key,
+                owner_pubkey: Some(invite.inviter_public_key.clone()),
+                channel_preference: krillnotes_core::core::swarm::invite::ChannelPreference {
+                    channel_type: "relay".to_string(),
+                    relay_url: Some(relay_account_url.clone()),
+                },
+            },
+        );
+        match accept_bundle_bytes {
+            Ok(bundle_bytes) => {
+                // Relay device keys are hex-encoded, not base64
+                let invitee_pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+                let inviter_pubkey_hex = BASE64.decode(&invite.inviter_public_key)
+                    .map(|bytes| hex::encode(&bytes))
+                    .unwrap_or_default();
+                let bundle_header = krillnotes_core::core::sync::relay::client::BundleHeader {
+                    workspace_id: invite.workspace_id.clone(),
+                    sender_device_key: invitee_pubkey_hex,
+                    recipient_device_keys: vec![inviter_pubkey_hex],
+                    mode: Some("accept".to_string()),
+                };
+                match client.upload_bundle(&bundle_header, &bundle_bytes) {
+                    Ok(ids) => log::info!("send_invite_response_via_relay: accept bundle uploaded ({} copies)", ids.len()),
+                    Err(e) => log::warn!("send_invite_response_via_relay: accept bundle upload failed (non-fatal): {e}"),
+                }
+            }
+            Err(e) => {
+                log::warn!("send_invite_response_via_relay: failed to create accept bundle (non-fatal): {e}");
+            }
+        }
+
         Ok(info.url)
     })
     .await

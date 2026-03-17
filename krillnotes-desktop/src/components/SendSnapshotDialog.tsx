@@ -25,15 +25,20 @@ export function SendSnapshotDialog({
   const [savePath, setSavePath] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sendViaRelay, setSendViaRelay] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setSelected(new Set(preSelectedPublicKeys));
     setSavePath('');
     setError(null);
+    setSendViaRelay(false);
     invoke<PeerInfo[]>('list_workspace_peers')
       .then(setPeers)
       .catch(e => setError(String(e)));
+    invoke<boolean>('has_relay_credentials', { identityUuid })
+      .then(has => { if (has) setSendViaRelay(true); })
+      .catch(() => {});
   }, [open]);  // intentionally omit preSelectedPublicKeys to avoid loop
 
   const chooseSavePath = async () => {
@@ -54,17 +59,26 @@ export function SendSnapshotDialog({
 
   const handleCreate = async () => {
     if (selected.size === 0) { setError('Select at least one peer.'); return; }
-    if (!savePath) { setError('Choose a save location first.'); return; }
+    if (!sendViaRelay && !savePath) { setError('Choose a save location first.'); return; }
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<SnapshotCreatedResult>('create_snapshot_for_peers', {
-        identityUuid,
-        peerPublicKeys: Array.from(selected),
-        savePath,
-      });
-      onSuccess(result);
-      onClose();
+      if (sendViaRelay) {
+        await invoke('send_snapshot_via_relay', {
+          identityUuid,
+          peerPublicKeys: Array.from(selected),
+        });
+        onSuccess({ savedPath: '', peerCount: selected.size, asOfOperationId: '' });
+        onClose();
+      } else {
+        const result = await invoke<SnapshotCreatedResult>('create_snapshot_for_peers', {
+          identityUuid,
+          peerPublicKeys: Array.from(selected),
+          savePath,
+        });
+        onSuccess(result);
+        onClose();
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -96,15 +110,29 @@ export function SendSnapshotDialog({
           {peers.length === 0 && <p className="text-sm text-muted-foreground">No peers registered.</p>}
         </div>
 
-        <div className="flex items-center gap-2 mb-4">
-          <button
-            onClick={chooseSavePath}
-            className="px-3 py-1.5 text-sm rounded border border-secondary hover:bg-secondary"
-          >
-            Choose location…
-          </button>
-          {savePath && <span className="text-xs text-muted-foreground truncate">{savePath}</span>}
-        </div>
+        {!sendViaRelay && (
+          <div className="flex items-center gap-2 mb-4">
+            <button
+              onClick={chooseSavePath}
+              className="px-3 py-1.5 text-sm rounded border border-secondary hover:bg-secondary"
+            >
+              Choose location...
+            </button>
+            {savePath && <span className="text-xs text-muted-foreground truncate">{savePath}</span>}
+            {!savePath && <span className="text-xs text-red-500">Choose a save location first.</span>}
+          </div>
+        )}
+
+        {sendViaRelay && (
+          <div className="mb-4">
+            <button
+              onClick={() => setSendViaRelay(false)}
+              className="text-xs text-muted-foreground hover:underline"
+            >
+              Save to file instead...
+            </button>
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
 
@@ -120,7 +148,9 @@ export function SendSnapshotDialog({
             disabled={loading}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
           >
-            {loading ? 'Creating…' : 'Create Snapshot'}
+            {loading
+              ? (sendViaRelay ? 'Sending...' : 'Creating...')
+              : (sendViaRelay ? 'Send via Relay' : 'Create Snapshot')}
           </button>
         </div>
       </div>

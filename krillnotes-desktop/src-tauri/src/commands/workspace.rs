@@ -28,6 +28,8 @@ pub struct WorkspaceInfo {
     pub selected_note_id: Option<String>,
     /// UUID of the identity bound to this workspace, if any.
     pub identity_uuid: Option<String>,
+    /// The workspace's own UUID (from workspace_meta).
+    pub workspace_id: Option<String>,
 }
 
 // ── Private helpers ───────────────────────────────────────────────
@@ -351,12 +353,15 @@ pub fn get_workspace_info_internal(
         .flatten()
         .map(|b| b.identity_uuid.to_string());
 
+    let workspace_id = Some(workspace.workspace_id().to_string());
+
     Ok(WorkspaceInfo {
         filename,
         path: path.display().to_string(),
         note_count,
         selected_note_id,
         identity_uuid,
+        workspace_id,
     })
 }
 

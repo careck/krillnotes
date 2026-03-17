@@ -4,11 +4,13 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
+pub mod accepted_invites;
 pub mod attachments;
 pub mod contacts;
 pub mod identity;
 pub mod invites;
 pub mod notes;
+pub mod receive_poll;
 pub mod relay_accounts;
 pub mod scripting;
 pub mod scripts;
@@ -16,11 +18,13 @@ pub mod swarm;
 pub mod sync;
 pub mod workspace;
 
+pub use accepted_invites::*;
 pub use attachments::*;
 pub use contacts::*;
 pub use identity::*;
 pub use invites::*;
 pub use notes::*;
+pub use receive_poll::*;
 pub use relay_accounts::*;
 pub use scripting::*;
 pub use scripts::*;

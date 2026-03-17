@@ -300,7 +300,7 @@ pub fn import_invite_response(
 
     // Validate invite is still active and increment use count.
     let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
-    {
+    let (invite_workspace_id, invite_workspace_name) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         let record = im
@@ -316,16 +316,40 @@ pub fn import_invite_response(
             }
         }
         im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
-    }
+        (record.workspace_id.clone(), record.workspace_name.clone())
+    };
 
     let fingerprint = generate_fingerprint(&response.invitee_public_key)
         .map_err(|e| e.to_string())?;
-    Ok(PendingPeer {
+
+    let pending_peer = PendingPeer {
         invite_id: response.invite_id,
         invitee_public_key: response.invitee_public_key,
         invitee_declared_name: response.invitee_declared_name,
         fingerprint,
-    })
+    };
+
+    // Create a ReceivedResponse record so the polling UI can track this response.
+    {
+        let mut rrm = state.received_response_managers.lock().expect("Mutex poisoned");
+        if let Some(rr_mgr) = rrm.get_mut(&uuid) {
+            let existing = rr_mgr
+                .find_by_invite_and_invitee(invite_uuid, &pending_peer.invitee_public_key)
+                .map_err(|e| e.to_string())?;
+            if existing.is_none() {
+                let rr = krillnotes_core::core::received_response::ReceivedResponse::new(
+                    invite_uuid,
+                    invite_workspace_id,
+                    invite_workspace_name,
+                    pending_peer.invitee_public_key.clone(),
+                    pending_peer.invitee_declared_name.clone(),
+                );
+                let _ = rr_mgr.save(&rr);
+            }
+        }
+    }
+
+    Ok(pending_peer)
 }
 
 #[tauri::command]

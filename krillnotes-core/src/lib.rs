@@ -17,6 +17,7 @@ pub mod core;
 // Re-export commonly used types.
 #[doc(inline)]
 pub use core::{
+    accepted_invite::{AcceptedInvite, AcceptedInviteManager, AcceptedInviteStatus},
     attachment::AttachmentMeta,
     delete::{DeleteResult, DeleteStrategy},
     export::{
@@ -37,6 +38,7 @@ pub use core::{
     undo::{RetractInverse, UndoResult},
     user_script::UserScript,
     peer_registry::PeerInfo,
+    received_response::{ReceivedResponse, ReceivedResponseManager, ReceivedResponseStatus},
     swarm::sync::ApplyResult,
     workspace::{AddPosition, NoteSearchResult, Workspace},
 };

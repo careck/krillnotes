@@ -4,6 +4,7 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
+
 import { save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
@@ -27,6 +28,7 @@ import { slugify } from './utils/slugify';
 import { useMenuEvents } from './hooks/useMenuEvents';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle';
 import { useDialogState } from './hooks/useDialogState';
+import { useGlobalSnapshotPolling } from './hooks/useIdentityPolling';
 
 function App() {
   const { t } = useTranslation();
@@ -63,6 +65,9 @@ function App() {
     showCreateDeltaDialog, setShowCreateDeltaDialog,
     statusSetter,
   } = useDialogState();
+
+  // Global snapshot polling for all unlocked identities (no workspace needed).
+  useGlobalSnapshotPolling();
 
   const handleImportConfirm = async () => {
     if (!importState) return;
@@ -181,6 +186,7 @@ function App() {
       setSwarmFilePath,
     });
 
+
   useMenuEvents(workspace, {
     setShowNewWorkspace, setShowOpenWorkspace, setShowSettings,
     setShowExportPasswordDialog, setShowIdentityManager, setShowSwarmInvite,
@@ -192,7 +198,7 @@ function App() {
   return (
     <ThemeProvider>
     <div className="min-h-screen bg-background text-foreground">
-      {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <div className="p-8"><EmptyState /></div>}
+      {workspace ? <WorkspaceView workspaceInfo={workspace} onOpenWorkspacePeers={() => setShowWorkspacePeers(true)} /> : <div className="p-8"><EmptyState /></div>}
       {status && <StatusMessage message={status} isError={isError} />}
 
       <NewWorkspaceDialog

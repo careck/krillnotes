@@ -114,6 +114,23 @@ fn require_field<T>(val: Option<&T>, name: &str, mode: &str) -> Result<()> {
     }
 }
 
+/// Read the `SwarmHeader` from a `.swarm` zip archive without decrypting
+/// the payload.  Used by receive-only polling to dispatch on bundle mode.
+pub fn read_header(data: &[u8]) -> Result<SwarmHeader> {
+    use std::io::Cursor;
+    let cursor = Cursor::new(data);
+    let mut zip = zip::ZipArchive::new(cursor).map_err(|e| {
+        KrillnotesError::Swarm(format!("invalid .swarm zip archive: {e}"))
+    })?;
+    let mut header_file = zip.by_name("header.json").map_err(|e| {
+        KrillnotesError::Swarm(format!("missing header.json in .swarm bundle: {e}"))
+    })?;
+    let header: SwarmHeader = serde_json::from_reader(&mut header_file).map_err(|e| {
+        KrillnotesError::Swarm(format!("invalid header.json: {e}"))
+    })?;
+    Ok(header)
+}
+
 /// serde helper: serialize Vec<u8> as base64 string.
 mod base64_bytes {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine};

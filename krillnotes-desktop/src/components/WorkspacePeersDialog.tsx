@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, SyncEvent, RelayAccountInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, SyncEvent, RelayAccountInfo, ReceivedResponseInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
@@ -16,6 +16,7 @@ import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
+import PendingResponsesSection from './PendingResponsesSection';
 
 interface Props {
   identityUuid: string;
@@ -229,6 +230,39 @@ export default function WorkspacePeersDialog({
     }
   };
 
+  // Track which ReceivedResponse we're currently accepting (for status update after dialog)
+  const [acceptingResponseId, setAcceptingResponseId] = useState<string | null>(null);
+
+  const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
+    try {
+      const fingerprint = await invoke<string>("get_fingerprint", {
+        publicKey: response.inviteePublicKey,
+      });
+      setAcceptingResponseId(response.responseId);
+      setPendingResponsePeer({
+        inviteId: response.inviteId,
+        inviteePublicKey: response.inviteePublicKey,
+        inviteeDeclaredName: response.inviteeDeclaredName,
+        fingerprint,
+      });
+    } catch (e) {
+      console.error("Failed to prepare accept response:", e);
+    }
+  };
+  const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
+    setSendSnapshotFor([response.inviteePublicKey]);
+    setShowSendSnapshot(true);
+    try {
+      await invoke("update_response_status", {
+        identityUuid,
+        responseId: response.responseId,
+        status: "snapshotSent",
+      });
+    } catch (e) {
+      console.error("Failed to update response status:", e);
+    }
+  };
+
   const formatLastSync = (lastSync?: string) => {
     if (!lastSync) return t('peers.neverSynced', 'Never synced');
     const d = new Date(lastSync);
@@ -263,6 +297,12 @@ export default function WorkspacePeersDialog({
 
         {/* Peer list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <PendingResponsesSection
+            identityUuid={identityUuid}
+            workspaceId={workspaceInfo?.workspaceId}
+            onAcceptResponse={handleAcceptResponse}
+            onSendSnapshot={handleSendSnapshot}
+          />
           {loading && (
             <p className="text-sm text-[var(--color-muted-foreground)] text-center py-8">{t('common.loading')}</p>
           )}
@@ -460,23 +500,23 @@ export default function WorkspacePeersDialog({
         {shareError && (
           <p className="px-4 pb-1 text-xs text-red-500">{shareError}</p>
         )}
-        <div className="flex items-center gap-2 p-4 border-t border-[var(--color-border)]">
+        <div className="flex flex-wrap items-center gap-2 p-4 border-t border-[var(--color-border)]">
           <button
             onClick={() => setShowAddFromContacts(true)}
-            className="flex-1 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="whitespace-nowrap px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
             {t('peers.addFromContacts', '＋ Add from Contacts')}
           </button>
           <button
             onClick={() => setShowInviteManager(true)}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
             {t('invite.manageInvites')}
           </button>
           <button
             onClick={handleShareInviteLink}
             disabled={sharingLink || !workspaceInfo}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
           >
             {sharingLink ? t('invite.sharing') : t('invite.shareInviteLink')}
           </button>
@@ -485,14 +525,14 @@ export default function WorkspacePeersDialog({
               setSendSnapshotFor(peers.map(p => p.peerIdentityId));
               setShowSendSnapshot(true);
             }}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
             Create Snapshot…
           </button>
           <button
             onClick={handleSyncNow}
             disabled={syncing || peers.filter(p => p.channelType !== 'manual').length === 0}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
           >
             {syncing ? t('peers.syncing', 'Syncing…') : t('peers.syncNow', 'Sync Now')}
           </button>
@@ -534,13 +574,26 @@ export default function WorkspacePeersDialog({
         <AcceptPeerDialog
           identityUuid={identityUuid}
           pendingPeer={pendingResponsePeer}
-          onAccepted={(contact: ContactInfo) => {
+          onAccepted={async (contact: ContactInfo) => {
             setPendingResponsePeer(null);
             loadPeers();
             const peerName = contact.localName || contact.declaredName;
             setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
+            // Update ReceivedResponse status if this was triggered by polling
+            if (acceptingResponseId) {
+              try {
+                await invoke("update_response_status", {
+                  identityUuid,
+                  responseId: acceptingResponseId,
+                  status: "peerAdded",
+                });
+              } catch (e) {
+                console.error("Failed to update response status:", e);
+              }
+              setAcceptingResponseId(null);
+            }
           }}
-          onClose={() => setPendingResponsePeer(null)}
+          onClose={() => { setPendingResponsePeer(null); setAcceptingResponseId(null); }}
         />
       )}
 

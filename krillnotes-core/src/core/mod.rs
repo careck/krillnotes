@@ -9,6 +9,7 @@
 //! All public types from these modules are re-exported at the crate root
 //! with `#[doc(inline)]`; import from there in preference to this module.
 
+pub mod accepted_invite;
 pub mod attachment;
 pub mod contact;
 pub mod delete;
@@ -22,6 +23,7 @@ pub mod note;
 pub mod operation;
 pub mod operation_log;
 pub mod peer_registry;
+pub mod received_response;
 pub mod save_transaction;
 pub mod scripting;
 pub mod swarm;
