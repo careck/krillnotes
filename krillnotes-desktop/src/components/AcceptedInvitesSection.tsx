@@ -18,6 +18,10 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
   const { t } = useTranslation();
   const [invites, setInvites] = useState<AcceptedInviteInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadInvites = useCallback(async () => {
     try {
@@ -39,6 +43,35 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
     return () => { unlisten.then(f => f()); };
   }, [loadInvites]);
 
+  const handleCreateWorkspace = async (invite: AcceptedInviteInfo) => {
+    if (!invite.snapshotPath) return;
+    setCreatingId(invite.inviteId);
+    setCreateError(null);
+    try {
+      const nameOverride = renamingId === invite.inviteId && renameValue.trim()
+        ? renameValue.trim()
+        : undefined;
+      await invoke("apply_swarm_snapshot", {
+        path: invite.snapshotPath,
+        identityUuid,
+        workspaceNameOverride: nameOverride || null,
+      });
+      await invoke("update_accepted_invite_status", {
+        identityUuid,
+        inviteId: invite.inviteId,
+        status: "workspaceCreated",
+        workspacePath: null,
+      });
+      setRenamingId(null);
+      loadInvites();
+    } catch (e) {
+      console.error("Failed to create workspace from snapshot:", e);
+      setCreateError(String(e));
+    } finally {
+      setCreatingId(null);
+    }
+  };
+
   if (loading || invites.length === 0) return null;
 
   return (
@@ -49,32 +82,84 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
       <div className="flex flex-col gap-2">
         {invites.map((invite) => (
           <div key={invite.inviteId}
-            className="bg-white/5 rounded-lg px-4 py-3 flex items-center justify-between"
+            className="bg-white/5 rounded-lg px-4 py-3"
           >
-            <div>
-              <div className="font-semibold text-sm">{invite.workspaceName}</div>
-              <div className="text-xs text-gray-400 mt-0.5">
-                {t("common.from", "From")}: {invite.inviterDeclaredName} · {new Date(invite.acceptedAt).toLocaleDateString()}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-sm">{invite.workspaceName}</div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {t("common.from", "From")}: {invite.inviterDeclaredName} · {new Date(invite.acceptedAt).toLocaleDateString()}
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {invite.status === "waitingSnapshot" ? (
-                <span className="bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
-                  {t("polling.waitingForSnapshot")}
-                </span>
-              ) : (
-                <>
+              <div className="flex items-center gap-2">
+                {invite.status === "waitingSnapshot" && !invite.snapshotPath && (
+                  <span className="bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                    {t("polling.waitingForSnapshot")}
+                  </span>
+                )}
+                {invite.status === "waitingSnapshot" && invite.snapshotPath && (
+                  <>
+                    <span className="bg-blue-500/20 text-blue-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                      {t("polling.snapshotReceived", "Snapshot received")}
+                    </span>
+                    <button
+                      className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1.5 rounded-md disabled:opacity-50"
+                      disabled={creatingId === invite.inviteId}
+                      onClick={() => {
+                        if (renamingId === invite.inviteId) {
+                          handleCreateWorkspace(invite);
+                        } else {
+                          setRenamingId(invite.inviteId);
+                          setRenameValue(invite.workspaceName);
+                        }
+                      }}
+                    >
+                      {creatingId === invite.inviteId
+                        ? t("common.loading", "Creating...")
+                        : t("polling.createWorkspace", "Create Workspace")}
+                    </button>
+                  </>
+                )}
+                {invite.status === "workspaceCreated" && (
                   <span className="bg-green-500/20 text-green-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
                     ✓ {t("polling.workspaceCreated")}
                   </span>
-                  {invite.workspacePath && (
-                    <button className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1 rounded-md">
-                      {t("common.open")}
-                    </button>
-                  )}
-                </>
-              )}
+                )}
+              </div>
             </div>
+            {/* Inline rename row */}
+            {renamingId === invite.inviteId && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder={invite.workspaceName}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateWorkspace(invite);
+                    if (e.key === "Escape") setRenamingId(null);
+                  }}
+                />
+                <button
+                  className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1.5 rounded-md disabled:opacity-50"
+                  disabled={creatingId === invite.inviteId}
+                  onClick={() => handleCreateWorkspace(invite)}
+                >
+                  {creatingId === invite.inviteId ? "..." : t("common.confirm", "Confirm")}
+                </button>
+                <button
+                  className="text-gray-400 text-xs px-2 py-1"
+                  onClick={() => setRenamingId(null)}
+                >
+                  {t("common.cancel", "Cancel")}
+                </button>
+              </div>
+            )}
+            {createError && creatingId === null && renamingId === invite.inviteId && (
+              <div className="mt-1 text-xs text-red-400">{createError}</div>
+            )}
           </div>
         ))}
       </div>

@@ -552,6 +552,8 @@
     "newInviteResponse": "New invite response",
     "respondedToYourInvite": "responded to your invite",
     "viewInPeers": "View in Peers",
-    "snapshotHint": "Snapshots arrive automatically when a workspace with relay polling is open."
+    "snapshotHint": "Snapshots arrive automatically when a workspace with relay polling is open.",
+    "snapshotReceived": "Snapshot received",
+    "createWorkspace": "Create Workspace"
   }
 }
