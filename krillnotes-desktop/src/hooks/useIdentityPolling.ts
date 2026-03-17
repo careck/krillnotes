@@ -3,25 +3,25 @@ import { invoke } from "@tauri-apps/api/core";
 
 const POLL_INTERVAL_MS = 60_000;
 
-export function useIdentityPolling(
-  identityUuid: string | null,
-  hasRelayAccount: boolean,
-  hasWaitingInvites: boolean,
-) {
+/**
+ * Global snapshot polling for ALL unlocked identities.
+ * The Rust command iterates over every unlocked identity that has
+ * relay accounts + accepted invites in WaitingSnapshot status.
+ * No conditions needed on the frontend — just call on a timer.
+ */
+export function useGlobalSnapshotPolling() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!identityUuid || !hasRelayAccount || !hasWaitingInvites) return;
-
     const poll = async () => {
       try {
-        await invoke("poll_receive_identity", { identityUuid });
+        await invoke("poll_all_identity_snapshots");
       } catch (e) {
-        console.warn("poll_receive_identity failed:", e);
+        console.warn("poll_all_identity_snapshots failed:", e);
       }
     };
 
-    poll();
+    poll(); // immediate first poll
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
     return () => {
@@ -30,5 +30,14 @@ export function useIdentityPolling(
         intervalRef.current = null;
       }
     };
-  }, [identityUuid, hasRelayAccount, hasWaitingInvites]);
+  }, []);
+}
+
+/** @deprecated Use useGlobalSnapshotPolling instead */
+export function useIdentityPolling(
+  _identityUuid: string | null,
+  _hasRelayAccount: boolean,
+  _hasWaitingInvites: boolean,
+) {
+  useGlobalSnapshotPolling();
 }

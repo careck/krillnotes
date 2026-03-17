@@ -425,3 +425,85 @@ pub async fn poll_receive_identity(
 
     Ok(())
 }
+
+/// Poll for snapshot bundles across ALL unlocked identities that have
+/// relay accounts and accepted invites in WaitingSnapshot status.
+/// Called on a global 60-second timer — no workspace needed.
+#[tauri::command]
+pub async fn poll_all_identity_snapshots(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> std::result::Result<(), String> {
+    // Collect all identity UUIDs that have accepted invite managers (= unlocked).
+    let identity_uuids: Vec<Uuid> = {
+        let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+        aim.keys().copied().collect()
+    };
+
+    for uuid in identity_uuids {
+        // Check if this identity has waiting invites.
+        let waiting = {
+            let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+            match aim.get(&uuid) {
+                Some(mgr) => mgr.list_waiting_snapshot().unwrap_or_default(),
+                None => continue,
+            }
+        };
+        if waiting.is_empty() { continue; }
+
+        // Check if this identity has relay accounts.
+        let relay_accounts = {
+            let rams = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+            match rams.get(&uuid) {
+                Some(mgr) => mgr.list_relay_accounts().unwrap_or_default(),
+                None => continue,
+            }
+        };
+        if relay_accounts.is_empty() { continue; }
+
+        log::debug!(
+            "poll_all_identity_snapshots: identity={uuid}, {} waiting invite(s), {} relay account(s)",
+            waiting.len(), relay_accounts.len()
+        );
+
+        let temp_dir = std::env::temp_dir();
+        let result = tokio::task::spawn_blocking(move || {
+            use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};
+            use krillnotes_core::core::sync::relay::client::RelayClient;
+
+            let connections: Vec<RelayConnection> = relay_accounts.into_iter()
+                .map(|account| {
+                    let client = RelayClient::new(&account.relay_url)
+                        .with_session_token(&account.session_token);
+                    RelayConnection { account, client }
+                })
+                .collect();
+
+            receive_poll_identity(&connections, &waiting, &temp_dir)
+                .map_err(|e| e.to_string())
+        }).await.map_err(|e| e.to_string())??;
+
+        // Update accepted invites with snapshot paths and emit events.
+        for snapshot in &result.received_snapshots {
+            {
+                let mut aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+                if let Some(ai_mgr) = aim.get_mut(&uuid) {
+                    let _ = ai_mgr.update_snapshot_path(
+                        snapshot.invite_id,
+                        snapshot.snapshot_path.to_string_lossy().to_string(),
+                    );
+                }
+            }
+            let _ = app_handle.emit("snapshot-received", serde_json::json!({
+                "workspaceId": snapshot.workspace_id,
+                "inviteId": snapshot.invite_id.to_string(),
+                "snapshotPath": snapshot.snapshot_path.to_string_lossy(),
+            }));
+        }
+        for error in &result.errors {
+            log::warn!("poll_all_identity_snapshots: identity={uuid}: {}", error.error);
+        }
+    }
+
+    Ok(())
+}

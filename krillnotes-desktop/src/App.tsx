@@ -4,7 +4,7 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-import { useCallback, useEffect, useState } from 'react';
+
 import { save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
@@ -13,7 +13,7 @@ import StatusMessage from './components/StatusMessage';
 import NewWorkspaceDialog from './components/NewWorkspaceDialog';
 import WorkspaceManagerDialog from './components/WorkspaceManagerDialog';
 import SettingsDialog from './components/SettingsDialog';
-import type { AcceptedInviteInfo, AppSettings, WorkspaceInfo as WorkspaceInfoType } from './types';
+import type { AppSettings, WorkspaceInfo as WorkspaceInfoType } from './types';
 import CreateIdentityDialog from './components/CreateIdentityDialog';
 import IdentityManagerDialog from './components/IdentityManagerDialog';
 import SwarmInviteDialog from './components/SwarmInviteDialog';
@@ -28,7 +28,7 @@ import { slugify } from './utils/slugify';
 import { useMenuEvents } from './hooks/useMenuEvents';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle';
 import { useDialogState } from './hooks/useDialogState';
-import { useIdentityPolling } from './hooks/useIdentityPolling';
+import { useGlobalSnapshotPolling } from './hooks/useIdentityPolling';
 
 function App() {
   const { t } = useTranslation();
@@ -66,8 +66,8 @@ function App() {
     statusSetter,
   } = useDialogState();
 
-  const [hasRelayAccount, setHasRelayAccount] = useState(false);
-  const [hasWaitingInvites, setHasWaitingInvites] = useState(false);
+  // Global snapshot polling for all unlocked identities (no workspace needed).
+  useGlobalSnapshotPolling();
 
   const handleImportConfirm = async () => {
     if (!importState) return;
@@ -186,29 +186,6 @@ function App() {
       setSwarmFilePath,
     });
 
-  // Re-check identity polling conditions periodically (every 30s) and on identity change.
-  // This ensures polling starts after Linda accepts an invite or registers a relay account.
-  const refreshPollingConditions = useCallback(() => {
-    if (!unlockedIdentityUuid) {
-      setHasRelayAccount(false);
-      setHasWaitingInvites(false);
-      return;
-    }
-    invoke<boolean>("has_relay_credentials", { identityUuid: unlockedIdentityUuid })
-      .then(setHasRelayAccount)
-      .catch(() => setHasRelayAccount(false));
-    invoke<AcceptedInviteInfo[]>("list_accepted_invites", { identityUuid: unlockedIdentityUuid })
-      .then(invites => setHasWaitingInvites(invites.some(i => i.status === "waitingSnapshot")))
-      .catch(() => setHasWaitingInvites(false));
-  }, [unlockedIdentityUuid]);
-
-  useEffect(() => {
-    refreshPollingConditions();
-    const interval = setInterval(refreshPollingConditions, 30_000);
-    return () => clearInterval(interval);
-  }, [refreshPollingConditions]);
-
-  useIdentityPolling(unlockedIdentityUuid, hasRelayAccount, hasWaitingInvites);
 
   useMenuEvents(workspace, {
     setShowNewWorkspace, setShowOpenWorkspace, setShowSettings,

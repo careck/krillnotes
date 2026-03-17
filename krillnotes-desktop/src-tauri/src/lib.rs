@@ -441,6 +441,7 @@ pub fn run() {
             dismiss_response,
             poll_receive_workspace,
             poll_receive_identity,
+            poll_all_identity_snapshots,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
