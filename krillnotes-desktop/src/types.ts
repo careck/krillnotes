@@ -318,3 +318,32 @@ export interface GenerateDeltasResult {
   failed: [string, string][];
   filesWritten: string[];
 }
+
+export interface AcceptedInviteInfo {
+  inviteId: string;
+  workspaceId: string;
+  workspaceName: string;
+  inviterPublicKey: string;
+  inviterDeclaredName: string;
+  acceptedAt: string;
+  responseRelayUrl: string | null;
+  status: "waitingSnapshot" | "workspaceCreated";
+  workspacePath: string | null;
+}
+
+export interface ReceivedResponseInfo {
+  responseId: string;
+  inviteId: string;
+  workspaceId: string;
+  workspaceName: string;
+  inviteePublicKey: string;
+  inviteeDeclaredName: string;
+  receivedAt: string;
+  status: "pending" | "peerAdded" | "snapshotSent";
+}
+
+export interface SnapshotReceivedEvent {
+  workspaceId: string;
+  inviteId: string;
+  snapshotPath: string;
+}
