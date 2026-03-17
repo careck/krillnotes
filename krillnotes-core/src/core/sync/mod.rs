@@ -8,6 +8,7 @@ pub mod channel;
 pub mod folder;
 pub mod manual;
 
+pub mod receive_poll;
 pub mod relay;
 
 pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};
