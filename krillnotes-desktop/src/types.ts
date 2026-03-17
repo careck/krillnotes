@@ -10,6 +10,7 @@ export interface WorkspaceInfo {
   noteCount: number;
   selectedNoteId?: string;
   identityUuid?: string;
+  workspaceId?: string;
 }
 
 export interface Note {

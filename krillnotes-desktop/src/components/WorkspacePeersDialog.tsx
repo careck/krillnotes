@@ -293,6 +293,7 @@ export default function WorkspacePeersDialog({
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           <PendingResponsesSection
             identityUuid={identityUuid}
+            workspaceId={workspaceInfo?.workspaceId}
             onAcceptResponse={handleAcceptResponse}
             onSendSnapshot={handleSendSnapshot}
           />
