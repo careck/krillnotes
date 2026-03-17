@@ -500,23 +500,23 @@ export default function WorkspacePeersDialog({
         {shareError && (
           <p className="px-4 pb-1 text-xs text-red-500">{shareError}</p>
         )}
-        <div className="flex items-center gap-2 p-4 border-t border-[var(--color-border)]">
+        <div className="flex flex-wrap items-center gap-2 p-4 border-t border-[var(--color-border)]">
           <button
             onClick={() => setShowAddFromContacts(true)}
-            className="flex-1 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="whitespace-nowrap px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
             {t('peers.addFromContacts', '＋ Add from Contacts')}
           </button>
           <button
             onClick={() => setShowInviteManager(true)}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
             {t('invite.manageInvites')}
           </button>
           <button
             onClick={handleShareInviteLink}
             disabled={sharingLink || !workspaceInfo}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
           >
             {sharingLink ? t('invite.sharing') : t('invite.shareInviteLink')}
           </button>
@@ -525,14 +525,14 @@ export default function WorkspacePeersDialog({
               setSendSnapshotFor(peers.map(p => p.peerIdentityId));
               setShowSendSnapshot(true);
             }}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)]"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
             Create Snapshot…
           </button>
           <button
             onClick={handleSyncNow}
             disabled={syncing || peers.filter(p => p.channelType !== 'manual').length === 0}
-            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
           >
             {syncing ? t('peers.syncing', 'Syncing…') : t('peers.syncNow', 'Sync Now')}
           </button>

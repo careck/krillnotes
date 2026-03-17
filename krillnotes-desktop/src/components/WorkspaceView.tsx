@@ -143,7 +143,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     return () => { unlisten.then(f => f()); };
   }, []);
 
-  // Enable relay polling when workspace has relay peers OR relay credentials
+  // Enable polling when workspace has non-manual peers OR relay credentials
   // (inviter needs polling to discover accept bundles even before peers exist).
   useEffect(() => {
     Promise.all([
@@ -151,7 +151,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
       invoke<boolean>("has_relay_credentials").catch(() => false),
     ]).then(([peers, hasCreds]) => {
       setHasRelayPeers(
-        (peers as any[]).some((p: any) => p.channelType === "relay") || (hasCreds as boolean)
+        (peers as any[]).some((p: any) => p.channelType !== "manual") || (hasCreds as boolean)
       );
     });
   }, []);
@@ -706,9 +706,9 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
       {responseToasts.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
           {responseToasts.map((toast, i) => (
-            <div key={i} className="bg-gray-800 border border-purple-600 rounded-xl px-4 py-3 shadow-lg max-w-xs">
+            <div key={i} className="bg-gray-800 border border-purple-600 rounded-xl px-4 py-3 shadow-lg max-w-xs text-white">
               <div className="font-semibold text-sm">{t("polling.newInviteResponse")}</div>
-              <div className="text-xs text-gray-400 mt-1">
+              <div className="text-xs text-gray-300 mt-1">
                 {toast.inviteeDeclaredName} {t("polling.respondedToYourInvite")}
               </div>
               <div className="flex gap-2 mt-2">

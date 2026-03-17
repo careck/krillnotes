@@ -15,10 +15,8 @@ pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel}
 pub use folder::FolderChannel;
 
 use std::collections::{HashMap, HashSet};
-use std::io::Cursor;
 
 use ed25519_dalek::SigningKey;
-use zip::ZipArchive;
 
 use crate::core::contact::{ContactManager, TrustLevel};
 use crate::core::error::KrillnotesError;
@@ -525,6 +523,9 @@ impl SyncEngine {
         }
 
         // ── 2. Outbound: generate + send deltas ────────────────────────────
+        // Re-fetch peers: inbound upsert_peer_from_delta may have consolidated
+        // placeholder "identity:…" rows into real device-UUID rows.
+        let active_peers = workspace.get_active_sync_peers()?;
         log::debug!(target: "krillnotes::sync", "outbound: {} active peers", active_peers.len());
 
         for peer in &active_peers {
@@ -682,18 +683,7 @@ impl SyncEngine {
 
     /// Read `header.json` from a `.swarm` zip archive.
     fn read_header_from_bundle(data: &[u8]) -> Result<SwarmHeader, KrillnotesError> {
-        let cursor = Cursor::new(data);
-        let mut zip = ZipArchive::new(cursor).map_err(|e| {
-            KrillnotesError::Swarm(format!("invalid .swarm zip archive: {e}"))
-        })?;
-        let mut header_file = zip.by_name("header.json").map_err(|e| {
-            KrillnotesError::Swarm(format!("missing header.json in .swarm bundle: {e}"))
-        })?;
-        let header: SwarmHeader =
-            serde_json::from_reader(&mut header_file).map_err(|e| {
-                KrillnotesError::Swarm(format!("invalid header.json: {e}"))
-            })?;
-        Ok(header)
+        crate::core::swarm::header::read_header(data)
     }
 
 }
