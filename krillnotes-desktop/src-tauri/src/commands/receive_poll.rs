@@ -134,7 +134,13 @@ pub async fn poll_receive_workspace(
         }
     };
 
+    log::debug!(
+        "poll_receive_workspace: window={}, identity={}, workspace={}, relay_accounts={}",
+        workspace_label, identity_uuid, workspace_id, relay_accounts.len()
+    );
+
     if relay_accounts.is_empty() {
+        log::debug!("poll_receive_workspace: no relay accounts for identity {identity_uuid}, skipping");
         return Ok(());
     }
 
@@ -152,7 +158,13 @@ pub async fn poll_receive_workspace(
         }
     };
 
+    log::debug!(
+        "poll_receive_workspace: found {} active invite(s) for workspace {}",
+        active_invites.len(), workspace_id
+    );
+
     if active_invites.is_empty() {
+        log::debug!("poll_receive_workspace: no active invites, skipping");
         return Ok(());
     }
 
@@ -169,6 +181,7 @@ pub async fn poll_receive_workspace(
 
         // For now, use the first relay account (same pattern as poll_sync).
         let acct = &relay_accounts[0];
+        log::debug!("poll_receive_workspace: using relay account {} on {}", acct.email, acct.relay_url);
         let mut token = acct.session_token.clone();
         // Auto-login if session expired.
         if acct.session_expires_at < chrono::Utc::now() && !acct.password.is_empty() {

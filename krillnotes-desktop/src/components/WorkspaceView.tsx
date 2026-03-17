@@ -143,11 +143,17 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     return () => { unlisten.then(f => f()); };
   }, []);
 
-  // Check whether this workspace has relay peers (enables polling).
+  // Enable relay polling when workspace has relay peers OR relay credentials
+  // (inviter needs polling to discover accept bundles even before peers exist).
   useEffect(() => {
-    invoke<any[]>("list_workspace_peers")
-      .then(peers => setHasRelayPeers(peers.some((p: any) => p.channelType === "relay")))
-      .catch(() => {});
+    Promise.all([
+      invoke<any[]>("list_workspace_peers").catch(() => []),
+      invoke<boolean>("has_relay_credentials").catch(() => false),
+    ]).then(([peers, hasCreds]) => {
+      setHasRelayPeers(
+        (peers as any[]).some((p: any) => p.channelType === "relay") || (hasCreds as boolean)
+      );
+    });
   }, []);
 
   useRelayPolling(hasRelayPeers);
