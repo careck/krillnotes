@@ -10,6 +10,7 @@ import { useHoverTooltip } from '../hooks/useHoverTooltip';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { useTagCloud } from '../hooks/useTagCloud';
 import { useTreeState } from '../hooks/useTreeState';
+import { useRelayPolling } from '../hooks/useRelayPolling';
 import { Undo2, Redo2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -24,7 +25,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -32,9 +33,10 @@ import TagPill from './TagPill';
 
 interface WorkspaceViewProps {
   workspaceInfo: WorkspaceInfo;
+  onOpenWorkspacePeers?: () => void;
 }
 
-function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
+function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewProps) {
   const { t } = useTranslation();
   const [notes, setNotes] = useState<Note[]>([]);
   const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
@@ -74,6 +76,12 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
 
   // Schema migration toast state
   const [migrationToasts, setMigrationToasts] = useState<SchemaMigratedEvent[]>([]);
+
+  // Invite response toast state
+  const [responseToasts, setResponseToasts] = useState<ReceivedResponseInfo[]>([]);
+
+  // Workspace-level relay polling
+  const [hasRelayPeers, setHasRelayPeers] = useState(false);
 
   // Drag and drop state
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
@@ -119,6 +127,30 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
     });
     return () => { unlisten.then(f => f()); };
   }, []);
+
+  // Listen for invite response notifications.
+  useEffect(() => {
+    const unlisten = getCurrentWebviewWindow().listen<ReceivedResponseInfo>(
+      "invite-response-received",
+      (event) => {
+        const toast = event.payload;
+        setResponseToasts(prev => [...prev, toast]);
+        setTimeout(() => {
+          setResponseToasts(prev => prev.filter(t2 => t2 !== toast));
+        }, 10000);
+      }
+    );
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
+  // Check whether this workspace has relay peers (enables polling).
+  useEffect(() => {
+    invoke<any[]>("list_workspace_peers")
+      .then(peers => setHasRelayPeers(peers.some((p: any) => p.channelType === "relay")))
+      .catch(() => {});
+  }, []);
+
+  useRelayPolling(hasRelayPeers);
 
   // Set up menu listener
   useEffect(() => {
@@ -659,6 +691,37 @@ function WorkspaceView({ workspaceInfo }: WorkspaceViewProps) {
           {migrationToasts.map((t, i) => (
             <div key={i} className="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
               <strong>"{t.schemaName}" schema updated</strong> — {t.notesMigrated} note{t.notesMigrated !== 1 ? 's' : ''} migrated to version {t.toVersion}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Invite response toasts */}
+      {responseToasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+          {responseToasts.map((toast, i) => (
+            <div key={i} className="bg-gray-800 border border-purple-600 rounded-xl px-4 py-3 shadow-lg max-w-xs">
+              <div className="font-semibold text-sm">{t("polling.newInviteResponse")}</div>
+              <div className="text-xs text-gray-400 mt-1">
+                {toast.inviteeDeclaredName} {t("polling.respondedToYourInvite")}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1 rounded-md"
+                  onClick={() => {
+                    onOpenWorkspacePeers?.();
+                    setResponseToasts(prev => prev.filter(t2 => t2 !== toast));
+                  }}
+                >
+                  {t("polling.viewInPeers")}
+                </button>
+                <button
+                  className="bg-transparent text-gray-400 border border-gray-600 text-xs px-3 py-1 rounded-md"
+                  onClick={() => setResponseToasts(prev => prev.filter(t2 => t2 !== toast))}
+                >
+                  {t("common.dismiss", "Dismiss")}
+                </button>
+              </div>
             </div>
           ))}
         </div>

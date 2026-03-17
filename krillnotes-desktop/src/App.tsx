@@ -192,7 +192,7 @@ function App() {
   return (
     <ThemeProvider>
     <div className="min-h-screen bg-background text-foreground">
-      {workspace ? <WorkspaceView workspaceInfo={workspace} /> : <div className="p-8"><EmptyState /></div>}
+      {workspace ? <WorkspaceView workspaceInfo={workspace} onOpenWorkspacePeers={() => setShowWorkspacePeers(true)} /> : <div className="p-8"><EmptyState /></div>}
       {status && <StatusMessage message={status} isError={isError} />}
 
       <NewWorkspaceDialog
