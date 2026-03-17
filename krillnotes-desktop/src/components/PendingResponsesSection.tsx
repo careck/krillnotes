@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useTranslation } from "react-i18next";
-import type { ReceivedResponseInfo } from "../types";
+import type { PeerInfo, ReceivedResponseInfo } from "../types";
 
 interface Props {
   identityUuid: string;
@@ -26,10 +26,15 @@ export default function PendingResponsesSection({
 
   const loadResponses = useCallback(async () => {
     try {
-      const result = await invoke<ReceivedResponseInfo[]>("list_received_responses", {
-        identityUuid, workspaceId,
-      });
-      setResponses(result);
+      const [allResponses, peers] = await Promise.all([
+        invoke<ReceivedResponseInfo[]>("list_received_responses", {
+          identityUuid, workspaceId,
+        }),
+        invoke<PeerInfo[]>("list_workspace_peers").catch(() => [] as PeerInfo[]),
+      ]);
+      // Hide responses where the invitee is already a workspace peer
+      const peerKeys = new Set(peers.map(p => p.peerIdentityId));
+      setResponses(allResponses.filter(r => !peerKeys.has(r.inviteePublicKey)));
     } catch (e) {
       console.error("Failed to load received responses:", e);
     } finally {
