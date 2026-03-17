@@ -574,6 +574,162 @@ pub async fn apply_swarm_delta(
     }).to_string())
 }
 
+/// Send a snapshot bundle to peers via the relay instead of saving to a file.
+///
+/// Reuses the same bundle creation logic as `create_snapshot_for_peers` but
+/// uploads the encrypted bundle through the relay server. Device keys in
+/// the `BundleHeader` are hex-encoded (the relay protocol convention).
+#[tauri::command]
+pub async fn send_snapshot_via_relay(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    peer_public_keys: Vec<String>,   // base64-encoded Ed25519 verifying keys
+) -> std::result::Result<(), String> {
+    use base64::Engine;
+    use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
+    use krillnotes_core::core::swarm::snapshot::create_snapshot_bundle;
+    use krillnotes_core::core::swarm::snapshot::SnapshotParams;
+
+    let identity_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+
+    // 1. Sender signing key + display name.
+    let (signing_key, source_display_name) = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        let id = ids.get(&identity_uuid).ok_or("Identity not unlocked")?;
+        (
+            Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
+            id.display_name.clone(),
+        )
+    };
+    let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+
+    // 2. Decode recipient verifying keys from base64.
+    let recipient_vks: Vec<Ed25519VerifyingKey> = peer_public_keys
+        .iter()
+        .map(|pk_b64| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(pk_b64)
+                .map_err(|e| e.to_string())?;
+            let arr: [u8; 32] = bytes.try_into().map_err(|_| "key wrong length".to_string())?;
+            Ed25519VerifyingKey::from_bytes(&arr).map_err(|e| e.to_string())
+        })
+        .collect::<std::result::Result<_, _>>()?;
+
+    // 3. Collect workspace data (hold lock only briefly).
+    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey) = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let paths = state.workspace_paths.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
+        let workspace_name = paths
+            .get(window.label())
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or("Untitled")
+            .to_string();
+
+        let workspace_id = ws.workspace_id().to_string();
+        let owner_pubkey = ws.owner_pubkey().to_string();
+
+        let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
+
+        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot = serde_json::from_slice(&workspace_json)
+            .map_err(|e| e.to_string())?;
+        let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
+        for meta in &snapshot.attachments {
+            let plaintext = ws.get_attachment_bytes(&meta.id).map_err(|e| e.to_string())?;
+            attachment_blobs.push((meta.id.clone(), plaintext));
+        }
+
+        let as_of_op_id = ws.get_latest_operation_id()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+
+        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey)
+    };
+
+    // 4. Build the bundle.
+    let recipient_refs: Vec<&Ed25519VerifyingKey> = recipient_vks.iter().collect();
+    let bundle_bytes = create_snapshot_bundle(SnapshotParams {
+        workspace_id: workspace_id.clone(),
+        workspace_name,
+        source_device_id,
+        source_display_name,
+        as_of_operation_id: as_of_op_id.clone(),
+        workspace_json,
+        sender_key: &signing_key,
+        recipient_keys: recipient_refs,
+        recipient_peer_ids: peer_public_keys.clone(),
+        attachment_blobs,
+        owner_pubkey,
+    }).map_err(|e| { log::error!("send_snapshot_via_relay bundle creation failed: {e}"); e.to_string() })?;
+
+    // 5. Upload via relay (RelayClient uses reqwest::blocking — must run in spawn_blocking).
+    let relay_account = {
+        let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
+        let ram = rams.get(&identity_uuid).ok_or("No relay account manager for this identity")?;
+        let accounts = ram.list_relay_accounts().map_err(|e| e.to_string())?;
+        accounts.into_iter().next().ok_or("No relay account configured for this identity")?
+    };
+
+    // Convert device keys to hex for the relay protocol.
+    let sender_hex = hex::encode(signing_key.verifying_key().to_bytes());
+    let recipient_hexes: Vec<String> = peer_public_keys.iter()
+        .filter_map(|pk_b64| {
+            base64::engine::general_purpose::STANDARD.decode(pk_b64).ok()
+                .map(|bytes| hex::encode(&bytes))
+        })
+        .collect();
+
+    let relay_url = relay_account.relay_url.clone();
+    let relay_email = relay_account.email.clone();
+    let relay_password = relay_account.password.clone();
+    let relay_device_key = relay_account.device_public_key.clone();
+    let session_token = relay_account.session_token.clone();
+    let session_expires = relay_account.session_expires_at;
+
+    tokio::task::spawn_blocking(move || -> std::result::Result<(), String> {
+        // Auto-login if session expired.
+        let mut token = session_token;
+        if session_expires < chrono::Utc::now() && !relay_password.is_empty() {
+            let client = RelayClient::new(&relay_url);
+            match client.login(&relay_email, &relay_password, &relay_device_key) {
+                Ok(session) => token = session.session_token,
+                Err(e) => log::warn!("send_snapshot_via_relay: auto-login failed: {e}"),
+            }
+        }
+        let client = RelayClient::new(&relay_url).with_session_token(&token);
+
+        let header = BundleHeader {
+            workspace_id,
+            sender_device_key: sender_hex,
+            recipient_device_keys: recipient_hexes,
+            mode: Some("snapshot".to_string()),
+        };
+
+        client.upload_bundle(&header, &bundle_bytes).map_err(|e| {
+            log::error!("send_snapshot_via_relay: relay upload failed: {e}");
+            e.to_string()
+        })?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // 6. Update last_sent_op watermarks for each recipient.
+    {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        if let Some(ws) = workspaces.get(window.label()) {
+            for pk in &peer_public_keys {
+                let _ = ws.update_peer_last_sent_by_identity(pk, &as_of_op_id);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Serialisable result returned after one or more delta bundles are written.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

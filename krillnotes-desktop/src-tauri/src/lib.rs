@@ -413,6 +413,7 @@ pub fn run() {
             remove_workspace_peer,
             add_contact_as_peer,
             create_snapshot_for_peers,
+            send_snapshot_via_relay,
             apply_swarm_snapshot,
             apply_swarm_delta,
             generate_deltas_for_peers,
