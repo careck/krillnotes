@@ -114,23 +114,6 @@ export function SendSnapshotDialog({
           {peers.length === 0 && <p className="text-sm text-muted-foreground">No peers registered.</p>}
         </div>
 
-        {hasRelayCreds && (
-          <div className="flex items-center gap-2 mb-4">
-            <button
-              onClick={() => setSendViaRelay(true)}
-              className={`px-3 py-1.5 text-sm rounded border ${sendViaRelay ? 'bg-primary text-primary-foreground border-primary' : 'border-secondary hover:bg-secondary'}`}
-            >
-              Send via Relay
-            </button>
-            <button
-              onClick={() => setSendViaRelay(false)}
-              className={`px-3 py-1.5 text-sm rounded border ${!sendViaRelay ? 'bg-primary text-primary-foreground border-primary' : 'border-secondary hover:bg-secondary'}`}
-            >
-              Save to File
-            </button>
-          </div>
-        )}
-
         {!sendViaRelay && (
           <div className="flex items-center gap-2 mb-4">
             <button
@@ -140,6 +123,18 @@ export function SendSnapshotDialog({
               Choose location...
             </button>
             {savePath && <span className="text-xs text-muted-foreground truncate">{savePath}</span>}
+            {!savePath && <span className="text-xs text-red-500">Choose a save location first.</span>}
+          </div>
+        )}
+
+        {sendViaRelay && (
+          <div className="mb-4">
+            <button
+              onClick={() => setSendViaRelay(false)}
+              className="text-xs text-muted-foreground hover:underline"
+            >
+              Save to file instead...
+            </button>
           </div>
         )}
 
