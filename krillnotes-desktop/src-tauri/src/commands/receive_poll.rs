@@ -356,6 +356,7 @@ pub async fn poll_receive_identity(
     identity_uuid: String,
 ) -> std::result::Result<(), String> {
     let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
+    log::debug!("poll_receive_identity: identity={uuid}");
 
     // Get accepted invites in WaitingSnapshot status (brief lock)
     let waiting = {
@@ -363,6 +364,8 @@ pub async fn poll_receive_identity(
         let ai_mgr = aim.get(&uuid).ok_or("Accepted invite manager not found")?;
         ai_mgr.list_waiting_snapshot().map_err(|e| e.to_string())?
     };
+
+    log::debug!("poll_receive_identity: {} invite(s) waiting for snapshot", waiting.len());
 
     if waiting.is_empty() {
         return Ok(());

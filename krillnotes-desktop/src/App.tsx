@@ -4,7 +4,7 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
@@ -186,7 +186,9 @@ function App() {
       setSwarmFilePath,
     });
 
-  useEffect(() => {
+  // Re-check identity polling conditions periodically (every 30s) and on identity change.
+  // This ensures polling starts after Linda accepts an invite or registers a relay account.
+  const refreshPollingConditions = useCallback(() => {
     if (!unlockedIdentityUuid) {
       setHasRelayAccount(false);
       setHasWaitingInvites(false);
@@ -199,6 +201,12 @@ function App() {
       .then(invites => setHasWaitingInvites(invites.some(i => i.status === "waitingSnapshot")))
       .catch(() => setHasWaitingInvites(false));
   }, [unlockedIdentityUuid]);
+
+  useEffect(() => {
+    refreshPollingConditions();
+    const interval = setInterval(refreshPollingConditions, 30_000);
+    return () => clearInterval(interval);
+  }, [refreshPollingConditions]);
 
   useIdentityPolling(unlockedIdentityUuid, hasRelayAccount, hasWaitingInvites);
 

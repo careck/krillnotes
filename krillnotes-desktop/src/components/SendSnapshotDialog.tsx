@@ -26,7 +26,6 @@ export function SendSnapshotDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendViaRelay, setSendViaRelay] = useState(false);
-  const [hasRelayCreds, setHasRelayCreds] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -38,11 +37,8 @@ export function SendSnapshotDialog({
       .then(setPeers)
       .catch(e => setError(String(e)));
     invoke<boolean>('has_relay_credentials', { identityUuid })
-      .then(has => {
-        setHasRelayCreds(has);
-        if (has) setSendViaRelay(true);
-      })
-      .catch(() => setHasRelayCreds(false));
+      .then(has => { if (has) setSendViaRelay(true); })
+      .catch(() => {});
   }, [open]);  // intentionally omit preSelectedPublicKeys to avoid loop
 
   const chooseSavePath = async () => {
