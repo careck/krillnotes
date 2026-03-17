@@ -330,6 +330,7 @@ export interface AcceptedInviteInfo {
   responseRelayUrl: string | null;
   status: "waitingSnapshot" | "workspaceCreated";
   workspacePath: string | null;
+  snapshotPath: string | null;
 }
 
 export interface ReceivedResponseInfo {

@@ -398,8 +398,18 @@ pub async fn poll_receive_identity(
             .map_err(|e| e.to_string())
     }).await.map_err(|e| e.to_string())??;
 
-    // Emit events
+    // Update accepted invites with snapshot paths and emit events
     for snapshot in &result.received_snapshots {
+        // Persist the snapshot path on the AcceptedInvite record
+        {
+            let mut aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+            if let Some(ai_mgr) = aim.get_mut(&uuid) {
+                let _ = ai_mgr.update_snapshot_path(
+                    snapshot.invite_id,
+                    snapshot.snapshot_path.to_string_lossy().to_string(),
+                );
+            }
+        }
         let _ = app_handle.emit("snapshot-received", serde_json::json!({
             "workspaceId": snapshot.workspace_id,
             "inviteId": snapshot.invite_id.to_string(),

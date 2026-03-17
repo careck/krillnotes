@@ -21,6 +21,7 @@ pub struct AcceptedInviteInfo {
     pub response_relay_url: Option<String>,
     pub status: String,
     pub workspace_path: Option<String>,
+    pub snapshot_path: Option<String>,
 }
 
 impl From<krillnotes_core::core::accepted_invite::AcceptedInvite> for AcceptedInviteInfo {
@@ -38,6 +39,7 @@ impl From<krillnotes_core::core::accepted_invite::AcceptedInvite> for AcceptedIn
                 krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WorkspaceCreated => "workspaceCreated".to_string(),
             },
             workspace_path: r.workspace_path,
+            snapshot_path: r.snapshot_path,
         }
     }
 }
@@ -99,4 +101,18 @@ pub fn update_accepted_invite_status(
         _ => return Err(format!("Invalid status: {status}")),
     };
     mgr.update_status(invite_uuid, new_status, workspace_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_accepted_invite_snapshot_path(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_id: String,
+    snapshot_path: String,
+) -> std::result::Result<(), String> {
+    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
+    let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
+    let mut managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
+    mgr.update_snapshot_path(invite_uuid, snapshot_path).map_err(|e| e.to_string())
 }

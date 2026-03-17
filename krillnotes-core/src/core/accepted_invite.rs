@@ -32,6 +32,8 @@ pub struct AcceptedInvite {
     pub response_relay_url: Option<String>,
     pub status: AcceptedInviteStatus,
     pub workspace_path: Option<String>,
+    #[serde(default)]
+    pub snapshot_path: Option<String>,
 }
 
 impl AcceptedInvite {
@@ -53,6 +55,7 @@ impl AcceptedInvite {
             response_relay_url,
             status: AcceptedInviteStatus::WaitingSnapshot,
             workspace_path: None,
+            snapshot_path: None,
         }
     }
 }
@@ -128,6 +131,14 @@ impl AcceptedInviteManager {
         if workspace_path.is_some() {
             record.workspace_path = workspace_path;
         }
+        self.save(&record)
+    }
+
+    pub fn update_snapshot_path(&mut self, invite_id: Uuid, snapshot_path: String) -> Result<()> {
+        let mut record = self.get(invite_id)?.ok_or_else(|| {
+            KrillnotesError::Swarm(format!("Accepted invite {invite_id} not found"))
+        })?;
+        record.snapshot_path = Some(snapshot_path);
         self.save(&record)
     }
 
