@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, SyncEvent, RelayAccountInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, SyncEvent, RelayAccountInfo, ReceivedResponseInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
@@ -16,6 +16,7 @@ import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
+import PendingResponsesSection from './PendingResponsesSection';
 
 interface Props {
   identityUuid: string;
@@ -229,6 +230,15 @@ export default function WorkspacePeersDialog({
     }
   };
 
+  const handleAcceptResponse = (response: ReceivedResponseInfo) => {
+    console.log("Accept response:", response);
+    // TODO: Wire to AcceptPeerDialog flow
+  };
+  const handleSendSnapshot = (response: ReceivedResponseInfo) => {
+    console.log("Send snapshot:", response);
+    // TODO: Wire to SendSnapshotDialog flow
+  };
+
   const formatLastSync = (lastSync?: string) => {
     if (!lastSync) return t('peers.neverSynced', 'Never synced');
     const d = new Date(lastSync);
@@ -263,6 +273,11 @@ export default function WorkspacePeersDialog({
 
         {/* Peer list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <PendingResponsesSection
+            identityUuid={identityUuid}
+            onAcceptResponse={handleAcceptResponse}
+            onSendSnapshot={handleSendSnapshot}
+          />
           {loading && (
             <p className="text-sm text-[var(--color-muted-foreground)] text-center py-8">{t('common.loading')}</p>
           )}
