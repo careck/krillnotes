@@ -639,11 +639,15 @@ pub async fn send_invite_response_via_relay(
         );
         match accept_bundle_bytes {
             Ok(bundle_bytes) => {
-                let invitee_pubkey_b64 = BASE64.encode(signing_key.verifying_key().to_bytes());
+                // Relay device keys are hex-encoded, not base64
+                let invitee_pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+                let inviter_pubkey_hex = BASE64.decode(&invite.inviter_public_key)
+                    .map(|bytes| hex::encode(&bytes))
+                    .unwrap_or_default();
                 let bundle_header = krillnotes_core::core::sync::relay::client::BundleHeader {
                     workspace_id: invite.workspace_id.clone(),
-                    sender_device_key: invitee_pubkey_b64,
-                    recipient_device_keys: vec![invite.inviter_public_key.clone()],
+                    sender_device_key: invitee_pubkey_hex,
+                    recipient_device_keys: vec![inviter_pubkey_hex],
                     mode: Some("accept".to_string()),
                 };
                 match client.upload_bundle(&bundle_header, &bundle_bytes) {
