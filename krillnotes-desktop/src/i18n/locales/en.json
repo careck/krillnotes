@@ -538,5 +538,20 @@
     "acceptInvite": "Accept Invite",
     "acceptSubtitle": "Paste a relay invite link or open an invite file.",
     "openSwarmFile": "Open .swarm Invite File…"
+  },
+  "polling": {
+    "acceptedInvites": "Accepted Invites",
+    "waitingForSnapshot": "Waiting for snapshot",
+    "workspaceCreated": "Workspace created",
+    "pendingInviteResponses": "Pending Invite Responses",
+    "actionNeeded": "Action needed",
+    "acceptAndSendSnapshot": "Accept & Send Snapshot",
+    "peerAdded": "Peer added",
+    "sendSnapshot": "Send Snapshot",
+    "snapshotSent": "Snapshot sent",
+    "newInviteResponse": "New invite response",
+    "respondedToYourInvite": "responded to your invite",
+    "viewInPeers": "View in Peers",
+    "snapshotHint": "Snapshots arrive automatically when a workspace with relay polling is open."
   }
 }
