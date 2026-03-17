@@ -128,6 +128,24 @@ pub fn create_identity(
         }
     }
 
+    let accepted_dir = crate::settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("accepted_invites");
+    match krillnotes_core::core::accepted_invite::AcceptedInviteManager::new(accepted_dir) {
+        Ok(mgr) => { state.accepted_invite_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
+        Err(e) => { log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}"); }
+    }
+
+    let responses_dir = crate::settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("invite_responses");
+    match krillnotes_core::core::received_response::ReceivedResponseManager::new(responses_dir) {
+        Ok(mgr) => { state.received_response_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
+        Err(e) => { log::warn!("Failed to initialize received response manager for {uuid}: {e}"); }
+    }
+
     // Return the IdentityRef
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let identities = mgr.list_identities().map_err(|e| e.to_string())?;
@@ -223,6 +241,24 @@ pub fn unlock_identity(
                 log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
             }
         }
+    }
+
+    let accepted_dir = crate::settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("accepted_invites");
+    match krillnotes_core::core::accepted_invite::AcceptedInviteManager::new(accepted_dir) {
+        Ok(mgr) => { state.accepted_invite_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
+        Err(e) => { log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}"); }
+    }
+
+    let responses_dir = crate::settings::config_dir()
+        .join("identities")
+        .join(uuid.to_string())
+        .join("invite_responses");
+    match krillnotes_core::core::received_response::ReceivedResponseManager::new(responses_dir) {
+        Ok(mgr) => { state.received_response_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
+        Err(e) => { log::warn!("Failed to initialize received response manager for {uuid}: {e}"); }
     }
 
     // Fire-and-forget: auto-login expired relay sessions on a background thread.
@@ -323,6 +359,8 @@ pub fn lock_identity(
     state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.relay_account_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.accepted_invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
+    state.received_response_managers.lock().expect("Mutex poisoned").remove(&uuid);
     state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
     Ok(())
 }
