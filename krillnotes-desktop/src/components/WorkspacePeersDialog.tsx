@@ -230,13 +230,31 @@ export default function WorkspacePeersDialog({
     }
   };
 
-  const handleAcceptResponse = (response: ReceivedResponseInfo) => {
-    console.log("Accept response:", response);
-    // TODO: Wire to AcceptPeerDialog flow
+  const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
+    // TODO: In the future, wire to AcceptPeerDialog flow
+    // For now, update status to peerAdded
+    try {
+      await invoke("update_response_status", {
+        identityUuid,
+        responseId: response.responseId,
+        status: "peerAdded",
+      });
+    } catch (e) {
+      console.error("Failed to update response status:", e);
+    }
   };
-  const handleSendSnapshot = (response: ReceivedResponseInfo) => {
-    console.log("Send snapshot:", response);
-    // TODO: Wire to SendSnapshotDialog flow
+  const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
+    // TODO: In the future, wire to SendSnapshotDialog flow
+    // For now, update status to snapshotSent
+    try {
+      await invoke("update_response_status", {
+        identityUuid,
+        responseId: response.responseId,
+        status: "snapshotSent",
+      });
+    } catch (e) {
+      console.error("Failed to update response status:", e);
+    }
   };
 
   const formatLastSync = (lastSync?: string) => {
