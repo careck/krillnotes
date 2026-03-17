@@ -128,6 +128,19 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
       setResponseRelayUrl(url);
       setResponseShared(true);
       // Don't call onResponded() here — let user see + copy the URL first
+      try {
+        await invoke("save_accepted_invite", {
+          identityUuid: selectedUuid,
+          inviteId: effectiveInviteData!.inviteId,
+          workspaceId: effectiveInviteData!.workspaceId,
+          workspaceName: effectiveInviteData!.workspaceName,
+          inviterPublicKey: effectiveInviteData!.inviterPublicKey,
+          inviterDeclaredName: effectiveInviteData!.inviterDeclaredName,
+          responseRelayUrl: url,
+        });
+      } catch (e) {
+        console.warn("Failed to save accepted invite:", e);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -178,6 +191,19 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
         invitePath: path,
         savePath,
       });
+      try {
+        await invoke("save_accepted_invite", {
+          identityUuid: selectedUuid,
+          inviteId: data.inviteId,
+          workspaceId: data.workspaceId,
+          workspaceName: data.workspaceName,
+          inviterPublicKey: data.inviterPublicKey,
+          inviterDeclaredName: data.inviterDeclaredName,
+          responseRelayUrl: null,
+        });
+      } catch (e) {
+        console.warn("Failed to save accepted invite:", e);
+      }
       onResponded();
       onClose();
     } catch (e) {
