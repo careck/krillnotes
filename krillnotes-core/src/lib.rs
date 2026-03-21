@@ -38,7 +38,7 @@ pub use core::{
     undo::{RetractInverse, UndoResult},
     user_script::UserScript,
     peer_registry::PeerInfo,
-    permission::{PermissionError, PermissionGate},
+    permission::{AllowAllGate, PermissionError, PermissionGate},
     received_response::{ReceivedResponse, ReceivedResponseManager, ReceivedResponseStatus},
     swarm::sync::ApplyResult,
     workspace::{AddPosition, NoteSearchResult, Workspace},

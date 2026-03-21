@@ -135,6 +135,9 @@ pub enum KrillnotesError {
     /// A permission check failed (from a [`PermissionGate`] implementation).
     #[error("permission denied: {0}")]
     Permission(#[from] crate::core::permission::PermissionError),
+
+    #[error("protocol mismatch: expected {expected}, found {found}")]
+    ProtocolMismatch { expected: String, found: String },
 }
 
 #[cfg(test)]
@@ -221,6 +224,8 @@ impl KrillnotesError {
             Self::RelayNotFound(_) => "The requested relay resource was not found or has expired.".to_string(),
             Self::RelayUnavailable(msg) => format!("Relay server unavailable: {msg}"),
             Self::Permission(e) => format!("Permission denied: {e}"),
+            Self::ProtocolMismatch { expected, found } =>
+                format!("Incompatible swarm protocol: expected {}, found {}", expected, found),
         }
     }
 }
