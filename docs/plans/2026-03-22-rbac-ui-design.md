@@ -34,12 +34,14 @@ This UI spec depends on backend changes that must be implemented before or along
 The current `cascade_revoke` in `gate.rs:114-146` runs automatically inside `apply_permission_op` for every `SetPermission`, `RevokePermission`, and `RemovePeer` operation. This contradicts the spec's core design principle of opt-in cascade.
 
 **Required change:** Split cascade into two operations:
-1. A read-only `preview_cascade(conn, user_id, note_id, new_role)` method that computes which downstream grants would become invalid, without modifying anything.
+1. A read-only `preview_cascade(conn, user_id, note_id, new_role)` method that computes which downstream grants would become invalid, without modifying anything. The check mirrors the actual cascade logic: for each grant where `granted_by = user_id`, test whether `resolve_role(user_id, grant.note_id) < grant.role` under the proposed new role. This catches all cases — not just Owner demotion, but any role reduction that invalidates downstream grants.
 2. Remove the automatic `cascade_revoke` call from `apply_permission_op`. Instead, the UI layer explicitly issues individual `RevokePermission` operations for each downstream grant the user selects in the cascade preview dialog.
+
+**Stamped grants:** When the user unchecks a downstream grant in the cascade preview ("keep this grant despite being technically invalid"), that grant persists as-is. It is not immune to future cascade checks — if another demotion/revocation later affects the same chain, the preview will flag it again. This is deliberate: we don't need a `stamped` column or permanent immunity. Each demotion is an independent decision point. The user can always choose to keep or revoke at each occurrence.
 
 ### Critical: MoveNote must check destination scope
 
-`resolve_scope` for `MoveNote` in `gate.rs:40` only checks the source `note_id`, not `new_parent_id`. A Writer on subtree A could move a note into subtree B where they have no access. The gate must authorize against both source and destination scopes. The UI should also filter drag-drop targets to only valid destinations.
+`resolve_scope` for `MoveNote` in `gate.rs:40` only checks the source `note_id`, not `new_parent_id`. A Writer on subtree A could move a note into subtree B where they have no access. Fix approach: add a second `authorize` call inside `check_role_for_operation` specifically for `MoveNote` that resolves and checks the destination scope (`new_parent_id`). This avoids changing `resolve_scope`'s return type. The UI should also filter drag-drop targets to only valid destinations (nodes where the user has Writer+ access).
 
 ### Critical: New query methods on Workspace / RbacGate
 
@@ -50,7 +52,7 @@ The UI requires permission query methods that do not yet exist:
 | `get_note_permissions(note_id)` | Explicit grants anchored at this node | `SELECT * FROM note_permissions WHERE note_id = ?` joined with peer/contact display names |
 | `get_effective_role(note_id, user_id)` | Resolved role + anchor info | Extended `resolve_role` that also returns the anchor `note_id`, `granted_by`, and note title. Must special-case root owner (return `"root_owner"` via pubkey comparison, not resolver) |
 | `get_inherited_permissions(note_id)` | Grants inherited from ancestors | Walk parent chain, collecting grants from each ancestor with their anchor node info |
-| `get_all_effective_roles(user_id)` | Batch query for tree dots | Single-pass computation of effective role for all visible notes, avoiding O(N × D) individual queries. Required for tree dot performance with 1000+ notes |
+| `get_all_effective_roles(user_id)` | Batch query for tree dots | Top-down grant propagation: (1) fetch all grants for the user from `note_permissions`, (2) for each grant anchor, mark all descendants with that role, (3) closer grants override ancestors (deepest anchor wins). Returns `HashMap<note_id, Role>`. Root owner short-circuits: return Owner for all notes. Required for tree dot performance with 1000+ notes — avoids O(N × D) per-note resolver walks. |
 | `preview_cascade(note_id, user_id, new_role)` | Impact preview for demotion/revocation | Read-only query: find all grants where `granted_by = user_id` and the new role would not satisfy the `require_at_least(Owner)` check |
 
 ### Important: Add scope to invite infrastructure
@@ -298,6 +300,7 @@ If the revoked peer has NOT granted access to anyone else, the cascade preview i
 | `get_note_permissions(note_id)` | Get explicit grants anchored at this node |
 | `get_effective_role(note_id)` | Get current user's resolved role for a note |
 | `get_inherited_permissions(note_id)` | Get grants inherited from ancestors (with anchor node info) |
+| `get_all_effective_roles()` | Batch effective roles for all visible notes (for tree dots) |
 | `preview_cascade(note_id, user_id, new_role)` | Compute what downstream grants would be invalidated |
 | `list_pending_acceptances()` | List accepted invites awaiting onboarding |
 | `onboard_peer(invite_id, role, channel_config)` | Grant permission + send scoped snapshot |
