@@ -5,6 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 
 /// RBAC roles, ordered from most to least privileged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,7 +43,32 @@ pub fn resolve_role(
     user_id: &str,
     note_id: &str,
 ) -> Result<Option<Role>, rusqlite::Error> {
-    // TODO: implement in Task 3
-    let _ = (conn, user_id, note_id);
-    Ok(None)
+    let mut current_id = Some(note_id.to_string());
+
+    while let Some(id) = current_id {
+        // Check for explicit grant at this node
+        let role: Option<String> = conn
+            .query_row(
+                "SELECT role FROM note_permissions WHERE note_id = ?1 AND user_id = ?2",
+                rusqlite::params![id, user_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if let Some(role_str) = role {
+            return Ok(Role::from_str(&role_str));
+        }
+
+        // Walk up to parent
+        current_id = conn
+            .query_row(
+                "SELECT parent_id FROM notes WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+    }
+
+    Ok(None) // default-deny
 }
