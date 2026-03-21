@@ -231,6 +231,8 @@ impl OperationLog {
             Operation::SetPermission { .. } => "SetPermission",
             Operation::RevokePermission { .. } => "RevokePermission",
             Operation::JoinWorkspace { .. } => "JoinWorkspace",
+            Operation::RemovePeer { .. } => "RemovePeer",
+            Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
         }
     }
 

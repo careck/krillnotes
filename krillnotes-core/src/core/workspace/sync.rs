@@ -315,7 +315,9 @@ impl Workspace {
             | Operation::UpdateSchema { .. }
             | Operation::RetractOperation { .. }
             | Operation::SetPermission { .. }
-            | Operation::RevokePermission { .. } => {}
+            | Operation::RevokePermission { .. }
+            | Operation::RemovePeer { .. }
+            | Operation::TransferRootOwnership { .. } => {}
         }
         tx.commit()?;
 
@@ -346,6 +348,8 @@ impl Workspace {
             Operation::SetPermission { .. } => "SetPermission",
             Operation::RevokePermission { .. } => "RevokePermission",
             Operation::JoinWorkspace { .. } => "JoinWorkspace",
+            Operation::RemovePeer { .. } => "RemovePeer",
+            Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
         }
     }
 

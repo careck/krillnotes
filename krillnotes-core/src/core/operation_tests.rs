@@ -38,6 +38,38 @@ fn test_revoke_permission_roundtrip() {
 }
 
 #[test]
+fn test_remove_peer_roundtrip() {
+    let op = Operation::RemovePeer {
+        operation_id: "op-rp1".to_string(),
+        timestamp: dummy_hlc(),
+        device_id: "dev1".to_string(),
+        user_id: "bob_pubkey".to_string(),
+        removed_by: "alice_pubkey".to_string(),
+        signature: "sig".to_string(),
+    };
+    let json = serde_json::to_string(&op).unwrap();
+    let back: Operation = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.operation_id(), "op-rp1");
+    assert_eq!(back.author_key(), "alice_pubkey");
+}
+
+#[test]
+fn test_transfer_root_ownership_roundtrip() {
+    let op = Operation::TransferRootOwnership {
+        operation_id: "op-tro1".to_string(),
+        timestamp: dummy_hlc(),
+        device_id: "dev1".to_string(),
+        new_owner: "bob_pubkey".to_string(),
+        transferred_by: "alice_pubkey".to_string(),
+        signature: "sig".to_string(),
+    };
+    let json = serde_json::to_string(&op).unwrap();
+    let back: Operation = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.operation_id(), "op-tro1");
+    assert_eq!(back.author_key(), "alice_pubkey");
+}
+
+#[test]
 fn test_join_workspace_roundtrip() {
     let op = Operation::JoinWorkspace {
         operation_id: "op3".to_string(),
