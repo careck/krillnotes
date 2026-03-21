@@ -181,6 +181,11 @@ Before decryption, before signature verification, before any operation processin
 
 ```rust
 if bundle.header.protocol != self.permission_gate.protocol_id() {
+    log::error!(
+        "Rejecting swarm bundle: protocol mismatch (expected '{}', found '{}')",
+        self.permission_gate.protocol_id(),
+        bundle.header.protocol,
+    );
     return Err(KrillnotesError::ProtocolMismatch {
         expected: self.permission_gate.protocol_id().to_string(),
         found: bundle.header.protocol.clone(),
