@@ -268,6 +268,10 @@ Simplified dialog — no tree picker needed:
 
 The snapshot sent after onboarding MUST be scoped to only include notes the peer can access based on their granted subtree. When a subtree owner sends a snapshot, it contains only the subtree they own — they cannot include notes outside their own access boundary. This is enforced at the backend level during snapshot generation.
 
+### Visibility of subtree-owner invites to other peers
+
+When a subtree owner grants access to a new peer, the `SetPermission` and `JoinWorkspace` operations flow through normal delta sync to all connected peers (including the root owner). No special notification mechanism is needed — the existing sync pipeline has no operation-type filter. Other peers (including the root owner) will see the new grants appear in the Info section's "Shared with" list and via share anchor icons on the tree. Active notification of new peers joining is out of scope for this spec.
+
 ## Section 5: Cascade Preview
 
 When demoting or revoking a peer's access, and that peer has granted access to others downstream, the system shows a preview dialog instead of automatically cascading.
