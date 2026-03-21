@@ -50,7 +50,7 @@ fn b64_pubkey(key: &SigningKey) -> String {
 /// Create an in-memory (temp-file backed) workspace.
 fn make_workspace(key: &SigningKey, identity_id: &str) -> (NamedTempFile, Workspace) {
     let tmp = NamedTempFile::new().expect("tempfile");
-    let ws = Workspace::create(tmp.path(), "", identity_id, SigningKey::from_bytes(&key.to_bytes()))
+    let ws = Workspace::create(tmp.path(), "", identity_id, SigningKey::from_bytes(&key.to_bytes()), None)
         .expect("Workspace::create");
     (tmp, ws)
 }
@@ -236,6 +236,7 @@ fn relay_delta_roundtrip() {
         "",
         &bob_uuid,
         SigningKey::from_bytes(&bob_key.to_bytes()),
+        None,
     )
     .expect("Workspace::open");
     let (_bob_cm_dir, mut bob_cm) = make_contact_manager([0xBBu8; 32]);
@@ -293,6 +294,7 @@ fn folder_channel_delta_roundtrip() {
         "bob-id",
         SigningKey::from_bytes(&bob_key.to_bytes()),
         alice_ws.workspace_id(),
+        None,
     )
     .expect("Workspace::create_with_id for Bob");
     bob_ws

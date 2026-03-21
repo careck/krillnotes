@@ -281,6 +281,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
+            None,
         )
         .unwrap();
 
@@ -336,6 +337,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
+            None,
         )
         .unwrap();
 
@@ -386,6 +388,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
+            None,
         )
         .unwrap();
         let snap_op = alice_ws
@@ -428,6 +431,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
+            None,
         )
         .unwrap();
 
@@ -464,6 +468,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
+            None,
         )
         .unwrap();
         let snap_op = alice_ws
@@ -498,6 +503,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
+            None,
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();
@@ -531,6 +537,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
+            None,
         )
         .unwrap();
 
@@ -576,6 +583,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
+            None,
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();

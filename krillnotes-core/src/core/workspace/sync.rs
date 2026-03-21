@@ -147,6 +147,10 @@ impl Workspace {
             log::debug!(target: "krillnotes::sync", "skipping local-only retract operation {}", op.operation_id());
             return Ok(false);
         }
+
+        // Authorize inbound operations from peers.
+        self.authorize(&op)?;
+
         log::debug!(target: "krillnotes::sync", "applying incoming operation {} ({})", op.operation_id(), Self::operation_type_str(&op));
 
         // 2. Advance the local HLC by observing the incoming timestamp.
@@ -310,12 +314,16 @@ impl Workspace {
                 }
             }
 
+            // Permission-modifying operations: apply through the gate.
+            Operation::SetPermission { .. }
+            | Operation::RevokePermission { .. } => {
+                Self::apply_permission_op_via(&self.permission_gate, &tx, &op)?;
+            }
+
             // Log-only variants — no working table change in this phase.
             Operation::JoinWorkspace { .. }
             | Operation::UpdateSchema { .. }
             | Operation::RetractOperation { .. }
-            | Operation::SetPermission { .. }
-            | Operation::RevokePermission { .. }
             | Operation::RemovePeer { .. }
             | Operation::TransferRootOwnership { .. } => {}
         }

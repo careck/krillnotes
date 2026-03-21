@@ -414,7 +414,7 @@ pub async fn create_workspace(
             std::fs::create_dir_all(&folder)
                 .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
             let db_path = folder.join("notes.db");
-            let workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key)
+            let workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key, None)
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
             // Read the workspace_id from the newly created workspace
@@ -517,7 +517,7 @@ pub async fn open_workspace(
             };
 
             let signing_key = Ed25519SigningKey::from_bytes(&seed);
-            let mut workspace = Workspace::open(&db_path, &db_password, &identity_uuid.to_string(), signing_key)
+            let mut workspace = Workspace::open(&db_path, &db_password, &identity_uuid.to_string(), signing_key, None)
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
@@ -674,7 +674,7 @@ pub async fn execute_import(
     let _ = std::fs::create_dir_all(folder.join("attachments"));
 
     let import_signing_key = Ed25519SigningKey::from_bytes(&import_seed);
-    let workspace = Workspace::open(&db_path_buf, &workspace_password, &uuid.to_string(), import_signing_key)
+    let workspace = Workspace::open(&db_path_buf, &workspace_password, &uuid.to_string(), import_signing_key, None)
         .map_err(|e| e.to_string())?;
 
     // Bind the imported workspace to the chosen identity so it can be opened later.
@@ -1091,7 +1091,7 @@ pub fn duplicate_workspace(
     };
 
     // Open the source workspace and export to a temp file.
-    let workspace = Workspace::open(&source_db, &source_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed))
+    let workspace = Workspace::open(&source_db, &source_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed), None)
         .map_err(|e| e.to_string())?;
 
     let mut tmp_file = tempfile::tempfile()
@@ -1112,7 +1112,7 @@ pub fn duplicate_workspace(
         .map_err(|e| e.to_string())?;
 
     // Write info.json for the new workspace so we can read its UUID.
-    let new_ws = Workspace::open(&dest_db, &new_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed))
+    let new_ws = Workspace::open(&dest_db, &new_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed), None)
         .map_err(|e| format!("Failed to open new workspace: {e}"))?;
     let _ = new_ws.write_info_json();
     let new_ws_uuid = new_ws.workspace_id().to_string();

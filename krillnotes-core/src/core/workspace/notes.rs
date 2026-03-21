@@ -119,6 +119,22 @@ impl Workspace {
             schema_version: schema.version,
         };
 
+        // Authorize before opening the transaction.
+        let auth_op = Operation::CreateNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note.id.clone(),
+            parent_id: note.parent_id.clone(),
+            position: note.position,
+            schema: note.schema.clone(),
+            title: note.title.clone(),
+            fields: note.fields.clone(),
+            created_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         // Advance HLC and capture signing key before the transaction borrows self.storage.
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
@@ -311,6 +327,22 @@ impl Workspace {
             id_map.insert(note.id.clone(), Uuid::new_v4().to_string());
         }
 
+        // Authorize the deep copy (as a CreateNote for the root of the copy).
+        let auth_op = Operation::CreateNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: id_map[source_id].clone(),
+            parent_id: new_parent_id.clone(),
+            position: new_position,
+            schema: root_source.schema.clone(),
+            title: root_source.title.clone(),
+            fields: root_source.fields.clone(),
+            created_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let now = chrono::Utc::now().timestamp();
 
         // Pre-advance HLC once per note in the subtree, and capture signing key,
@@ -428,6 +460,22 @@ impl Workspace {
             tags: vec![], schema_version: 1,
         };
 
+        // Authorize before opening the transaction.
+        let auth_op = Operation::CreateNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: new_note.id.clone(),
+            parent_id: new_note.parent_id.clone(),
+            position: new_note.position,
+            schema: new_note.schema.clone(),
+            title: new_note.title.clone(),
+            fields: new_note.fields.clone(),
+            created_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;
@@ -495,6 +543,18 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::Database`] if the note is not found or
     /// the UPDATE fails.
     pub fn update_note_title(&mut self, note_id: &str, new_title: String) -> Result<()> {
+        // Authorize before opening the transaction.
+        let auth_op = Operation::UpdateNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            title: new_title.clone(),
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let now = chrono::Utc::now().timestamp();
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
@@ -536,6 +596,18 @@ impl Workspace {
             .collect();
         normalised.sort();
         normalised.dedup();
+
+        // Authorize before opening the transaction.
+        let auth_op = Operation::SetTags {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            tags: normalised.clone(),
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
 
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
@@ -958,6 +1030,19 @@ impl Workspace {
         let old_parent_id = note.parent_id.clone();
         let old_position = note.position;
 
+        // Authorize before opening the transaction.
+        let auth_op = Operation::MoveNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            new_parent_id: new_parent_id.map(|s| s.to_string()),
+            new_position,
+            moved_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let now = chrono::Utc::now().timestamp();
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
@@ -1091,6 +1176,17 @@ impl Workspace {
     /// than errors in that case). The transaction is rolled back automatically
     /// on any failure.
     pub fn delete_note_recursive(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Authorize before opening any transaction.
+        let auth_op = Operation::DeleteNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            deleted_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         // Capture full subtree for undo before any deletion.
         let subtree_notes = self.collect_subtree_notes(note_id)?;
         let subtree_ids: Vec<&str> = subtree_notes.iter().map(|n| n.id.as_str()).collect();
@@ -1215,6 +1311,17 @@ impl Workspace {
     /// [`crate::KrillnotesError::Database`] for any other SQLite failure.
     /// The transaction is rolled back automatically on any failure.
     pub fn delete_note_promote(&mut self, note_id: &str) -> Result<DeleteResult> {
+        // Authorize before opening any transaction.
+        let auth_op = Operation::DeleteNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            deleted_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         // Capture before-state for undo before any mutations.
         // Map Database error (QueryReturnedNoRows) to NoteNotFound for a missing ID.
         let deleted_note = self.get_note(note_id)
@@ -1487,6 +1594,18 @@ impl Workspace {
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) -> Result<Note> {
+        // Authorize before opening any transaction.
+        let auth_op = Operation::UpdateNote {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            title: title.clone(),
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         // Capture before-state for undo.
         // Map Database errors (e.g. QueryReturnedNoRows) to NoteNotFound so that
         // callers see a consistent error type when the note does not exist.
