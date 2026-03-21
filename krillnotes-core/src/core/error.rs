@@ -131,6 +131,10 @@ pub enum KrillnotesError {
     /// Relay server unreachable or returned a server error.
     #[error("Relay unavailable: {0}")]
     RelayUnavailable(String),
+
+    /// A permission check failed (from a [`PermissionGate`] implementation).
+    #[error("permission denied: {0}")]
+    Permission(#[from] crate::core::permission::PermissionError),
 }
 
 #[cfg(test)]
@@ -216,6 +220,7 @@ impl KrillnotesError {
             Self::RelayRateLimited(_) => "Relay is rate limiting requests. Please try again later.".to_string(),
             Self::RelayNotFound(_) => "The requested relay resource was not found or has expired.".to_string(),
             Self::RelayUnavailable(msg) => format!("Relay server unavailable: {msg}"),
+            Self::Permission(e) => format!("Permission denied: {e}"),
         }
     }
 }

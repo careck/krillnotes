@@ -23,6 +23,7 @@ pub mod note;
 pub mod operation;
 pub mod operation_log;
 pub mod peer_registry;
+pub mod permission;
 pub mod received_response;
 pub mod save_transaction;
 pub mod scripting;
@@ -54,6 +55,8 @@ pub use note::{FieldValue, Note};
 pub use operation::Operation;
 #[doc(inline)]
 pub use peer_registry::{PeerRegistry, SyncPeer};
+#[doc(inline)]
+pub use permission::{PermissionError, PermissionGate};
 #[doc(inline)]
 pub use operation_log::{OperationLog, OperationSummary, PurgeStrategy};
 #[doc(inline)]
