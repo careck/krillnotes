@@ -12,3 +12,6 @@ log = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
+tempfile = "3.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
