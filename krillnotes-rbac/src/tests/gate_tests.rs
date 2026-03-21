@@ -5,6 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::gate::RbacGate;
+use crate::resolver::Role;
 use krillnotes_core::core::operation::Operation;
 use krillnotes_core::core::permission::PermissionGate;
 use rusqlite::Connection;
@@ -151,6 +152,22 @@ fn grant_by(conn: &Connection, note_id: &str, user_id: &str, role: &str, granted
     .unwrap();
 }
 
+fn make_revoke_permission(note_id: &str, user_id: &str) -> Operation {
+    Operation::RevokePermission {
+        operation_id: uuid::Uuid::new_v4().to_string(),
+        timestamp: krillnotes_core::HlcTimestamp {
+            wall_ms: 1,
+            counter: 0,
+            node_id: 0,
+        },
+        device_id: "test_device".into(),
+        note_id: Some(note_id.into()),
+        user_id: user_id.into(),
+        revoked_by: ROOT_OWNER.into(),
+        signature: String::new(),
+    }
+}
+
 // --- Tests ---
 
 #[test]
@@ -255,4 +272,83 @@ fn test_root_owner_can_create_root_note() {
     let (conn, gate) = setup_gate_db();
     let op = make_create_note_root();
     assert!(gate.authorize(&conn, ROOT_OWNER, &op).is_ok());
+}
+
+// --- apply_permission_op tests ---
+
+#[test]
+fn test_apply_set_permission_creates_grant() {
+    let (conn, gate) = setup_gate_db();
+    let op = make_set_permission("root_a", BOB, "writer");
+    gate.apply_permission_op(&conn, &op).unwrap();
+    let role = crate::resolver::resolve_role(&conn, BOB, "root_a").unwrap();
+    assert_eq!(role, Some(Role::Writer));
+}
+
+#[test]
+fn test_apply_set_permission_upserts() {
+    let (conn, gate) = setup_gate_db();
+    gate.apply_permission_op(&conn, &make_set_permission("root_a", BOB, "reader"))
+        .unwrap();
+    gate.apply_permission_op(&conn, &make_set_permission("root_a", BOB, "owner"))
+        .unwrap();
+    let role = crate::resolver::resolve_role(&conn, BOB, "root_a").unwrap();
+    assert_eq!(role, Some(Role::Owner));
+}
+
+#[test]
+fn test_apply_revoke_removes_grant() {
+    let (conn, gate) = setup_gate_db();
+    gate.apply_permission_op(&conn, &make_set_permission("root_a", BOB, "writer"))
+        .unwrap();
+    gate.apply_permission_op(&conn, &make_revoke_permission("root_a", BOB))
+        .unwrap();
+    let role = crate::resolver::resolve_role(&conn, BOB, "root_a").unwrap();
+    assert_eq!(role, None);
+}
+
+#[test]
+fn test_cascade_revocation() {
+    let (conn, gate) = setup_gate_db();
+    grant_by(&conn, "root_a", BOB, "owner", ROOT_OWNER);
+    grant_by(&conn, "root_a", CAROL, "writer", BOB);
+    gate.apply_permission_op(&conn, &make_revoke_permission("root_a", BOB))
+        .unwrap();
+    assert_eq!(
+        crate::resolver::resolve_role(&conn, BOB, "root_a").unwrap(),
+        None
+    );
+    assert_eq!(
+        crate::resolver::resolve_role(&conn, CAROL, "root_a").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn test_demotion_cascade_partial() {
+    let (conn, gate) = setup_gate_db();
+    grant_by(&conn, "root_a", BOB, "owner", ROOT_OWNER);
+    grant_by(&conn, "root_a", CAROL, "owner", BOB);
+    grant_by(&conn, "root_a", "dave", "reader", BOB);
+
+    // Demote Bob to writer
+    conn.execute(
+        "DELETE FROM note_permissions WHERE note_id = 'root_a' AND user_id = ?1",
+        rusqlite::params![BOB],
+    )
+    .unwrap();
+    gate.apply_permission_op(&conn, &make_set_permission_by("root_a", BOB, "writer", ROOT_OWNER))
+        .unwrap();
+    gate.cascade_revoke_public(&conn, BOB).unwrap();
+
+    // Carol's owner grant exceeds Bob's writer -> invalidated
+    assert_eq!(
+        crate::resolver::resolve_role(&conn, CAROL, "root_a").unwrap(),
+        None
+    );
+    // Dave's reader is within Bob's writer -> still valid
+    assert_eq!(
+        crate::resolver::resolve_role(&conn, "dave", "root_a").unwrap(),
+        Some(Role::Reader)
+    );
 }

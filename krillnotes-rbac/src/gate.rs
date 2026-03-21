@@ -108,6 +108,43 @@ impl RbacGate {
         Ok(())
     }
 
+    /// After revoking a user's grant, check all grants they issued.
+    /// If the granter no longer holds a sufficient role for the grant,
+    /// invalidate it and recurse.
+    fn cascade_revoke(
+        &self,
+        conn: &Connection,
+        revoked_user: &str,
+    ) -> Result<(), PermissionError> {
+        let mut stmt = conn.prepare(
+            "SELECT note_id, user_id, role FROM note_permissions WHERE granted_by = ?1",
+        )?;
+        let downstream: Vec<(String, String, String)> = stmt
+            .query_map(rusqlite::params![revoked_user], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for (note_id, user_id, granted_role) in downstream {
+            let granter_role = crate::resolver::resolve_role(conn, revoked_user, &note_id)?;
+            let granted = Role::from_str(&granted_role);
+
+            let still_valid = match (granter_role, granted) {
+                (Some(granter), Some(granted)) => granter >= granted,
+                _ => false,
+            };
+
+            if !still_valid {
+                conn.execute(
+                    "DELETE FROM note_permissions WHERE note_id = ?1 AND user_id = ?2",
+                    rusqlite::params![note_id, user_id],
+                )?;
+                self.cascade_revoke(conn, &user_id)?;
+            }
+        }
+        Ok(())
+    }
+
     /// For Writer delete/move: verify the actor authored the target note.
     fn require_authorship(
         &self,
@@ -180,15 +217,93 @@ impl PermissionGate for RbacGate {
 
     fn apply_permission_op(
         &self,
-        _conn: &Connection,
-        _operation: &Operation,
+        conn: &Connection,
+        operation: &Operation,
     ) -> Result<(), PermissionError> {
-        // TODO: implement in Task 5
-        Ok(())
+        match operation {
+            Operation::SetPermission {
+                note_id,
+                user_id,
+                role,
+                granted_by,
+                ..
+            } => {
+                let note_id = note_id.as_ref().ok_or_else(|| {
+                    PermissionError::Denied("RBAC requires a note_id".into())
+                })?;
+                // Validate role
+                Role::from_str(role).ok_or_else(|| {
+                    PermissionError::Denied(format!("invalid role: {}", role))
+                })?;
+                conn.execute(
+                    "INSERT INTO note_permissions (note_id, user_id, role, granted_by)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(note_id, user_id) DO UPDATE SET role = ?3, granted_by = ?4",
+                    rusqlite::params![note_id, user_id, role, granted_by],
+                )?;
+                self.cascade_revoke(conn, user_id)?;
+                Ok(())
+            }
+            Operation::RevokePermission {
+                note_id, user_id, ..
+            } => {
+                let note_id = note_id.as_ref().ok_or_else(|| {
+                    PermissionError::Denied("RBAC requires a note_id".into())
+                })?;
+                conn.execute(
+                    "DELETE FROM note_permissions WHERE note_id = ?1 AND user_id = ?2",
+                    rusqlite::params![note_id, user_id],
+                )?;
+                self.cascade_revoke(conn, user_id)?;
+                Ok(())
+            }
+            Operation::RemovePeer { user_id, .. } => {
+                conn.execute(
+                    "DELETE FROM note_permissions WHERE user_id = ?1",
+                    rusqlite::params![user_id],
+                )?;
+                self.cascade_revoke(conn, user_id)?;
+                Ok(())
+            }
+            Operation::TransferRootOwnership {
+                new_owner,
+                transferred_by,
+                ..
+            } => {
+                let root_note_ids: Vec<String> = {
+                    let mut stmt =
+                        conn.prepare("SELECT id FROM notes WHERE parent_id IS NULL")?;
+                    let ids = stmt
+                        .query_map([], |row| row.get(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    ids
+                };
+                for root_id in root_note_ids {
+                    conn.execute(
+                        "INSERT OR REPLACE INTO note_permissions (note_id, user_id, role, granted_by)
+                         VALUES (?1, ?2, 'owner', ?3)",
+                        rusqlite::params![root_id, transferred_by, new_owner],
+                    )?;
+                }
+                Ok(())
+            }
+            _ => Err(PermissionError::NotAPermissionOp),
+        }
     }
 
     fn ensure_schema(&self, conn: &Connection) -> Result<(), PermissionError> {
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl RbacGate {
+    pub fn cascade_revoke_public(
+        &self,
+        conn: &Connection,
+        user_id: &str,
+    ) -> Result<(), PermissionError> {
+        self.cascade_revoke(conn, user_id)
     }
 }
