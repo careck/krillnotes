@@ -494,7 +494,12 @@ impl Workspace {
     }
 
     /// Deletes all operations from the log. Returns the number deleted.
+    ///
+    /// Only the workspace owner can purge operations.
     pub fn purge_all_operations(&self) -> Result<usize> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         self.operation_log.purge_all(self.connection())
     }
 

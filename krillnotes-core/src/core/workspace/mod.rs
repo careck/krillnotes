@@ -1008,6 +1008,9 @@ impl Workspace {
     /// Overwrites the cached owner pubkey and persists it to `workspace_meta`.
     /// Used when applying a snapshot bundle — the new workspace is created with
     /// the opener's identity as owner, then overwritten with the snapshot's true owner.
+    ///
+    /// Internal only — called during snapshot import. Not exposed via Tauri.
+    /// Authorization is handled by the caller's context (AllowAllGate during import).
     pub fn set_owner_pubkey(&mut self, pubkey: &str) -> crate::Result<()> {
         self.storage.connection().execute(
             "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES ('owner_pubkey', ?)",

@@ -39,6 +39,17 @@ impl Workspace {
 
         let redo_inverse = self.build_redo_inverse(&entry)?;
 
+        // Authorize before mutating.
+        let retract_op = Operation::RetractOperation {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: self.hlc.now(),
+            device_id: self.device_id.clone(),
+            retracted_ids: entry.retracted_ids.clone(),
+            inverse: entry.inverse.clone(),
+            propagate: entry.propagate,
+        };
+        self.authorize(&retract_op)?;
+
         self.inside_undo = true;
         let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
         self.inside_undo = false;
@@ -58,6 +69,17 @@ impl Workspace {
             .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to redo".into()))?;
 
         let new_undo_inverse = self.build_redo_inverse(&entry)?;
+
+        // Authorize before mutating.
+        let retract_op = Operation::RetractOperation {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: self.hlc.now(),
+            device_id: self.device_id.clone(),
+            retracted_ids: entry.retracted_ids.clone(),
+            inverse: entry.inverse.clone(),
+            propagate: entry.propagate,
+        };
+        self.authorize(&retract_op)?;
 
         self.inside_undo = true;
         let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
@@ -188,15 +210,7 @@ impl Workspace {
         // SubtreeRestore while the note still exists in the DB.
         let redo_inverse = self.build_redo_inverse(&entry)?;
 
-        // Apply the inverse to the DB. Set inside_undo so that any mutations
-        // called from within apply_retract_inverse_internal (e.g. move_note
-        // called from PositionRestore) do not push spurious undo entries.
-        self.inside_undo = true;
-        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
-        self.inside_undo = false;
-        let affected_note_id = apply_result?;
-
-        // Write RetractOperation to the log.
+        // Construct and authorize the RetractOperation before any DB mutation.
         let retract_ts = self.advance_hlc();
         let retract_op_id = uuid::Uuid::new_v4().to_string();
         let retract_op = Operation::RetractOperation {
@@ -207,6 +221,17 @@ impl Workspace {
             inverse: entry.inverse.clone(),
             propagate: entry.propagate,
         };
+        self.authorize(&retract_op)?;
+
+        // Apply the inverse to the DB. Set inside_undo so that any mutations
+        // called from within apply_retract_inverse_internal (e.g. move_note
+        // called from PositionRestore) do not push spurious undo entries.
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        let affected_note_id = apply_result?;
+
+        // Log the RetractOperation.
         {
             let tx = self.storage.connection_mut().transaction()?;
             Self::save_hlc(&retract_ts, &tx)?;
@@ -241,20 +266,9 @@ impl Workspace {
 
         // Build the new undo inverse BEFORE applying so that the current DB state
         // can be captured for the "undo of redo" entry.
-        // For example:
-        //   - If entry.inverse is DeleteNote{id} (redo = re-delete a note),
-        //     we must capture SubtreeRestore while the note still exists in DB.
-        //   - If entry.inverse is SubtreeRestore{notes} (redo = re-insert a note),
-        //     we can extract the root ID from notes[0] without a DB query.
         let new_undo_inverse = self.build_redo_inverse(&entry)?;
 
-        // Apply the redo entry's inverse to the DB.
-        self.inside_undo = true;
-        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
-        self.inside_undo = false;
-        let affected_note_id = apply_result?;
-
-        // Log redo as a new RetractOperation.
+        // Construct and authorize the RetractOperation before any DB mutation.
         let redo_ts = self.advance_hlc();
         let new_op_id = uuid::Uuid::new_v4().to_string();
         let redo_op = Operation::RetractOperation {
@@ -265,6 +279,15 @@ impl Workspace {
             inverse: entry.inverse.clone(),
             propagate: entry.propagate,
         };
+        self.authorize(&redo_op)?;
+
+        // Apply the redo entry's inverse to the DB.
+        self.inside_undo = true;
+        let apply_result = self.apply_retract_inverse_internal(&entry.inverse);
+        self.inside_undo = false;
+        let affected_note_id = apply_result?;
+
+        // Log redo as a new RetractOperation.
         {
             let tx = self.storage.connection_mut().transaction()?;
             Self::save_hlc(&redo_ts, &tx)?;
