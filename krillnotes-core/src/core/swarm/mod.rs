@@ -47,6 +47,7 @@ mod integration_tests {
 
         // === Step 1: Alice generates invite.swarm ===
         let invite_bundle = create_invite_bundle(InviteParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-alpha".to_string(),
             workspace_name: "Project Alpha".to_string(),
             source_device_id: "dev-alice".to_string(),
@@ -67,6 +68,7 @@ mod integration_tests {
 
         // === Step 3: Bob generates accept.swarm ===
         let accept_bundle = create_accept_bundle(AcceptParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-alpha".to_string(),
             workspace_name: "Project Alpha".to_string(),
             source_device_id: "dev-bob".to_string(),
@@ -89,6 +91,7 @@ mod integration_tests {
         })).unwrap();
 
         let snapshot_bundle = create_snapshot_bundle(SnapshotParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-alpha".to_string(),
             workspace_name: "Project Alpha".to_string(),
             source_device_id: "dev-alice".to_string(),
@@ -111,6 +114,7 @@ mod integration_tests {
         // === Step 7: Alice sends delta to Bob ===
         let alice_ops = vec![dummy_op("op-1", "note-abc"), dummy_op("op-2", "note-abc")];
         let delta_bundle = create_delta_bundle(DeltaParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-alpha".to_string(),
             workspace_name: "Project Alpha".to_string(),
             source_device_id: "dev-alice".to_string(),

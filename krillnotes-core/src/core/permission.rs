@@ -7,9 +7,9 @@
 //! Pluggable permission enforcement for workspaces.
 //!
 //! The [`PermissionGate`] trait defines the interface that permission backends
-//! (such as the RBAC crate) must implement. The workspace holds an optional
-//! gate; when present, every mutating operation is checked via
-//! [`PermissionGate::authorize`] before being applied.
+//! (such as the RBAC crate) must implement. The workspace holds a gate;
+//! every mutating operation is checked via [`PermissionGate::authorize`]
+//! before being applied. [`AllowAllGate`] is used for tests and fallback builds.
 
 use rusqlite::Connection;
 
@@ -77,4 +77,48 @@ pub enum PermissionError {
     /// A database error occurred while reading or writing permission state.
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),
+}
+
+/// A no-op permission gate that permits all operations.
+///
+/// Used as the fallback when no gate feature (e.g. `rbac`) is enabled,
+/// and in core tests that don't exercise permission logic.
+///
+/// The `protocol_id` is configurable so it remains decoupled from any
+/// specific permission model (RBAC, ACL, etc.).
+pub struct AllowAllGate {
+    protocol: &'static str,
+}
+
+impl AllowAllGate {
+    pub fn new(protocol_id: &'static str) -> Self {
+        Self { protocol: protocol_id }
+    }
+}
+
+impl PermissionGate for AllowAllGate {
+    fn protocol_id(&self) -> &'static str {
+        self.protocol
+    }
+
+    fn authorize(
+        &self,
+        _conn: &Connection,
+        _actor: &str,
+        _operation: &Operation,
+    ) -> Result<(), PermissionError> {
+        Ok(())
+    }
+
+    fn apply_permission_op(
+        &self,
+        _conn: &Connection,
+        _operation: &Operation,
+    ) -> Result<(), PermissionError> {
+        Ok(())
+    }
+
+    fn ensure_schema(&self, _conn: &Connection) -> Result<(), PermissionError> {
+        Ok(())
+    }
 }

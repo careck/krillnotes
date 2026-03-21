@@ -23,6 +23,7 @@ use crate::core::swarm::signature::{sign_manifest, verify_manifest};
 use crate::{KrillnotesError, Result};
 
 pub struct DeltaParams<'a> {
+    pub protocol: String,
     pub workspace_id: String,
     pub workspace_name: String,
     pub source_device_id: String,
@@ -43,6 +44,8 @@ pub struct DeltaParams<'a> {
 }
 
 pub struct ParsedDelta {
+    /// Protocol extracted from the encrypted payload (tamper-proof).
+    pub protocol: String,
     pub workspace_id: String,
     pub since_operation_id: String,
     pub sender_public_key: String,
@@ -59,13 +62,15 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
     let pubkey_b64 = BASE64.encode(vk.as_bytes());
 
     let ops_json = serde_json::to_vec(&params.operations)?;
+    let prefixed = super::header::prefix_protocol(&params.protocol, &ops_json);
     let (ciphertext, mut entries) =
-        encrypt_for_recipients(&ops_json, &params.recipient_keys)?;
+        encrypt_for_recipients(&prefixed, &params.recipient_keys)?;
     for (entry, peer_id) in entries.iter_mut().zip(params.recipient_peer_ids.iter()) {
         entry.peer_id = peer_id.clone();
     }
 
     let header = SwarmHeader {
+        protocol: params.protocol,
         format_version: 1,
         mode: SwarmMode::Delta,
         workspace_id: params.workspace_id,
@@ -154,12 +159,16 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
             break;
         }
     }
-    let ops_json = plaintext
+    let decrypted = plaintext
         .ok_or_else(|| KrillnotesError::Swarm("no recipient entry matched our key".to_string()))?;
+
+    // Strip the protocol tag embedded before encryption.
+    let (protocol, ops_json) = super::header::strip_protocol(&decrypted)?;
 
     let operations: Vec<Operation> = serde_json::from_slice(&ops_json)?;
 
     Ok(ParsedDelta {
+        protocol,
         workspace_id: header.workspace_id,
         since_operation_id: header.since_operation_id.unwrap_or_default(),
         sender_public_key: header.source_identity,
@@ -199,6 +208,7 @@ mod tests {
         let ops = vec![dummy_op("op-1"), dummy_op("op-2")];
 
         let bundle = create_delta_bundle(DeltaParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -226,6 +236,7 @@ mod tests {
         let recipient_key = make_key();
 
         let bundle = create_delta_bundle(DeltaParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),

@@ -317,7 +317,7 @@ impl Workspace {
             // Permission-modifying operations: apply through the gate.
             Operation::SetPermission { .. }
             | Operation::RevokePermission { .. } => {
-                Self::apply_permission_op_via(&self.permission_gate, &tx, &op)?;
+                Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
             }
 
             // Log-only variants — no working table change in this phase.

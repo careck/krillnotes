@@ -624,6 +624,7 @@ pub async fn send_invite_response_via_relay(
         let device_id = krillnotes_core::core::device::get_device_id().unwrap_or_default();
         let accept_bundle_bytes = krillnotes_core::core::swarm::invite::create_accept_bundle(
             krillnotes_core::core::swarm::invite::AcceptParams {
+                protocol: "krillnotes/1".to_string(),
                 workspace_id: invite.workspace_id.clone(),
                 workspace_name: invite.workspace_name.clone(),
                 source_device_id: device_id,

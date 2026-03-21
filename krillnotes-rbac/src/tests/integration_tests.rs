@@ -221,3 +221,100 @@ fn test_multi_subtree_isolation() {
     // Bob cannot operate on root_b subtree
     assert!(gate.authorize(&conn, BOB, &make_create_note("root_b")).is_err());
 }
+
+// ── Full Workspace integration tests ─────────────────────────────────
+
+/// Root owner should be able to perform every category of workspace operation
+/// when RbacGate is installed.
+#[test]
+fn test_root_owner_can_do_everything() {
+    use ed25519_dalek::SigningKey;
+    use krillnotes_core::core::workspace::{AddPosition, Workspace};
+
+    let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+    let owner_pubkey = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .encode(signing_key.verifying_key().as_bytes())
+    };
+    let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
+
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    let mut ws = Workspace::create(
+        temp.path(), "", "test-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
+    ).unwrap();
+
+    // Create note
+    let root = ws.list_all_notes().unwrap()[0].clone();
+    let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+
+    // Update note
+    ws.update_note_title(&child_id, "Test Note".to_string()).unwrap();
+
+    // Move note (create another child, move under it)
+    let child2_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    ws.move_note(&child_id, Some(&child2_id), 0.0).unwrap();
+
+    // Delete note
+    ws.delete_note_recursive(&child_id).unwrap();
+
+    // Undo + redo
+    ws.undo().unwrap();
+    ws.redo().unwrap();
+
+    // Script operations are guarded by is_owner(), not authorize().
+    // Testing them here would exercise the NotOwner check, not the RBAC gate.
+    // The gate authorize() path is fully covered by the note operations above.
+
+    // All operations succeeded — root owner has full access
+}
+
+/// A non-owner identity without any grants should be denied on mutating operations.
+#[test]
+fn test_non_owner_without_grants_is_denied() {
+    use ed25519_dalek::SigningKey;
+    use krillnotes_core::core::workspace::{AddPosition, Workspace};
+
+    let owner_key = SigningKey::from_bytes(&[1u8; 32]);
+    let owner_pubkey = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .encode(owner_key.verifying_key().as_bytes())
+    };
+    let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
+
+    // Create workspace as owner.
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    let mut ws = Workspace::create(
+        temp.path(), "", "owner-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
+    ).unwrap();
+
+    // Add a child note so there's something to operate on.
+    let root = ws.list_all_notes().unwrap()[0].clone();
+    ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    drop(ws);
+
+    // Re-open the workspace as a different identity (non-owner).
+    let non_owner_key = SigningKey::from_bytes(&[2u8; 32]);
+    let non_owner_gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(
+        // Still the ORIGINAL owner's pubkey — this is the gate's "who is root" setting
+        {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .encode(owner_key.verifying_key().as_bytes())
+        },
+    ));
+    let mut ws2 = Workspace::open(
+        temp.path(), "", "non-owner-identity", non_owner_key, non_owner_gate,
+    ).unwrap();
+
+    // Attempting to create a note should be denied.
+    let root2 = ws2.list_all_notes().unwrap()[0].clone();
+    let result = ws2.create_note(&root2.id, AddPosition::AsChild, "TextNote");
+    assert!(result.is_err(), "non-owner without grants should be denied");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, krillnotes_core::KrillnotesError::Permission(_)),
+        "error should be Permission, got: {err}"
+    );
+}

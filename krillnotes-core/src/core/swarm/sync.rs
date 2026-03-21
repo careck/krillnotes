@@ -105,6 +105,7 @@ pub fn generate_delta(
     let last_included_op = ops.last().map(|op| op.operation_id().to_string());
 
     let bundle_bytes = create_delta_bundle(DeltaParams {
+        protocol: workspace.protocol_id().to_string(),
         workspace_id: workspace.workspace_id().to_string(),
         workspace_name: workspace_name.to_string(),
         source_device_id,
@@ -142,8 +143,36 @@ pub fn apply_delta(
     recipient_key: &SigningKey,
     contact_manager: &mut ContactManager,
 ) -> Result<ApplyResult> {
+    // 0. Protocol isolation — reject bundles from incompatible products before decryption.
+    let header = crate::core::swarm::header::read_header(bundle_bytes)?;
+    if header.protocol != workspace.protocol_id() {
+        log::error!(
+            "Rejecting swarm bundle: protocol mismatch (expected '{}', found '{}')",
+            workspace.protocol_id(),
+            header.protocol,
+        );
+        return Err(KrillnotesError::ProtocolMismatch {
+            expected: workspace.protocol_id().to_string(),
+            found: header.protocol,
+        });
+    }
+
     // 1. Decrypt and verify bundle-level signature.
     let parsed = parse_delta_bundle(bundle_bytes, recipient_key)?;
+
+    // 1b. Authoritative protocol check — the encrypted protocol cannot be
+    // tampered with (unlike the cleartext header).
+    if parsed.protocol != workspace.protocol_id() {
+        log::error!(
+            "Rejecting delta: encrypted protocol mismatch (expected '{}', found '{}')",
+            workspace.protocol_id(),
+            parsed.protocol,
+        );
+        return Err(KrillnotesError::ProtocolMismatch {
+            expected: workspace.protocol_id().to_string(),
+            found: parsed.protocol,
+        });
+    }
 
     // 2. Assert workspace_id matches.
     if parsed.workspace_id != workspace.workspace_id() {
@@ -259,6 +288,12 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
 
+    use crate::core::permission::{AllowAllGate, PermissionGate};
+
+    fn test_gate() -> Box<dyn PermissionGate> {
+        Box::new(AllowAllGate::new("test"))
+    }
+
     fn make_key() -> SigningKey {
         SigningKey::generate(&mut OsRng)
     }
@@ -281,7 +316,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -337,7 +372,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -388,7 +423,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let snap_op = alice_ws
@@ -431,7 +466,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -468,7 +503,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let snap_op = alice_ws
@@ -503,7 +538,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();
@@ -537,7 +572,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -583,7 +618,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();
@@ -614,6 +649,93 @@ mod tests {
             peer.last_received_op.as_deref(),
             Some(sent_last_op.as_str()),
             "last_received_op must match last bundle op even when all ops are duplicates"
+        );
+    }
+
+    /// apply_delta must fail with ProtocolMismatch when the bundle's protocol
+    /// doesn't match the receiving workspace's gate.
+    #[test]
+    fn test_protocol_mismatch_rejects_delta() {
+        let alice_key = make_key();
+        let bob_key = make_key();
+        let bob_pubkey_b64 = b64(&bob_key);
+
+        let alice_temp = tempfile::NamedTempFile::new().unwrap();
+        let mut alice_ws = crate::core::workspace::Workspace::create(
+            alice_temp.path(),
+            "",
+            "alice-id",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            // Alice uses protocol "wrong/1"
+            Box::new(AllowAllGate::new("wrong/1")),
+        )
+        .unwrap();
+
+        // Create a note to generate an operation.
+        let root = alice_ws.list_all_notes().unwrap()[0].clone();
+        alice_ws
+            .create_note(&root.id, crate::core::workspace::AddPosition::AsChild, "TextNote")
+            .unwrap();
+
+        // Register Bob as a peer with a snapshot watermark.
+        let snap_op = alice_ws.get_latest_operation_id().unwrap().unwrap_or_default();
+        alice_ws
+            .upsert_sync_peer("dev-bob", &bob_pubkey_b64, Some(&snap_op), None)
+            .unwrap();
+
+        // Create another note so there's a new operation to delta.
+        alice_ws
+            .create_note(&root.id, crate::core::workspace::AddPosition::AsChild, "TextNote")
+            .unwrap();
+
+        let alice_cm_dir = tempfile::tempdir().unwrap();
+        let alice_cm = crate::core::contact::ContactManager::for_identity(
+            alice_cm_dir.path().to_path_buf(),
+            [10u8; 32],
+        )
+        .unwrap();
+        alice_cm
+            .find_or_create_by_public_key(
+                "Bob",
+                &bob_pubkey_b64,
+                crate::core::contact::TrustLevel::Tofu,
+            )
+            .unwrap();
+
+        let bundle = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "Test",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
+
+        // Bob's workspace uses protocol "test" (different from Alice's "wrong/1").
+        // Open the SAME database (so workspace_id matches) but with a different gate.
+        let mut bob_ws = crate::core::workspace::Workspace::open(
+            alice_temp.path(),
+            "",
+            "bob-id",
+            SigningKey::from_bytes(&bob_key.to_bytes()),
+            test_gate(), // protocol "test"
+        )
+        .unwrap();
+
+        let bob_cm_dir = tempfile::tempdir().unwrap();
+        let mut bob_cm = crate::core::contact::ContactManager::for_identity(
+            bob_cm_dir.path().to_path_buf(),
+            [20u8; 32],
+        )
+        .unwrap();
+
+        let result = super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm);
+        assert!(result.is_err(), "should reject mismatched protocol");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, crate::core::error::KrillnotesError::ProtocolMismatch { .. }),
+            "error should be ProtocolMismatch, got: {err}"
         );
     }
 }

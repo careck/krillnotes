@@ -293,7 +293,7 @@ pub async fn create_snapshot_for_peers(
         .collect::<std::result::Result<_, _>>()?;
 
     // 3. Collect workspace data (hold lock only briefly).
-    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey) = {
+    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
@@ -306,6 +306,7 @@ pub async fn create_snapshot_for_peers(
 
         let workspace_id = ws.workspace_id().to_string();
         let owner_pubkey = ws.owner_pubkey().to_string();
+        let protocol = ws.protocol_id().to_string();
 
         let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
 
@@ -322,12 +323,13 @@ pub async fn create_snapshot_for_peers(
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
 
-        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey)
+        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol)
     };
 
     // 4. Build the bundle.
     let recipient_refs: Vec<&Ed25519VerifyingKey> = recipient_vks.iter().collect();
     let bundle_bytes = create_snapshot_bundle(SnapshotParams {
+        protocol,
         workspace_id: workspace_id.clone(),
         workspace_name,
         source_device_id,
@@ -424,13 +426,18 @@ pub async fn apply_swarm_snapshot(
     };
 
     // 4. Create workspace DB preserving the snapshot's UUID.
+    let owner_pubkey = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .encode(Ed25519SigningKey::from_bytes(&import_seed).verifying_key().as_bytes())
+    };
     let mut ws = Workspace::create_empty_with_id(
         &db_path,
         &workspace_password,
         &identity_uuid,
         Ed25519SigningKey::from_bytes(&import_seed),
         &parsed.workspace_id,
-        None,
+        super::workspace::create_permission_gate(owner_pubkey),
     )
     .map_err(|e| e.to_string())?;
 
@@ -618,7 +625,7 @@ pub async fn send_snapshot_via_relay(
         .collect::<std::result::Result<_, _>>()?;
 
     // 3. Collect workspace data (hold lock only briefly).
-    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey) = {
+    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
@@ -631,6 +638,7 @@ pub async fn send_snapshot_via_relay(
 
         let workspace_id = ws.workspace_id().to_string();
         let owner_pubkey = ws.owner_pubkey().to_string();
+        let protocol = ws.protocol_id().to_string();
 
         let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
 
@@ -646,12 +654,13 @@ pub async fn send_snapshot_via_relay(
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
 
-        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey)
+        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol)
     };
 
     // 4. Build the bundle.
     let recipient_refs: Vec<&Ed25519VerifyingKey> = recipient_vks.iter().collect();
     let bundle_bytes = create_snapshot_bundle(SnapshotParams {
+        protocol,
         workspace_id: workspace_id.clone(),
         workspace_name,
         source_device_id,

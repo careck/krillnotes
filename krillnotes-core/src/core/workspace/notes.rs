@@ -914,6 +914,9 @@ impl Workspace {
 
     /// Persists workspace-level metadata (author, license, description, etc.).
     pub fn set_workspace_metadata(&mut self, metadata: &WorkspaceMetadata) -> Result<()> {
+        if !self.is_owner() {
+            return Err(KrillnotesError::NotOwner);
+        }
         let json = serde_json::to_string(metadata).map_err(|e| {
             rusqlite::Error::ToSqlConversionFailure(Box::new(e))
         })?;
