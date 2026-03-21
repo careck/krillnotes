@@ -113,10 +113,10 @@ pub struct Workspace {
     /// Migration results from Phase D (run on workspace open).
     /// Drained by Tauri after the workspace is stored in AppState, to emit events.
     pub pending_migration_results: Vec<(String, u32, u32, u32)>,
-    /// Optional pluggable permission gate (e.g. RBAC).
-    /// When `Some`, every mutating operation is checked via `authorize()` before being applied.
-    /// When `None` (single-user / test mode), all operations are permitted.
-    permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>,
+    /// Pluggable permission gate (e.g. RBAC).
+    /// Every mutating operation is checked via `authorize()` before being applied.
+    /// Use `AllowAllGate` for tests or builds without a specific gate feature.
+    permission_gate: Box<dyn crate::core::permission::PermissionGate>,
 }
 
 impl Workspace {
@@ -127,7 +127,7 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
-    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>) -> Result<Self> {
+    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -302,10 +302,8 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
-        // Initialise permission gate tables (if a gate is installed).
-        if let Some(gate) = &permission_gate {
-            gate.ensure_schema(storage.connection())?;
-        }
+        // Initialise permission gate tables.
+        permission_gate.ensure_schema(storage.connection())?;
 
         let workspace = Self {
             storage,
@@ -343,7 +341,7 @@ impl Workspace {
         identity_uuid: &str,
         signing_key: ed25519_dalek::SigningKey,
         workspace_id: &str,
-        permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>,
+        permission_gate: Box<dyn crate::core::permission::PermissionGate>,
     ) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
@@ -519,10 +517,8 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
-        // Initialise permission gate tables (if a gate is installed).
-        if let Some(gate) = &permission_gate {
-            gate.ensure_schema(storage.connection())?;
-        }
+        // Initialise permission gate tables.
+        permission_gate.ensure_schema(storage.connection())?;
 
         let workspace = Self {
             storage,
@@ -556,7 +552,7 @@ impl Workspace {
     /// Use this when the workspace content will immediately be populated from an
     /// external source (e.g. a snapshot import), so the seed note would only create
     /// unwanted noise alongside the imported tree.
-    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>) -> Result<Self> {
+    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -666,10 +662,8 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
-        // Initialise permission gate tables (if a gate is installed).
-        if let Some(gate) = &permission_gate {
-            gate.ensure_schema(storage.connection())?;
-        }
+        // Initialise permission gate tables.
+        permission_gate.ensure_schema(storage.connection())?;
 
         let workspace = Self {
             storage,
@@ -708,7 +702,7 @@ impl Workspace {
         identity_uuid: &str,
         signing_key: ed25519_dalek::SigningKey,
         workspace_id: &str,
-        permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>,
+        permission_gate: Box<dyn crate::core::permission::PermissionGate>,
     ) -> Result<Self> {
         let storage = Storage::create(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
@@ -775,10 +769,8 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
-        // Initialise permission gate tables (if a gate is installed).
-        if let Some(gate) = &permission_gate {
-            gate.ensure_schema(storage.connection())?;
-        }
+        // Initialise permission gate tables.
+        permission_gate.ensure_schema(storage.connection())?;
 
         let workspace = Self {
             storage,
@@ -815,7 +807,7 @@ impl Workspace {
     /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
     /// is a plain unencrypted SQLite database, or
     /// [`crate::KrillnotesError::Database`] for any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -914,10 +906,8 @@ impl Workspace {
             }
         };
 
-        // Initialise permission gate tables (if a gate is installed).
-        if let Some(gate) = &permission_gate {
-            gate.ensure_schema(storage.connection())?;
-        }
+        // Initialise permission gate tables.
+        permission_gate.ensure_schema(storage.connection())?;
 
         let mut ws = Self {
             storage,
@@ -1094,31 +1084,31 @@ impl Workspace {
         log.purge_if_needed(tx)
     }
 
+    /// Returns the protocol identifier from the installed permission gate.
+    /// Used to stamp outbound .swarm bundle headers and validate inbound ones.
+    pub fn protocol_id(&self) -> &str {
+        self.permission_gate.protocol_id()
+    }
+
     /// Check permission before applying an operation.
-    /// No-op if no permission gate is installed (single-user/test mode).
     fn authorize(&self, operation: &Operation) -> Result<()> {
-        if let Some(gate) = &self.permission_gate {
-            gate.authorize(
-                self.storage.connection(),
-                &self.current_identity_pubkey,
-                operation,
-            )?;
-        }
+        self.permission_gate.authorize(
+            self.storage.connection(),
+            &self.current_identity_pubkey,
+            operation,
+        )?;
         Ok(())
     }
 
     /// Apply a permission-modifying operation through the gate.
-    /// No-op if no permission gate is installed.
     /// Takes the gate as an explicit parameter to avoid a whole-`self` borrow
     /// conflict with the transaction (which is borrowed from `self.storage`).
     fn apply_permission_op_via(
-        gate: &Option<Box<dyn crate::core::permission::PermissionGate>>,
+        gate: &dyn crate::core::permission::PermissionGate,
         conn: &Connection,
         operation: &Operation,
     ) -> Result<()> {
-        if let Some(gate) = gate {
-            gate.apply_permission_op(conn, operation)?;
-        }
+        gate.apply_permission_op(conn, operation)?;
         Ok(())
     }
 
