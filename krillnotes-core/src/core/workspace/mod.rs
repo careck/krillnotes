@@ -113,6 +113,10 @@ pub struct Workspace {
     /// Migration results from Phase D (run on workspace open).
     /// Drained by Tauri after the workspace is stored in AppState, to emit events.
     pub pending_migration_results: Vec<(String, u32, u32, u32)>,
+    /// Optional pluggable permission gate (e.g. RBAC).
+    /// When `Some`, every mutating operation is checked via `authorize()` before being applied.
+    /// When `None` (single-user / test mode), all operations are permitted.
+    permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>,
 }
 
 impl Workspace {
@@ -123,7 +127,7 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
-    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey) -> Result<Self> {
+    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -298,6 +302,11 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
+        // Initialise permission gate tables (if a gate is installed).
+        if let Some(gate) = &permission_gate {
+            gate.ensure_schema(storage.connection())?;
+        }
+
         let workspace = Self {
             storage,
             script_registry,
@@ -319,6 +328,7 @@ impl Workspace {
             hlc,
             signing_key,
             pending_migration_results: Vec::new(),
+            permission_gate,
         };
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
@@ -333,6 +343,7 @@ impl Workspace {
         identity_uuid: &str,
         signing_key: ed25519_dalek::SigningKey,
         workspace_id: &str,
+        permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>,
     ) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
@@ -508,6 +519,11 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
+        // Initialise permission gate tables (if a gate is installed).
+        if let Some(gate) = &permission_gate {
+            gate.ensure_schema(storage.connection())?;
+        }
+
         let workspace = Self {
             storage,
             script_registry,
@@ -529,6 +545,7 @@ impl Workspace {
             hlc,
             signing_key,
             pending_migration_results: Vec::new(),
+            permission_gate,
         };
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
@@ -539,7 +556,7 @@ impl Workspace {
     /// Use this when the workspace content will immediately be populated from an
     /// external source (e.g. a snapshot import), so the seed note would only create
     /// unwanted noise alongside the imported tree.
-    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey) -> Result<Self> {
+    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -649,6 +666,11 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
+        // Initialise permission gate tables (if a gate is installed).
+        if let Some(gate) = &permission_gate {
+            gate.ensure_schema(storage.connection())?;
+        }
+
         let workspace = Self {
             storage,
             script_registry,
@@ -670,6 +692,7 @@ impl Workspace {
             hlc,
             signing_key,
             pending_migration_results: Vec::new(),
+            permission_gate,
         };
         let _ = workspace.write_info_json();
         Ok(workspace)
@@ -685,6 +708,7 @@ impl Workspace {
         identity_uuid: &str,
         signing_key: ed25519_dalek::SigningKey,
         workspace_id: &str,
+        permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>,
     ) -> Result<Self> {
         let storage = Storage::create(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
@@ -751,6 +775,11 @@ impl Workspace {
         );
         let hlc = HlcClock::new(node_id);
 
+        // Initialise permission gate tables (if a gate is installed).
+        if let Some(gate) = &permission_gate {
+            gate.ensure_schema(storage.connection())?;
+        }
+
         let workspace = Self {
             storage,
             script_registry,
@@ -772,6 +801,7 @@ impl Workspace {
             hlc,
             signing_key,
             pending_migration_results: Vec::new(),
+            permission_gate,
         };
         let _ = workspace.write_info_json();
         Ok(workspace)
@@ -785,7 +815,7 @@ impl Workspace {
     /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
     /// is a plain unencrypted SQLite database, or
     /// [`crate::KrillnotesError::Database`] for any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Option<Box<dyn crate::core::permission::PermissionGate>>) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -884,6 +914,11 @@ impl Workspace {
             }
         };
 
+        // Initialise permission gate tables (if a gate is installed).
+        if let Some(gate) = &permission_gate {
+            gate.ensure_schema(storage.connection())?;
+        }
+
         let mut ws = Self {
             storage,
             script_registry,
@@ -905,6 +940,7 @@ impl Workspace {
             hlc,
             signing_key,
             pending_migration_results: Vec::new(),
+            permission_gate,
         };
 
         // Two-phase script loading: presentation first, then schema, then resolve.
@@ -1056,6 +1092,34 @@ impl Workspace {
     /// Takes the log as an explicit parameter for the same borrow-checker reason.
     fn purge_ops_if_needed(log: &OperationLog, tx: &rusqlite::Transaction) -> Result<()> {
         log.purge_if_needed(tx)
+    }
+
+    /// Check permission before applying an operation.
+    /// No-op if no permission gate is installed (single-user/test mode).
+    fn authorize(&self, operation: &Operation) -> Result<()> {
+        if let Some(gate) = &self.permission_gate {
+            gate.authorize(
+                self.storage.connection(),
+                &self.current_identity_pubkey,
+                operation,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Apply a permission-modifying operation through the gate.
+    /// No-op if no permission gate is installed.
+    /// Takes the gate as an explicit parameter to avoid a whole-`self` borrow
+    /// conflict with the transaction (which is borrowed from `self.storage`).
+    fn apply_permission_op_via(
+        gate: &Option<Box<dyn crate::core::permission::PermissionGate>>,
+        conn: &Connection,
+        operation: &Operation,
+    ) -> Result<()> {
+        if let Some(gate) = gate {
+            gate.apply_permission_op(conn, operation)?;
+        }
+        Ok(())
     }
 
     /// Advances the HLC and returns the next timestamp.

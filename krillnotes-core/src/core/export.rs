@@ -506,7 +506,7 @@ pub fn import_workspace<R: Read + Seek>(
     drop(storage);
 
     // Rebuild the note_links index from the imported fields_json data.
-    let mut workspace = Workspace::open(db_path, workspace_password, identity_uuid, signing_key)
+    let mut workspace = Workspace::open(db_path, workspace_password, identity_uuid, signing_key, None)
         .map_err(|e| ExportError::Database(e.to_string()))?;
     workspace
         .rebuild_note_links_index()

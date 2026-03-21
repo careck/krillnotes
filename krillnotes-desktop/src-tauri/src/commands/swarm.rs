@@ -430,6 +430,7 @@ pub async fn apply_swarm_snapshot(
         &identity_uuid,
         Ed25519SigningKey::from_bytes(&import_seed),
         &parsed.workspace_id,
+        None,
     )
     .map_err(|e| e.to_string())?;
 

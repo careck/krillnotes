@@ -78,6 +78,23 @@ impl Workspace {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
+
+        // Authorize before opening any transaction.
+        let auth_op = Operation::CreateUserScript {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            script_id: String::new(),
+            name: String::new(),
+            description: String::new(),
+            source_code: source_code.to_string(),
+            load_order: 0,
+            enabled: true,
+            created_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -151,6 +168,23 @@ impl Workspace {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
+
+        // Authorize before opening any transaction.
+        let auth_op = Operation::UpdateUserScript {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            name: String::new(),
+            description: String::new(),
+            source_code: source_code.to_string(),
+            load_order: 0,
+            enabled: true,
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let fm = user_script::parse_front_matter(source_code);
         if fm.name.is_empty() {
             return Err(KrillnotesError::ValidationFailed(
@@ -243,6 +277,18 @@ impl Workspace {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
+
+        // Authorize before opening any transaction.
+        let auth_op = Operation::DeleteUserScript {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            deleted_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         // Capture old script state BEFORE deletion for undo.
         let old_script = self.get_user_script(script_id)?;
 
@@ -291,6 +337,23 @@ impl Workspace {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
+
+        // Authorize before opening any transaction.
+        let auth_op = Operation::UpdateUserScript {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            name: String::new(),
+            description: String::new(),
+            source_code: String::new(),
+            load_order: 0,
+            enabled,
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;
@@ -336,6 +399,23 @@ impl Workspace {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
+
+        // Authorize before opening any transaction.
+        let auth_op = Operation::UpdateUserScript {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            script_id: script_id.to_string(),
+            name: String::new(),
+            description: String::new(),
+            source_code: String::new(),
+            load_order: new_load_order,
+            enabled: true,
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;

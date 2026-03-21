@@ -1,0 +1,14 @@
+[package]
+name = "krillnotes-rbac"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+krillnotes-core = { path = "../krillnotes-core" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }

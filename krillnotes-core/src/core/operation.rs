@@ -282,6 +282,30 @@ pub enum Operation {
         /// Ed25519 signature over the canonical JSON payload (base64).
         signature: String,
     },
+    /// Remove a peer from the workspace entirely.
+    /// Root Owner only. Revokes all grants and cuts off sync.
+    RemovePeer {
+        operation_id: String,
+        timestamp: HlcTimestamp,
+        device_id: String,
+        /// Public key of the peer being removed.
+        user_id: String,
+        /// Public key of the Root Owner performing the removal.
+        removed_by: String,
+        signature: String,
+    },
+    /// Transfer root ownership to another peer.
+    /// Root Owner only. Recipient must be an existing peer.
+    TransferRootOwnership {
+        operation_id: String,
+        timestamp: HlcTimestamp,
+        device_id: String,
+        /// Public key of the new Root Owner.
+        new_owner: String,
+        /// Public key of the current (outgoing) Root Owner.
+        transferred_by: String,
+        signature: String,
+    },
 }
 
 impl Operation {
@@ -302,7 +326,9 @@ impl Operation {
             | Self::RetractOperation { operation_id, .. }
             | Self::SetPermission { operation_id, .. }
             | Self::RevokePermission { operation_id, .. }
-            | Self::JoinWorkspace { operation_id, .. } => operation_id,
+            | Self::JoinWorkspace { operation_id, .. }
+            | Self::RemovePeer { operation_id, .. }
+            | Self::TransferRootOwnership { operation_id, .. } => operation_id,
         }
     }
 
@@ -323,7 +349,9 @@ impl Operation {
             | Self::RetractOperation { timestamp, .. }
             | Self::SetPermission { timestamp, .. }
             | Self::RevokePermission { timestamp, .. }
-            | Self::JoinWorkspace { timestamp, .. } => *timestamp,
+            | Self::JoinWorkspace { timestamp, .. }
+            | Self::RemovePeer { timestamp, .. }
+            | Self::TransferRootOwnership { timestamp, .. } => *timestamp,
         }
     }
 
@@ -344,7 +372,9 @@ impl Operation {
             | Self::RetractOperation { device_id, .. }
             | Self::SetPermission { device_id, .. }
             | Self::RevokePermission { device_id, .. }
-            | Self::JoinWorkspace { device_id, .. } => device_id,
+            | Self::JoinWorkspace { device_id, .. }
+            | Self::RemovePeer { device_id, .. }
+            | Self::TransferRootOwnership { device_id, .. } => device_id,
         }
     }
 
@@ -368,6 +398,8 @@ impl Operation {
             Self::SetPermission { granted_by, .. } => granted_by,
             Self::RevokePermission { revoked_by, .. } => revoked_by,
             Self::JoinWorkspace { identity_public_key, .. } => identity_public_key,
+            Self::RemovePeer { removed_by, .. } => removed_by,
+            Self::TransferRootOwnership { transferred_by, .. } => transferred_by,
         }
     }
 
@@ -389,6 +421,8 @@ impl Operation {
             Self::SetPermission { granted_by, .. } => *granted_by = key,
             Self::RevokePermission { revoked_by, .. } => *revoked_by = key,
             Self::JoinWorkspace { identity_public_key, .. } => *identity_public_key = key,
+            Self::RemovePeer { removed_by, .. } => *removed_by = key,
+            Self::TransferRootOwnership { transferred_by, .. } => *transferred_by = key,
         }
     }
 
@@ -406,7 +440,9 @@ impl Operation {
             | Self::UpdateSchema { signature, .. }
             | Self::SetPermission { signature, .. }
             | Self::RevokePermission { signature, .. }
-            | Self::JoinWorkspace { signature, .. } => *signature = sig,
+            | Self::JoinWorkspace { signature, .. }
+            | Self::RemovePeer { signature, .. }
+            | Self::TransferRootOwnership { signature, .. } => *signature = sig,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -425,7 +461,9 @@ impl Operation {
             | Self::UpdateSchema { signature, .. }
             | Self::SetPermission { signature, .. }
             | Self::RevokePermission { signature, .. }
-            | Self::JoinWorkspace { signature, .. } => signature,
+            | Self::JoinWorkspace { signature, .. }
+            | Self::RemovePeer { signature, .. }
+            | Self::TransferRootOwnership { signature, .. } => signature,
             Self::RetractOperation { .. } => "",
         }
     }
