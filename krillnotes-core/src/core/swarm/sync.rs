@@ -259,6 +259,12 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
 
+    use crate::core::permission::{AllowAllGate, PermissionGate};
+
+    fn test_gate() -> Box<dyn PermissionGate> {
+        Box::new(AllowAllGate::new("test"))
+    }
+
     fn make_key() -> SigningKey {
         SigningKey::generate(&mut OsRng)
     }
@@ -281,7 +287,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -337,7 +343,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -388,7 +394,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let snap_op = alice_ws
@@ -431,7 +437,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -468,7 +474,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let snap_op = alice_ws
@@ -503,7 +509,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();
@@ -537,7 +543,7 @@ mod tests {
             "",
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
 
@@ -583,7 +589,7 @@ mod tests {
             "",
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
-            None,
+            test_gate(),
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();

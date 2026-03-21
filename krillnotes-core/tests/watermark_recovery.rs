@@ -24,10 +24,15 @@ use tempfile::NamedTempFile;
 use krillnotes_core::{
     core::{
         contact::{ContactManager, TrustLevel},
+        permission::{AllowAllGate, PermissionGate},
         swarm::sync::{apply_delta, generate_delta},
     },
     Workspace,
 };
+
+fn test_gate() -> Box<dyn PermissionGate> {
+    Box::new(AllowAllGate::new("test"))
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,7 +46,7 @@ fn b64_pubkey(key: &SigningKey) -> String {
 
 fn make_workspace(key: &SigningKey, identity_id: &str) -> (NamedTempFile, Workspace) {
     let tmp = NamedTempFile::new().expect("tempfile");
-    let ws = Workspace::create(tmp.path(), "", identity_id, SigningKey::from_bytes(&key.to_bytes()), None)
+    let ws = Workspace::create(tmp.path(), "", identity_id, SigningKey::from_bytes(&key.to_bytes()), test_gate())
         .expect("Workspace::create");
     (tmp, ws)
 }
@@ -241,7 +246,7 @@ fn ack_behind_watermark_resets_alice_watermark() {
         "bob-id",
         SigningKey::from_bytes(&bob_key.to_bytes()),
         alice_ws.workspace_id(),
-        None,
+        test_gate(),
     )
     .expect("bob create_with_id");
     bob_ws.set_owner_pubkey(&alice_pub).expect("set_owner_pubkey");
@@ -316,7 +321,7 @@ fn ack_unknown_op_resets_alice_watermark_to_none() {
         "bob-id",
         SigningKey::from_bytes(&bob_key.to_bytes()),
         alice_ws.workspace_id(),
-        None,
+        test_gate(),
     )
     .expect("bob create_with_id");
     bob_ws.set_owner_pubkey(&alice_pub).expect("set_owner_pubkey");
@@ -386,7 +391,7 @@ fn no_ack_in_delta_resets_alice_watermark_to_none() {
         "bob-id",
         SigningKey::from_bytes(&bob_key.to_bytes()),
         alice_ws.workspace_id(),
-        None,
+        test_gate(),
     )
     .expect("bob create_with_id");
     bob_ws.set_owner_pubkey(&alice_pub).expect("set_owner_pubkey");
