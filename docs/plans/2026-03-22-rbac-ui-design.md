@@ -194,27 +194,42 @@ Readers can only view notes — they cannot create, edit, or delete. The UI shou
 
 ## Section 4: Invite-to-Subtree and Post-Accept Onboarding
 
+### Who can invite
+
+**Any Owner of a subtree can invite peers to that subtree** — not just the root owner. If Alice is Owner on `/Projects/API`, she can:
+- Create invites scoped to `/Projects/API` (or any descendant she owns)
+- Receive acceptance responses for those invites
+- Onboard accepted peers (assign role + channel)
+- Send scoped snapshots containing only the subtree she owns
+
+The role cap applies: Alice can grant up to her own level (Owner), so she can create sub-owners, writers, or readers within her subtree.
+
 ### Key insight: scope is set at invite creation
 
-Invites are always created **from a specific note** (via context menu or Info section). The invite carries the subtree scope as metadata. This means:
+Invites are always created **from a specific note** (via context menu or Info section). The invite carries the subtree scope as metadata, along with the inviter's identity. This means:
 
 - The invite creation flow is scope-aware from the start
 - The post-accept dialog does NOT need a tree picker — scope is already known
 - Multiple people can accept the same unspecified invite; each triggers their own onboarding
+- The invite records which user created it (`inviter_pubkey`), so onboarding routes to the correct person — not necessarily the root owner
 
 ### Invite creation flow (revised)
 
-Context menu on a note → "Invite to this subtree..." opens the invite creation dialog:
+Context menu on a note → "Invite to this subtree..." opens the invite creation dialog (available to Owner+ on that node):
 
 1. **Scope** (read-only): the note you right-clicked
 2. **Recipient**: known contact (from identity contact manager) OR unspecified (for relay links / shared invite files)
 3. Standard invite creation (generates `.swarm` invite file or relay link)
 
+The invite file/link carries:
+- `scope_note_id`: the subtree being shared
+- `inviter_pubkey`: the identity of the person creating the invite (may not be root owner)
+
 The Invite Manager shows the subtree scope per invite in the invite list.
 
 ### Post-accept onboarding flow
 
-When a peer accepts an invite, they appear in the Invite Manager under a new state: **"Accepted — pending onboarding"**.
+When a peer accepts an invite, they appear in the Invite Manager under a new state: **"Accepted — pending onboarding"**. The acceptance is routed to the **inviter** (the person who created the invite), not necessarily the root owner.
 
 The Invite Manager lifecycle becomes:
 
@@ -228,13 +243,15 @@ Completed (onboarded, syncing)
 
 The inviter opens the Invite Manager, sees pending acceptances, clicks **[Onboard]** to open the grant dialog.
 
+**Visibility rule:** Each user's Invite Manager only shows invites they created and acceptances they need to onboard. The root owner does NOT see acceptances for invites created by subtree owners (unless they are the inviter). This keeps the Invite Manager scoped to what you can act on.
+
 ### Grant dialog (post-accept)
 
 Simplified dialog — no tree picker needed:
 
 1. **Peer card**: name, key fingerprint, trust level badge (identity just learned from acceptance)
 2. **Scope reminder** (read-only): "Invited to: /Projects/Backend API" (set at invite creation)
-3. **Role dropdown**: Owner / Writer / Reader (capped at inviter's role)
+3. **Role dropdown**: Owner / Writer / Reader (capped at the inviter's own role on that subtree)
 4. **Channel picker**: reused component from `WorkspacePeersDialog` — dropdown morphs between:
    - **Relay**: relay account selector (lists relays from your identity)
    - **Folder**: path display + Configure/Browse button
@@ -243,13 +260,13 @@ Simplified dialog — no tree picker needed:
 
 **"Later"** closes the dialog. The peer stays in "pending onboarding" state. No snapshot is sent.
 
-**"Grant & sync"** emits `SetPermission` + sends a snapshot scoped to the granted subtree via the selected channel.
+**"Grant & sync"** emits `SetPermission` (with the inviter as `granted_by`) + sends a snapshot scoped to the granted subtree via the selected channel.
 
 **"Reject"** removes the peer entirely.
 
 ### Snapshot scoping
 
-The snapshot sent after onboarding MUST be scoped to only include notes the peer can access based on their granted subtree. This is a backend concern but is critical for security — no data should flow before permissions are assigned.
+The snapshot sent after onboarding MUST be scoped to only include notes the peer can access based on their granted subtree. When a subtree owner sends a snapshot, it contains only the subtree they own — they cannot include notes outside their own access boundary. This is enforced at the backend level during snapshot generation.
 
 ## Section 5: Cascade Preview
 
