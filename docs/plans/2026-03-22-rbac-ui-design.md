@@ -8,7 +8,7 @@
 
 Add UI for managing RBAC permissions across the application. Users need to see their access level, share subtrees with peers, onboard newly-accepted peers with scoped permissions, and understand the impact of permission changes.
 
-The backend RBAC infrastructure is complete (PermissionGate trait, RbacGate implementation, 5 permission operation variants, authorization wired into 15 mutating methods). This spec covers the frontend surface.
+The backend RBAC infrastructure is complete (PermissionGate trait, RbacGate implementation, 5 permission operation variants, authorization wired into 15 mutating methods). This spec covers the frontend surface and identifies required backend changes.
 
 ## Design Principles
 
@@ -24,6 +24,51 @@ The backend RBAC infrastructure is complete (PermissionGate trait, RbacGate impl
 - Any Owner on a subtree can grant roles up to their own level within that subtree
 - Grants are anchored at a specific note and inherited by all descendants
 - The resolver walks up the tree to find the nearest explicit grant (default-deny if none found)
+
+## Backend Changes Required
+
+This UI spec depends on backend changes that must be implemented before or alongside the frontend work.
+
+### Critical: Refactor cascade_revoke to be opt-in
+
+The current `cascade_revoke` in `gate.rs:114-146` runs automatically inside `apply_permission_op` for every `SetPermission`, `RevokePermission`, and `RemovePeer` operation. This contradicts the spec's core design principle of opt-in cascade.
+
+**Required change:** Split cascade into two operations:
+1. A read-only `preview_cascade(conn, user_id, note_id, new_role)` method that computes which downstream grants would become invalid, without modifying anything.
+2. Remove the automatic `cascade_revoke` call from `apply_permission_op`. Instead, the UI layer explicitly issues individual `RevokePermission` operations for each downstream grant the user selects in the cascade preview dialog.
+
+### Critical: MoveNote must check destination scope
+
+`resolve_scope` for `MoveNote` in `gate.rs:40` only checks the source `note_id`, not `new_parent_id`. A Writer on subtree A could move a note into subtree B where they have no access. The gate must authorize against both source and destination scopes. The UI should also filter drag-drop targets to only valid destinations.
+
+### Critical: New query methods on Workspace / RbacGate
+
+The UI requires permission query methods that do not yet exist:
+
+| Method | Purpose | Implementation |
+|--------|---------|----------------|
+| `get_note_permissions(note_id)` | Explicit grants anchored at this node | `SELECT * FROM note_permissions WHERE note_id = ?` joined with peer/contact display names |
+| `get_effective_role(note_id, user_id)` | Resolved role + anchor info | Extended `resolve_role` that also returns the anchor `note_id`, `granted_by`, and note title. Must special-case root owner (return `"root_owner"` via pubkey comparison, not resolver) |
+| `get_inherited_permissions(note_id)` | Grants inherited from ancestors | Walk parent chain, collecting grants from each ancestor with their anchor node info |
+| `get_all_effective_roles(user_id)` | Batch query for tree dots | Single-pass computation of effective role for all visible notes, avoiding O(N × D) individual queries. Required for tree dot performance with 1000+ notes |
+| `preview_cascade(note_id, user_id, new_role)` | Impact preview for demotion/revocation | Read-only query: find all grants where `granted_by = user_id` and the new role would not satisfy the `require_at_least(Owner)` check |
+
+### Important: Add scope to invite infrastructure
+
+The invite-to-subtree flow requires adding a `scope_note_id: Option<String>` field to:
+- `InviteRecord` in `invite.rs`
+- `InviteFile` (wire format)
+- `ReceivedResponse` in `received_response.rs`
+
+This is a wire format change and must be backward-compatible (use `#[serde(default)]`).
+
+### Important: Add "pending onboarding" state to ReceivedResponseStatus
+
+The current `ReceivedResponseStatus` enum has: `Pending`, `PeerAdded`, `SnapshotSent`. The new state "accepted — pending onboarding" maps to the gap between `PeerAdded` and `SnapshotSent`. Add a new variant `PermissionPending` that represents "peer accepted, awaiting permission grant before snapshot."
+
+### Important: Note deletion must clean up anchored grants
+
+When a note with `SetPermission` grants anchored to it is deleted, the `note_permissions` rows become orphaned (no FK cascade in `schema.sql`). The `delete_note_recursive` and `delete_note_promote` methods must clean up `note_permissions` rows for deleted notes. The UI should show a warning if deleting a note that has permission grants anchored to it: "This note has permissions shared with N peers. Deleting it will revoke their access to this subtree."
 
 ## Section 1: Tree Indicators
 
@@ -129,9 +174,21 @@ Opened from:
 
 Emits a `SetPermission` operation. Grant appears immediately in the Info section's "Shared with" list.
 
+### Peer filtering
+
+The "7 of 14 peers" display requires combining `list_workspace_peers` (existing) with `get_note_permissions` (new) to filter out peers who already have an explicit grant at this node. This filtering is done client-side to avoid a dedicated Tauri command.
+
 ### Context menu integration
 
-Add "Share subtree..." to the existing context menu in `ContextMenu.tsx`. Only visible when the current user has Owner role on the right-clicked node.
+Add "Share subtree..." to the existing context menu in `ContextMenu.tsx`. Only visible when the current user has Owner role on the right-clicked node. `ContextMenu` will need a new prop (e.g., `effectiveRole: EffectiveRole | null`) to conditionally render permission-related entries.
+
+### Role-aware UI disabling
+
+Readers can only view notes — they cannot create, edit, or delete. The UI should disable or hide irrelevant actions based on the effective role:
+
+- **Reader**: hide "Add Child", "Add Sibling", "Edit", "Delete" in context menu. Disable edit mode in InfoPanel. Hide "Share subtree..." (not Owner).
+- **Writer**: show create/edit actions. Hide "Share subtree..." (not Owner). Disable delete/move on notes not authored by them (backend enforces this, but UI should prevent the attempt).
+- **Owner**: full context menu. Show "Share subtree..." and "Invite to this subtree...".
 
 ## Section 4: Invite-to-Subtree and Post-Accept Onboarding
 
@@ -250,13 +307,16 @@ If the revoked peer has NOT granted access to anyone else, the cascade preview i
 
 ```typescript
 interface PermissionGrant {
-  noteId: string;
-  userId: string;
+  noteId: string | null;     // null for workspace-level grants (e.g., TransferRootOwnership)
+  userId: string;            // base64 Ed25519 public key
   role: "owner" | "writer" | "reader";
-  grantedBy: string;
-  displayName: string;       // resolved from peer/contact info
+  grantedBy: string;         // base64 Ed25519 public key
+  displayName: string;       // resolved by Tauri command from peer registry / contact book
+  grantedByName: string;     // resolved display name of granter
 }
 
+// Note: "root_owner" is not a backend Role enum value — it is synthesized by the
+// Tauri command when actor == owner_pubkey (bypasses resolver entirely).
 interface EffectiveRole {
   role: "owner" | "writer" | "reader" | "root_owner";
   inheritedFrom: string | null;  // note_id of anchor, null if anchored here or root owner
@@ -282,6 +342,10 @@ interface PendingAcceptance {
 }
 ```
 
+### Display name resolution
+
+`PermissionGrant.displayName` and `grantedByName` are resolved server-side by the Tauri command. The `note_permissions` table stores only public keys (`user_id`, `granted_by`). The command joins against the peer registry and contact book to resolve display names. If no name is found, falls back to the first 8 characters of the base64 key.
+
 ## Components to Create or Modify
 
 ### New components
@@ -301,7 +365,7 @@ interface PendingAcceptance {
 |-----------|---------|
 | `TreeNode.tsx` | Add PermissionDot + ShareAnchorIcon, ghost ancestor styling |
 | `InfoPanel.tsx` (Info section) | Add "Your role", "Shared with" / "Access from parent grants", "+ Share" button |
-| `ContextMenu.tsx` | Add "Share subtree..." and "Invite to this subtree..." entries (Owner+ only) |
+| `ContextMenu.tsx` | Add "Share subtree..." and "Invite to this subtree..." entries (Owner+ only). New `effectiveRole` prop for conditional rendering. Role-aware disabling of create/edit/delete actions for Readers/Writers. |
 | `WorkspaceView.tsx` | Wire new dialogs, fetch permission state |
 | `InviteManagerDialog.tsx` | Add "Accepted — pending onboarding" state, [Onboard] / [Reject] buttons |
 | `WorkspacePeersDialog.tsx` | Extract channel picker into shared component |
