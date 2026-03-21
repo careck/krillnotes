@@ -50,6 +50,7 @@ pub struct ChannelPreference {
 // ---------------------------------------------------------------------------
 
 pub struct InviteParams<'a> {
+    pub protocol: String,
     pub workspace_id: String,
     pub workspace_name: String,
     pub source_device_id: String,
@@ -90,6 +91,7 @@ pub fn create_invite_bundle(params: InviteParams<'_>) -> Result<Vec<u8>> {
     let pairing_token = BASE64.encode(token_bytes);
 
     let header = SwarmHeader {
+        protocol: params.protocol.clone(),
         format_version: 1,
         mode: SwarmMode::Invite,
         workspace_id: params.workspace_id.clone(),
@@ -201,6 +203,7 @@ pub fn parse_invite_bundle(data: &[u8]) -> Result<ParsedInvite> {
 // ---------------------------------------------------------------------------
 
 pub struct AcceptParams<'a> {
+    pub protocol: String,
     pub workspace_id: String,
     pub workspace_name: String,
     pub source_device_id: String,
@@ -228,6 +231,7 @@ pub fn create_accept_bundle(params: AcceptParams<'_>) -> Result<Vec<u8>> {
     let fingerprint = crate::core::contact::generate_fingerprint(&pubkey_b64)?;
 
     let header = SwarmHeader {
+        protocol: params.protocol,
         format_version: 1,
         mode: SwarmMode::Accept,
         workspace_id: params.workspace_id,
@@ -352,6 +356,7 @@ mod tests {
     fn test_invite_roundtrip() {
         let inviter_key = make_key();
         let bundle = create_invite_bundle(InviteParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "My WS".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -374,6 +379,7 @@ mod tests {
     fn test_accept_roundtrip() {
         let inviter_key = make_key();
         let invite = create_invite_bundle(InviteParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "My WS".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -389,6 +395,7 @@ mod tests {
         let parsed_invite = parse_invite_bundle(&invite).unwrap();
         let acceptor_key = make_key();
         let accept_bundle = create_accept_bundle(AcceptParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "My WS".to_string(),
             source_device_id: "dev-2".to_string(),
@@ -408,6 +415,7 @@ mod tests {
     fn test_invite_signature_tamper_detected() {
         let inviter_key = make_key();
         let mut bundle = create_invite_bundle(InviteParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "My WS".to_string(),
             source_device_id: "dev-1".to_string(),

@@ -105,6 +105,7 @@ pub fn generate_delta(
     let last_included_op = ops.last().map(|op| op.operation_id().to_string());
 
     let bundle_bytes = create_delta_bundle(DeltaParams {
+        protocol: workspace.protocol_id().to_string(),
         workspace_id: workspace.workspace_id().to_string(),
         workspace_name: workspace_name.to_string(),
         source_device_id,

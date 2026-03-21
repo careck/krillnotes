@@ -23,6 +23,7 @@ use crate::core::swarm::signature::{sign_manifest, verify_manifest};
 use crate::{KrillnotesError, Result};
 
 pub struct DeltaParams<'a> {
+    pub protocol: String,
     pub workspace_id: String,
     pub workspace_name: String,
     pub source_device_id: String,
@@ -66,6 +67,7 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
     }
 
     let header = SwarmHeader {
+        protocol: params.protocol,
         format_version: 1,
         mode: SwarmMode::Delta,
         workspace_id: params.workspace_id,
@@ -199,6 +201,7 @@ mod tests {
         let ops = vec![dummy_op("op-1"), dummy_op("op-2")];
 
         let bundle = create_delta_bundle(DeltaParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -226,6 +229,7 @@ mod tests {
         let recipient_key = make_key();
 
         let bundle = create_delta_bundle(DeltaParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),

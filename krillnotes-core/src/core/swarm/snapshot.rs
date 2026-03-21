@@ -21,6 +21,7 @@ use crate::core::swarm::signature::{sign_manifest, verify_manifest};
 use crate::{KrillnotesError, Result};
 
 pub struct SnapshotParams<'a> {
+    pub protocol: String,
     pub workspace_id: String,
     pub workspace_name: String,
     pub source_device_id: String,
@@ -80,6 +81,7 @@ pub fn create_snapshot_bundle(params: SnapshotParams<'_>) -> Result<Vec<u8>> {
     let has_attachments = !att_entries.is_empty();
 
     let header = SwarmHeader {
+        protocol: params.protocol,
         format_version: 1,
         mode: SwarmMode::Snapshot,
         workspace_id: params.workspace_id,
@@ -225,6 +227,7 @@ mod tests {
         let payload = b"workspace json here";
         let workspace_id = "ws-1".to_string();
         let bundle = create_snapshot_bundle(SnapshotParams {
+            protocol: "test".to_string(),
             workspace_id: workspace_id.clone(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -252,6 +255,7 @@ mod tests {
         let wrong_key = make_key();
 
         let bundle = create_snapshot_bundle(SnapshotParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -277,6 +281,7 @@ mod tests {
         let att_blob = b"raw attachment bytes here";
 
         let bundle = create_snapshot_bundle(SnapshotParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test WS".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -303,6 +308,7 @@ mod tests {
         let sender_key = make_key();
         let recipient_key = make_key();
         let bundle = create_snapshot_bundle(SnapshotParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Test".to_string(),
             source_device_id: "dev-1".to_string(),
@@ -330,6 +336,7 @@ mod tests {
             ("att-3".to_string(), b"blob three".to_vec()),
         ];
         let bundle = create_snapshot_bundle(SnapshotParams {
+            protocol: "test".to_string(),
             workspace_id: "ws-1".to_string(),
             workspace_name: "Multi".to_string(),
             source_device_id: "dev-1".to_string(),

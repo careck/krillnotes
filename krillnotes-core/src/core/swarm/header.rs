@@ -37,6 +37,9 @@ pub struct RecipientEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwarmHeader {
+    /// Protocol discriminator: "krillnotes/1" for RBAC, "opswarm/1" for ACL.
+    /// Must match the receiving workspace's gate. Checked before decryption.
+    pub protocol: String,
     pub format_version: u32,
     pub mode: SwarmMode,
     pub workspace_id: String,
@@ -152,6 +155,7 @@ mod tests {
 
     fn sample_header(mode: SwarmMode) -> SwarmHeader {
         SwarmHeader {
+            protocol: "test".to_string(),
             format_version: 1,
             mode,
             workspace_id: "ws-uuid".to_string(),
