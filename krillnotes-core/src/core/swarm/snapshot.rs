@@ -39,6 +39,8 @@ pub struct SnapshotParams<'a> {
 }
 
 pub struct ParsedSnapshot {
+    /// Protocol extracted from the encrypted payload (tamper-proof).
+    pub protocol: String,
     pub workspace_id: String,
     pub workspace_name: String,
     pub as_of_operation_id: String,
@@ -55,8 +57,9 @@ pub fn create_snapshot_bundle(params: SnapshotParams<'_>) -> Result<Vec<u8>> {
     let vk = params.sender_key.verifying_key();
     let pubkey_b64 = BASE64.encode(vk.as_bytes());
 
+    let prefixed = super::header::prefix_protocol(&params.protocol, &params.workspace_json);
     let (ciphertext, sym_key, mut entries) =
-        encrypt_for_recipients_with_key(&params.workspace_json, &params.recipient_keys)?;
+        encrypt_for_recipients_with_key(&prefixed, &params.recipient_keys)?;
 
     // Replace placeholder peer_ids with real ones.
     for (entry, peer_id) in entries.iter_mut().zip(params.recipient_peer_ids.iter()) {
@@ -177,9 +180,12 @@ pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<
             break;
         }
     }
-    let workspace_json = plaintext
+    let decrypted = plaintext
         .ok_or_else(|| KrillnotesError::Swarm("no recipient entry matched our key".to_string()))?;
     let sym_key = sym_key_found.expect("sym_key is set iff plaintext decryption succeeded");
+
+    // Strip the protocol tag embedded before encryption.
+    let (protocol, workspace_json) = super::header::strip_protocol(&decrypted)?;
 
     // Decrypt attachment blobs — entries named "attachments/<id>.enc"
     let mut attachment_blobs = Vec::new();
@@ -200,6 +206,7 @@ pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<
     }
 
     Ok(ParsedSnapshot {
+        protocol,
         workspace_id: header.workspace_id,
         workspace_name: header.workspace_name,
         as_of_operation_id: header.as_of_operation_id.unwrap_or_default(),

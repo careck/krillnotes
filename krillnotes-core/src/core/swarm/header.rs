@@ -134,6 +134,43 @@ pub fn read_header(data: &[u8]) -> Result<SwarmHeader> {
     Ok(header)
 }
 
+/// Prepend a protocol tag to a plaintext payload before encryption.
+///
+/// Wire format: `[4-byte LE u32: protocol length][protocol UTF-8 bytes][original payload]`
+///
+/// The protocol is embedded inside the encrypted envelope so it cannot
+/// be tampered with independently of the cleartext `header.json`.
+pub(crate) fn prefix_protocol(protocol: &str, payload: &[u8]) -> Vec<u8> {
+    let pb = protocol.as_bytes();
+    let mut buf = Vec::with_capacity(4 + pb.len() + payload.len());
+    buf.extend_from_slice(&(pb.len() as u32).to_le_bytes());
+    buf.extend_from_slice(pb);
+    buf.extend_from_slice(payload);
+    buf
+}
+
+/// Strip the protocol tag from a decrypted payload.
+///
+/// Returns `(protocol, original_payload)`.
+pub(crate) fn strip_protocol(data: &[u8]) -> Result<(String, Vec<u8>)> {
+    if data.len() < 4 {
+        return Err(KrillnotesError::Swarm(
+            "encrypted payload too short for protocol prefix".into(),
+        ));
+    }
+    let len = u32::from_le_bytes(data[..4].try_into().unwrap()) as usize;
+    if data.len() < 4 + len {
+        return Err(KrillnotesError::Swarm(
+            "encrypted payload truncated in protocol prefix".into(),
+        ));
+    }
+    let protocol = std::str::from_utf8(&data[4..4 + len])
+        .map_err(|e| KrillnotesError::Swarm(format!("protocol prefix not UTF-8: {e}")))?
+        .to_string();
+    let payload = data[4 + len..].to_vec();
+    Ok((protocol, payload))
+}
+
 /// serde helper: serialize Vec<u8> as base64 string.
 mod base64_bytes {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine};

@@ -160,6 +160,20 @@ pub fn apply_delta(
     // 1. Decrypt and verify bundle-level signature.
     let parsed = parse_delta_bundle(bundle_bytes, recipient_key)?;
 
+    // 1b. Authoritative protocol check — the encrypted protocol cannot be
+    // tampered with (unlike the cleartext header).
+    if parsed.protocol != workspace.protocol_id() {
+        log::error!(
+            "Rejecting delta: encrypted protocol mismatch (expected '{}', found '{}')",
+            workspace.protocol_id(),
+            parsed.protocol,
+        );
+        return Err(KrillnotesError::ProtocolMismatch {
+            expected: workspace.protocol_id().to_string(),
+            found: parsed.protocol,
+        });
+    }
+
     // 2. Assert workspace_id matches.
     if parsed.workspace_id != workspace.workspace_id() {
         return Err(KrillnotesError::Swarm(format!(
