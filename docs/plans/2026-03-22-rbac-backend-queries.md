@@ -657,6 +657,8 @@ git commit -m "feat(rbac): add get_all_effective_roles batch query for tree dots
 - [ ] **Step 1: Write failing test**
 
 ```rust
+use crate::queries::CascadeImpactRow;
+
 #[test]
 fn test_preview_cascade_shows_invalidated_grants() {
     let (conn, _gate) = setup_workspace_with_gate("root_pubkey");
@@ -676,11 +678,13 @@ fn test_preview_cascade_shows_invalidated_grants() {
         rusqlite::params!["note-1", "carol_key", "reader", "alice_key"],
     ).unwrap();
 
-    // Preview: demote alice to reader — she can no longer grant anything
-    let impact = queries::preview_cascade(&conn, "alice_key").unwrap();
+    // Preview: demote alice to reader on note-1
+    let impact = queries::preview_cascade(&conn, "note-1", "alice_key", "reader").unwrap();
     assert_eq!(impact.len(), 2); // bob and carol both affected
-    assert!(impact.iter().any(|g| g.user_id == "bob_key"));
-    assert!(impact.iter().any(|g| g.user_id == "carol_key"));
+    assert!(impact.iter().any(|g| g.grant.user_id == "bob_key"));
+    assert!(impact.iter().any(|g| g.grant.user_id == "carol_key"));
+    // Reason should explain why
+    assert!(impact[0].reason.contains("cannot grant"));
 }
 
 #[test]
@@ -694,7 +698,7 @@ fn test_preview_cascade_no_downstream_grants() {
     ).unwrap();
 
     // Alice has no downstream grants
-    let impact = queries::preview_cascade(&conn, "alice_key").unwrap();
+    let impact = queries::preview_cascade(&conn, "note-1", "alice_key", "reader").unwrap();
     assert!(impact.is_empty());
 }
 ```
@@ -708,15 +712,36 @@ Run: `cargo test -p krillnotes-rbac test_preview_cascade`
 Add to `queries.rs`:
 
 ```rust
-/// Returns all grants issued by `user_id` that would become invalid
-/// if their role were changed. Since only Owners can grant, ANY demotion
-/// from Owner invalidates all grants they issued.
+/// A grant that would be invalidated by a cascade, with explanation.
+#[derive(Debug, Clone)]
+pub struct CascadeImpactRow {
+    pub grant: PermissionGrantRow,
+    pub reason: String,
+}
+
+/// Preview which downstream grants would become invalid if `user_id`
+/// were changed to `new_role` on `note_id`.
+///
+/// Matches the spec signature: `preview_cascade(note_id, user_id, new_role)`.
+/// For each grant where `granted_by = user_id`, checks whether the
+/// new role would still satisfy `require_at_least(Owner)` for granting.
 ///
 /// This is a read-only preview — no data is modified.
 pub fn preview_cascade(
     conn: &Connection,
+    note_id: &str,
     user_id: &str,
-) -> Result<Vec<PermissionGrantRow>, rusqlite::Error> {
+    new_role: &str,
+) -> Result<Vec<CascadeImpactRow>, rusqlite::Error> {
+    let new_role_parsed = Role::from_str(new_role);
+    let can_still_grant = matches!(new_role_parsed, Some(Role::Owner));
+
+    // If the user would still be Owner, no grants are invalidated
+    if can_still_grant {
+        return Ok(Vec::new());
+    }
+
+    // Find all grants issued by this user
     let mut stmt = conn.prepare(
         "SELECT note_id, user_id, role, granted_by FROM note_permissions WHERE granted_by = ?1",
     )?;
@@ -730,11 +755,23 @@ pub fn preview_cascade(
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
+
+    let reason = format!(
+        "no longer Owner — cannot grant any role (demoted to {})",
+        new_role
+    );
+
+    Ok(rows
+        .into_iter()
+        .map(|grant| CascadeImpactRow {
+            grant,
+            reason: reason.clone(),
+        })
+        .collect())
 }
 ```
 
-Note: Since only Owners can grant (`require_at_least(role, Role::Owner)` in gate.rs:87), any demotion from Owner means ALL downstream grants become invalid. We return all grants issued by this user — the UI decides which to actually revoke.
+Note: Since only Owners can grant (`require_at_least(role, Role::Owner)` in gate.rs:87), any demotion from Owner means ALL downstream grants become invalid. The `reason` field provides the explanation for the cascade preview dialog.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -769,15 +806,23 @@ The `cascade_revoke` method itself stays (it's used by the `cascade_revoke_publi
 
 - [ ] **Step 2: Update tests that expected auto-cascade behavior**
 
-In `gate_tests.rs` and `integration_tests.rs`, find tests that assert on cascade behavior (e.g., `test_cascade_revocation_end_to_end`). Update them to verify that downstream grants are **NOT** automatically revoked. The grants should still exist after a demotion.
+These specific tests assert on automatic cascade and need updating:
+
+- `integration_tests.rs`: `test_cascade_revocation_end_to_end` (line ~181) — currently asserts downstream grants are deleted after revocation. Change to assert they are **preserved**.
+- `gate_tests.rs`: any test calling `cascade_revoke_public()` directly — these test the cascade method itself and can stay, but tests that call `apply_permission_op` and then assert on cascade side-effects must be updated.
+
+Search for all assertions on `note_permissions` after `apply_permission_op` calls — those are the tests that need updating.
 
 For example, `test_cascade_revocation_end_to_end` should now verify:
 
 ```rust
 // After revoking alice, bob's grant (issued by alice) should STILL exist
 // (opt-in cascade — UI decides, not the backend)
-let bob_grants = queries::get_note_permissions(&conn, "note-1").unwrap();
-assert!(bob_grants.iter().any(|g| g.user_id == "bob_key"));
+let count: i64 = conn.query_row(
+    "SELECT COUNT(*) FROM note_permissions WHERE user_id = 'bob_key'",
+    [], |row| row.get(0),
+).unwrap();
+assert_eq!(count, 1, "downstream grant should be preserved (opt-in cascade)");
 ```
 
 - [ ] **Step 3: Run all rbac tests**
@@ -1049,14 +1094,19 @@ impl Workspace {
         Ok(roles)
     }
 
-    /// Preview which downstream grants would be invalidated if `user_id` is demoted.
+    /// Preview which downstream grants would be invalidated if `user_id`
+    /// were changed to `new_role` on `note_id`.
     pub fn preview_cascade(
         &self,
+        note_id: &str,
         user_id: &str,
-    ) -> Result<Vec<krillnotes_rbac::queries::PermissionGrantRow>> {
+        new_role: &str,
+    ) -> Result<Vec<krillnotes_rbac::queries::CascadeImpactRow>> {
         let impact = krillnotes_rbac::queries::preview_cascade(
             self.storage.connection(),
+            note_id,
             user_id,
+            new_role,
         )?;
         Ok(impact)
     }
@@ -1130,8 +1180,15 @@ pub struct EffectiveRole {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CascadeImpactItem {
+    pub grant: PermissionGrant,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CascadeImpact {
-    pub affected_grants: Vec<PermissionGrant>,
+    pub affected_grants: Vec<CascadeImpactItem>,
 }
 
 #[tauri::command]
@@ -1205,28 +1262,34 @@ pub async fn get_inherited_permissions(
 pub async fn preview_cascade(
     window: Window,
     state: State<'_, AppState>,
+    note_id: String,
     user_id: String,
+    new_role: String,
 ) -> Result<CascadeImpact, String> {
     let workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
     let ws = workspaces.get(window.label()).ok_or("No workspace")?;
-    let grants = ws.preview_cascade(&user_id).map_err(|e| e.to_string())?;
+    let impact = ws.preview_cascade(&note_id, &user_id, &new_role).map_err(|e| e.to_string())?;
     Ok(CascadeImpact {
-        affected_grants: grants.into_iter().map(|g| PermissionGrant {
-            note_id: Some(g.note_id),
-            user_id: g.user_id.clone(),
-            role: g.role,
-            granted_by: g.granted_by.clone(),
-            display_name: resolve_display_name(&g.user_id),
-            granted_by_name: resolve_display_name(&g.granted_by),
+        affected_grants: impact.into_iter().map(|row| CascadeImpactItem {
+            grant: PermissionGrant {
+                note_id: Some(row.grant.note_id),
+                user_id: row.grant.user_id.clone(),
+                role: row.grant.role,
+                granted_by: row.grant.granted_by.clone(),
+                display_name: resolve_display_name(&row.grant.user_id),
+                granted_by_name: resolve_display_name(&row.grant.granted_by),
+            },
+            reason: row.reason,
         }).collect(),
     })
 }
 
-/// Fallback display name: first 8 chars of base64 key.
+/// Fallback display name: first 8 characters of base64 key.
 /// TODO: In Plan B/C, enhance to resolve from peer registry + contact book.
 fn resolve_display_name(pubkey: &str) -> String {
+    let prefix: String = pubkey.chars().take(8).collect();
     if pubkey.len() > 8 {
-        format!("{}...", &pubkey[..8])
+        format!("{}...", prefix)
     } else {
         pubkey.to_string()
     }
@@ -1273,8 +1336,13 @@ export interface EffectiveRole {
   grantedByName: string | null;
 }
 
+export interface CascadeImpactItem {
+  grant: PermissionGrant;
+  reason: string;
+}
+
 export interface CascadeImpact {
-  affectedGrants: PermissionGrant[];
+  affectedGrants: CascadeImpactItem[];
 }
 ```
 
@@ -1304,7 +1372,144 @@ git commit -m "feat(desktop): add Tauri permission commands and TS types"
 
 ---
 
-### Task 11: Run full test suite and verify
+### Task 11: Add `set_permission` and `revoke_permission` Tauri commands
+
+These mutation commands are needed by Plan B (Share Dialog, cascade preview "Demote & revoke selected").
+
+**Files:**
+- Modify: `krillnotes-desktop/src-tauri/src/commands/permissions.rs`
+- Modify: `krillnotes-desktop/src-tauri/src/lib.rs`
+
+- [ ] **Step 1: Add `set_permission` Tauri command**
+
+Add to `commands/permissions.rs`. This creates a `SetPermission` operation, authorizes it via the gate, applies it, and logs it:
+
+```rust
+#[tauri::command]
+pub async fn set_permission(
+    window: Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    user_id: String,
+    role: String,
+) -> Result<(), String> {
+    let mut workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
+    let ws = workspaces.get_mut(window.label()).ok_or("No workspace")?;
+    ws.set_permission(&note_id, &user_id, &role).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn revoke_permission(
+    window: Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    user_id: String,
+) -> Result<(), String> {
+    let mut workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
+    let ws = workspaces.get_mut(window.label()).ok_or("No workspace")?;
+    ws.revoke_permission(&note_id, &user_id).map_err(|e| e.to_string())
+}
+```
+
+- [ ] **Step 2: Add `set_permission` and `revoke_permission` to workspace `permissions.rs`**
+
+These methods create the Operation, authorize, apply via gate, and log:
+
+```rust
+use crate::core::operation::Operation;
+
+impl Workspace {
+    /// Grant `role` to `user_id` on the subtree rooted at `note_id`.
+    pub fn set_permission(
+        &mut self,
+        note_id: &str,
+        user_id: &str,
+        role: &str,
+    ) -> Result<()> {
+        let op = Operation::SetPermission {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: self.hlc.now(),
+            device_id: self.device_id.clone(),
+            note_id: Some(note_id.to_string()),
+            user_id: user_id.to_string(),
+            role: role.to_string(),
+            granted_by: self.current_identity_pubkey.clone(),
+            signature: String::new(), // signed below
+        };
+        self.authorize(&op)?;
+        let tx = self.storage.connection_mut().transaction()?;
+        Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
+        let signed_op = self.sign_operation(op)?;
+        Self::log_op(&tx, &signed_op, &self.hlc)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Revoke the grant for `user_id` on `note_id`.
+    pub fn revoke_permission(
+        &mut self,
+        note_id: &str,
+        user_id: &str,
+    ) -> Result<()> {
+        let op = Operation::RevokePermission {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: self.hlc.now(),
+            device_id: self.device_id.clone(),
+            note_id: Some(note_id.to_string()),
+            user_id: user_id.to_string(),
+            revoked_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&op)?;
+        let tx = self.storage.connection_mut().transaction()?;
+        Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
+        let signed_op = self.sign_operation(op)?;
+        Self::log_op(&tx, &signed_op, &self.hlc)?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+```
+
+Note: Check how existing mutation methods (e.g., `create_note` in `notes.rs`) handle signing and logging. Follow the exact same pattern — the code above is a sketch; adjust field access and method calls to match established patterns.
+
+- [ ] **Step 3: Register commands in `generate_handler![]`**
+
+Add to `lib.rs`:
+
+```rust
+commands::permissions::set_permission,
+commands::permissions::revoke_permission,
+```
+
+- [ ] **Step 4: Run tests**
+
+Run: `cargo test --workspace`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add krillnotes-desktop/src-tauri/src/commands/permissions.rs \
+       krillnotes-desktop/src-tauri/src/lib.rs \
+       krillnotes-core/src/core/workspace/permissions.rs
+git commit -m "feat(desktop): add set_permission and revoke_permission Tauri commands"
+```
+
+---
+
+## Deferred to Plan C: Invite-to-Subtree Backend Changes
+
+The following spec items are NOT covered in this plan because they are specific to the invite-to-subtree flow (Plan C):
+
+- `scope_note_id: Option<String>` on `InviteRecord`, `InviteFile`, `ReceivedResponse` (spec lines 60-63)
+- `PermissionPending` variant on `ReceivedResponseStatus` (spec lines 67-69)
+- `list_pending_acceptances`, `onboard_peer`, `reject_accepted_peer` Tauri commands (spec lines 326-328)
+
+These are wire-format changes to the invite infrastructure and should be implemented alongside the `OnboardPeerDialog` and `InviteManagerDialog` UI work in Plan C.
+
+---
+
+### Task 12: Run full test suite and verify
 
 - [ ] **Step 1: Run all Rust tests**
 
