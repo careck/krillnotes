@@ -12,13 +12,13 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use krillnotes_core::{Ed25519SigningKey, KrillnotesError, Workspace};
 #[cfg(feature = "rbac")]
-fn create_permission_gate(owner_pubkey: String) -> Option<Box<dyn krillnotes_core::PermissionGate>> {
-    Some(Box::new(krillnotes_rbac::RbacGate::new(owner_pubkey)))
+pub(crate) fn create_permission_gate(owner_pubkey: String) -> Box<dyn krillnotes_core::PermissionGate> {
+    Box::new(krillnotes_rbac::RbacGate::new(owner_pubkey))
 }
 
 #[cfg(not(feature = "rbac"))]
-fn create_permission_gate(_owner_pubkey: String) -> Option<Box<dyn krillnotes_core::PermissionGate>> {
-    None
+pub(crate) fn create_permission_gate(_owner_pubkey: String) -> Box<dyn krillnotes_core::PermissionGate> {
+    Box::new(krillnotes_core::AllowAllGate::new("krillnotes/1"))
 }
 
 // ── WorkspaceInfo ─────────────────────────────────────────────────
