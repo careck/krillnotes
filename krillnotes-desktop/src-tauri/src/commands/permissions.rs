@@ -118,6 +118,46 @@ pub fn preview_cascade(
         })
 }
 
+/// Returns note IDs that have at least one explicit permission grant anchored to them.
+#[tauri::command]
+pub fn get_share_anchor_ids(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<String>, String> {
+    let label = window.label();
+    state
+        .workspaces
+        .lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .get_share_anchor_ids()
+        .map_err(|e| {
+            log::error!("get_share_anchor_ids failed: {e}");
+            e.to_string()
+        })
+}
+
+/// Returns true if the current actor is the workspace root owner.
+#[tauri::command]
+pub fn is_root_owner(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<bool, String> {
+    let label = window.label();
+    state
+        .workspaces
+        .lock()
+        .expect("Mutex poisoned")
+        .get(label)
+        .ok_or("No workspace open")?
+        .is_root_owner()
+        .map_err(|e| {
+            log::error!("is_root_owner failed: {e}");
+            e.to_string()
+        })
+}
+
 // ── Mutation commands ───────────────────────────────────────────────
 
 /// Grants or updates a permission for `user_id` on `note_id` with the

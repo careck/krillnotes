@@ -417,6 +417,27 @@ impl Workspace {
         Ok(())
     }
 
+    /// Returns note IDs that have at least one explicit permission grant anchored to them.
+    /// Used by the tree to show share anchor icons.
+    pub fn get_share_anchor_ids(&self) -> Result<Vec<String>> {
+        let conn = self.connection();
+        let mut stmt = match conn.prepare(
+            "SELECT DISTINCT note_id FROM note_permissions WHERE note_id IS NOT NULL"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Ok(vec![]),  // table may not exist if RBAC not enabled
+        };
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(ids)
+    }
+
+    /// Returns true if the current actor is the workspace root owner.
+    pub fn is_root_owner(&self) -> Result<bool> {
+        Ok(self.identity_pubkey() == self.owner_pubkey())
+    }
+
     /// Preview which downstream grants would be invalidated if `user_id`
     /// were changed to `new_role` on `note_id`.
     ///
@@ -495,8 +516,43 @@ impl Workspace {
             return Ok(None);
         }
 
+        let conn = self.connection();
+        let actor = self.identity_pubkey();
+
         let roles = self.get_all_effective_roles()?;
-        Ok(Some(roles.into_keys().collect()))
+        let mut visible: std::collections::HashSet<String> = roles.into_keys().collect();
+
+        // Include ghost ancestors — walk up parent chain for each granted subtree root
+        let grant_anchors: Vec<String> = conn
+            .prepare("SELECT DISTINCT note_id FROM note_permissions WHERE user_id = ?1 AND note_id IS NOT NULL")?
+            .query_map(rusqlite::params![actor], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        for anchor_id in &grant_anchors {
+            let mut current_id = anchor_id.clone();
+            loop {
+                let parent: Option<String> = conn
+                    .query_row(
+                        "SELECT parent_id FROM notes WHERE id = ?1",
+                        rusqlite::params![current_id],
+                        |row| row.get(0),
+                    )
+                    .ok()
+                    .flatten();
+                match parent {
+                    Some(pid) => {
+                        if visible.contains(&pid) {
+                            break;
+                        }
+                        visible.insert(pid.clone());
+                        current_id = pid;
+                    }
+                    None => break,
+                }
+            }
+        }
+
+        Ok(Some(visible))
     }
 
     /// Check that the current user can read `note_id`.
