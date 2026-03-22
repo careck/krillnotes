@@ -18,6 +18,7 @@ import { SendSnapshotDialog } from './SendSnapshotDialog';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
 import PendingResponsesSection from './PendingResponsesSection';
 import { ChannelPicker } from './ChannelPicker';
+import { OnboardPeerDialog } from './OnboardPeerDialog';
 import type { ChannelType } from './ChannelPicker';
 
 interface Props {
@@ -265,9 +266,9 @@ export default function WorkspacePeersDialog({
     }
   };
 
-  // TODO: Wire up OnboardPeerDialog when Task 7 lands
-  const handleOnboardPeer = (_response: ReceivedResponseInfo) => {
-    console.warn("onOnboardPeer not yet wired up");
+  const [onboardResponse, setOnboardResponse] = useState<ReceivedResponseInfo | null>(null);
+  const handleOnboardPeer = (response: ReceivedResponseInfo) => {
+    setOnboardResponse(response);
   };
 
   const formatLastSync = (lastSync?: string) => {
@@ -601,6 +602,16 @@ export default function WorkspacePeersDialog({
               await doShareInviteLink();
             }
           }}
+        />
+      )}
+
+      {onboardResponse && (
+        <OnboardPeerDialog
+          open={true}
+          response={onboardResponse}
+          identityUuid={identityUuid}
+          onComplete={() => { setOnboardResponse(null); loadPeers(); }}
+          onClose={() => setOnboardResponse(null)}
         />
       )}
 
