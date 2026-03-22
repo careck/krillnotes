@@ -349,3 +349,30 @@ export interface SnapshotReceivedEvent {
   inviteId: string;
   snapshotPath: string;
 }
+
+// ── Permission types (RBAC) ──
+
+export interface PermissionGrantRow {
+  noteId: string;
+  userId: string;
+  role: "owner" | "writer" | "reader";
+  grantedBy: string;
+}
+
+export interface EffectiveRoleInfo {
+  role: "owner" | "writer" | "reader" | "root_owner" | "none";
+  inheritedFrom: string | null;
+  inheritedFromTitle: string | null;
+  grantedBy: string | null;
+}
+
+export interface InheritedGrant {
+  grant: PermissionGrantRow;
+  anchorNoteId: string;
+  anchorNoteTitle: string | null;
+}
+
+export interface CascadeImpactRow {
+  grant: PermissionGrantRow;
+  reason: string;
+}
