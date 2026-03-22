@@ -216,7 +216,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
   // Success state: response was shared via relay
   if (responseShared && responseRelayUrl) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
         <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg shadow-xl p-6 w-full max-w-lg">
           <h2 className="text-lg font-semibold mb-2">{t('invite.respond')}</h2>
           <p className="text-sm text-green-600 mb-3">
@@ -246,7 +246,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
         <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg shadow-xl p-6 w-full max-w-lg">
           <h2 className="text-lg font-semibold mb-1">{t('invite.acceptInvite', 'Accept Invite')}</h2>
           <p className="text-sm text-[var(--color-muted-foreground)] mb-4">
