@@ -57,6 +57,14 @@ pub trait PermissionGate: Send + Sync {
     /// Create or migrate the gate's database tables.
     /// Called once when the workspace is opened.
     fn ensure_schema(&self, conn: &Connection) -> Result<(), PermissionError>;
+
+    /// Called after the workspace reads the true owner public key from
+    /// `workspace_meta`.  Gates that need the owner identity (e.g. RBAC
+    /// root-owner bypass) override this to store the correct value.
+    ///
+    /// The default implementation is a no-op so that gates which don't
+    /// care about the owner (e.g. [`AllowAllGate`]) need no changes.
+    fn init_owner(&mut self, _owner_pubkey: &str) {}
 }
 
 /// Errors that can occur during permission checking or mutation.

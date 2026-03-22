@@ -306,6 +306,10 @@ impl PermissionGate for RbacGate {
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(())
     }
+
+    fn init_owner(&mut self, owner_pubkey: &str) {
+        self.owner_pubkey = owner_pubkey.to_string();
+    }
 }
 
 #[cfg(test)]
