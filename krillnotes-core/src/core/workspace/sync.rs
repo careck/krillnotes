@@ -13,20 +13,55 @@ use crate::core::sync::channel::{ChannelType, PeerSyncInfo};
 impl Workspace {
     // ── Snapshot (peer sync) ───────────────────────────────────────
 
-    /// Serialise all notes, user scripts, and attachment metadata to JSON bytes for a snapshot bundle.
+    /// Serialise all notes, user scripts, attachment metadata, and permission
+    /// operations to JSON bytes for a snapshot bundle.
     pub fn to_snapshot_json(&self) -> Result<Vec<u8>> {
         log::info!(target: "krillnotes::sync", "generating snapshot JSON");
         let notes = self.list_all_notes()?;
         let user_scripts = self.list_user_scripts()?;
         let attachments = self.list_all_attachments()?;
-        log::debug!(target: "krillnotes::sync", "snapshot: {} notes, {} scripts, {} attachments", notes.len(), user_scripts.len(), attachments.len());
+        let permission_ops = self.collect_permission_ops()?;
+        log::debug!(target: "krillnotes::sync",
+            "snapshot: {} notes, {} scripts, {} attachments, {} permission ops",
+            notes.len(), user_scripts.len(), attachments.len(), permission_ops.len());
         let snapshot = WorkspaceSnapshot {
             version: 1,
             notes,
             user_scripts,
             attachments,
+            permission_ops,
         };
         Ok(serde_json::to_vec(&snapshot)?)
+    }
+
+    /// Query all SetPermission / RevokePermission operations from the log,
+    /// ordered by HLC timestamp (oldest first).
+    fn collect_permission_ops(&self) -> Result<Vec<Operation>> {
+        let conn = self.storage.connection();
+        let mut stmt = conn.prepare(
+            "SELECT operation_data FROM operations \
+             WHERE operation_type IN ('SetPermission', 'RevokePermission') \
+             ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, timestamp_node_id ASC"
+        )?;
+        let ops = stmt.query_map([], |row| {
+            let json: String = row.get(0)?;
+            Ok(json)
+        })?.filter_map(|r| {
+            match r {
+                Ok(json) => match serde_json::from_str::<Operation>(&json) {
+                    Ok(op) => Some(op),
+                    Err(e) => {
+                        log::warn!(target: "krillnotes::sync", "skipping malformed permission op: {e}");
+                        None
+                    }
+                },
+                Err(e) => {
+                    log::warn!(target: "krillnotes::sync", "skipping unreadable permission row: {e}");
+                    None
+                }
+            }
+        }).collect();
+        Ok(ops)
     }
 
     /// Returns the `operation_id` of the most recent logged operation, or `None` if log is empty.
@@ -435,6 +470,38 @@ impl Workspace {
             // Re-register imported scripts with the Rhai engine.
             log::info!(target: "krillnotes::sync", "reloading scripts after snapshot import");
             self.reload_scripts()?;
+        }
+
+        // Replay permission operations through the gate so the recipient
+        // can see the notes they've been granted access to.
+        if !snapshot.permission_ops.is_empty() {
+            log::info!(target: "krillnotes::sync",
+                "replaying {} permission ops from snapshot", snapshot.permission_ops.len());
+            let tx = self.storage.connection_mut().transaction()?;
+            for op in &snapshot.permission_ops {
+                // Log the operation so it can be forwarded via future delta syncs.
+                let op_json = serde_json::to_string(op)?;
+                let ts = op.timestamp();
+                let op_type = Self::operation_type_str(op);
+                tx.execute(
+                    "INSERT OR IGNORE INTO operations \
+                     (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, \
+                      device_id, operation_type, operation_data, synced, received_from_peer) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'snapshot')",
+                    rusqlite::params![
+                        op.operation_id(),
+                        ts.wall_ms as i64,
+                        ts.counter as i64,
+                        ts.node_id as i64,
+                        op.device_id(),
+                        op_type,
+                        op_json,
+                    ],
+                )?;
+                // Apply through the permission gate.
+                Self::apply_permission_op_via(&*self.permission_gate, &tx, op)?;
+            }
+            tx.commit()?;
         }
 
         log::info!(target: "krillnotes::sync", "snapshot import complete: {} notes", note_count);

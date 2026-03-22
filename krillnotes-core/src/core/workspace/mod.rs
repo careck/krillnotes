@@ -51,6 +51,10 @@ pub struct WorkspaceSnapshot {
     pub user_scripts: Vec<UserScript>,
     #[serde(default)]
     pub attachments: Vec<AttachmentMeta>,
+    /// Permission operations (SetPermission / RevokePermission) so that the
+    /// recipient's permission gate can reconstruct access grants.
+    #[serde(default)]
+    pub permission_ops: Vec<Operation>,
 }
 
 /// Controls where a new note is inserted relative to the currently selected note.

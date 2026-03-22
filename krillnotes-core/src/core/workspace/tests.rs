@@ -2909,6 +2909,81 @@ schema("SameVerType", #{
     }
 
     #[test]
+    fn test_snapshot_includes_permission_ops() {
+        use crate::core::hlc::HlcTimestamp;
+
+        let src_temp = NamedTempFile::new().unwrap();
+        let mut src = Workspace::create(
+            src_temp.path(),
+            "",
+            "src-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]),
+            test_gate(),
+        ).unwrap();
+
+        let root = src.list_all_notes().unwrap()[0].clone();
+
+        // Manually insert a SetPermission operation into the source log.
+        let perm_op = Operation::SetPermission {
+            operation_id: "perm-op-1".to_string(),
+            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            device_id: "dev-1".to_string(),
+            note_id: Some(root.id.clone()),
+            user_id: "charlie-pubkey".to_string(),
+            role: "reader".to_string(),
+            granted_by: "bob-pubkey".to_string(),
+            signature: "sig-placeholder".to_string(),
+        };
+        let op_json = serde_json::to_string(&perm_op).unwrap();
+        src.storage.connection_mut().execute(
+            "INSERT INTO operations \
+             (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, \
+              device_id, operation_type, operation_data, synced) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+            rusqlite::params!["perm-op-1", 1000i64, 0i64, 1i64, "dev-1", "SetPermission", op_json],
+        ).unwrap();
+
+        // Generate snapshot and verify it contains the permission op.
+        let json = src.to_snapshot_json().unwrap();
+        let snapshot: WorkspaceSnapshot = serde_json::from_slice(&json).unwrap();
+        assert_eq!(snapshot.permission_ops.len(), 1);
+        assert_eq!(snapshot.permission_ops[0].operation_id(), "perm-op-1");
+
+        // Import into a fresh destination workspace.
+        let dst_temp = NamedTempFile::new().unwrap();
+        let mut dst = Workspace::create(
+            dst_temp.path(),
+            "",
+            "dst-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]),
+            test_gate(),
+        ).unwrap();
+        let dst_root = dst.list_all_notes().unwrap()[0].clone();
+        dst.storage.connection_mut().execute(
+            "DELETE FROM notes WHERE id = ?",
+            [&dst_root.id],
+        ).unwrap();
+
+        dst.import_snapshot_json(&json).unwrap();
+
+        // The permission operation should now be in the destination's operations log.
+        let count: i64 = dst.storage.connection().query_row(
+            "SELECT COUNT(*) FROM operations WHERE operation_id = 'perm-op-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1, "permission op must be in destination operations log");
+
+        // Verify it was tagged as coming from a snapshot.
+        let received_from: String = dst.storage.connection().query_row(
+            "SELECT received_from_peer FROM operations WHERE operation_id = 'perm-op-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(received_from, "snapshot");
+    }
+
+    #[test]
     fn test_is_leaf_defaults_to_false() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
