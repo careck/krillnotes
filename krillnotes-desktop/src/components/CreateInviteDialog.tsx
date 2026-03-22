@@ -7,6 +7,8 @@ import type { InviteInfo } from '../types';
 interface Props {
   identityUuid: string;
   workspaceName: string;
+  scopeNoteId?: string;
+  scopeNoteTitle?: string;
   onCreated: (invite: InviteInfo) => void;
   onClose: () => void;
 }
@@ -20,7 +22,7 @@ const EXPIRY_OPTIONS = [
 
 type Step = 'configure' | 'share';
 
-export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onClose }: Props) {
+export function CreateInviteDialog({ identityUuid, workspaceName, scopeNoteId, scopeNoteTitle, onCreated, onClose }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>('configure');
   const [expiryDays, setExpiryDays] = useState<number | null>(null);
@@ -55,6 +57,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
         workspaceName,
         expiresInDays: effectiveDays ?? undefined,
         savePath,
+        scopeNoteId: scopeNoteId ?? null,
       });
       setCreatedInvite(invite);
       setSavedPath(savePath);
@@ -191,6 +194,17 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
         <p className="text-sm text-zinc-500 mb-4">
           {t('invite.createDescription', { workspaceName })}
         </p>
+
+        {scopeNoteId && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-1">
+              {t('invite.scope', 'Subtree scope')}
+            </label>
+            <p className="text-sm bg-zinc-50 dark:bg-zinc-800 rounded px-3 py-1.5">
+              {scopeNoteTitle ?? scopeNoteId}
+            </p>
+          </div>
+        )}
 
         <label className="block text-sm font-medium mb-1">{t('invite.expiry')}</label>
         <select
