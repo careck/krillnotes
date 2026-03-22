@@ -123,7 +123,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, scopeNoteId, s
 
   if (step === 'share') {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
         <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md">
           <h2 className="text-lg font-semibold mb-2">{t('invite.shareTitle', 'Share Invite')}</h2>
           <p className="text-sm text-zinc-500 mb-5">
@@ -187,7 +187,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, scopeNoteId, s
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
       <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-semibold mb-4">{t('invite.createTitle')}</h2>
 
