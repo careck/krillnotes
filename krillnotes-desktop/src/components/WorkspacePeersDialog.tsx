@@ -538,7 +538,6 @@ export default function WorkspacePeersDialog({
         <InviteManagerDialog
           identityUuid={identityUuid}
           workspaceName={workspaceInfo.filename}
-          workspaceId={workspaceInfo.workspaceId}
           onClose={() => setShowInviteManager(false)}
         />
       )}

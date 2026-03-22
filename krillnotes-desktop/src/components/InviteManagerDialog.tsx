@@ -2,34 +2,23 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { InviteInfo, PendingPeer, ContactInfo, ReceivedResponseInfo } from '../types';
+import type { InviteInfo } from '../types';
 import { CreateInviteDialog } from './CreateInviteDialog';
-import { AcceptPeerDialog } from './AcceptPeerDialog';
-import { PostAcceptDialog } from './PostAcceptDialog';
-import { SendSnapshotDialog } from './SendSnapshotDialog';
-import { OnboardPeerDialog } from './OnboardPeerDialog';
-import PendingResponsesSection from './PendingResponsesSection';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   identityUuid: string;
   workspaceName: string;
-  workspaceId?: string;
   initialScope?: { noteId: string; noteTitle: string } | null;
   onClose: () => void;
 }
 
-export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, initialScope, onClose }: Props) {
+export function InviteManagerDialog({ identityUuid, workspaceName, initialScope, onClose }: Props) {
   const { t } = useTranslation();
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [pendingPeer, setPendingPeer] = useState<PendingPeer | null>(null);
-  const [showAccept, setShowAccept] = useState(false);
-  const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
-  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
-  const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
   // Share Invite Link state
   const [sharingLink, setSharingLink] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -41,8 +30,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
   // Import response from link state
   const [responseUrl, setResponseUrl] = useState('');
   const [fetchingResponse, setFetchingResponse] = useState(false);
-  // Onboard peer dialog state
-  const [onboardResponse, setOnboardResponse] = useState<ReceivedResponseInfo | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -179,13 +166,12 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
     setFetchingResponse(true);
     setError(null);
     try {
-      const peer = await invoke<PendingPeer>('fetch_relay_invite_response', {
+      await invoke('fetch_relay_invite_response', {
         identityUuid,
         token,
       });
-      setPendingPeer(peer);
-      setShowAccept(true);
       setResponseUrl('');
+      load();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -197,41 +183,16 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
     const path = await open({ filters: [{ name: 'Swarm Response', extensions: ['swarm'] }] });
     if (!path) return;
     try {
-      const peer = await invoke<PendingPeer>('import_invite_response', {
+      await invoke('import_invite_response', {
         identityUuid,
         path: typeof path === 'string' ? path : path[0],
       });
-      setPendingPeer(peer);
-      setShowAccept(true);
+      load();
     } catch (e) {
       setError(String(e));
     }
   };
 
-  const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
-    try {
-      const fingerprint = await invoke<string>('get_fingerprint', {
-        publicKey: response.inviteePublicKey,
-      });
-      setPendingPeer({
-        inviteId: response.inviteId,
-        inviteePublicKey: response.inviteePublicKey,
-        inviteeDeclaredName: response.inviteeDeclaredName,
-        fingerprint,
-      });
-      setShowAccept(true);
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const [snapshotResponseId, setSnapshotResponseId] = useState<string | null>(null);
-
-  const handleSendSnapshot = (response: ReceivedResponseInfo) => {
-    setSendSnapshotFor([response.inviteePublicKey]);
-    setSnapshotResponseId(response.responseId);
-    setShowSendSnapshot(true);
-  };
 
   const formatExpiry = (invite: InviteInfo) => {
     if (!invite.expiresAt) return t('invite.noExpiry');
@@ -331,17 +292,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
             </div>
           </div>
 
-          {/* Pending responses */}
-          <div className="px-4 pb-2">
-            <PendingResponsesSection
-              identityUuid={identityUuid}
-              workspaceId={workspaceId}
-              onAcceptResponse={handleAcceptResponse}
-              onSendSnapshot={handleSendSnapshot}
-              onOnboardPeer={resp => setOnboardResponse(resp)}
-            />
-          </div>
-
           {/* Invite list */}
           <div className="overflow-y-auto flex-1 px-4 pb-4">
             {loading ? (
@@ -429,51 +379,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
         />
       )}
 
-      {showAccept && (
-        <AcceptPeerDialog
-          identityUuid={identityUuid}
-          pendingPeer={pendingPeer}
-          onAccepted={(contact: ContactInfo) => {
-            load();
-            const peerName = contact.localName || contact.declaredName;
-            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
-          }}
-          onClose={() => { setShowAccept(false); setPendingPeer(null); }}
-        />
-      )}
-
-      <PostAcceptDialog
-        open={postAcceptPeer !== null}
-        peerName={postAcceptPeer?.name ?? ''}
-        onSendNow={() => {
-          setSendSnapshotFor([postAcceptPeer!.publicKey]);
-          setPostAcceptPeer(null);
-          setShowSendSnapshot(true);
-        }}
-        onLater={() => setPostAcceptPeer(null)}
-      />
-
-      <SendSnapshotDialog
-        open={showSendSnapshot}
-        identityUuid={identityUuid}
-        preSelectedPublicKeys={sendSnapshotFor}
-        onClose={() => { setShowSendSnapshot(false); setSnapshotResponseId(null); }}
-        onSuccess={async () => {
-          if (snapshotResponseId) {
-            try {
-              await invoke('update_response_status', {
-                identityUuid,
-                responseId: snapshotResponseId,
-                status: 'snapshotSent',
-              });
-            } catch (e) {
-              console.error('Failed to update response status:', e);
-            }
-            setSnapshotResponseId(null);
-          }
-          load();
-        }}
-      />
 
       {showRelaySetup && (
         <AddRelayAccountDialog
@@ -489,16 +394,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
               await doShareInviteLink();
             }
           }}
-        />
-      )}
-
-      {onboardResponse && (
-        <OnboardPeerDialog
-          open={true}
-          response={onboardResponse}
-          identityUuid={identityUuid}
-          onComplete={() => { setOnboardResponse(null); load(); }}
-          onClose={() => setOnboardResponse(null)}
         />
       )}
     </>

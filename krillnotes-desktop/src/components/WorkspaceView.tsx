@@ -712,7 +712,6 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
         <InviteManagerDialog
           identityUuid={workspaceInfo.identityUuid}
           workspaceName={workspaceInfo.filename}
-          workspaceId={workspaceInfo.workspaceId}
           initialScope={inviteScope}
           onClose={() => setInviteScope(null)}
         />
