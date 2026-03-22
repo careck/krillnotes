@@ -9,7 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
-import type { Note, FieldValue, SchemaInfo, AttachmentMeta } from '../types';
+import type { Note, FieldValue, SchemaInfo, AttachmentMeta, EffectiveRoleInfo, PermissionGrantRow, InheritedGrant } from '../types';
 import FieldDisplay from './FieldDisplay';
 import FieldEditor from './FieldEditor';
 import TagPill from './TagPill';
@@ -29,12 +29,20 @@ interface InfoPanelProps {
   onBack: () => void;
   backNoteTitle?: string;
   refreshSignal?: number;
+  effectiveRole?: EffectiveRoleInfo | null;
+  onShareSubtree?: (noteId: string) => void;
+  onRoleChange?: (noteId: string, userId: string, newRole: string, oldRole: string) => void;
+  onRevokeGrant?: (noteId: string, userId: string) => void;
 }
 
-function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle, refreshSignal }: InfoPanelProps) {
+function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMode, onEditDone, onLinkNavigate, onBack, backNoteTitle, refreshSignal, effectiveRole: effectiveRoleProp, onShareSubtree, onRoleChange, onRevokeGrant }: InfoPanelProps) {
   const { t } = useTranslation();
   const [recentlyDeleted, setRecentlyDeleted] = useState<AttachmentMeta[]>([]);
   const [authorNames, setAuthorNames] = useState<{ createdBy: string | null; modifiedBy: string | null }>({ createdBy: null, modifiedBy: null });
+  const [roleInfo, setRoleInfo] = useState<EffectiveRoleInfo | null>(null);
+  const [anchoredGrants, setAnchoredGrants] = useState<PermissionGrantRow[]>([]);
+  const [inheritedGrants, setInheritedGrants] = useState<InheritedGrant[]>([]);
+  const [nameMap, setNameMap] = useState<Record<string, string>>({});
   // isEditing is kept in InfoPanel (not in useNoteForm) to break the circular dependency:
   // useSchema needs isEditing, and useNoteForm needs schemaInfo from useSchema.
   const [isEditing, setIsEditing] = useState(false);
@@ -198,6 +206,55 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     ]).then(([cb, mb]) => setAuthorNames({ createdBy: cb, modifiedBy: mb }));
   }, [selectedNote?.createdBy, selectedNote?.modifiedBy]);
 
+  useEffect(() => {
+    if (!selectedNote) { setRoleInfo(null); return; }
+    invoke<EffectiveRoleInfo>('get_effective_role', { noteId: selectedNote.id })
+      .then(setRoleInfo)
+      .catch(() => setRoleInfo(null));
+  }, [selectedNote?.id]);
+
+  const activeRole = effectiveRoleProp ?? roleInfo;
+
+  useEffect(() => {
+    if (!selectedNote || !activeRole || (activeRole.role !== 'owner' && activeRole.role !== 'root_owner')) {
+      setAnchoredGrants([]);
+      setInheritedGrants([]);
+      return;
+    }
+    const load = async () => {
+      try {
+        const [anchored, inherited] = await Promise.all([
+          invoke<PermissionGrantRow[]>('get_note_permissions', { noteId: selectedNote.id }),
+          invoke<InheritedGrant[]>('get_inherited_permissions', { noteId: selectedNote.id }),
+        ]);
+        setAnchoredGrants(anchored);
+        setInheritedGrants(inherited);
+
+        const allKeys = new Set<string>();
+        anchored.forEach(g => { allKeys.add(g.userId); allKeys.add(g.grantedBy); });
+        inherited.forEach(g => { allKeys.add(g.grant.userId); allKeys.add(g.grant.grantedBy); });
+        if (activeRole?.grantedBy) allKeys.add(activeRole.grantedBy);
+
+        const names: Record<string, string> = {};
+        await Promise.all(
+          Array.from(allKeys).map(async (key) => {
+            try {
+              names[key] = await invoke<string>('resolve_identity_name', { publicKey: key });
+            } catch {
+              names[key] = key.slice(0, 8) + '…';
+            }
+          })
+        );
+        setNameMap(names);
+      } catch {
+        setAnchoredGrants([]);
+        setInheritedGrants([]);
+      }
+    };
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNote?.id, activeRole?.role]);
+
   if (!selectedNote) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -216,6 +273,8 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   ]);
   const allFieldNames = Object.keys(selectedNote.fields);
   const legacyFieldNames = allFieldNames.filter(name => !schemaFieldNames.has(name));
+
+  const canEdit = !activeRole || activeRole.role === 'owner' || activeRole.role === 'root_owner' || activeRole.role === 'writer';
 
   return (
     <div ref={panelRef} className={`p-6 ${isEditing ? 'border-2 border-primary rounded-lg' : ''}`} onKeyDown={handleFormKeyDown}>
@@ -262,18 +321,22 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
             </>
           ) : (
             <>
-              <button
-                onClick={handleEdit}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-              >
-                {t('common.edit')}
-              </button>
-              <button
-                onClick={() => onDeleteRequest(selectedNote.id)}
-                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
-              >
-                {t('common.delete')}
-              </button>
+              {canEdit && (
+                <button
+                  onClick={handleEdit}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                >
+                  {t('common.edit')}
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  onClick={() => onDeleteRequest(selectedNote.id)}
+                  className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+                >
+                  {t('common.delete')}
+                </button>
+              )}
             </>
           )}
         </div>
@@ -647,7 +710,112 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
           <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('notes.id')}</dt>
           <dd className="m-0 text-foreground text-xs font-mono break-all">{selectedNote.id}</dd>
+
+          {activeRole && activeRole.role !== 'none' && (
+            <>
+              <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('info.yourRole', 'Your role')}</dt>
+              <dd className="m-0">
+                <div className="flex flex-col">
+                  <span className="flex items-center gap-1 text-sm">
+                    <span className={
+                      activeRole.role === 'owner' || activeRole.role === 'root_owner' ? 'text-green-500' :
+                      activeRole.role === 'writer' ? 'text-orange-500' :
+                      activeRole.role === 'reader' ? 'text-yellow-500' : ''
+                    }>●</span>
+                    <span className="capitalize">
+                      {activeRole.role === 'root_owner'
+                        ? t('info.roleRootOwner', 'Owner (Root)')
+                        : t(`roles.${activeRole.role}`, activeRole.role)}
+                    </span>
+                  </span>
+                  {activeRole.inheritedFrom && activeRole.inheritedFromTitle && (
+                    <span className="text-muted-foreground text-xs">
+                      {t('info.inheritedFrom', 'Inherited from')}{' '}
+                      <button
+                        className="text-blue-500 hover:underline"
+                        onClick={() => onLinkNavigate(activeRole.inheritedFrom!)}
+                      >
+                        {activeRole.inheritedFromTitle}
+                      </button>
+                    </span>
+                  )}
+                </div>
+              </dd>
+            </>
+          )}
         </dl>
+
+        {/* Shared with section — owners only */}
+        {(activeRole?.role === 'owner' || activeRole?.role === 'root_owner') && (
+          <div className="mt-3 border-t dark:border-zinc-700 pt-2 px-6 pb-4">
+            {/* Anchored grants */}
+            {anchoredGrants.length > 0 && (
+              <div className="mb-2">
+                <p className="text-xs font-medium text-zinc-500 mb-1">
+                  {t('info.sharedAnchored', 'Shared with — anchored here')}
+                </p>
+                {anchoredGrants.map(grant => (
+                  <div key={grant.userId} className="flex items-center gap-1.5 py-0.5 text-xs">
+                    <span className={
+                      grant.role === 'owner' ? 'text-green-500' :
+                      grant.role === 'writer' ? 'text-orange-500' : 'text-yellow-500'
+                    }>●</span>
+                    <span className="flex-1 truncate">{nameMap[grant.userId] ?? grant.userId.slice(0, 8)}</span>
+                    <select
+                      className="text-xs border rounded px-1 py-0.5 dark:bg-zinc-800 dark:border-zinc-600"
+                      value={grant.role}
+                      onChange={(e) => onRoleChange?.(selectedNote.id, grant.userId, e.target.value, grant.role)}
+                    >
+                      {(activeRole?.role === 'root_owner' || activeRole?.role === 'owner') && (
+                        <option value="owner">{t('roles.ownerShort', 'Owner')}</option>
+                      )}
+                      <option value="writer">{t('roles.writerShort', 'Writer')}</option>
+                      <option value="reader">{t('roles.readerShort', 'Reader')}</option>
+                    </select>
+                    <button
+                      onClick={() => onRevokeGrant?.(selectedNote.id, grant.userId)}
+                      className="text-red-400 hover:text-red-600 px-1"
+                      title={t('info.revoke', 'Revoke')}
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Inherited grants */}
+            {inheritedGrants.length > 0 && (
+              <div className="mb-2">
+                <p className="text-xs font-medium text-zinc-500 mb-1">
+                  {t('info.accessFromParent', 'Access from parent grants')}
+                </p>
+                {inheritedGrants.map(ig => (
+                  <div key={`${ig.grant.userId}-${ig.anchorNoteId}`} className="flex items-center gap-1.5 py-0.5 text-xs opacity-60">
+                    <span className={
+                      ig.grant.role === 'owner' ? 'text-green-500' :
+                      ig.grant.role === 'writer' ? 'text-orange-500' : 'text-yellow-500'
+                    }>●</span>
+                    <span className="flex-1 truncate">{nameMap[ig.grant.userId] ?? ig.grant.userId.slice(0, 8)}</span>
+                    <span className="text-zinc-400">{ig.grant.role}</span>
+                    <button
+                      onClick={() => onLinkNavigate(ig.anchorNoteId)}
+                      className="text-blue-500 hover:underline text-[11px]"
+                    >
+                      {t('info.via', 'via')} {ig.anchorNoteTitle ?? ig.anchorNoteId.slice(0, 8)}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Share button */}
+            <button
+              onClick={() => onShareSubtree?.(selectedNote.id)}
+              className="text-xs text-blue-600 hover:underline mt-1"
+            >
+              + {t('info.shareSubtree', 'Share this subtree...')}
+            </button>
+          </div>
+        )}
       </details>}
     </div>
   );
@@ -661,5 +829,6 @@ export default memo(InfoPanel, (prev, next) =>
   prev.selectedNote === next.selectedNote &&
   prev.requestEditMode === next.requestEditMode &&
   prev.backNoteTitle === next.backNoteTitle &&
-  prev.refreshSignal === next.refreshSignal,
+  prev.refreshSignal === next.refreshSignal &&
+  prev.effectiveRole === next.effectiveRole,
 );
