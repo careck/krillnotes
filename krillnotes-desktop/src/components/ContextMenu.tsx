@@ -17,6 +17,7 @@ interface ContextMenuProps {
   treeActions: string[];
   effectiveRole?: string | null;       // "owner" | "writer" | "reader" | "root_owner" | "none" | null
   isRootOwner?: boolean;
+  isRootNote?: boolean;
   onAddChild: () => void;
   onAddSibling: () => void;
   onAddRoot: () => void;
@@ -33,7 +34,7 @@ interface ContextMenuProps {
 
 function ContextMenu({
   x, y, noteId, copiedNoteId, isLeaf, treeActions,
-  effectiveRole, isRootOwner,
+  effectiveRole, isRootOwner, isRootNote,
   onAddChild, onAddSibling, onAddRoot,
   onEdit, onCopy, onPasteAsChild, onPasteAsSibling,
   onTreeAction, onInviteToSubtree, onShareSubtree, onDelete, onClose,
@@ -63,6 +64,8 @@ function ContextMenu({
   const canWrite = !effectiveRole || effectiveRole === 'owner' || effectiveRole === 'root_owner' || effectiveRole === 'writer';
   const canManage = !effectiveRole || effectiveRole === 'owner' || effectiveRole === 'root_owner';
   const isGhost = effectiveRole === 'none';
+  // Adding a sibling to a root note = creating a root note, requires root owner
+  const canAddSibling = canWrite && !(isRootNote && isRootOwner === false);
 
   return createPortal(
     <div
@@ -101,9 +104,9 @@ function ContextMenu({
                 {t('notes.addChildShort')}
               </button>
               <button
-                disabled={!canWrite}
-                className={`w-full text-left px-3 py-1.5 text-sm ${!canWrite ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
-                onClick={canWrite ? () => { onAddSibling(); onClose(); } : undefined}
+                disabled={!canAddSibling}
+                className={`w-full text-left px-3 py-1.5 text-sm ${!canAddSibling ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                onClick={canAddSibling ? () => { onAddSibling(); onClose(); } : undefined}
               >
                 {t('notes.addSiblingShort')}
               </button>

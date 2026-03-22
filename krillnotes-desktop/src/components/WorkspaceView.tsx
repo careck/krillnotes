@@ -60,7 +60,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const closePendingUndoGroupRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null; isRootOwner: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null; isRootOwner: boolean; isRootNote: boolean } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -456,7 +456,8 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     const note = notes.find(n => n.id === noteId);
     const noteType = note?.schema ?? '';
     const effectiveRole = effectiveRoles[noteId] ?? null;
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole, isRootOwner });
+    const isRootNote = !note?.parentId;
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole, isRootOwner, isRootNote });
   };
 
   // Opens AddNoteDialog or creates directly if only one type is available
@@ -495,7 +496,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   };
 
   const handleBackgroundContextMenu = (e: React.MouseEvent) => {
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null, isRootOwner });
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null, isRootOwner, isRootNote: false });
   };
 
   const handleContextEdit = (noteId: string) => {
@@ -792,6 +793,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
           effectiveRole={contextMenu.effectiveRole}
           isRootOwner={contextMenu.isRootOwner}
+          isRootNote={contextMenu.isRootNote}
           onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
           onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
           onAddRoot={handleContextAddRoot}
