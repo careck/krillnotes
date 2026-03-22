@@ -4,7 +4,7 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-//! Tauri commands for RBAC permission queries.
+//! Tauri commands for RBAC permission queries and mutations.
 
 use crate::AppState;
 use tauri::State;
@@ -114,6 +114,48 @@ pub fn preview_cascade(
         .preview_cascade(&note_id, &user_id, &new_role)
         .map_err(|e| {
             log::error!("preview_cascade failed: {e}");
+            e.to_string()
+        })
+}
+
+// ── Mutation commands ───────────────────────────────────────────────
+
+/// Grants or updates a permission for `user_id` on `note_id` with the
+/// given `role`.
+#[tauri::command]
+pub fn set_permission(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    user_id: String,
+    role: String,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .set_permission(&note_id, &user_id, &role)
+        .map_err(|e| {
+            log::error!("set_permission failed: {e}");
+            e.to_string()
+        })
+}
+
+/// Revokes the permission for `user_id` on `note_id`.
+#[tauri::command]
+pub fn revoke_permission(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    user_id: String,
+) -> std::result::Result<(), String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .revoke_permission(&note_id, &user_id)
+        .map_err(|e| {
+            log::error!("revoke_permission failed: {e}");
             e.to_string()
         })
 }

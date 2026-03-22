@@ -11,11 +11,14 @@
 //! `krillnotes_rbac::queries`) because the dependency arrow goes the other
 //! way (`krillnotes-rbac` depends on `krillnotes-core`).
 
+use crate::core::hlc::HlcTimestamp;
+use crate::core::operation::Operation;
 use crate::core::workspace::Workspace;
 use crate::Result;
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 // ── Return types ────────────────────────────────────────────────────
 
@@ -312,6 +315,106 @@ impl Workspace {
         }
 
         Ok(result)
+    }
+
+    // ── Mutation methods ─────────────────────────────────────────────
+
+    /// Grants (or updates) a permission for `user_id` on `note_id` with the
+    /// given `role`.
+    ///
+    /// The operation is authorized, applied through the permission gate,
+    /// signed, logged, and committed in a single transaction.
+    pub fn set_permission(
+        &mut self,
+        note_id: &str,
+        user_id: &str,
+        role: &str,
+    ) -> Result<()> {
+        // Authorize before opening the transaction.
+        let auth_op = Operation::SetPermission {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: Some(note_id.to_string()),
+            user_id: user_id.to_string(),
+            role: role.to_string(),
+            granted_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
+        let ts = self.advance_hlc();
+        let signing_key = self.signing_key.clone();
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // Apply through the permission gate (INSERT/UPDATE note_permissions).
+        let mut op = Operation::SetPermission {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: ts,
+            device_id: self.device_id.clone(),
+            note_id: Some(note_id.to_string()),
+            user_id: user_id.to_string(),
+            role: role.to_string(),
+            granted_by: String::new(),
+            signature: String::new(),
+        };
+        Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
+
+        // Sign and log.
+        Self::save_hlc(&ts, &tx)?;
+        Self::sign_op_with(&signing_key, &mut op);
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Revokes the permission for `user_id` on `note_id`.
+    ///
+    /// The operation is authorized, applied through the permission gate,
+    /// signed, logged, and committed in a single transaction.
+    pub fn revoke_permission(
+        &mut self,
+        note_id: &str,
+        user_id: &str,
+    ) -> Result<()> {
+        // Authorize before opening the transaction.
+        let auth_op = Operation::RevokePermission {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: Some(note_id.to_string()),
+            user_id: user_id.to_string(),
+            revoked_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
+        let ts = self.advance_hlc();
+        let signing_key = self.signing_key.clone();
+        let tx = self.storage.connection_mut().transaction()?;
+
+        // Apply through the permission gate (DELETE from note_permissions).
+        let mut op = Operation::RevokePermission {
+            operation_id: Uuid::new_v4().to_string(),
+            timestamp: ts,
+            device_id: self.device_id.clone(),
+            note_id: Some(note_id.to_string()),
+            user_id: user_id.to_string(),
+            revoked_by: String::new(),
+            signature: String::new(),
+        };
+        Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
+
+        // Sign and log.
+        Self::save_hlc(&ts, &tx)?;
+        Self::sign_op_with(&signing_key, &mut op);
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+
+        tx.commit()?;
+        Ok(())
     }
 
     /// Preview which downstream grants would be invalidated if `user_id`

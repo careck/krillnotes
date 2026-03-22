@@ -447,6 +447,8 @@ pub fn run() {
             get_all_effective_roles,
             get_inherited_permissions,
             preview_cascade,
+            set_permission,
+            revoke_permission,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
