@@ -49,6 +49,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const [effectiveRoles, setEffectiveRoles] = useState<Record<string, string>>({});
   const [shareAnchorIds, setShareAnchorIds] = useState<Set<string>>(new Set());
   const [isRootOwner, setIsRootOwner] = useState(false);
+  const [permissionRefreshSignal, setPermissionRefreshSignal] = useState(0);
   const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addDialogNoteId, setAddDialogNoteId] = useState<string | null>(null);
@@ -593,6 +594,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       await invoke('set_permission', { noteId, userId, role: newRole });
       loadPermissionState();
+      setPermissionRefreshSignal(prev => prev + 1);
     } catch (e) {
       console.error('Failed to change role:', e);
     }
@@ -618,6 +620,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       await invoke('revoke_permission', { noteId, userId });
       loadPermissionState();
+      setPermissionRefreshSignal(prev => prev + 1);
     } catch (e) {
       console.error('Failed to revoke:', e);
     }
@@ -645,6 +648,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
         });
       }
       loadPermissionState();
+      setPermissionRefreshSignal(prev => prev + 1);
     } catch (e) {
       console.error('Cascade action failed:', e);
     } finally {
@@ -763,7 +767,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
             onLinkNavigate={handleLinkNavigate}
             onBack={handleBack}
             backNoteTitle={backNoteTitle}
-            refreshSignal={noteRefreshSignal}
+            refreshSignal={noteRefreshSignal + permissionRefreshSignal}
             onShareSubtree={handleShareSubtree}
             onRoleChange={handleRoleChange}
             onRevokeGrant={handleRevokeGrant}
@@ -862,6 +866,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           onComplete={() => {
             setShareScope(null);
             loadPermissionState();
+            setPermissionRefreshSignal(prev => prev + 1);
           }}
           onClose={() => setShareScope(null)}
         />

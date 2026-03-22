@@ -211,7 +211,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     invoke<EffectiveRoleInfo>('get_effective_role', { noteId: selectedNote.id })
       .then(setRoleInfo)
       .catch(() => setRoleInfo(null));
-  }, [selectedNote?.id]);
+  }, [selectedNote?.id, refreshSignal]);
 
   const activeRole = effectiveRoleProp ?? roleInfo;
 
@@ -253,7 +253,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
     };
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNote?.id, activeRole?.role]);
+  }, [selectedNote?.id, activeRole?.role, refreshSignal]);
 
   if (!selectedNote) {
     return (
