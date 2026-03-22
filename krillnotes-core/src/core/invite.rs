@@ -754,4 +754,32 @@ mod signing_tests {
         let re_serialized = serde_json::to_value(&file).unwrap();
         verify_payload(&re_serialized, &file.signature, &pubkey_b64).unwrap();
     }
+
+    #[test]
+    fn scoped_invite_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
+        let inviter_key = test_key();
+
+        // Create scoped invite
+        let (record, file) = mgr.create_invite(
+            "ws-1", "Test WS", None, &inviter_key, "Alice",
+            None, None, None, None, None, vec![],
+            Some("note-42".to_string()),
+            Some("Backend API".to_string()),
+        ).unwrap();
+
+        assert_eq!(record.scope_note_id.as_deref(), Some("note-42"));
+
+        // Serialize and verify the invite file
+        let file_json = serde_json::to_string(&file).unwrap();
+        let parsed: InviteFile = serde_json::from_str(&file_json).unwrap();
+        assert_eq!(parsed.scope_note_id.as_deref(), Some("note-42"));
+        assert_eq!(parsed.scope_note_title.as_deref(), Some("Backend API"));
+
+        // Verify signature still valid
+        let payload = serde_json::to_value(&parsed).unwrap();
+        let pubkey_b64 = STANDARD.encode(inviter_key.verifying_key().to_bytes());
+        verify_payload(&payload, &parsed.signature, &pubkey_b64).unwrap();
+    }
 }
