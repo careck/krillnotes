@@ -1306,6 +1306,7 @@ mod hooks;
 mod scripts;
 mod attachments;
 mod sync;
+pub mod permissions;
 
 // ── Free functions shared across domain sub-modules ─────────────────
 
