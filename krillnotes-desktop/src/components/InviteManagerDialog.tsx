@@ -2,20 +2,24 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { InviteInfo, PendingPeer, ContactInfo } from '../types';
+import type { InviteInfo, PendingPeer, ContactInfo, ReceivedResponseInfo } from '../types';
 import { CreateInviteDialog } from './CreateInviteDialog';
 import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
+import { OnboardPeerDialog } from './OnboardPeerDialog';
+import PendingResponsesSection from './PendingResponsesSection';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   identityUuid: string;
   workspaceName: string;
+  workspaceId?: string;
+  initialScope?: { noteId: string; noteTitle: string } | null;
   onClose: () => void;
 }
 
-export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Props) {
+export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, initialScope, onClose }: Props) {
   const { t } = useTranslation();
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +41,8 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
   // Import response from link state
   const [responseUrl, setResponseUrl] = useState('');
   const [fetchingResponse, setFetchingResponse] = useState(false);
+  // Onboard peer dialog state
+  const [onboardResponse, setOnboardResponse] = useState<ReceivedResponseInfo | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -51,6 +57,13 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
   };
 
   useEffect(() => { load(); }, [identityUuid]);
+
+  // Auto-open CreateInviteDialog when initialScope is set
+  useEffect(() => {
+    if (initialScope) {
+      setShowCreate(true);
+    }
+  }, [initialScope]);
 
   const handleRevoke = async (inviteId: string) => {
     try {
@@ -195,6 +208,37 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
     }
   };
 
+  const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
+    try {
+      const fingerprint = await invoke<string>('get_fingerprint', {
+        publicKey: response.inviteePublicKey,
+      });
+      setPendingPeer({
+        inviteId: response.inviteId,
+        inviteePublicKey: response.inviteePublicKey,
+        inviteeDeclaredName: response.inviteeDeclaredName,
+        fingerprint,
+      });
+      setShowAccept(true);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
+    setSendSnapshotFor([response.inviteePublicKey]);
+    setShowSendSnapshot(true);
+    try {
+      await invoke('update_response_status', {
+        identityUuid,
+        responseId: response.responseId,
+        status: 'snapshotSent',
+      });
+    } catch (e) {
+      console.error('Failed to update response status:', e);
+    }
+  };
+
   const formatExpiry = (invite: InviteInfo) => {
     if (!invite.expiresAt) return t('invite.noExpiry');
     const date = new Date(invite.expiresAt);
@@ -293,6 +337,17 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
             </div>
           </div>
 
+          {/* Pending responses */}
+          <div className="px-4 pb-2">
+            <PendingResponsesSection
+              identityUuid={identityUuid}
+              workspaceId={workspaceId}
+              onAcceptResponse={handleAcceptResponse}
+              onSendSnapshot={handleSendSnapshot}
+              onOnboardPeer={resp => setOnboardResponse(resp)}
+            />
+          </div>
+
           {/* Invite list */}
           <div className="overflow-y-auto flex-1 px-4 pb-4">
             {loading ? (
@@ -312,6 +367,11 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
                         {t('invite.usedCount', { count: invite.useCount })}
                         {invite.revoked && (
                           <span className="ml-2 text-red-500">{t('invite.revoked')}</span>
+                        )}
+                        {invite.scopeNoteId && (
+                          <span className="ml-2 text-xs text-zinc-400">
+                            → {invite.scopeNoteTitle ?? invite.scopeNoteId}
+                          </span>
                         )}
                       </p>
                       {invite.relayUrl && (
@@ -368,7 +428,9 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         <CreateInviteDialog
           identityUuid={identityUuid}
           workspaceName={workspaceName}
-          onCreated={() => load()}
+          scopeNoteId={initialScope?.noteId}
+          scopeNoteTitle={initialScope?.noteTitle}
+          onCreated={() => { load(); setShowCreate(false); }}
           onClose={() => setShowCreate(false)}
         />
       )}
@@ -419,6 +481,16 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
               await doShareInviteLink();
             }
           }}
+        />
+      )}
+
+      {onboardResponse && (
+        <OnboardPeerDialog
+          open={true}
+          response={onboardResponse}
+          identityUuid={identityUuid}
+          onComplete={() => { setOnboardResponse(null); load(); }}
+          onClose={() => setOnboardResponse(null)}
         />
       )}
     </>
