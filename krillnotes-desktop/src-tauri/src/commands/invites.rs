@@ -343,6 +343,8 @@ pub fn import_invite_response(
                     invite_workspace_name,
                     pending_peer.invitee_public_key.clone(),
                     pending_peer.invitee_declared_name.clone(),
+                    None, // scope_note_id — populated in Task 4
+                    None, // scope_note_title — populated in Task 4
                 );
                 let _ = rr_mgr.save(&rr);
             }

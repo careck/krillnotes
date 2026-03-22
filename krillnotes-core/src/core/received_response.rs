@@ -18,6 +18,7 @@ type Result<T> = std::result::Result<T, KrillnotesError>;
 pub enum ReceivedResponseStatus {
     Pending,
     PeerAdded,
+    PermissionPending,
     SnapshotSent,
 }
 
@@ -32,6 +33,10 @@ pub struct ReceivedResponse {
     pub invitee_declared_name: String,
     pub received_at: DateTime<Utc>,
     pub status: ReceivedResponseStatus,
+    #[serde(default)]
+    pub scope_note_id: Option<String>,
+    #[serde(default)]
+    pub scope_note_title: Option<String>,
 }
 
 impl ReceivedResponse {
@@ -41,6 +46,8 @@ impl ReceivedResponse {
         workspace_name: String,
         invitee_public_key: String,
         invitee_declared_name: String,
+        scope_note_id: Option<String>,
+        scope_note_title: Option<String>,
     ) -> Self {
         Self {
             response_id: Uuid::new_v4(),
@@ -51,6 +58,8 @@ impl ReceivedResponse {
             invitee_declared_name,
             received_at: Utc::now(),
             status: ReceivedResponseStatus::Pending,
+            scope_note_id,
+            scope_note_title,
         }
     }
 }

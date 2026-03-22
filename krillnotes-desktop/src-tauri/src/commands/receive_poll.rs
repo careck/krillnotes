@@ -360,6 +360,8 @@ pub async fn poll_receive_workspace(
                         workspace_name,
                         parsed.acceptor_public_key.clone(),
                         parsed.declared_name.clone(),
+                        None, // scope_note_id — populated in Task 4
+                        None, // scope_note_title — populated in Task 4
                     );
 
                     {
