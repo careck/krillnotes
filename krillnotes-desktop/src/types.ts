@@ -277,6 +277,8 @@ export interface InviteInfo {
   revoked: boolean;
   useCount: number;
   relayUrl: string | null;
+  scopeNoteId: string | null;
+  scopeNoteTitle: string | null;
 }
 
 export interface FetchedRelayInvite {
@@ -341,7 +343,9 @@ export interface ReceivedResponseInfo {
   inviteePublicKey: string;
   inviteeDeclaredName: string;
   receivedAt: string;
-  status: "pending" | "peerAdded" | "snapshotSent";
+  status: "pending" | "peerAdded" | "permissionPending" | "snapshotSent";
+  scopeNoteId: string | null;
+  scopeNoteTitle: string | null;
 }
 
 export interface SnapshotReceivedEvent {
