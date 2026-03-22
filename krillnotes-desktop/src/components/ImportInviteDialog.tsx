@@ -99,7 +99,7 @@ export function ImportInviteDialog({ initialIdentityUuid, invitePath, inviteData
       if (!picked || Array.isArray(picked)) return;
       setLoading(true);
       setError(null);
-      const data = await invoke<InviteFileData>('parse_invite', { path: picked });
+      const data = await invoke<InviteFileData>('import_invite', { path: picked });
       setFileInviteData(data);
       setFileInvitePath(picked as string);
     } catch (e) {
