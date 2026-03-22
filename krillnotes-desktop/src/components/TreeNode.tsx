@@ -25,16 +25,23 @@ interface TreeNodeProps {
   onMoveNote: (noteId: string, newParentId: string | null, newPosition: number) => void;
   onHoverStart: (noteId: string, anchorY: number) => void;
   onHoverEnd: () => void;
+  effectiveRoles?: Record<string, string>;
+  shareAnchorIds?: Set<string>;
 }
 
 function TreeNode({
   node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
-  onHoverStart, onHoverEnd,
+  onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds,
 }: TreeNodeProps) {
   const { t } = useTranslation();
   const hasChildren = node.children.length > 0;
   const isSelected = node.note.id === selectedNoteId;
+
+  const noteId = node.note.id;
+  const role = effectiveRoles?.[noteId] ?? null;
+  const isGhost = role === 'none' || (effectiveRoles && Object.keys(effectiveRoles).length > 0 && !role);
+  const isShareAnchor = shareAnchorIds?.has(noteId) ?? false;
   const isExpanded = node.note.isExpanded;
   const isDragged = node.note.id === draggedNoteId;
   const isDropTarget = dropIndicator?.noteId === node.note.id;
@@ -216,8 +223,8 @@ function TreeNode({
           isDropTarget && dropIndicator?.position === 'child' ? 'bg-blue-500/20 ring-1 ring-blue-500/40' : ''
         }`}
         style={{ paddingLeft: `${indentPx}px` }}
-        onClick={() => onSelect(node.note.id)}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, node.note.id); }}
+        onClick={isGhost ? undefined : () => onSelect(noteId)}
+        onContextMenu={isGhost ? undefined : (e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, noteId); }}
         onMouseEnter={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           onHoverStart(node.note.id, rect.top + rect.height / 2);
@@ -240,7 +247,17 @@ function TreeNode({
           </button>
         )}
         {!hasChildren && <span className="w-4 mr-1" />}
-        <span className="text-sm truncate flex-1 min-w-0">{node.note.title}</span>
+        {!isGhost && role && (
+          <span className={`text-[10px] mr-1 flex-shrink-0 ${
+            role === 'owner' || role === 'root_owner' ? 'text-green-500' :
+            role === 'writer' ? 'text-orange-500' :
+            role === 'reader' ? 'text-yellow-500' : ''
+          }`}>●</span>
+        )}
+        {isShareAnchor && (role === 'owner' || role === 'root_owner') && (
+          <span className="text-[10px] mr-1 flex-shrink-0 text-zinc-400" title={t('tree.sharedSubtree', 'Shared subtree')}>👥</span>
+        )}
+        <span className={`text-sm truncate flex-1 min-w-0 ${isGhost ? 'text-zinc-400 italic' : ''}`}>{node.note.title}</span>
         {hasHoverContent && <span className="ml-1 text-xs text-muted-foreground/40 select-none">›</span>}
       </div>
 
@@ -269,6 +286,8 @@ function TreeNode({
               onMoveNote={onMoveNote}
               onHoverStart={onHoverStart}
               onHoverEnd={onHoverEnd}
+              effectiveRoles={effectiveRoles}
+              shareAnchorIds={shareAnchorIds}
             />
           ))}
         </div>
