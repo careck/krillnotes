@@ -1211,6 +1211,22 @@ impl Workspace {
         }
 
         let tx = self.storage.connection_mut().transaction()?;
+
+        // Clean up any permission grants anchored on deleted notes.
+        // The note_permissions table may not exist (created by RbacGate),
+        // so silently ignore errors.
+        let _ = tx.execute(
+            "DELETE FROM note_permissions WHERE note_id IN (
+                WITH RECURSIVE subtree(id) AS (
+                    SELECT ?1
+                    UNION ALL
+                    SELECT n.id FROM notes n JOIN subtree s ON n.parent_id = s.id
+                )
+                SELECT id FROM subtree
+            )",
+            [&note_id],
+        );
+
         let result = Self::delete_recursive_in_tx(&tx, note_id)?;
         tx.commit()?;
 
@@ -1375,6 +1391,14 @@ impl Workspace {
                 rusqlite::params![position as i64, id],
             )?;
         }
+
+        // Clean up permission grants on the deleted note only (children survive).
+        // The note_permissions table may not exist (created by RbacGate),
+        // so silently ignore errors.
+        let _ = tx.execute(
+            "DELETE FROM note_permissions WHERE note_id = ?1",
+            rusqlite::params![note_id],
+        );
 
         // Delete the note itself after its children have been safely re-parented.
         tx.execute(

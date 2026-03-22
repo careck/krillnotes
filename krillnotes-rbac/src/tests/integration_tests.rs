@@ -269,6 +269,110 @@ fn test_root_owner_can_do_everything() {
     // All operations succeeded — root owner has full access
 }
 
+/// Deleting a note recursively should clean up permission grants
+/// for the deleted note and all its descendants.
+#[test]
+fn test_delete_recursive_cleans_up_permissions() {
+    use ed25519_dalek::SigningKey;
+    use krillnotes_core::core::workspace::{AddPosition, Workspace};
+
+    let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+    let owner_pubkey = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .encode(signing_key.verifying_key().as_bytes())
+    };
+    let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
+
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    let mut ws = Workspace::create(
+        temp.path(), "", "test-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
+    ).unwrap();
+
+    // Build a small tree: root → parent → child
+    let root = ws.list_all_notes().unwrap()[0].clone();
+    let parent_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    let child_id = ws.create_note(&parent_id, AddPosition::AsChild, "TextNote").unwrap();
+
+    // Manually insert permission grants on both notes
+    ws.connection().execute_batch(&format!(
+        "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES \
+         ('{parent_id}', 'bob', 'writer', 'root'), \
+         ('{child_id}', 'carol', 'reader', 'root');"
+    )).unwrap();
+
+    // Verify grants exist
+    let count: i64 = ws.connection().query_row(
+        "SELECT COUNT(*) FROM note_permissions WHERE note_id IN (?1, ?2)",
+        rusqlite::params![&parent_id, &child_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(count, 2, "expected 2 grants before deletion");
+
+    // Delete the parent recursively (takes child with it)
+    ws.delete_note_recursive(&parent_id).unwrap();
+
+    // All grants should be cleaned up
+    let count_after: i64 = ws.connection().query_row(
+        "SELECT COUNT(*) FROM note_permissions WHERE note_id IN (?1, ?2)",
+        rusqlite::params![&parent_id, &child_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(count_after, 0, "grants should be cleaned up after recursive delete");
+}
+
+/// Deleting a note with promote-children strategy should clean up
+/// permission grants for the deleted note only, not its children.
+#[test]
+fn test_delete_promote_cleans_up_permissions() {
+    use ed25519_dalek::SigningKey;
+    use krillnotes_core::core::workspace::{AddPosition, Workspace};
+
+    let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+    let owner_pubkey = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .encode(signing_key.verifying_key().as_bytes())
+    };
+    let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
+
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    let mut ws = Workspace::create(
+        temp.path(), "", "test-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
+    ).unwrap();
+
+    // Build a small tree: root → parent → child
+    let root = ws.list_all_notes().unwrap()[0].clone();
+    let parent_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    let child_id = ws.create_note(&parent_id, AddPosition::AsChild, "TextNote").unwrap();
+
+    // Manually insert permission grants on both notes
+    ws.connection().execute_batch(&format!(
+        "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES \
+         ('{parent_id}', 'bob', 'writer', 'root'), \
+         ('{child_id}', 'carol', 'reader', 'root');"
+    )).unwrap();
+
+    // Delete the parent with promote strategy (child survives)
+    ws.delete_note_promote(&parent_id).unwrap();
+
+    // Parent's grant should be cleaned up
+    let parent_count: i64 = ws.connection().query_row(
+        "SELECT COUNT(*) FROM note_permissions WHERE note_id = ?1",
+        rusqlite::params![&parent_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(parent_count, 0, "parent's grant should be cleaned up");
+
+    // Child's grant should survive
+    let child_count: i64 = ws.connection().query_row(
+        "SELECT COUNT(*) FROM note_permissions WHERE note_id = ?1",
+        rusqlite::params![&child_id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(child_count, 1, "child's grant should survive promote delete");
+}
+
 /// A non-owner identity without any grants should be denied on mutating operations.
 #[test]
 fn test_non_owner_without_grants_is_denied() {
