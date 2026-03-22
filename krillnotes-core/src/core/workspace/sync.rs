@@ -183,14 +183,9 @@ impl Workspace {
             return Ok(false);
         }
 
-        // Authorize inbound operations using the *author's* identity, not the
-        // local user's.  The gate must verify that the operation's author had
-        // the right to perform it, not that the local (receiving) peer does.
-        self.permission_gate.authorize(
-            self.storage.connection(),
-            op.author_key(),
-            &op,
-        )?;
+        // No RBAC gate on inbound operations — all ops replicate unconditionally.
+        // Access control is enforced at the visibility layer (visible_note_ids,
+        // list_notes) not at the replication layer.
 
         log::debug!(target: "krillnotes::sync", "applying incoming operation {} ({})", op.operation_id(), Self::operation_type_str(&op));
 
@@ -670,13 +665,7 @@ impl Workspace {
             .reset_last_sent(peer_device_id, to_op)
     }
 
-    /// Reset `last_sent_op` for all peers matching an identity public key.
-    /// Triggers a full resend on the next sync so the peer receives all
-    /// historical operations they are now entitled to see.
-    pub fn reset_watermark_for_identity(&self, identity_pubkey: &str) -> Result<()> {
-        PeerRegistry::new(self.storage.connection())
-            .reset_last_sent_by_identity(identity_pubkey)
-    }
+
 
     /// Returns true if `op_a` is strictly before `op_b` in HLC order.
     /// Returns false if either operation is not found in the log.

@@ -403,16 +403,6 @@ impl<'a> PeerRegistry<'a> {
         Ok(())
     }
 
-    /// Reset `last_sent_op` for all peers matching the given identity public key.
-    /// Triggers a full resend on the next sync for those peers.
-    pub fn reset_last_sent_by_identity(&self, identity_id: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE sync_peers SET last_sent_op = NULL WHERE peer_identity_id = ?1",
-            rusqlite::params![identity_id],
-        )?;
-        Ok(())
-    }
-
     /// Remove a peer from the registry.
     pub fn remove_peer(&self, peer_device_id: &str) -> Result<()> {
         self.conn.execute(
