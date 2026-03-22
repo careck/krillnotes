@@ -421,12 +421,24 @@ impl Workspace {
     /// Used by the tree to show share anchor icons.
     pub fn get_share_anchor_ids(&self) -> Result<Vec<String>> {
         let conn = self.connection();
-        let mut stmt = match conn.prepare(
-            "SELECT DISTINCT note_id FROM note_permissions WHERE note_id IS NOT NULL"
-        ) {
-            Ok(s) => s,
-            Err(_) => return Ok(vec![]),  // table may not exist if RBAC not enabled
-        };
+
+        // No RBAC tables → no share anchors.
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_permissions'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count > 0)
+            .unwrap_or(false);
+
+        if !table_exists {
+            return Ok(vec![]);
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT note_id FROM note_permissions WHERE note_id IS NOT NULL",
+        )?;
         let ids: Vec<String> = stmt
             .query_map([], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -434,8 +446,8 @@ impl Workspace {
     }
 
     /// Returns true if the current actor is the workspace root owner.
-    pub fn is_root_owner(&self) -> Result<bool> {
-        Ok(self.identity_pubkey() == self.owner_pubkey())
+    pub fn is_root_owner(&self) -> bool {
+        self.is_owner()
     }
 
     /// Preview which downstream grants would be invalidated if `user_id`
