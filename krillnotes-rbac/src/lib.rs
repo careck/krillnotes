@@ -5,7 +5,8 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 mod gate;
-mod resolver;
+pub mod queries;
+pub mod resolver;
 #[cfg(test)]
 mod tests;
 

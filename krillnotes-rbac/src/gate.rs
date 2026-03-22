@@ -73,9 +73,23 @@ impl RbacGate {
                     self.require_authorship(conn, actor, note_id, role)?;
                 }
             }
-            Operation::MoveNote { note_id, .. } => {
+            Operation::MoveNote {
+                note_id,
+                new_parent_id,
+                ..
+            } => {
                 if role < Role::Owner {
                     self.require_authorship(conn, actor, note_id, role)?;
+                }
+                // Check destination scope — actor must have Writer+ at the target
+                if let Some(dest_id) = new_parent_id {
+                    let dest_role = crate::resolver::resolve_role(conn, actor, dest_id)?
+                        .ok_or_else(|| {
+                            PermissionError::Denied(
+                                "no access to move destination".into(),
+                            )
+                        })?;
+                    require_at_least(dest_role, Role::Writer)?;
                 }
             }
             Operation::RetractOperation { .. } => {
@@ -241,7 +255,6 @@ impl PermissionGate for RbacGate {
                      ON CONFLICT(note_id, user_id) DO UPDATE SET role = ?3, granted_by = ?4",
                     rusqlite::params![note_id, user_id, role, granted_by],
                 )?;
-                self.cascade_revoke(conn, user_id)?;
                 Ok(())
             }
             Operation::RevokePermission {
@@ -254,7 +267,6 @@ impl PermissionGate for RbacGate {
                     "DELETE FROM note_permissions WHERE note_id = ?1 AND user_id = ?2",
                     rusqlite::params![note_id, user_id],
                 )?;
-                self.cascade_revoke(conn, user_id)?;
                 Ok(())
             }
             Operation::RemovePeer { user_id, .. } => {
@@ -262,7 +274,6 @@ impl PermissionGate for RbacGate {
                     "DELETE FROM note_permissions WHERE user_id = ?1",
                     rusqlite::params![user_id],
                 )?;
-                self.cascade_revoke(conn, user_id)?;
                 Ok(())
             }
             Operation::TransferRootOwnership {
@@ -294,6 +305,10 @@ impl PermissionGate for RbacGate {
     fn ensure_schema(&self, conn: &Connection) -> Result<(), PermissionError> {
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(())
+    }
+
+    fn init_owner(&mut self, owner_pubkey: &str) {
+        self.owner_pubkey = owner_pubkey.to_string();
     }
 }
 

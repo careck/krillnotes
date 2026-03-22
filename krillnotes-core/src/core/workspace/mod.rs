@@ -24,7 +24,7 @@ use rhai::Dynamic;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -807,7 +807,7 @@ impl Workspace {
     /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
     /// is a plain unencrypted SQLite database, or
     /// [`crate::KrillnotesError::Database`] for any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, mut permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
@@ -905,6 +905,11 @@ impl Workspace {
                 }
             }
         };
+
+        // Tell the gate who the real workspace owner is (the value just
+        // read from workspace_meta), so root-owner bypass works correctly
+        // even when the workspace is opened by a different identity.
+        permission_gate.init_owner(&owner_pubkey);
 
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
@@ -1017,6 +1022,8 @@ impl Workspace {
             [pubkey],
         )?;
         self.owner_pubkey = pubkey.to_string();
+        // Keep the permission gate in sync so root-owner bypass is correct.
+        self.permission_gate.init_owner(pubkey);
         Ok(())
     }
 
@@ -1306,6 +1313,7 @@ mod hooks;
 mod scripts;
 mod attachments;
 mod sync;
+pub mod permissions;
 
 // ── Free functions shared across domain sub-modules ─────────────────
 

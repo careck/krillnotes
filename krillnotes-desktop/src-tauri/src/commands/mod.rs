@@ -16,6 +16,7 @@ pub mod scripting;
 pub mod scripts;
 pub mod swarm;
 pub mod sync;
+pub mod permissions;
 pub mod workspace;
 
 pub use accepted_invites::*;
@@ -24,6 +25,7 @@ pub use contacts::*;
 pub use identity::*;
 pub use invites::*;
 pub use notes::*;
+pub use permissions::*;
 pub use receive_poll::*;
 pub use relay_accounts::*;
 pub use scripting::*;

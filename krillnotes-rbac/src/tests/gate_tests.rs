@@ -168,6 +168,23 @@ fn make_revoke_permission(note_id: &str, user_id: &str) -> Operation {
     }
 }
 
+fn make_move_note_op(note_id: &str, new_parent_id: &str) -> Operation {
+    Operation::MoveNote {
+        operation_id: uuid::Uuid::new_v4().to_string(),
+        timestamp: krillnotes_core::HlcTimestamp {
+            wall_ms: 1,
+            counter: 0,
+            node_id: 0,
+        },
+        device_id: "test_device".into(),
+        note_id: note_id.into(),
+        new_parent_id: Some(new_parent_id.into()),
+        new_position: 0.0,
+        moved_by: String::new(),
+        signature: String::new(),
+    }
+}
+
 // --- Tests ---
 
 #[test]
@@ -314,13 +331,15 @@ fn test_cascade_revocation() {
     grant_by(&conn, "root_a", CAROL, "writer", BOB);
     gate.apply_permission_op(&conn, &make_revoke_permission("root_a", BOB))
         .unwrap();
+    // Bob's grant is removed
     assert_eq!(
         crate::resolver::resolve_role(&conn, BOB, "root_a").unwrap(),
         None
     );
+    // Carol's grant is PRESERVED (opt-in cascade — UI decides)
     assert_eq!(
         crate::resolver::resolve_role(&conn, CAROL, "root_a").unwrap(),
-        None
+        Some(crate::resolver::Role::Writer)
     );
 }
 
@@ -350,5 +369,60 @@ fn test_demotion_cascade_partial() {
     assert_eq!(
         crate::resolver::resolve_role(&conn, "dave", "root_a").unwrap(),
         Some(Role::Reader)
+    );
+}
+
+// --- MoveNote destination scope tests ---
+
+#[test]
+fn test_move_note_denied_to_inaccessible_destination() {
+    let (conn, gate) = setup_gate_db();
+    // Add subtree_b as a separate root
+    conn.execute(
+        "INSERT INTO notes (id, parent_id, title, created_by) VALUES ('subtree_b', NULL, 'Subtree B', 'root_owner_pubkey_base64')",
+        [],
+    )
+    .unwrap();
+
+    // Bob is writer on root_a only
+    grant(&conn, "root_a", BOB, "writer");
+    // Bob authored child_1 (created_by = BOB from setup_gate_db)
+
+    let op = make_move_note_op("child_1", "subtree_b");
+    let result = gate.authorize(&conn, BOB, &op);
+    assert!(result.is_err(), "should be denied — no access to subtree_b");
+}
+
+#[test]
+fn test_move_note_allowed_within_same_subtree() {
+    let (conn, gate) = setup_gate_db();
+    // Bob is writer on root_a, authored child_1
+    grant(&conn, "root_a", BOB, "writer");
+
+    // Move child_1 under child_2 (both in root_a)
+    let op = make_move_note_op("child_1", "child_2");
+    let result = gate.authorize(&conn, BOB, &op);
+    assert!(result.is_ok(), "should be allowed — both in root_a subtree");
+}
+
+#[test]
+fn test_move_note_denied_reader_at_destination() {
+    let (conn, gate) = setup_gate_db();
+    // Add subtree_b as a separate root
+    conn.execute(
+        "INSERT INTO notes (id, parent_id, title, created_by) VALUES ('subtree_b', NULL, 'Subtree B', 'root_owner_pubkey_base64')",
+        [],
+    )
+    .unwrap();
+
+    // Bob is owner on root_a, reader on subtree_b
+    grant(&conn, "root_a", BOB, "owner");
+    grant(&conn, "subtree_b", BOB, "reader");
+
+    let op = make_move_note_op("child_1", "subtree_b");
+    let result = gate.authorize(&conn, BOB, &op);
+    assert!(
+        result.is_err(),
+        "should be denied — reader at destination can't write"
     );
 }

@@ -41,7 +41,10 @@ pub use core::{
     permission::{AllowAllGate, PermissionError, PermissionGate},
     received_response::{ReceivedResponse, ReceivedResponseManager, ReceivedResponseStatus},
     swarm::sync::ApplyResult,
-    workspace::{AddPosition, NoteSearchResult, Workspace},
+    workspace::{
+        AddPosition, NoteSearchResult, Workspace,
+        permissions::{CascadeImpactRow, EffectiveRoleInfo, InheritedGrant, PermissionGrantRow},
+    },
 };
 
 // Re-export ed25519-dalek key types so consumers don't need a direct ed25519-dalek dependency.
