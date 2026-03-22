@@ -225,18 +225,12 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
     }
   };
 
-  const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
+  const [snapshotResponseId, setSnapshotResponseId] = useState<string | null>(null);
+
+  const handleSendSnapshot = (response: ReceivedResponseInfo) => {
     setSendSnapshotFor([response.inviteePublicKey]);
+    setSnapshotResponseId(response.responseId);
     setShowSendSnapshot(true);
-    try {
-      await invoke('update_response_status', {
-        identityUuid,
-        responseId: response.responseId,
-        status: 'snapshotSent',
-      });
-    } catch (e) {
-      console.error('Failed to update response status:', e);
-    }
   };
 
   const formatExpiry = (invite: InviteInfo) => {
@@ -463,8 +457,22 @@ export function InviteManagerDialog({ identityUuid, workspaceName, workspaceId, 
         open={showSendSnapshot}
         identityUuid={identityUuid}
         preSelectedPublicKeys={sendSnapshotFor}
-        onClose={() => setShowSendSnapshot(false)}
-        onSuccess={() => {}}
+        onClose={() => { setShowSendSnapshot(false); setSnapshotResponseId(null); }}
+        onSuccess={async () => {
+          if (snapshotResponseId) {
+            try {
+              await invoke('update_response_status', {
+                identityUuid,
+                responseId: snapshotResponseId,
+                status: 'snapshotSent',
+              });
+            } catch (e) {
+              console.error('Failed to update response status:', e);
+            }
+            setSnapshotResponseId(null);
+          }
+          load();
+        }}
       />
 
       {showRelaySetup && (
