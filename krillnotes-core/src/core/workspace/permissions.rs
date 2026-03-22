@@ -367,6 +367,11 @@ impl Workspace {
         Self::purge_ops_if_needed(&self.operation_log, &tx)?;
 
         tx.commit()?;
+
+        // Reset sync watermark so the next delta includes all historical
+        // operations the peer is now entitled to see via this grant.
+        let _ = self.reset_watermark_for_identity(user_id);
+
         Ok(())
     }
 

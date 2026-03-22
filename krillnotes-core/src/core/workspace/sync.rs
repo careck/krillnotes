@@ -670,6 +670,14 @@ impl Workspace {
             .reset_last_sent(peer_device_id, to_op)
     }
 
+    /// Reset `last_sent_op` for all peers matching an identity public key.
+    /// Triggers a full resend on the next sync so the peer receives all
+    /// historical operations they are now entitled to see.
+    pub fn reset_watermark_for_identity(&self, identity_pubkey: &str) -> Result<()> {
+        PeerRegistry::new(self.storage.connection())
+            .reset_last_sent_by_identity(identity_pubkey)
+    }
+
     /// Returns true if `op_a` is strictly before `op_b` in HLC order.
     /// Returns false if either operation is not found in the log.
     pub fn is_operation_before(&self, op_a: &str, op_b: &str) -> Result<bool> {
