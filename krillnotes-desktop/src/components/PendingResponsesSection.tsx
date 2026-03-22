@@ -15,10 +15,11 @@ interface Props {
   workspaceId?: string;
   onAcceptResponse: (response: ReceivedResponseInfo) => void;
   onSendSnapshot: (response: ReceivedResponseInfo) => void;
+  onOnboardPeer: (response: ReceivedResponseInfo) => void;
 }
 
 export default function PendingResponsesSection({
-  identityUuid, workspaceId, onAcceptResponse, onSendSnapshot,
+  identityUuid, workspaceId, onAcceptResponse, onSendSnapshot, onOnboardPeer,
 }: Props) {
   const { t } = useTranslation();
   const [responses, setResponses] = useState<ReceivedResponseInfo[]>([]);
@@ -53,7 +54,7 @@ export default function PendingResponsesSection({
 
   if (loading || responses.length === 0) return null;
 
-  const pendingCount = responses.filter(r => r.status === "pending").length;
+  const pendingCount = responses.filter(r => r.status === "pending" || r.status === "permissionPending").length;
 
   return (
     <div className="mb-4">
@@ -69,11 +70,18 @@ export default function PendingResponsesSection({
         {responses.map((resp) => (
           <div key={resp.responseId}
             className={`bg-white/5 rounded-lg px-4 py-3 flex items-center justify-between ${
-              resp.status === "pending" ? "border-l-3 border-amber-400" : ""
+              resp.status === "pending" || resp.status === "permissionPending" ? "border-l-3 border-amber-400" : ""
             } ${resp.status === "snapshotSent" ? "opacity-60" : ""}`}
           >
             <div>
-              <div className="font-semibold text-sm">{resp.inviteeDeclaredName}</div>
+              <div className="font-semibold text-sm">
+                {resp.inviteeDeclaredName}
+                {resp.scopeNoteTitle && (
+                  <span className="text-xs text-zinc-400 ml-1">
+                    → {resp.scopeNoteTitle}
+                  </span>
+                )}
+              </div>
               <div className="text-xs text-gray-400 mt-0.5">
                 {t("polling.responded", "Responded")} {new Date(resp.receivedAt).toLocaleDateString()}
               </div>
@@ -84,11 +92,33 @@ export default function PendingResponsesSection({
                   <span className="bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
                     {t("polling.actionNeeded")}
                   </span>
+                  {resp.scopeNoteId ? (
+                    <button
+                      className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1.5 rounded-md"
+                      onClick={() => onOnboardPeer(resp)}
+                    >
+                      {t("pendingResponses.onboard", "Onboard")}
+                    </button>
+                  ) : (
+                    <button
+                      className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1.5 rounded-md"
+                      onClick={() => onAcceptResponse(resp)}
+                    >
+                      {t("polling.acceptAndSendSnapshot")}
+                    </button>
+                  )}
+                </>
+              )}
+              {resp.status === "permissionPending" && (
+                <>
+                  <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                    {t("pendingResponses.awaitingOnboard", "Awaiting onboarding")}
+                  </span>
                   <button
-                    className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1.5 rounded-md"
-                    onClick={() => onAcceptResponse(resp)}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-md"
+                    onClick={() => onOnboardPeer(resp)}
                   >
-                    {t("polling.acceptAndSendSnapshot")}
+                    {t("pendingResponses.onboard", "Onboard")}
                   </button>
                 </>
               )}

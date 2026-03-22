@@ -265,6 +265,11 @@ export default function WorkspacePeersDialog({
     }
   };
 
+  // TODO: Wire up OnboardPeerDialog when Task 7 lands
+  const handleOnboardPeer = (_response: ReceivedResponseInfo) => {
+    console.warn("onOnboardPeer not yet wired up");
+  };
+
   const formatLastSync = (lastSync?: string) => {
     if (!lastSync) return t('peers.neverSynced', 'Never synced');
     const d = new Date(lastSync);
@@ -304,6 +309,7 @@ export default function WorkspacePeersDialog({
             workspaceId={workspaceInfo?.workspaceId}
             onAcceptResponse={handleAcceptResponse}
             onSendSnapshot={handleSendSnapshot}
+            onOnboardPeer={handleOnboardPeer}
           />
           {loading && (
             <p className="text-sm text-[var(--color-muted-foreground)] text-center py-8">{t('common.loading')}</p>
