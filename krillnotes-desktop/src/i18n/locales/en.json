@@ -243,7 +243,8 @@
   },
   "tree": {
     "collapse": "Collapse",
-    "expand": "Expand"
+    "expand": "Expand",
+    "sharedSubtree": "Shared subtree"
   },
   "log": {
     "title": "Operations Log",
@@ -503,14 +504,19 @@
   "roles": {
     "owner": "Owner — full control of subtree",
     "writer": "Writer — create and edit notes",
-    "reader": "Reader — view only"
+    "reader": "Reader — view only",
+    "ownerShort": "Owner",
+    "writerShort": "Writer",
+    "readerShort": "Reader"
   },
   "pendingResponses": {
     "awaitingOnboard": "Awaiting onboarding",
     "onboard": "Onboard"
   },
   "contextMenu": {
-    "inviteToSubtree": "Invite to this subtree…"
+    "inviteToSubtree": "Invite to this subtree…",
+    "shareSubtree": "Share subtree...",
+    "noAccess": "No access"
   },
   "invite": {
     "scope": "Subtree scope",
@@ -577,5 +583,36 @@
     "snapshotHint": "Snapshots arrive automatically when a workspace with relay polling is open.",
     "snapshotReceived": "Snapshot received",
     "createWorkspace": "Create Workspace"
+  },
+  "info": {
+    "yourRole": "Your role",
+    "roleRootOwner": "Owner (Root)",
+    "inheritedFrom": "Inherited from",
+    "grantedBy": "granted by",
+    "sharedAnchored": "Shared with — anchored here",
+    "accessFromParent": "Access from parent grants",
+    "shareSubtree": "Share this subtree...",
+    "revoke": "Revoke",
+    "via": "via"
+  },
+  "share": {
+    "title": "Share subtree",
+    "searchPeers": "Search peers...",
+    "noPeers": "No available peers",
+    "peerCount": "{{available}} of {{total}} peers",
+    "role": "Role",
+    "confirm": "Share"
+  },
+  "cascade": {
+    "revoking": "Revoking access for",
+    "demoting": "Demoting",
+    "on": "on",
+    "revokeFrom": "Revoking from",
+    "noImpact": "No downstream grants will be affected.",
+    "explanation": "This user previously granted access to others. These grants would no longer be valid:",
+    "demoteOnly": "Demote only",
+    "revokeOnly": "Revoke only",
+    "demoteAndRevoke": "Demote & revoke selected",
+    "revokeAndRevoke": "Revoke & revoke selected"
   }
 }
