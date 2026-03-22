@@ -59,14 +59,13 @@ export function OnboardPeerDialog({
       }
 
       // Step 2: Grant permission on the scoped subtree
-      // TODO: Uncomment when set_permission Tauri command is implemented (Plan A)
-      // if (response.scopeNoteId) {
-      //   await invoke('set_permission', {
-      //     noteId: response.scopeNoteId,
-      //     userId: response.inviteePublicKey,
-      //     role,
-      //   });
-      // }
+      if (response.scopeNoteId) {
+        await invoke('set_permission', {
+          noteId: response.scopeNoteId,
+          userId: response.inviteePublicKey,
+          role,
+        });
+      }
 
       // Step 3: Send snapshot via selected channel
       if (channelType === 'relay') {

@@ -55,7 +55,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const closePendingUndoGroupRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -408,10 +408,17 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // --- Context menu handlers ---
 
-  const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
+  const handleContextMenu = async (e: React.MouseEvent, noteId: string) => {
     const note = notes.find(n => n.id === noteId);
     const noteType = note?.schema ?? '';
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType });
+    let effectiveRole: string | null = null;
+    try {
+      const roleInfo = await invoke<{ role: string }>('get_effective_role', { noteId });
+      effectiveRole = roleInfo.role;
+    } catch {
+      effectiveRole = null;
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole });
   };
 
   // Opens AddNoteDialog or creates directly if only one type is available
@@ -450,7 +457,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   };
 
   const handleBackgroundContextMenu = (e: React.MouseEvent) => {
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '' });
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null });
   };
 
   const handleContextEdit = (noteId: string) => {
@@ -652,7 +659,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           copiedNoteId={copiedNoteId}
           isLeaf={schemas[contextMenu.noteType ?? '']?.isLeaf ?? false}
           treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
-          effectiveRole={workspaceInfo.identityUuid ? 'root_owner' : null}
+          effectiveRole={contextMenu.effectiveRole}
           onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
           onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
           onAddRoot={handleContextAddRoot}
