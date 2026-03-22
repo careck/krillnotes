@@ -17,6 +17,8 @@ import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
 import PendingResponsesSection from './PendingResponsesSection';
+import { ChannelPicker } from './ChannelPicker';
+import type { ChannelType } from './ChannelPicker';
 
 interface Props {
   identityUuid: string;
@@ -359,75 +361,38 @@ export default function WorkspacePeersDialog({
                     {formatLastSync(peer.lastSync)}
                   </div>
                   {/* Channel config controls */}
-                  <div className="flex flex-col gap-1 mt-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <select
-                        value={selectedChannelType}
-                        onChange={async (e) => {
-                          const newType = e.target.value;
-                          setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: newType }));
-                          // "manual" applies immediately — no configuration needed
-                          if (newType === 'manual') {
-                            await handleUpdateChannel(peer, newType);
-                          }
-                        }}
-                        className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)]"
-                      >
-                        <option value="relay">Relay</option>
-                        <option value="folder">Folder</option>
-                        <option value="manual">Manual</option>
-                      </select>
-                      {selectedChannelType === 'folder' && (
-                        <button
-                          onClick={() => handleUpdateChannel(peer, selectedChannelType)}
-                          className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
-                        >
-                          {t('peers.configure', 'Configure')}
-                        </button>
-                      )}
-                    </div>
-                    {selectedChannelType === 'relay' && (
-                      relayAccounts.length === 0 ? (
-                        <p className="text-xs text-[var(--color-muted-foreground)] italic mt-0.5">
-                          {t('workspacePeers.noRelayAccounts')}
-                        </p>
-                      ) : (
-                        <select
-                          value={pendingRelayAccount[peer.peerDeviceId] ?? ''}
-                          onChange={async (e) => {
-                            const accountId = e.target.value;
-                            if (!accountId) return;
-                            try {
-                              await invoke('set_peer_relay', {
-                                peerDeviceId: peer.peerDeviceId,
-                                relayAccountId: accountId,
-                              });
-                              setPendingRelayAccount(prev => {
-                                const next = { ...prev };
-                                delete next[peer.peerDeviceId];
-                                return next;
-                              });
-                              await loadPeers();
-                            } catch (err) {
-                              setError(String(err));
-                            }
-                          }}
-                          className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] mt-0.5"
-                        >
-                          <option value="" disabled>{t('workspacePeers.selectRelay')}</option>
-                          {relayAccounts.map(acct => (
-                            <option key={acct.relayAccountId} value={acct.relayAccountId}>
-                              {acct.email} @ {acct.relayUrl}
-                            </option>
-                          ))}
-                        </select>
-                      )
-                    )}
-                    {currentFolderPath && (
-                      <span className="text-xs text-[var(--color-muted-foreground)] truncate font-mono" title={currentFolderPath}>
-                        {currentFolderPath}
-                      </span>
-                    )}
+                  <div className="mt-1.5">
+                    <ChannelPicker
+                      selectedType={selectedChannelType as ChannelType}
+                      onTypeChange={async (type) => {
+                        setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: type }));
+                        // "manual" applies immediately — no configuration needed
+                        if (type === 'manual') {
+                          await handleUpdateChannel(peer, type);
+                        }
+                      }}
+                      relayAccounts={relayAccounts}
+                      selectedRelayAccountId={pendingRelayAccount[peer.peerDeviceId]}
+                      onRelayAccountSelect={async (accountId) => {
+                        if (!accountId) return;
+                        try {
+                          await invoke('set_peer_relay', {
+                            peerDeviceId: peer.peerDeviceId,
+                            relayAccountId: accountId,
+                          });
+                          setPendingRelayAccount(prev => {
+                            const next = { ...prev };
+                            delete next[peer.peerDeviceId];
+                            return next;
+                          });
+                          await loadPeers();
+                        } catch (err) {
+                          setError(String(err));
+                        }
+                      }}
+                      currentFolderPath={currentFolderPath}
+                      onConfigureFolder={() => handleUpdateChannel(peer, selectedChannelType)}
+                    />
                   </div>
                 </div>
 
