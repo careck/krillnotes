@@ -73,9 +73,23 @@ impl RbacGate {
                     self.require_authorship(conn, actor, note_id, role)?;
                 }
             }
-            Operation::MoveNote { note_id, .. } => {
+            Operation::MoveNote {
+                note_id,
+                new_parent_id,
+                ..
+            } => {
                 if role < Role::Owner {
                     self.require_authorship(conn, actor, note_id, role)?;
+                }
+                // Check destination scope — actor must have Writer+ at the target
+                if let Some(dest_id) = new_parent_id {
+                    let dest_role = crate::resolver::resolve_role(conn, actor, dest_id)?
+                        .ok_or_else(|| {
+                            PermissionError::Denied(
+                                "no access to move destination".into(),
+                            )
+                        })?;
+                    require_at_least(dest_role, Role::Writer)?;
                 }
             }
             Operation::RetractOperation { .. } => {
