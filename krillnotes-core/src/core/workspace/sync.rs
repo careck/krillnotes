@@ -183,8 +183,14 @@ impl Workspace {
             return Ok(false);
         }
 
-        // Authorize inbound operations from peers.
-        self.authorize(&op)?;
+        // Authorize inbound operations using the *author's* identity, not the
+        // local user's.  The gate must verify that the operation's author had
+        // the right to perform it, not that the local (receiving) peer does.
+        self.permission_gate.authorize(
+            self.storage.connection(),
+            op.author_key(),
+            &op,
+        )?;
 
         log::debug!(target: "krillnotes::sync", "applying incoming operation {} ({})", op.operation_id(), Self::operation_type_str(&op));
 
