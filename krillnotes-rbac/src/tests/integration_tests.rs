@@ -174,9 +174,9 @@ fn test_full_lifecycle_invite_and_authorize() {
     );
 }
 
-/// Cascade revocation end-to-end:
+/// Cascade revocation is now opt-in:
 /// root_owner → bob (owner) → carol (writer),
-/// revoking Bob cascades to Carol.
+/// revoking Bob preserves Carol's grant (UI decides whether to cascade).
 #[test]
 fn test_cascade_revocation_end_to_end() {
     let (conn, gate) = setup_gate_db();
@@ -194,13 +194,13 @@ fn test_cascade_revocation_end_to_end() {
     // Carol can create
     assert!(gate.authorize(&conn, CAROL, &make_create_note("root_a")).is_ok());
 
-    // Revoke Bob → cascades to Carol
+    // Revoke Bob
     let revoke = make_revoke_permission("root_a", BOB);
     gate.authorize(&conn, ROOT_OWNER, &revoke).unwrap();
     gate.apply_permission_op(&conn, &revoke).unwrap();
 
-    // Carol is now denied
-    assert!(gate.authorize(&conn, CAROL, &make_create_note("root_a")).is_err());
+    // Carol's grant is PRESERVED (opt-in cascade — UI decides)
+    assert!(gate.authorize(&conn, CAROL, &make_create_note("root_a")).is_ok());
 }
 
 /// Multi-subtree isolation:

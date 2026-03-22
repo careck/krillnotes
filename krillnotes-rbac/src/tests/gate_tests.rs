@@ -314,13 +314,15 @@ fn test_cascade_revocation() {
     grant_by(&conn, "root_a", CAROL, "writer", BOB);
     gate.apply_permission_op(&conn, &make_revoke_permission("root_a", BOB))
         .unwrap();
+    // Bob's grant is removed
     assert_eq!(
         crate::resolver::resolve_role(&conn, BOB, "root_a").unwrap(),
         None
     );
+    // Carol's grant is PRESERVED (opt-in cascade — UI decides)
     assert_eq!(
         crate::resolver::resolve_role(&conn, CAROL, "root_a").unwrap(),
-        None
+        Some(crate::resolver::Role::Writer)
     );
 }
 

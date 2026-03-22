@@ -241,7 +241,6 @@ impl PermissionGate for RbacGate {
                      ON CONFLICT(note_id, user_id) DO UPDATE SET role = ?3, granted_by = ?4",
                     rusqlite::params![note_id, user_id, role, granted_by],
                 )?;
-                self.cascade_revoke(conn, user_id)?;
                 Ok(())
             }
             Operation::RevokePermission {
@@ -254,7 +253,6 @@ impl PermissionGate for RbacGate {
                     "DELETE FROM note_permissions WHERE note_id = ?1 AND user_id = ?2",
                     rusqlite::params![note_id, user_id],
                 )?;
-                self.cascade_revoke(conn, user_id)?;
                 Ok(())
             }
             Operation::RemovePeer { user_id, .. } => {
@@ -262,7 +260,6 @@ impl PermissionGate for RbacGate {
                     "DELETE FROM note_permissions WHERE user_id = ?1",
                     rusqlite::params![user_id],
                 )?;
-                self.cascade_revoke(conn, user_id)?;
                 Ok(())
             }
             Operation::TransferRootOwnership {
