@@ -412,13 +412,19 @@ fn test_non_owner_without_grants_is_denied() {
         temp.path(), "", "non-owner-identity", non_owner_key, non_owner_gate,
     ).unwrap();
 
-    // Attempting to create a note should be denied.
-    let root2 = ws2.list_all_notes().unwrap()[0].clone();
-    let result = ws2.create_note(&root2.id, AddPosition::AsChild, "TextNote");
-    assert!(result.is_err(), "non-owner without grants should be denied");
-    let err = result.unwrap_err();
+    // Read filtering: non-owner without grants sees an empty tree.
+    let visible = ws2.list_all_notes().unwrap();
     assert!(
-        matches!(err, krillnotes_core::KrillnotesError::Permission(_)),
-        "error should be Permission, got: {err}"
+        visible.is_empty(),
+        "non-owner without grants should see no notes, got {}",
+        visible.len()
+    );
+
+    // Direct get_note should also be denied.
+    let result = ws2.get_note(&root.id);
+    assert!(result.is_err(), "non-owner without grants should be denied on get_note");
+    assert!(
+        matches!(result.unwrap_err(), krillnotes_core::KrillnotesError::Permission(_)),
+        "error should be Permission"
     );
 }

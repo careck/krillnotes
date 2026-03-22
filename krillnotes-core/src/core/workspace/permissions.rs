@@ -468,4 +468,69 @@ impl Workspace {
             })
             .collect())
     }
+
+    // ── Read-access helpers ─────────────────────────────────────────
+
+    /// Returns the set of note IDs visible to the current user, or `None`
+    /// if no read filtering is needed (root owner, or no `note_permissions`
+    /// table).
+    pub fn visible_note_ids(&self) -> Result<Option<std::collections::HashSet<String>>> {
+        // Root owner sees everything.
+        if self.identity_pubkey() == self.owner_pubkey() {
+            return Ok(None);
+        }
+
+        // No RBAC tables → no filtering.
+        let table_exists: bool = self
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_permissions'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count > 0)
+            .unwrap_or(false);
+
+        if !table_exists {
+            return Ok(None);
+        }
+
+        let roles = self.get_all_effective_roles()?;
+        Ok(Some(roles.into_keys().collect()))
+    }
+
+    /// Check that the current user can read `note_id`.
+    ///
+    /// Returns `Ok(())` if allowed, or a `Permission` error if denied.
+    pub fn check_read_access(&self, note_id: &str) -> Result<()> {
+        // Root owner sees everything.
+        if self.identity_pubkey() == self.owner_pubkey() {
+            return Ok(());
+        }
+
+        // No RBAC tables → no filtering.
+        let table_exists: bool = self
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_permissions'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count > 0)
+            .unwrap_or(false);
+
+        if !table_exists {
+            return Ok(());
+        }
+
+        let info = self.get_effective_role(note_id)?;
+        if info.role == "none" {
+            return Err(crate::KrillnotesError::Permission(
+                crate::core::permission::PermissionError::Denied(
+                    "no access to this subtree".into(),
+                ),
+            ));
+        }
+        Ok(())
+    }
 }

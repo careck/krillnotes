@@ -16,6 +16,7 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::Database`] if the note is not found or
     /// if `fields_json` cannot be deserialised.
     pub fn get_note(&self, note_id: &str) -> Result<Note> {
+        self.check_read_access(note_id)?;
         let row = self.connection().query_row(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
@@ -675,7 +676,14 @@ impl Workspace {
             .collect();
         let rows = stmt.query_map(params.as_slice(), map_note_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.into_iter().map(note_from_row_tuple).collect()
+        let notes: Vec<Note> = rows.into_iter().map(note_from_row_tuple).collect::<Result<_>>()?;
+
+        // Filter by read access
+        if let Some(visible) = self.visible_note_ids()? {
+            Ok(notes.into_iter().filter(|n| visible.contains(&n.id)).collect())
+        } else {
+            Ok(notes)
+        }
     }
 
     /// Returns all notes whose `note_link` fields point to `target_id`.
@@ -695,8 +703,15 @@ impl Workspace {
             .query_map([target_id], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
 
+        // Filter by read access before fetching full notes.
+        let visible = self.visible_note_ids()?;
         let mut notes = Vec::new();
         for id in source_ids {
+            if let Some(ref vis) = visible {
+                if !vis.contains(&id) {
+                    continue;
+                }
+            }
             notes.push(self.get_note(&id)?);
         }
         Ok(notes)
@@ -815,7 +830,14 @@ impl Workspace {
             .query_map([], map_note_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        rows.into_iter().map(note_from_row_tuple).collect()
+        let notes: Vec<Note> = rows.into_iter().map(note_from_row_tuple).collect::<Result<_>>()?;
+
+        // Filter by read access
+        if let Some(visible) = self.visible_note_ids()? {
+            Ok(notes.into_iter().filter(|n| visible.contains(&n.id)).collect())
+        } else {
+            Ok(notes)
+        }
     }
 
     /// Runs the `on_view` hook for the note's schema, falling back to a default
@@ -1140,6 +1162,8 @@ impl Workspace {
     ///
     /// Returns [`KrillnotesError`] if the database query fails.
     pub fn get_children(&self, parent_id: &str) -> Result<Vec<Note>> {
+        self.check_read_access(parent_id)?;
+
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
@@ -1501,6 +1525,8 @@ impl Workspace {
     /// including when `note_id` does not exist (the count will be zero in
     /// that case rather than an error, but connection failures are surfaced).
     pub fn count_children(&self, note_id: &str) -> Result<usize> {
+        self.check_read_access(note_id)?;
+
         let count: i64 = self.storage.connection().query_row(
             "SELECT COUNT(*) FROM notes WHERE parent_id = ?1",
             rusqlite::params![note_id],
