@@ -491,7 +491,29 @@
     "delete": "Delete",
     "confirmDelete": "Confirm Delete"
   },
+  "onboard": {
+    "title": "Onboard Peer",
+    "scope": "Invited to subtree",
+    "role": "Role",
+    "channel": "Sync channel",
+    "grantAndSync": "Grant & sync",
+    "later": "Later",
+    "reject": "Reject"
+  },
+  "roles": {
+    "owner": "Owner — full control of subtree",
+    "writer": "Writer — create and edit notes",
+    "reader": "Reader — view only"
+  },
+  "pendingResponses": {
+    "awaitingOnboard": "Awaiting onboarding",
+    "onboard": "Onboard"
+  },
+  "contextMenu": {
+    "inviteToSubtree": "Invite to this subtree…"
+  },
   "invite": {
+    "scope": "Subtree scope",
     "createTitle": "Create Invite",
     "createDescription": "Create a signed invite for {{workspaceName}}. Share the file with anyone you want to invite.",
     "createInvite": "Create Invite",

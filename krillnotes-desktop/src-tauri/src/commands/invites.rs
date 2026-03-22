@@ -20,6 +20,8 @@ pub struct InviteInfo {
     pub revoked: bool,
     pub use_count: u32,
     pub relay_url: Option<String>,
+    pub scope_note_id: Option<String>,
+    pub scope_note_title: Option<String>,
 }
 
 impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
@@ -33,6 +35,8 @@ impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
             revoked: r.revoked,
             use_count: r.use_count,
             relay_url: r.relay_url,
+            scope_note_id: r.scope_note_id,
+            scope_note_title: r.scope_note_title,
         }
     }
 }
@@ -96,6 +100,7 @@ pub fn create_invite(
     workspace_name: String,
     expires_in_days: Option<u32>,
     save_path: String,
+    scope_note_id: Option<String>,
 ) -> std::result::Result<InviteInfo, String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
@@ -107,6 +112,16 @@ pub fn create_invite(
             crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
             id.display_name.clone(),
         )
+    };
+
+    // Resolve scope note title from workspace if scope_note_id is provided.
+    let scope_note_title = if let Some(ref nid) = scope_note_id {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(window.label())
+            .ok_or("No workspace for this window")?;
+        Some(ws.get_note(nid).map_err(|e| e.to_string())?.title)
+    } else {
+        None
     };
 
     // Get workspace id + metadata from the current window's workspace.
@@ -140,6 +155,8 @@ pub fn create_invite(
             ws_url,
             ws_license,
             ws_tags,
+            scope_note_id,
+            scope_note_title,
         )
         .map_err(|e| {
             log::error!("create_invite(identity={identity_uuid}) failed: {e}");
@@ -224,6 +241,8 @@ pub fn save_invite_file(
         inviter_public_key: pubkey_b64,
         inviter_declared_name: declared_name,
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
+        scope_note_id: record.scope_note_id.clone(),
+        scope_note_title: record.scope_note_title.clone(),
         signature: String::new(),
     };
     let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
@@ -300,7 +319,7 @@ pub fn import_invite_response(
 
     // Validate invite is still active and increment use count.
     let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
-    let (invite_workspace_id, invite_workspace_name) = {
+    let (invite_workspace_id, invite_workspace_name, invite_scope_note_id, invite_scope_note_title) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         let record = im
@@ -316,7 +335,7 @@ pub fn import_invite_response(
             }
         }
         im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
-        (record.workspace_id.clone(), record.workspace_name.clone())
+        (record.workspace_id.clone(), record.workspace_name.clone(), record.scope_note_id.clone(), record.scope_note_title.clone())
     };
 
     let fingerprint = generate_fingerprint(&response.invitee_public_key)
@@ -343,6 +362,8 @@ pub fn import_invite_response(
                     invite_workspace_name,
                     pending_peer.invitee_public_key.clone(),
                     pending_peer.invitee_declared_name.clone(),
+                    invite_scope_note_id,
+                    invite_scope_note_title,
                 );
                 let _ = rr_mgr.save(&rr);
             }

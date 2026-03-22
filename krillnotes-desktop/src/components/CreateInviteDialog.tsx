@@ -7,6 +7,8 @@ import type { InviteInfo } from '../types';
 interface Props {
   identityUuid: string;
   workspaceName: string;
+  scopeNoteId?: string;
+  scopeNoteTitle?: string;
   onCreated: (invite: InviteInfo) => void;
   onClose: () => void;
 }
@@ -20,7 +22,7 @@ const EXPIRY_OPTIONS = [
 
 type Step = 'configure' | 'share';
 
-export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onClose }: Props) {
+export function CreateInviteDialog({ identityUuid, workspaceName, scopeNoteId, scopeNoteTitle, onCreated, onClose }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>('configure');
   const [expiryDays, setExpiryDays] = useState<number | null>(null);
@@ -55,6 +57,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
         workspaceName,
         expiresInDays: effectiveDays ?? undefined,
         savePath,
+        scopeNoteId: scopeNoteId ?? null,
       });
       setCreatedInvite(invite);
       setSavedPath(savePath);
@@ -120,10 +123,10 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
 
   if (step === 'share') {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
+        <div className="bg-background border border-border rounded-xl shadow-xl p-6 w-full max-w-md">
           <h2 className="text-lg font-semibold mb-2">{t('invite.shareTitle', 'Share Invite')}</h2>
-          <p className="text-sm text-zinc-500 mb-5">
+          <p className="text-sm text-muted-foreground mb-5">
             {t('invite.shareDescription', 'Your invite file has been saved. You can also share it via a relay link.')}
           </p>
 
@@ -132,7 +135,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
               <button
                 onClick={handleCopyLink}
                 disabled={copyingLink || savingFile || linkCopied}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded border dark:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
               >
                 {linkCopied
                   ? t('invite.linkCopied', 'Link copied!')
@@ -145,7 +148,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
             <button
               onClick={handleSaveFile}
               disabled={savingFile || copyingLink}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded border dark:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
             >
               {fileSaved
                 ? t('invite.fileSaved', 'File saved!')
@@ -158,7 +161,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
               <button
                 onClick={handleBoth}
                 disabled={copyingLink || savingFile || (linkCopied && fileSaved)}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded border dark:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
               >
                 {copyingLink || savingFile
                   ? t('common.saving', 'Saving…')
@@ -168,13 +171,13 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
           </div>
 
           {relayUrl && (
-            <p className="text-xs font-mono text-zinc-500 break-all mb-3">{relayUrl}</p>
+            <p className="text-xs font-mono text-muted-foreground break-all mb-3">{relayUrl}</p>
           )}
 
           {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
 
           <div className="flex justify-end">
-            <button onClick={onClose} className="px-4 py-2 text-sm rounded bg-blue-600 text-white">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground">
               {t('common.done', 'Done')}
             </button>
           </div>
@@ -184,17 +187,28 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
+      <div className="bg-background border border-border rounded-xl shadow-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-semibold mb-4">{t('invite.createTitle')}</h2>
 
-        <p className="text-sm text-zinc-500 mb-4">
+        <p className="text-sm text-muted-foreground mb-4">
           {t('invite.createDescription', { workspaceName })}
         </p>
 
+        {scopeNoteId && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-1">
+              {t('invite.scope', 'Subtree scope')}
+            </label>
+            <p className="text-sm bg-secondary rounded px-3 py-1.5">
+              {scopeNoteTitle ?? scopeNoteId}
+            </p>
+          </div>
+        )}
+
         <label className="block text-sm font-medium mb-1">{t('invite.expiry')}</label>
         <select
-          className="w-full border rounded px-3 py-2 mb-4 dark:bg-zinc-800 dark:border-zinc-700"
+          className="w-full border border-border rounded px-3 py-2 mb-4 bg-background"
           value={expiryDays ?? 'null'}
           onChange={e => setExpiryDays(e.target.value === 'null' ? null : parseInt(e.target.value))}
         >
@@ -209,7 +223,7 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
             <input
               type="number"
               min="1"
-              className="w-full border rounded px-3 py-2 dark:bg-zinc-800 dark:border-zinc-700"
+              className="w-full border border-border rounded px-3 py-2 bg-background"
               value={customDays}
               onChange={e => setCustomDays(e.target.value)}
             />
@@ -219,13 +233,13 @@ export function CreateInviteDialog({ identityUuid, workspaceName, onCreated, onC
         {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm rounded border dark:border-zinc-700">
+          <button onClick={onClose} className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary">
             {t('common.cancel')}
           </button>
           <button
             onClick={handleCreate}
             disabled={creating || (expiryDays === -1 && !parseInt(customDays))}
-            className="px-4 py-2 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50"
           >
             {creating ? t('common.saving') : t('invite.createAndSave')}
           </button>

@@ -15,6 +15,7 @@ interface ContextMenuProps {
   copiedNoteId: string | null;
   isLeaf: boolean;
   treeActions: string[];
+  effectiveRole?: string | null;       // "owner" | "writer" | "reader" | "root_owner" | "none" | null
   onAddChild: () => void;
   onAddSibling: () => void;
   onAddRoot: () => void;
@@ -23,15 +24,17 @@ interface ContextMenuProps {
   onPasteAsChild: () => void;
   onPasteAsSibling: () => void;
   onTreeAction: (label: string) => void;
+  onInviteToSubtree?: (noteId: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
 function ContextMenu({
   x, y, noteId, copiedNoteId, isLeaf, treeActions,
+  effectiveRole,
   onAddChild, onAddSibling, onAddRoot,
   onEdit, onCopy, onPasteAsChild, onPasteAsSibling,
-  onTreeAction, onDelete, onClose,
+  onTreeAction, onInviteToSubtree, onDelete, onClose,
 }: ContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -118,6 +121,17 @@ function ContextMenu({
                   {label}
                 </button>
               ))}
+            </>
+          )}
+          {noteId && effectiveRole && (effectiveRole === 'owner' || effectiveRole === 'root_owner') && onInviteToSubtree && (
+            <>
+              <div className="border-t border-secondary my-1" />
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                onClick={() => { onInviteToSubtree(noteId); onClose(); }}
+              >
+                {t('contextMenu.inviteToSubtree', 'Invite to this subtree\u2026')}
+              </button>
             </>
           )}
           <div className="border-t border-secondary my-1" />

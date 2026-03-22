@@ -88,7 +88,7 @@ export function SendSnapshotDialog({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70">
       <div className="bg-background border border-border rounded-lg p-6 max-w-md w-full shadow-xl">
         <h2 className="text-lg font-semibold mb-4">Create Workspace Snapshot</h2>
         <p className="text-sm text-muted-foreground mb-3">

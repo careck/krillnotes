@@ -2,30 +2,23 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { InviteInfo, PendingPeer, ContactInfo } from '../types';
+import type { InviteInfo } from '../types';
 import { CreateInviteDialog } from './CreateInviteDialog';
-import { AcceptPeerDialog } from './AcceptPeerDialog';
-import { PostAcceptDialog } from './PostAcceptDialog';
-import { SendSnapshotDialog } from './SendSnapshotDialog';
 import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   identityUuid: string;
   workspaceName: string;
+  initialScope?: { noteId: string; noteTitle: string } | null;
   onClose: () => void;
 }
 
-export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Props) {
+export function InviteManagerDialog({ identityUuid, workspaceName, initialScope, onClose }: Props) {
   const { t } = useTranslation();
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [pendingPeer, setPendingPeer] = useState<PendingPeer | null>(null);
-  const [showAccept, setShowAccept] = useState(false);
-  const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
-  const [showSendSnapshot, setShowSendSnapshot] = useState(false);
-  const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
   // Share Invite Link state
   const [sharingLink, setSharingLink] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -51,6 +44,13 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
   };
 
   useEffect(() => { load(); }, [identityUuid]);
+
+  // Auto-open CreateInviteDialog when initialScope is set
+  useEffect(() => {
+    if (initialScope) {
+      setShowCreate(true);
+    }
+  }, [initialScope]);
 
   const handleRevoke = async (inviteId: string) => {
     try {
@@ -166,13 +166,12 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
     setFetchingResponse(true);
     setError(null);
     try {
-      const peer = await invoke<PendingPeer>('fetch_relay_invite_response', {
+      await invoke('fetch_relay_invite_response', {
         identityUuid,
         token,
       });
-      setPendingPeer(peer);
-      setShowAccept(true);
       setResponseUrl('');
+      load();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -184,16 +183,16 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
     const path = await open({ filters: [{ name: 'Swarm Response', extensions: ['swarm'] }] });
     if (!path) return;
     try {
-      const peer = await invoke<PendingPeer>('import_invite_response', {
+      await invoke('import_invite_response', {
         identityUuid,
         path: typeof path === 'string' ? path : path[0],
       });
-      setPendingPeer(peer);
-      setShowAccept(true);
+      load();
     } catch (e) {
       setError(String(e));
     }
   };
+
 
   const formatExpiry = (invite: InviteInfo) => {
     if (!invite.expiresAt) return t('invite.noExpiry');
@@ -313,6 +312,11 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
                         {invite.revoked && (
                           <span className="ml-2 text-red-500">{t('invite.revoked')}</span>
                         )}
+                        {invite.scopeNoteId && (
+                          <span className="ml-2 text-xs text-zinc-400">
+                            → {invite.scopeNoteTitle ?? invite.scopeNoteId}
+                          </span>
+                        )}
                       </p>
                       {invite.relayUrl && (
                         <p className="text-xs text-[var(--color-muted-foreground)] font-mono truncate mt-0.5" title={invite.relayUrl}>
@@ -368,42 +372,13 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
         <CreateInviteDialog
           identityUuid={identityUuid}
           workspaceName={workspaceName}
-          onCreated={() => load()}
+          scopeNoteId={initialScope?.noteId}
+          scopeNoteTitle={initialScope?.noteTitle}
+          onCreated={() => { load(); setShowCreate(false); }}
           onClose={() => setShowCreate(false)}
         />
       )}
 
-      {showAccept && (
-        <AcceptPeerDialog
-          identityUuid={identityUuid}
-          pendingPeer={pendingPeer}
-          onAccepted={(contact: ContactInfo) => {
-            load();
-            const peerName = contact.localName || contact.declaredName;
-            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
-          }}
-          onClose={() => { setShowAccept(false); setPendingPeer(null); }}
-        />
-      )}
-
-      <PostAcceptDialog
-        open={postAcceptPeer !== null}
-        peerName={postAcceptPeer?.name ?? ''}
-        onSendNow={() => {
-          setSendSnapshotFor([postAcceptPeer!.publicKey]);
-          setPostAcceptPeer(null);
-          setShowSendSnapshot(true);
-        }}
-        onLater={() => setPostAcceptPeer(null)}
-      />
-
-      <SendSnapshotDialog
-        open={showSendSnapshot}
-        identityUuid={identityUuid}
-        preSelectedPublicKeys={sendSnapshotFor}
-        onClose={() => setShowSendSnapshot(false)}
-        onSuccess={() => {}}
-      />
 
       {showRelaySetup && (
         <AddRelayAccountDialog

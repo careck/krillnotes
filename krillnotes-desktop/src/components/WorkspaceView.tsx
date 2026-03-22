@@ -25,6 +25,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
+import { InviteManagerDialog } from './InviteManagerDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, getDescendantIds } from '../utils/tree';
@@ -54,7 +55,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const closePendingUndoGroupRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -73,6 +74,9 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // Workspace properties dialog state
   const [showWorkspaceProperties, setShowWorkspaceProperties] = useState(false);
+
+  // Invite-to-subtree dialog state
+  const [inviteScope, setInviteScope] = useState<{ noteId: string; noteTitle: string } | null>(null);
 
   // Schema migration toast state
   const [migrationToasts, setMigrationToasts] = useState<SchemaMigratedEvent[]>([]);
@@ -404,10 +408,17 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // --- Context menu handlers ---
 
-  const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
+  const handleContextMenu = async (e: React.MouseEvent, noteId: string) => {
     const note = notes.find(n => n.id === noteId);
     const noteType = note?.schema ?? '';
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType });
+    let effectiveRole: string | null = null;
+    try {
+      const roleInfo = await invoke<{ role: string }>('get_effective_role', { noteId });
+      effectiveRole = roleInfo.role;
+    } catch {
+      effectiveRole = null;
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole });
   };
 
   // Opens AddNoteDialog or creates directly if only one type is available
@@ -446,7 +457,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   };
 
   const handleBackgroundContextMenu = (e: React.MouseEvent) => {
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '' });
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null });
   };
 
   const handleContextEdit = (noteId: string) => {
@@ -648,6 +659,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           copiedNoteId={copiedNoteId}
           isLeaf={schemas[contextMenu.noteType ?? '']?.isLeaf ?? false}
           treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
+          effectiveRole={contextMenu.effectiveRole}
           onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
           onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
           onAddRoot={handleContextAddRoot}
@@ -656,6 +668,10 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           onPasteAsChild={() => pasteNote('child')}
           onPasteAsSibling={() => pasteNote('sibling')}
           onTreeAction={(label) => contextMenu.noteId && handleTreeAction(contextMenu.noteId, label)}
+          onInviteToSubtree={(noteId) => {
+            const note = notes.find(n => n.id === noteId);
+            setInviteScope({ noteId, noteTitle: note?.title ?? noteId });
+          }}
           onDelete={() => contextMenu.noteId && handleContextDelete(contextMenu.noteId)}
           onClose={() => setContextMenu(null)}
         />
@@ -690,6 +706,16 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
         isOpen={showWorkspaceProperties}
         onClose={() => setShowWorkspaceProperties(false)}
       />
+
+      {/* Invite to Subtree Dialog */}
+      {inviteScope && workspaceInfo.identityUuid && (
+        <InviteManagerDialog
+          identityUuid={workspaceInfo.identityUuid}
+          workspaceName={workspaceInfo.filename}
+          initialScope={inviteScope}
+          onClose={() => setInviteScope(null)}
+        />
+      )}
 
       {/* Schema migration toasts */}
       {migrationToasts.length > 0 && (

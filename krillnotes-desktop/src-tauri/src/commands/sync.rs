@@ -230,6 +230,7 @@ pub async fn share_invite_link(
     identity_uuid: String,
     workspace_name: String,
     expires_in_days: Option<u32>,
+    scope_note_id: Option<String>,
 ) -> Result<crate::commands::invites::InviteInfo, String> {
     log::debug!("share_invite_link(identity={identity_uuid})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
@@ -242,6 +243,16 @@ pub async fn share_invite_link(
             crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
             id.display_name.clone(),
         )
+    };
+
+    // Resolve scope note title from workspace if scope_note_id is provided.
+    let scope_note_title = if let Some(ref nid) = scope_note_id {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let ws = workspaces.get(window.label())
+            .ok_or("No workspace for this window")?;
+        Some(ws.get_note(nid).map_err(|e| e.to_string())?.title)
+    } else {
+        None
     };
 
     // Get workspace metadata from the current window's workspace.
@@ -276,6 +287,8 @@ pub async fn share_invite_link(
             ws_url,
             ws_license,
             ws_tags,
+            scope_note_id,
+            scope_note_title,
         )
         .map_err(|e| {
             log::error!("share_invite_link create_invite failed: {e}");
@@ -414,6 +427,8 @@ pub async fn create_relay_invite(
         inviter_public_key: pubkey_b64,
         inviter_declared_name: declared_name,
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
+        scope_note_id: record.scope_note_id.clone(),
+        scope_note_title: record.scope_note_title.clone(),
         signature: String::new(),
     };
     let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
