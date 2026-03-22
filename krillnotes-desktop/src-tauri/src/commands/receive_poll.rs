@@ -25,6 +25,8 @@ pub struct ReceivedResponseInfo {
     pub invitee_declared_name: String,
     pub received_at: String,
     pub status: String,
+    pub scope_note_id: Option<String>,
+    pub scope_note_title: Option<String>,
 }
 
 impl From<krillnotes_core::core::received_response::ReceivedResponse> for ReceivedResponseInfo {
@@ -41,7 +43,10 @@ impl From<krillnotes_core::core::received_response::ReceivedResponse> for Receiv
                 krillnotes_core::core::received_response::ReceivedResponseStatus::Pending => "pending".to_string(),
                 krillnotes_core::core::received_response::ReceivedResponseStatus::PeerAdded => "peerAdded".to_string(),
                 krillnotes_core::core::received_response::ReceivedResponseStatus::SnapshotSent => "snapshotSent".to_string(),
+                krillnotes_core::core::received_response::ReceivedResponseStatus::PermissionPending => "permissionPending".to_string(),
             },
+            scope_note_id: r.scope_note_id,
+            scope_note_title: r.scope_note_title,
         }
     }
 }
@@ -78,6 +83,7 @@ pub fn update_response_status(
         "pending" => krillnotes_core::core::received_response::ReceivedResponseStatus::Pending,
         "peerAdded" => krillnotes_core::core::received_response::ReceivedResponseStatus::PeerAdded,
         "snapshotSent" => krillnotes_core::core::received_response::ReceivedResponseStatus::SnapshotSent,
+        "permissionPending" => krillnotes_core::core::received_response::ReceivedResponseStatus::PermissionPending,
         _ => return Err(format!("Invalid status: {status}")),
     };
     mgr.update_status(resp_uuid, new_status).map_err(|e| e.to_string())
@@ -354,14 +360,16 @@ pub async fn poll_receive_workspace(
                     let workspace_name = matched_invite
                         .map(|inv| inv.workspace_name.clone())
                         .unwrap_or_default();
+                    let scope_note_id = matched_invite.and_then(|inv| inv.scope_note_id.clone());
+                    let scope_note_title = matched_invite.and_then(|inv| inv.scope_note_title.clone());
                     let received = krillnotes_core::core::received_response::ReceivedResponse::new(
                         invite_id,
                         parsed.workspace_id.clone(),
                         workspace_name,
                         parsed.acceptor_public_key.clone(),
                         parsed.declared_name.clone(),
-                        None, // scope_note_id — populated in Task 4
-                        None, // scope_note_title — populated in Task 4
+                        scope_note_id,
+                        scope_note_title,
                     );
 
                     {
