@@ -144,20 +144,20 @@ export function OnboardPeerDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-70" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+      <div className="bg-background border border-border rounded-xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">
             {t('onboard.title', 'Onboard Peer')}
           </h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             ✕
           </button>
         </div>
 
         {/* Peer card */}
-        <div className="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 mb-4">
+        <div className="bg-secondary rounded-lg p-3 mb-4">
           <p className="font-medium">{response.inviteeDeclaredName}</p>
-          <p className="text-xs text-zinc-500 font-mono truncate">
+          <p className="text-xs text-muted-foreground font-mono truncate">
             {response.inviteePublicKey.slice(0, 16)}…
           </p>
         </div>
@@ -165,10 +165,10 @@ export function OnboardPeerDialog({
         {/* Scope reminder */}
         {response.scopeNoteTitle && (
           <div className="mb-4">
-            <label className="block text-sm font-medium text-zinc-500 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               {t('onboard.scope', 'Invited to subtree')}
             </label>
-            <p className="text-sm bg-zinc-50 dark:bg-zinc-800 rounded px-3 py-1.5">
+            <p className="text-sm bg-secondary rounded px-3 py-1.5">
               {response.scopeNoteTitle}
             </p>
           </div>
@@ -180,7 +180,7 @@ export function OnboardPeerDialog({
             {t('onboard.role', 'Role')}
           </label>
           <select
-            className="w-full border rounded px-3 py-2 dark:bg-zinc-800 dark:border-zinc-700"
+            className="w-full border border-border rounded px-3 py-2 bg-background"
             value={role}
             onChange={e => setRole(e.target.value as typeof role)}
             disabled={processing}
@@ -213,7 +213,7 @@ export function OnboardPeerDialog({
           <button
             onClick={handleReject}
             disabled={processing}
-            className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded disabled:opacity-50"
+            className="px-3 py-2 text-sm text-red-600 hover:bg-red-500/10 rounded disabled:opacity-50"
           >
             {t('onboard.reject', 'Reject')}
           </button>
@@ -221,14 +221,14 @@ export function OnboardPeerDialog({
             <button
               onClick={handleLater}
               disabled={processing}
-              className="px-4 py-2 text-sm rounded border dark:border-zinc-700 disabled:opacity-50"
+              className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
             >
               {t('onboard.later', 'Later')}
             </button>
             <button
               onClick={handleGrantAndSync}
               disabled={processing}
-              className="px-4 py-2 text-sm rounded bg-blue-600 text-white disabled:opacity-50"
+              className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50"
             >
               {processing
                 ? t('common.saving', 'Saving…')
