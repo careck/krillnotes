@@ -25,6 +25,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
+import { InviteManagerDialog } from './InviteManagerDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, getDescendantIds } from '../utils/tree';
@@ -73,6 +74,9 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // Workspace properties dialog state
   const [showWorkspaceProperties, setShowWorkspaceProperties] = useState(false);
+
+  // Invite-to-subtree dialog state
+  const [inviteScope, setInviteScope] = useState<{ noteId: string; noteTitle: string } | null>(null);
 
   // Schema migration toast state
   const [migrationToasts, setMigrationToasts] = useState<SchemaMigratedEvent[]>([]);
@@ -648,6 +652,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           copiedNoteId={copiedNoteId}
           isLeaf={schemas[contextMenu.noteType ?? '']?.isLeaf ?? false}
           treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
+          effectiveRole={workspaceInfo.identityUuid ? 'root_owner' : null}
           onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
           onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
           onAddRoot={handleContextAddRoot}
@@ -656,6 +661,10 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           onPasteAsChild={() => pasteNote('child')}
           onPasteAsSibling={() => pasteNote('sibling')}
           onTreeAction={(label) => contextMenu.noteId && handleTreeAction(contextMenu.noteId, label)}
+          onInviteToSubtree={(noteId) => {
+            const note = notes.find(n => n.id === noteId);
+            setInviteScope({ noteId, noteTitle: note?.title ?? noteId });
+          }}
           onDelete={() => contextMenu.noteId && handleContextDelete(contextMenu.noteId)}
           onClose={() => setContextMenu(null)}
         />
@@ -690,6 +699,17 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
         isOpen={showWorkspaceProperties}
         onClose={() => setShowWorkspaceProperties(false)}
       />
+
+      {/* Invite to Subtree Dialog */}
+      {inviteScope && workspaceInfo.identityUuid && (
+        <InviteManagerDialog
+          identityUuid={workspaceInfo.identityUuid}
+          workspaceName={workspaceInfo.filename}
+          workspaceId={workspaceInfo.workspaceId}
+          initialScope={inviteScope}
+          onClose={() => setInviteScope(null)}
+        />
+      )}
 
       {/* Schema migration toasts */}
       {migrationToasts.length > 0 && (
