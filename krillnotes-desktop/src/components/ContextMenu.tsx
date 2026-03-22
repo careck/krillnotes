@@ -16,6 +16,7 @@ interface ContextMenuProps {
   isLeaf: boolean;
   treeActions: string[];
   effectiveRole?: string | null;       // "owner" | "writer" | "reader" | "root_owner" | "none" | null
+  isRootOwner?: boolean;
   onAddChild: () => void;
   onAddSibling: () => void;
   onAddRoot: () => void;

@@ -44,6 +44,9 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const [treeActionMap, setTreeActionMap] = useState<Record<string, string[]>>({});
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
+  const [effectiveRoles, setEffectiveRoles] = useState<Record<string, string>>({});
+  const [shareAnchorIds, setShareAnchorIds] = useState<Set<string>>(new Set());
+  const [isRootOwner, setIsRootOwner] = useState(false);
   const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addDialogNoteId, setAddDialogNoteId] = useState<string | null>(null);
@@ -55,7 +58,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const closePendingUndoGroupRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null; isRootOwner: boolean } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -110,6 +113,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   // Load notes on mount
   useEffect(() => {
     loadNotes();
+    loadPermissionState();
   }, []);
 
   // Listen for schema migration events emitted on workspace open.
@@ -128,6 +132,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   useEffect(() => {
     const unlisten = getCurrentWebviewWindow().listen('workspace-updated', () => {
       loadNotes();
+      loadPermissionState();
     });
     return () => { unlisten.then(f => f()); };
   }, []);
@@ -224,6 +229,24 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     }
   };
 
+  const loadPermissionState = async () => {
+    try {
+      const [roles, anchors, rootOwner] = await Promise.all([
+        invoke<Record<string, string>>('get_all_effective_roles'),
+        invoke<string[]>('get_share_anchor_ids'),
+        invoke<boolean>('is_root_owner'),
+      ]);
+      setEffectiveRoles(roles);
+      setShareAnchorIds(new Set(anchors));
+      setIsRootOwner(rootOwner);
+    } catch {
+      // RBAC not enabled for this workspace — default to permissive
+      setEffectiveRoles({});
+      setShareAnchorIds(new Set());
+      setIsRootOwner(true);
+    }
+  };
+
   // Tree state — selection, expansion, keyboard navigation, link navigation.
   // Placed after loadNotes because the hook receives loadNotes as a parameter and
   // TypeScript enforces const TDZ. loadNotes in turn closes over selectionInitialized
@@ -258,6 +281,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
         position,
       });
       await loadNotes();
+      await loadPermissionState();
       if (position === 'child') {
         await invoke('toggle_note_expansion', { noteId: selectedNoteId, expanded: true });
       }
@@ -274,6 +298,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       await invoke('invoke_tree_action', { noteId, label });
       await loadNotes();
+      await loadPermissionState();
       await refreshUndoState();
     } catch (err) {
       setError(t('workspace.treeActionFailed', { error: String(err) }));
@@ -362,6 +387,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       await invoke('move_note', { noteId, newParentId, newPosition });
       await loadNotes();
+      await loadPermissionState();
       await refreshUndoState();
     } catch (err) {
       console.error('Failed to move note:', err);
@@ -370,6 +396,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   const handleNoteCreated = async (noteId: string) => {
     const fetchedNotes = await loadNotes();
+    await loadPermissionState();
     if (!fetchedNotes.some(n => n.id === noteId)) return;
     // Mark that a note-creation undo group is open so handleEditDone can close it.
     pendingUndoGroupRef.current = true;
@@ -384,6 +411,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       const currentId = selectedNoteIdRef.current;
       const freshNotes = await loadNotes();
+      await loadPermissionState();
 
       if (currentId && !freshNotes.some(n => n.id === currentId)) {
         const freshTree = buildTree(freshNotes);
@@ -408,17 +436,11 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // --- Context menu handlers ---
 
-  const handleContextMenu = async (e: React.MouseEvent, noteId: string) => {
+  const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
     const note = notes.find(n => n.id === noteId);
     const noteType = note?.schema ?? '';
-    let effectiveRole: string | null = null;
-    try {
-      const roleInfo = await invoke<{ role: string }>('get_effective_role', { noteId });
-      effectiveRole = roleInfo.role;
-    } catch {
-      effectiveRole = null;
-    }
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole });
+    const effectiveRole = effectiveRoles[noteId] ?? null;
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole, isRootOwner });
   };
 
   // Opens AddNoteDialog or creates directly if only one type is available
@@ -457,7 +479,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   };
 
   const handleBackgroundContextMenu = (e: React.MouseEvent) => {
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null });
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null, isRootOwner });
   };
 
   const handleContextEdit = (noteId: string) => {
@@ -573,6 +595,8 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
             onMoveNote={handleMoveNote}
             onHoverStart={handleHoverStart}
             onHoverEnd={handleHoverEnd}
+            effectiveRoles={effectiveRoles}
+            shareAnchorIds={shareAnchorIds}
           />
         </div>
 
@@ -660,6 +684,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           isLeaf={schemas[contextMenu.noteType ?? '']?.isLeaf ?? false}
           treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
           effectiveRole={contextMenu.effectiveRole}
+          isRootOwner={contextMenu.isRootOwner}
           onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
           onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
           onAddRoot={handleContextAddRoot}
@@ -692,7 +717,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
       <ScriptManagerDialog
         isOpen={showScriptManager}
         onClose={() => setShowScriptManager(false)}
-        onScriptsChanged={async () => { await loadNotes(); await refreshUndoState(); }}
+        onScriptsChanged={async () => { await loadNotes(); await loadPermissionState(); await refreshUndoState(); }}
       />
 
       {/* Operations Log Dialog */}

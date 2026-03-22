@@ -26,6 +26,8 @@ interface TreeViewProps {
   onBackgroundContextMenu: (e: React.MouseEvent) => void;
   onHoverStart: (noteId: string, anchorY: number) => void;
   onHoverEnd: () => void;
+  effectiveRoles?: Record<string, string>;
+  shareAnchorIds?: Set<string>;
 }
 
 function TreeView({
