@@ -16,6 +16,8 @@ interface ContextMenuProps {
   isLeaf: boolean;
   treeActions: string[];
   effectiveRole?: string | null;       // "owner" | "writer" | "reader" | "root_owner" | "none" | null
+  isRootOwner?: boolean;
+  isRootNote?: boolean;
   onAddChild: () => void;
   onAddSibling: () => void;
   onAddRoot: () => void;
@@ -25,16 +27,17 @@ interface ContextMenuProps {
   onPasteAsSibling: () => void;
   onTreeAction: (label: string) => void;
   onInviteToSubtree?: (noteId: string) => void;
+  onShareSubtree?: (noteId: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
 function ContextMenu({
   x, y, noteId, copiedNoteId, isLeaf, treeActions,
-  effectiveRole,
+  effectiveRole, isRootOwner, isRootNote,
   onAddChild, onAddSibling, onAddRoot,
   onEdit, onCopy, onPasteAsChild, onPasteAsSibling,
-  onTreeAction, onInviteToSubtree, onDelete, onClose,
+  onTreeAction, onInviteToSubtree, onShareSubtree, onDelete, onClose,
 }: ContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -56,6 +59,14 @@ function ContextMenu({
     };
   }, [onClose]);
 
+  // Permission flags for note menu
+  // When effectiveRole is null/undefined, RBAC is not active — allow everything
+  const canWrite = !effectiveRole || effectiveRole === 'owner' || effectiveRole === 'root_owner' || effectiveRole === 'writer';
+  const canManage = !effectiveRole || effectiveRole === 'owner' || effectiveRole === 'root_owner';
+  const isGhost = effectiveRole === 'none';
+  // Adding a sibling to a root note = creating a root note, requires root owner
+  const canAddSibling = canWrite && !(isRootNote && isRootOwner === false);
+
   return createPortal(
     <div
       ref={menuRef}
@@ -65,82 +76,108 @@ function ContextMenu({
       {noteId === null ? (
         // Background context menu — root note creation only
         <button
-          className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-          onClick={() => { onAddRoot(); onClose(); }}
+          onClick={isRootOwner !== false ? () => { onAddRoot(); onClose(); } : undefined}
+          disabled={isRootOwner === false}
+          className={`w-full text-left px-3 py-1.5 text-sm ${
+            isRootOwner !== false
+              ? 'hover:bg-zinc-100 dark:hover:bg-zinc-700'
+              : 'opacity-40 cursor-not-allowed'
+          }`}
         >
           {t('notes.addRoot')}
         </button>
       ) : (
         // Note context menu
         <>
-          <button
-            className={`w-full text-left px-3 py-1.5 text-sm ${isLeaf ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
-            onClick={() => { if (!isLeaf) { onAddChild(); onClose(); } }}
-          >
-            {t('notes.addChildShort')}
-          </button>
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-            onClick={() => { onAddSibling(); onClose(); }}
-          >
-            {t('notes.addSiblingShort')}
-          </button>
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-            onClick={() => { onEdit(); onClose(); }}
-          >
-            {t('common.edit')}
-          </button>
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-            onClick={() => { onCopy(); onClose(); }}
-          >
-            {t('notes.copyNote')}
-          </button>
-          <button
-            className={`w-full text-left px-3 py-1.5 text-sm ${(copiedNoteId && !isLeaf) ? 'hover:bg-secondary' : 'opacity-40 cursor-not-allowed'}`}
-            onClick={() => { if (copiedNoteId && !isLeaf) { onPasteAsChild(); onClose(); } }}
-          >
-            {t('notes.pasteAsChild')}
-          </button>
-          <button
-            className={`w-full text-left px-3 py-1.5 text-sm ${copiedNoteId ? 'hover:bg-secondary' : 'opacity-40 cursor-not-allowed'}`}
-            onClick={() => { if (copiedNoteId) { onPasteAsSibling(); onClose(); } }}
-          >
-            {t('notes.pasteAsSibling')}
-          </button>
-          {treeActions.length > 0 && (
-            <>
-              <div className="border-t border-secondary my-1" />
-              {treeActions.map((label) => (
-                <button
-                  key={label}
-                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                  onClick={() => { onTreeAction(label); onClose(); }}
-                >
-                  {label}
-                </button>
-              ))}
-            </>
+          {noteId && isGhost && (
+            <p className="px-3 py-1.5 text-xs text-zinc-400 italic">
+              {t('contextMenu.noAccess', 'No access')}
+            </p>
           )}
-          {noteId && effectiveRole && (effectiveRole === 'owner' || effectiveRole === 'root_owner') && onInviteToSubtree && (
+          {!isGhost && (
             <>
-              <div className="border-t border-secondary my-1" />
+              <button
+                disabled={!canWrite || isLeaf}
+                className={`w-full text-left px-3 py-1.5 text-sm ${(!canWrite || isLeaf) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                onClick={canWrite && !isLeaf ? () => { onAddChild(); onClose(); } : undefined}
+              >
+                {t('notes.addChildShort')}
+              </button>
+              <button
+                disabled={!canAddSibling}
+                className={`w-full text-left px-3 py-1.5 text-sm ${!canAddSibling ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                onClick={canAddSibling ? () => { onAddSibling(); onClose(); } : undefined}
+              >
+                {t('notes.addSiblingShort')}
+              </button>
+              <button
+                disabled={!canWrite}
+                className={`w-full text-left px-3 py-1.5 text-sm ${!canWrite ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                onClick={canWrite ? () => { onEdit(); onClose(); } : undefined}
+              >
+                {t('common.edit')}
+              </button>
               <button
                 className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
-                onClick={() => { onInviteToSubtree(noteId); onClose(); }}
+                onClick={() => { onCopy(); onClose(); }}
               >
-                {t('contextMenu.inviteToSubtree', 'Invite to this subtree\u2026')}
+                {t('notes.copyNote')}
+              </button>
+              <button
+                className={`w-full text-left px-3 py-1.5 text-sm ${(copiedNoteId && !isLeaf) ? 'hover:bg-secondary' : 'opacity-40 cursor-not-allowed'}`}
+                onClick={() => { if (copiedNoteId && !isLeaf) { onPasteAsChild(); onClose(); } }}
+              >
+                {t('notes.pasteAsChild')}
+              </button>
+              <button
+                className={`w-full text-left px-3 py-1.5 text-sm ${copiedNoteId ? 'hover:bg-secondary' : 'opacity-40 cursor-not-allowed'}`}
+                onClick={() => { if (copiedNoteId) { onPasteAsSibling(); onClose(); } }}
+              >
+                {t('notes.pasteAsSibling')}
+              </button>
+              {treeActions.length > 0 && (
+                <>
+                  <div className="border-t border-secondary my-1" />
+                  {treeActions.map((label) => (
+                    <button
+                      key={label}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                      onClick={() => { onTreeAction(label); onClose(); }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </>
+              )}
+              {noteId && effectiveRole && (effectiveRole === 'owner' || effectiveRole === 'root_owner') && onInviteToSubtree && (
+                <>
+                  <div className="border-t border-secondary my-1" />
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                    onClick={() => { onInviteToSubtree(noteId); onClose(); }}
+                  >
+                    {t('contextMenu.inviteToSubtree', 'Invite to this subtree\u2026')}
+                  </button>
+                </>
+              )}
+              {noteId && canManage && onShareSubtree && (
+                <button
+                  onClick={() => { onShareSubtree(noteId); onClose(); }}
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary"
+                >
+                  {t('contextMenu.shareSubtree', 'Share subtree\u2026')}
+                </button>
+              )}
+              <div className="border-t border-secondary my-1" />
+              <button
+                disabled={!canWrite}
+                className={`w-full text-left px-3 py-1.5 text-sm text-red-500 ${!canWrite ? 'opacity-40 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                onClick={canWrite ? () => { onDelete(); onClose(); } : undefined}
+              >
+                {t('common.delete')}
               </button>
             </>
           )}
-          <div className="border-t border-secondary my-1" />
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm hover:bg-secondary text-red-500"
-            onClick={() => { onDelete(); onClose(); }}
-          >
-            {t('common.delete')}
-          </button>
         </>
       )}
     </div>,

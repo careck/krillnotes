@@ -449,6 +449,8 @@ pub fn run() {
             preview_cascade,
             set_permission,
             revoke_permission,
+            get_share_anchor_ids,
+            is_root_owner,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

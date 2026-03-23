@@ -183,8 +183,9 @@ impl Workspace {
             return Ok(false);
         }
 
-        // Authorize inbound operations from peers.
-        self.authorize(&op)?;
+        // No RBAC gate on inbound operations — all ops replicate unconditionally.
+        // Access control is enforced at the visibility layer (visible_note_ids,
+        // list_notes) not at the replication layer.
 
         log::debug!(target: "krillnotes::sync", "applying incoming operation {} ({})", op.operation_id(), Self::operation_type_str(&op));
 
@@ -663,6 +664,8 @@ impl Workspace {
         PeerRegistry::new(self.storage.connection())
             .reset_last_sent(peer_device_id, to_op)
     }
+
+
 
     /// Returns true if `op_a` is strictly before `op_b` in HLC order.
     /// Returns false if either operation is not found in the log.

@@ -26,7 +26,9 @@ import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo } from '../types';
+import { ShareDialog } from './ShareDialog';
+import { CascadePreviewDialog } from './CascadePreviewDialog';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo, CascadeImpactRow } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -44,6 +46,10 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const [treeActionMap, setTreeActionMap] = useState<Record<string, string[]>>({});
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
+  const [effectiveRoles, setEffectiveRoles] = useState<Record<string, string>>({});
+  const [shareAnchorIds, setShareAnchorIds] = useState<Set<string>>(new Set());
+  const [isRootOwner, setIsRootOwner] = useState(false);
+  const [permissionRefreshSignal, setPermissionRefreshSignal] = useState(0);
   const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addDialogNoteId, setAddDialogNoteId] = useState<string | null>(null);
@@ -55,7 +61,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const closePendingUndoGroupRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; noteId: string | null; noteType: string; effectiveRole: string | null; isRootOwner: boolean; isRootNote: boolean } | null>(null);
 
   // Delete dialog state (lifted from InfoPanel)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -77,6 +83,20 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // Invite-to-subtree dialog state
   const [inviteScope, setInviteScope] = useState<{ noteId: string; noteTitle: string } | null>(null);
+
+  // Share-subtree dialog state
+  const [shareScope, setShareScope] = useState<{ noteId: string; noteTitle: string } | null>(null);
+
+  // Cascade preview dialog state
+  const [cascadeState, setCascadeState] = useState<{
+    noteId: string;
+    userId: string;
+    userName: string;
+    action: 'demote' | 'revoke';
+    newRole?: string;
+    oldRole: string;
+    noteTitle: string;
+  } | null>(null);
 
   // Schema migration toast state
   const [migrationToasts, setMigrationToasts] = useState<SchemaMigratedEvent[]>([]);
@@ -110,6 +130,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   // Load notes on mount
   useEffect(() => {
     loadNotes();
+    loadPermissionState();
   }, []);
 
   // Listen for schema migration events emitted on workspace open.
@@ -128,6 +149,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   useEffect(() => {
     const unlisten = getCurrentWebviewWindow().listen('workspace-updated', () => {
       loadNotes();
+      loadPermissionState();
     });
     return () => { unlisten.then(f => f()); };
   }, []);
@@ -224,6 +246,24 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     }
   };
 
+  const loadPermissionState = async () => {
+    try {
+      const [roles, anchors, rootOwner] = await Promise.all([
+        invoke<Record<string, string>>('get_all_effective_roles'),
+        invoke<string[]>('get_share_anchor_ids'),
+        invoke<boolean>('is_root_owner'),
+      ]);
+      setEffectiveRoles(roles);
+      setShareAnchorIds(new Set(anchors));
+      setIsRootOwner(rootOwner);
+    } catch {
+      // RBAC not enabled for this workspace — default to permissive
+      setEffectiveRoles({});
+      setShareAnchorIds(new Set());
+      setIsRootOwner(true);
+    }
+  };
+
   // Tree state — selection, expansion, keyboard navigation, link navigation.
   // Placed after loadNotes because the hook receives loadNotes as a parameter and
   // TypeScript enforces const TDZ. loadNotes in turn closes over selectionInitialized
@@ -258,6 +298,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
         position,
       });
       await loadNotes();
+      await loadPermissionState();
       if (position === 'child') {
         await invoke('toggle_note_expansion', { noteId: selectedNoteId, expanded: true });
       }
@@ -274,6 +315,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       await invoke('invoke_tree_action', { noteId, label });
       await loadNotes();
+      await loadPermissionState();
       await refreshUndoState();
     } catch (err) {
       setError(t('workspace.treeActionFailed', { error: String(err) }));
@@ -362,6 +404,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       await invoke('move_note', { noteId, newParentId, newPosition });
       await loadNotes();
+      await loadPermissionState();
       await refreshUndoState();
     } catch (err) {
       console.error('Failed to move note:', err);
@@ -370,6 +413,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   const handleNoteCreated = async (noteId: string) => {
     const fetchedNotes = await loadNotes();
+    await loadPermissionState();
     if (!fetchedNotes.some(n => n.id === noteId)) return;
     // Mark that a note-creation undo group is open so handleEditDone can close it.
     pendingUndoGroupRef.current = true;
@@ -384,6 +428,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     try {
       const currentId = selectedNoteIdRef.current;
       const freshNotes = await loadNotes();
+      await loadPermissionState();
 
       if (currentId && !freshNotes.some(n => n.id === currentId)) {
         const freshTree = buildTree(freshNotes);
@@ -408,17 +453,12 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // --- Context menu handlers ---
 
-  const handleContextMenu = async (e: React.MouseEvent, noteId: string) => {
+  const handleContextMenu = (e: React.MouseEvent, noteId: string) => {
     const note = notes.find(n => n.id === noteId);
     const noteType = note?.schema ?? '';
-    let effectiveRole: string | null = null;
-    try {
-      const roleInfo = await invoke<{ role: string }>('get_effective_role', { noteId });
-      effectiveRole = roleInfo.role;
-    } catch {
-      effectiveRole = null;
-    }
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole });
+    const effectiveRole = effectiveRoles[noteId] ?? null;
+    const isRootNote = !note?.parentId;
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, noteType, effectiveRole, isRootOwner, isRootNote });
   };
 
   // Opens AddNoteDialog or creates directly if only one type is available
@@ -457,7 +497,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   };
 
   const handleBackgroundContextMenu = (e: React.MouseEvent) => {
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null });
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId: null, noteType: '', effectiveRole: null, isRootOwner, isRootNote: false });
   };
 
   const handleContextEdit = (noteId: string) => {
@@ -525,6 +565,97 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
     });
   };
 
+  // --- Share/cascade handlers ---
+
+  const handleShareSubtree = (noteId: string) => {
+    const note = notes.find(n => n.id === noteId);
+    setShareScope({ noteId, noteTitle: note?.title ?? noteId });
+  };
+
+  const handleRoleChange = async (noteId: string, userId: string, newRole: string, oldRole: string) => {
+    // Check for cascade impact first
+    try {
+      const impacts = await invoke<CascadeImpactRow[]>('preview_cascade', {
+        noteId, userId, newRole,
+      });
+      if (impacts.length > 0) {
+        const name = await invoke<string>('resolve_identity_name', { publicKey: userId }).catch(() => userId.slice(0, 8));
+        const note = notes.find(n => n.id === noteId);
+        setCascadeState({
+          noteId, userId, userName: name,
+          action: 'demote', newRole, oldRole,
+          noteTitle: note?.title ?? noteId,
+        });
+        return;
+      }
+    } catch { /* no cascade needed */ }
+
+    // No cascade impact — apply directly
+    try {
+      await invoke('set_permission', { noteId, userId, role: newRole });
+      loadPermissionState();
+      setPermissionRefreshSignal(prev => prev + 1);
+    } catch (e) {
+      console.error('Failed to change role:', e);
+    }
+  };
+
+  const handleRevokeGrant = async (noteId: string, userId: string) => {
+    try {
+      const impacts = await invoke<CascadeImpactRow[]>('preview_cascade', {
+        noteId, userId, newRole: 'none',
+      });
+      if (impacts.length > 0) {
+        const name = await invoke<string>('resolve_identity_name', { publicKey: userId }).catch(() => userId.slice(0, 8));
+        const note = notes.find(n => n.id === noteId);
+        setCascadeState({
+          noteId, userId, userName: name,
+          action: 'revoke', oldRole: 'unknown',
+          noteTitle: note?.title ?? noteId,
+        });
+        return;
+      }
+    } catch { /* no cascade needed */ }
+
+    try {
+      await invoke('revoke_permission', { noteId, userId });
+      loadPermissionState();
+      setPermissionRefreshSignal(prev => prev + 1);
+    } catch (e) {
+      console.error('Failed to revoke:', e);
+    }
+  };
+
+  const handleCascadeConfirm = async (revokeGrants: Array<{ noteId: string; userId: string }>) => {
+    if (!cascadeState) return;
+    try {
+      if (cascadeState.action === 'demote') {
+        await invoke('set_permission', {
+          noteId: cascadeState.noteId,
+          userId: cascadeState.userId,
+          role: cascadeState.newRole,
+        });
+      } else {
+        await invoke('revoke_permission', {
+          noteId: cascadeState.noteId,
+          userId: cascadeState.userId,
+        });
+      }
+      for (const grant of revokeGrants) {
+        await invoke('revoke_permission', {
+          noteId: grant.noteId,
+          userId: grant.userId,
+        });
+      }
+      loadPermissionState();
+      setPermissionRefreshSignal(prev => prev + 1);
+    } catch (e) {
+      console.error('Cascade action failed:', e);
+    } finally {
+      setCascadeState(null);
+    }
+  };
+
   const selectedNote = selectedNoteId
     ? notes.find(n => n.id === selectedNoteId) || null
     : null;
@@ -573,6 +704,8 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
             onMoveNote={handleMoveNote}
             onHoverStart={handleHoverStart}
             onHoverEnd={handleHoverEnd}
+            effectiveRoles={effectiveRoles}
+            shareAnchorIds={shareAnchorIds}
           />
         </div>
 
@@ -634,7 +767,10 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
             onLinkNavigate={handleLinkNavigate}
             onBack={handleBack}
             backNoteTitle={backNoteTitle}
-            refreshSignal={noteRefreshSignal}
+            refreshSignal={noteRefreshSignal + permissionRefreshSignal}
+            onShareSubtree={handleShareSubtree}
+            onRoleChange={handleRoleChange}
+            onRevokeGrant={handleRevokeGrant}
           />
         </div>
       </div>
@@ -660,6 +796,8 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           isLeaf={schemas[contextMenu.noteType ?? '']?.isLeaf ?? false}
           treeActions={contextMenu.noteId ? (treeActionMap[contextMenu.noteType] ?? []) : []}
           effectiveRole={contextMenu.effectiveRole}
+          isRootOwner={contextMenu.isRootOwner}
+          isRootNote={contextMenu.isRootNote}
           onAddChild={() => contextMenu.noteId && handleContextAddChild(contextMenu.noteId)}
           onAddSibling={() => contextMenu.noteId && handleContextAddSibling(contextMenu.noteId)}
           onAddRoot={handleContextAddRoot}
@@ -672,6 +810,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
             const note = notes.find(n => n.id === noteId);
             setInviteScope({ noteId, noteTitle: note?.title ?? noteId });
           }}
+          onShareSubtree={handleShareSubtree}
           onDelete={() => contextMenu.noteId && handleContextDelete(contextMenu.noteId)}
           onClose={() => setContextMenu(null)}
         />
@@ -692,7 +831,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
       <ScriptManagerDialog
         isOpen={showScriptManager}
         onClose={() => setShowScriptManager(false)}
-        onScriptsChanged={async () => { await loadNotes(); await refreshUndoState(); }}
+        onScriptsChanged={async () => { await loadNotes(); await loadPermissionState(); await refreshUndoState(); }}
       />
 
       {/* Operations Log Dialog */}
@@ -714,6 +853,38 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
           workspaceName={workspaceInfo.filename}
           initialScope={inviteScope}
           onClose={() => setInviteScope(null)}
+        />
+      )}
+
+      {/* Share Subtree Dialog */}
+      {shareScope && (
+        <ShareDialog
+          open={true}
+          noteId={shareScope.noteId}
+          noteTitle={shareScope.noteTitle}
+          currentUserRole={effectiveRoles[shareScope.noteId] ?? 'owner'}
+          onComplete={() => {
+            setShareScope(null);
+            loadPermissionState();
+            setPermissionRefreshSignal(prev => prev + 1);
+          }}
+          onClose={() => setShareScope(null)}
+        />
+      )}
+
+      {/* Cascade Preview Dialog */}
+      {cascadeState && (
+        <CascadePreviewDialog
+          open={true}
+          noteId={cascadeState.noteId}
+          userId={cascadeState.userId}
+          userName={cascadeState.userName}
+          action={cascadeState.action}
+          newRole={cascadeState.newRole}
+          oldRole={cascadeState.oldRole}
+          noteTitle={cascadeState.noteTitle}
+          onConfirm={handleCascadeConfirm}
+          onClose={() => setCascadeState(null)}
         />
       )}
 

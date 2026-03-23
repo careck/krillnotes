@@ -26,12 +26,14 @@ interface TreeViewProps {
   onBackgroundContextMenu: (e: React.MouseEvent) => void;
   onHoverStart: (noteId: string, anchorY: number) => void;
   onHoverEnd: () => void;
+  effectiveRoles?: Record<string, string>;
+  shareAnchorIds?: Set<string>;
 }
 
 function TreeView({
   tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu, onKeyDown,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
-  onBackgroundContextMenu, onHoverStart, onHoverEnd,
+  onBackgroundContextMenu, onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds,
 }: TreeViewProps) {
   const { t } = useTranslation();
 
@@ -115,6 +117,8 @@ function TreeView({
           onMoveNote={onMoveNote}
           onHoverStart={onHoverStart}
           onHoverEnd={onHoverEnd}
+          effectiveRoles={effectiveRoles}
+          shareAnchorIds={shareAnchorIds}
         />
       ))}
       {draggedNoteId && dropIndicator?.noteId === '__root__' && (

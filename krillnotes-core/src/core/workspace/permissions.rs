@@ -355,7 +355,7 @@ impl Workspace {
             note_id: Some(note_id.to_string()),
             user_id: user_id.to_string(),
             role: role.to_string(),
-            granted_by: String::new(),
+            granted_by: self.current_identity_pubkey.clone(),
             signature: String::new(),
         };
         Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
@@ -402,7 +402,7 @@ impl Workspace {
             device_id: self.device_id.clone(),
             note_id: Some(note_id.to_string()),
             user_id: user_id.to_string(),
-            revoked_by: String::new(),
+            revoked_by: self.current_identity_pubkey.clone(),
             signature: String::new(),
         };
         Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
@@ -415,6 +415,39 @@ impl Workspace {
 
         tx.commit()?;
         Ok(())
+    }
+
+    /// Returns note IDs that have at least one explicit permission grant anchored to them.
+    /// Used by the tree to show share anchor icons.
+    pub fn get_share_anchor_ids(&self) -> Result<Vec<String>> {
+        let conn = self.connection();
+
+        // No RBAC tables → no share anchors.
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_permissions'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count > 0)
+            .unwrap_or(false);
+
+        if !table_exists {
+            return Ok(vec![]);
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT note_id FROM note_permissions WHERE note_id IS NOT NULL",
+        )?;
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(ids)
+    }
+
+    /// Returns true if the current actor is the workspace root owner.
+    pub fn is_root_owner(&self) -> bool {
+        self.is_owner()
     }
 
     /// Preview which downstream grants would be invalidated if `user_id`
@@ -495,8 +528,43 @@ impl Workspace {
             return Ok(None);
         }
 
+        let conn = self.connection();
+        let actor = self.identity_pubkey();
+
         let roles = self.get_all_effective_roles()?;
-        Ok(Some(roles.into_keys().collect()))
+        let mut visible: std::collections::HashSet<String> = roles.into_keys().collect();
+
+        // Include ghost ancestors — walk up parent chain for each granted subtree root
+        let grant_anchors: Vec<String> = conn
+            .prepare("SELECT DISTINCT note_id FROM note_permissions WHERE user_id = ?1 AND note_id IS NOT NULL")?
+            .query_map(rusqlite::params![actor], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        for anchor_id in &grant_anchors {
+            let mut current_id = anchor_id.clone();
+            loop {
+                let parent: Option<String> = conn
+                    .query_row(
+                        "SELECT parent_id FROM notes WHERE id = ?1",
+                        rusqlite::params![current_id],
+                        |row| row.get(0),
+                    )
+                    .ok()
+                    .flatten();
+                match parent {
+                    Some(pid) => {
+                        if visible.contains(&pid) {
+                            break;
+                        }
+                        visible.insert(pid.clone());
+                        current_id = pid;
+                    }
+                    None => break,
+                }
+            }
+        }
+
+        Ok(Some(visible))
     }
 
     /// Check that the current user can read `note_id`.
