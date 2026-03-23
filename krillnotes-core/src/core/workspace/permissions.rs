@@ -355,7 +355,7 @@ impl Workspace {
             note_id: Some(note_id.to_string()),
             user_id: user_id.to_string(),
             role: role.to_string(),
-            granted_by: String::new(),
+            granted_by: self.current_identity_pubkey.clone(),
             signature: String::new(),
         };
         Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
@@ -402,7 +402,7 @@ impl Workspace {
             device_id: self.device_id.clone(),
             note_id: Some(note_id.to_string()),
             user_id: user_id.to_string(),
-            revoked_by: String::new(),
+            revoked_by: self.current_identity_pubkey.clone(),
             signature: String::new(),
         };
         Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
