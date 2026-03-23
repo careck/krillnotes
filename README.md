@@ -23,7 +23,8 @@ Built with Rust, Tauri v2, React, and SQLCipher (encrypted SQLite).
 - **File attachments** — Attach any file to a note. Attachments are encrypted at rest alongside the database. Images render as thumbnails; all file types can be downloaded or opened. Attachment size limit is configurable per workspace.
 - **Undo / Redo** — Cmd+Z / Cmd+Shift+Z (toolbar buttons also available). Undoes note creates, edits, deletes, and moves. Multi-step tree actions collapse into a single undo step. History limit is configurable per workspace (default 50, max 500). The script editor has its own independent undo stack that does not mix with the note-tree history.
 - **Multi-device sync** — Sync workspaces between devices using three channels: **Relay** (HTTP relay server with mailbox routing), **Folder** (shared local/network directory), or **Manual** (export/import `.swarm` delta files). Each peer can use a different channel, switchable at any time. Delta bundles carry only new operations since the last sync; watermarks self-heal via delivery confirmation and ACK-based correction. All data in transit is end-to-end encrypted (X25519 + AES-256-GCM).
-- **Peer management** — Invite peers via signed `.swarm` invite files, exchange workspace snapshots for initial sync, and manage peers from the Workspace Peers dialog (trust badges, sync status, channel config, force resync). The workspace owner controls script mutations; non-owners receive script updates via sync but cannot modify them directly.
+- **Peer management** — Invite peers via signed `.swarm` invite files or one-click relay links, exchange workspace snapshots for initial sync, and manage peers from the Workspace Peers dialog (trust badges, sync status, channel config, force resync). Background polling automatically picks up incoming invites and snapshots.
+- **Subtree permissions (RBAC)** — Workspace owners can grant peers granular access to subtrees with five roles: owner, admin, editor, reader, and none. Permissions cascade from parent to child — the nearest explicit grant wins. The tree shows colour-coded role dots, share anchor icons, and ghost ancestor styling. A Share dialog lets you grant access; a Cascade preview shows the impact before demotion or revocation. All UI actions are role-aware — edit, delete, move, and create controls are disabled when the user lacks permission.
 - **Contact book** — An encrypted per-identity address book stores peer contacts with trust levels (TOFU, verified-in-person), local names, and notes. Contacts are AES-256-GCM encrypted at rest under an HKDF-derived key that only exists in memory while the identity is unlocked.
 - **Operations log viewer** — Browse the full mutation history, filter by operation type or date range, and purge old entries to reclaim space.
 - **Operation log** — Every mutation (create, update, move, delete, script changes, undo/redo) is appended to an immutable log before being applied, forming the basis for CRDT-style sync between peers.
@@ -91,7 +92,7 @@ Each workspace is a **folder** on disk containing:
 - `attachments/` — per-attachment encrypted files (ChaCha20-Poly1305)
 - `info.json` — unencrypted metadata sidecar (name, note count, size, workspace UUID) readable without a password
 
-The database contains seven tables:
+The database contains eight tables:
 
 | Table | Purpose |
 |-------|---------|
@@ -102,6 +103,7 @@ The database contains seven tables:
 | `user_scripts` | Per-workspace Rhai scripts (id, name, source code, load order, enabled flag, `category`) |
 | `attachments` | Attachment metadata (id, note_id, filename, MIME type, size, hash) |
 | `peer_registry` | Known sync peers and their state (device ID, identity ID, channel type, watermarks, sync status) |
+| `note_permissions` | RBAC permission grants (peer public key, note scope, role, granted/revoked by) |
 
 The database uses AES-256-CBC encryption (SQLCipher v4 defaults: PBKDF2-HMAC-SHA512, 256,000 iterations). Workspace passwords are randomly generated and stored encrypted under your identity key — you need SQLCipher-aware tooling **and** the correct randomly-generated password to open the file outside of Krillnotes.
 

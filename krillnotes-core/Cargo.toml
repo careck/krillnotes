@@ -1,6 +1,6 @@
 [package]
 name = "krillnotes-core"
-version = "0.2.5"
+version = "0.9.0"
 edition = "2021"
 authors = ["TripleACS Pty Ltd t/a 2pi Software <info@2pisoftware.com>"]
 description = "Core library for Krill Notes — a local-first, schema-driven note-taking application"

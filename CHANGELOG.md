@@ -7,20 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-03-23
+
+> **Feature-complete release candidate.** This release adds role-based access control (RBAC) with subtree-level permissions, background sync polling, invite-to-subtree scoping, and one-click relay invite sharing. Every workspace mutation is now authorized, signed, and syncable across devices. Cross-platform testing on Windows and Linux is in progress ahead of v1.0.
+
 ### Added
+
+#### Role-based access control (RBAC)
+- **Subtree-level permissions** — Workspace owners can grant peers granular access to subtrees with five roles: **owner**, **admin**, **editor**, **reader**, and **none**. Permissions cascade from parent to child — the nearest explicit grant wins. Root owner always has full access. (PRs #106–#110)
+- **`krillnotes-rbac` crate** — A new optional crate implementing the `PermissionGate` trait. Pluggable authorization layer; all note and script mutations go through `authorize()`. Ships with `RbacGate` (production) and `AllowAllGate` (tests/RBAC-disabled).
+- **Tree-walk permission resolver** — Effective roles are computed by walking from the note to the root, inheriting the nearest explicit grant. Tested with full lifecycle integration tests.
+- **Permission management UI** — Role dots on tree nodes show effective access level (colour-coded). Share anchor icons (🔗) mark nodes with explicit grants. Ghost ancestor styling for nodes visible only as path context. (PR #110)
+- **ShareDialog** — Peer picker + role selector for granting subtree access. Accessible from the Info panel "Shared with" section and the context menu. (PR #110)
+- **CascadePreviewDialog** — Impact preview before demotion or revocation, showing affected peers and notes with opt-in checkboxes. (PR #110)
+- **Role-aware action disabling** — Context menu, Info panel edit/delete controls, and toolbar actions are disabled based on the user's effective role. Non-owners cannot add siblings at root level. (PR #110)
+- **"Shared with" section in Info panel** — Shows who has access to the selected note, their roles, and grant sources. Grants refresh after permission mutations. (PR #110)
+- **`RemovePeer` and `TransferRootOwnership` operation variants** — CRDT operations for peer lifecycle management.
+- **Protocol version in SwarmHeader** — `.swarm` bundles carry a protocol version; mismatched bundles are rejected with a clear error. Protocol is embedded inside the encrypted payload for tamper-proof enforcement.
+
+#### Sync improvements
+- **Background sync polling** — Relay and folder channels automatically poll for incoming operations and snapshots. Polling covers all unlocked identities and refreshes conditions periodically. (PR #105)
+- **Send snapshot via relay** — Workspace owners can send snapshots to peers via relay, not just via file. (PR #105)
+- **Create workspace from accepted invite** — After accepting a peer's invite and receiving their snapshot, a "Create Workspace" button creates the workspace directly from the accepted invites section. (PR #105)
+- **Invite-to-subtree** — Invites can scope access to a specific subtree. `OnboardPeerDialog` wired into Workspace Peers dialog. Permission ops are included in snapshots for peer onboarding. (PR #109)
+
+#### Relay invite sharing
 - **One-click relay invite sharing** — "Share Invite Link" button in Workspace Peers and Invite Manager creates an invite, uploads it to the relay, and copies the URL to clipboard. No `.swarm` file exchange needed. (PR #104)
 - **File → Accept Invite** — Top-level menu action for invitees to accept an invite by pasting a relay URL or opening a `.swarm` file, without needing a workspace open first.
 - **Full relay invite round-trip** — Inviter shares link → invitee fetches and responds via relay → inviter imports response from link. Both sides exchange URLs instead of files.
 - **Relay account fallback** — If no relay account is configured, the registration dialog opens automatically and continues the action on success.
 
 ### Changed
+- **RBAC is feature-gated** — `krillnotes-rbac` is an optional dependency; `permission_gate` is non-optional on `Workspace` (uses `AllowAllGate` when RBAC is disabled).
 - `ImportInviteDialog` works standalone (identity selector when no workspace context)
 - `InviteManagerDialog` shows relay URLs on invites with "Copy Link" and "Upload to Relay" actions
 - `has_relay_credentials` accepts optional `identityUuid` parameter for standalone use
 
 ### Fixed
+- **Read-access filtering on note queries** — Non-owners only see notes they have permission to access.
+- **Permission grant cleanup** — Grants are removed when their anchor note is deleted.
+- **MoveNote destination scope check** — Moving a note to a subtree the user doesn't have write access to is blocked.
+- **Sync never blocked by RBAC** — Replication proceeds unconditionally; RBAC controls visibility only, preventing split-brain in CRDT sync.
+- **Peer watermark reset on `set_permission`** — Ensures a full resend so the peer receives all newly-visible operations.
+- **`granted_by` / `revoked_by` populated** — `SetPermission` and `RevokePermission` ops now correctly record the acting user.
 - WKWebView clipboard `NotAllowedError` — falls back to showing URL in a selectable text field
 - `InviteManagerDialog` uses CSS variable theme system (fixes unreadable dark mode)
+- Various dialog z-index and theming fixes across invite and onboarding flows
 
 ## [0.4.1] — 2026-03-15
 
@@ -359,15 +391,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
-[0.4.0]: https://github.com/careck/krillnotes/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/careck/krillnotes/compare/v0.2.6...v0.3.0
-[0.2.6]: https://github.com/careck/krillnotes/compare/v0.2.5...v0.2.6
-[0.2.5]: https://github.com/careck/krillnotes/compare/v0.2.4...v0.2.5
-[0.2.4]: https://github.com/careck/krillnotes/compare/v0.2.3...v0.2.4
-[0.2.3]: https://github.com/careck/krillnotes/compare/v0.2.2...v0.2.3
-[0.2.2]: https://github.com/careck/krillnotes/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/careck/krillnotes/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/careck/krillnotes/compare/v0.1.2...v0.2.0
-[0.1.2]: https://github.com/careck/krillnotes/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/careck/krillnotes/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/careck/krillnotes/releases/tag/v0.1.0
+[0.9.0]: https://github.com/2pisoftware/krillnotes/compare/v0.4.1...v0.9.0
+[0.4.1]: https://github.com/2pisoftware/krillnotes/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/2pisoftware/krillnotes/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/2pisoftware/krillnotes/compare/v0.2.6...v0.3.0
+[0.2.6]: https://github.com/2pisoftware/krillnotes/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/2pisoftware/krillnotes/compare/v0.2.4...v0.2.5
+[0.2.4]: https://github.com/2pisoftware/krillnotes/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/2pisoftware/krillnotes/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/2pisoftware/krillnotes/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/2pisoftware/krillnotes/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/2pisoftware/krillnotes/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/2pisoftware/krillnotes/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/2pisoftware/krillnotes/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/2pisoftware/krillnotes/releases/tag/v0.1.0
