@@ -156,9 +156,14 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     )
     .build(app)?;
     let sep_sync = PredefinedMenuItem::separator(app)?;
+    let sep_sync2 = PredefinedMenuItem::separator(app)?;
+    let sync_now_item = MenuItemBuilder::with_id("file_sync_now", s(strings, "syncNow", "Sync Now"))
+        .accelerator("CmdOrCtrl+S")
+        .enabled(false)
+        .build(app)?;
 
     let builder = SubmenuBuilder::new(app, s(strings, "file", "File"))
-        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &open_swarm_item, &accept_invite_item, &sep2, &close_item]);
+        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &open_swarm_item, &accept_invite_item, &sep_sync2, &sync_now_item, &sep2, &close_item]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -169,7 +174,7 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let submenu = builder.build()?;
     Ok(FileMenuResult {
         submenu,
-        workspace_items: vec![export_item],
+        workspace_items: vec![export_item, sync_now_item],
     })
 }
 

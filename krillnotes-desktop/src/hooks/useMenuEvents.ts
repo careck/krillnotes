@@ -6,8 +6,9 @@
 
 import { useEffect, useRef } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { WorkspaceInfo as WorkspaceInfoType } from '../types';
+import type { WorkspaceInfo as WorkspaceInfoType, SyncEvent } from '../types';
 
 export interface MenuEventCallbacks {
   setShowNewWorkspace: (show: boolean) => void;
@@ -104,6 +105,22 @@ function createMenuHandlers(callbacks: MenuEventCallbacks) {
         openSwarmFile(picked as string);
       } catch {
         // user cancelled
+      }
+    },
+
+    'File > Sync Now clicked': async () => {
+      try {
+        const events = await invoke<SyncEvent[]>('poll_sync');
+        const sent = events.filter(e => e.type === 'delta_sent').length;
+        const applied = events.filter(e => e.type === 'bundle_applied').length;
+        const errors = events.filter(e => e.type === 'sync_error' || e.type === 'ingest_error');
+        if (errors.length > 0) {
+          statusSetter(`Sync errors: ${errors.map(e => e.error).join(', ')}`, true);
+        } else {
+          statusSetter(`Sync complete: sent ${sent} bundle(s), applied ${applied} bundle(s)`);
+        }
+      } catch (e) {
+        statusSetter(`Sync failed: ${String(e)}`, true);
       }
     },
   };

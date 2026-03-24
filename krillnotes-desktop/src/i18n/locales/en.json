@@ -321,7 +321,8 @@
     "aboutKrillnotes": "About Krillnotes",
     "createDeltaSwarm": "Create delta Swarm",
     "openSwarmFile": "Open .swarm File…",
-    "acceptInvite": "Accept Invite…"
+    "acceptInvite": "Accept Invite…",
+    "syncNow": "Sync Now"
   },
   "identity": {
     "manageTitle": "Identities",
