@@ -3584,3 +3584,98 @@ schema("SameVerType", #{
         assert_eq!(manual_peers.len(), 1);
         assert_eq!(manual_peers[0].peer_device_id, "identity:manual-identity");
     }
+
+    // ─── Undo / redo for attachment operations ────────────────────────────────
+
+    #[test]
+    fn test_undo_add_attachment() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(
+            &db_path, "", "test-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+            test_gate(),
+        ).unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        // Attach with a signing key so the op is logged and undo is pushed.
+        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let data = b"undo attachment data";
+        let meta = ws.attach_file(&root_id, "undo_test.txt", Some("text/plain"), data, Some(&key)).unwrap();
+
+        // Attachment should be present.
+        assert_eq!(ws.get_attachments(&root_id).unwrap().len(), 1);
+        assert!(ws.can_undo(), "should be able to undo after attach_file with signing key");
+
+        // --- Undo: should soft-delete the attachment. ---
+        ws.undo().unwrap();
+        let enc_path = dir.path().join("attachments").join(format!("{}.enc", meta.id));
+        let trash_path = dir.path().join("attachments").join(format!("{}.enc.trash", meta.id));
+        // After undo of AddAttachment the attachment row must be gone from the DB.
+        assert!(ws.get_attachments(&root_id).unwrap().is_empty(),
+            "attachment must be gone after undoing attach_file");
+        // The .enc file is soft-deleted (moved to .enc.trash).
+        assert!(!enc_path.exists(), ".enc must not exist after undo of attach_file");
+        assert!(trash_path.exists(), ".enc.trash must exist after undo of attach_file");
+        assert!(!ws.can_undo(), "undo stack should be empty after single undo");
+        assert!(ws.can_redo(), "redo stack should have an entry after undo");
+
+        // --- Redo: should restore the attachment. ---
+        ws.redo().unwrap();
+        assert_eq!(ws.get_attachments(&root_id).unwrap().len(), 1,
+            "attachment must be back after redoing attach_file");
+        assert!(enc_path.exists(), ".enc must exist after redo of attach_file");
+        assert!(!trash_path.exists(), ".enc.trash must not exist after redo of attach_file");
+        assert!(ws.can_undo(), "undo stack should have an entry after redo");
+        assert!(!ws.can_redo(), "redo stack should be empty after redo");
+    }
+
+    #[test]
+    fn test_undo_delete_attachment() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(
+            &db_path, "", "test-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+            test_gate(),
+        ).unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        // Attach WITHOUT a signing key so the attach itself does not push undo.
+        let data = b"delete undo test";
+        let meta = ws.attach_file(&root_id, "del_undo.txt", Some("text/plain"), data, None).unwrap();
+        assert!(!ws.can_undo(), "attach_file without signing key must not push undo");
+
+        let enc_path = dir.path().join("attachments").join(format!("{}.enc", meta.id));
+        let trash_path = dir.path().join("attachments").join(format!("{}.enc.trash", meta.id));
+        assert!(enc_path.exists(), ".enc must exist before delete");
+
+        // Delete WITH a signing key so the delete op is logged and undo is pushed.
+        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        ws.delete_attachment(&meta.id, Some(&key)).unwrap();
+
+        // After delete: .enc gone, .enc.trash present, DB row removed.
+        assert!(!enc_path.exists(), ".enc must be gone after delete_attachment");
+        assert!(trash_path.exists(), ".enc.trash must exist after delete_attachment");
+        assert!(ws.get_attachments(&root_id).unwrap().is_empty(),
+            "attachment DB row must be gone after delete_attachment");
+        assert!(ws.can_undo(), "should be able to undo after delete_attachment with signing key");
+
+        // --- Undo: should restore the attachment from .enc.trash. ---
+        ws.undo().unwrap();
+        assert_eq!(ws.get_attachments(&root_id).unwrap().len(), 1,
+            "attachment must be back after undoing delete_attachment");
+        assert!(enc_path.exists(), ".enc must exist after undo of delete_attachment");
+        assert!(!trash_path.exists(), ".enc.trash must not exist after undo of delete_attachment");
+        assert!(!ws.can_undo(), "undo stack should be empty after single undo");
+        assert!(ws.can_redo(), "redo stack should have an entry after undo");
+
+        // --- Redo: should soft-delete the attachment again. ---
+        ws.redo().unwrap();
+        assert!(ws.get_attachments(&root_id).unwrap().is_empty(),
+            "attachment must be gone again after redoing delete_attachment");
+        assert!(!enc_path.exists(), ".enc must not exist after redo of delete_attachment");
+        assert!(trash_path.exists(), ".enc.trash must exist after redo of delete_attachment");
+        assert!(ws.can_undo(), "undo stack should have an entry after redo");
+        assert!(!ws.can_redo(), "redo stack should be empty after redo");
+    }
