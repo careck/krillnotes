@@ -253,3 +253,102 @@ fn test_set_tags_variant() {
         panic!("wrong variant after round-trip");
     }
 }
+
+#[test]
+fn test_add_attachment_sign_and_verify() {
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let verifying_key = signing_key.verifying_key();
+
+    let mut op = Operation::AddAttachment {
+        operation_id: "op-att-1".to_string(),
+        timestamp: dummy_timestamp(),
+        device_id: "dev-1".to_string(),
+        attachment_id: "att-uuid-1".to_string(),
+        note_id: "note-1".to_string(),
+        filename: "photo.jpg".to_string(),
+        mime_type: Some("image/jpeg".to_string()),
+        size_bytes: 1024,
+        hash_sha256: "abc123".to_string(),
+        added_by: String::new(),
+        signature: String::new(),
+    };
+
+    op.sign(&signing_key);
+    assert!(!op.get_signature().is_empty());
+    assert!(!op.author_key().is_empty());
+    assert!(op.verify(&verifying_key));
+
+    // Tamper test
+    if let Operation::AddAttachment { ref mut filename, .. } = op {
+        *filename = "tampered.jpg".to_string();
+    }
+    assert!(!op.verify(&verifying_key));
+}
+
+#[test]
+fn test_remove_attachment_sign_and_verify() {
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let verifying_key = signing_key.verifying_key();
+
+    let mut op = Operation::RemoveAttachment {
+        operation_id: "op-ratt-1".to_string(),
+        timestamp: dummy_timestamp(),
+        device_id: "dev-1".to_string(),
+        attachment_id: "att-uuid-1".to_string(),
+        note_id: "note-1".to_string(),
+        removed_by: String::new(),
+        signature: String::new(),
+    };
+
+    op.sign(&signing_key);
+    assert!(op.verify(&verifying_key));
+
+    // Tamper test
+    if let Operation::RemoveAttachment { ref mut attachment_id, .. } = op {
+        *attachment_id = "tampered-id".to_string();
+    }
+    assert!(!op.verify(&verifying_key));
+}
+
+#[test]
+fn test_attachment_op_accessors() {
+    let ts = dummy_timestamp();
+    let op = Operation::AddAttachment {
+        operation_id: "op-acc-1".to_string(),
+        timestamp: ts,
+        device_id: "dev-acc".to_string(),
+        attachment_id: "att-1".to_string(),
+        note_id: "note-1".to_string(),
+        filename: "f.txt".to_string(),
+        mime_type: None,
+        size_bytes: 100,
+        hash_sha256: "hash".to_string(),
+        added_by: "key123".to_string(),
+        signature: String::new(),
+    };
+
+    assert_eq!(op.operation_id(), "op-acc-1");
+    assert_eq!(op.timestamp(), ts);
+    assert_eq!(op.device_id(), "dev-acc");
+    assert_eq!(op.author_key(), "key123");
+
+    let op2 = Operation::RemoveAttachment {
+        operation_id: "op-rem-1".to_string(),
+        timestamp: dummy_timestamp(),
+        device_id: "dev-rem".to_string(),
+        attachment_id: "att-2".to_string(),
+        note_id: "note-2".to_string(),
+        removed_by: "remkey456".to_string(),
+        signature: String::new(),
+    };
+
+    assert_eq!(op2.operation_id(), "op-rem-1");
+    assert_eq!(op2.device_id(), "dev-rem");
+    assert_eq!(op2.author_key(), "remkey456");
+}

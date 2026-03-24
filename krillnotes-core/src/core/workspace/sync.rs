@@ -361,7 +361,9 @@ impl Workspace {
             | Operation::UpdateSchema { .. }
             | Operation::RetractOperation { .. }
             | Operation::RemovePeer { .. }
-            | Operation::TransferRootOwnership { .. } => {}
+            | Operation::TransferRootOwnership { .. }
+            | Operation::AddAttachment { .. }
+            | Operation::RemoveAttachment { .. } => {}
         }
         tx.commit()?;
 
@@ -394,6 +396,8 @@ impl Workspace {
             Operation::JoinWorkspace { .. } => "JoinWorkspace",
             Operation::RemovePeer { .. } => "RemovePeer",
             Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
+            Operation::AddAttachment { .. } => "AddAttachment",
+            Operation::RemoveAttachment { .. } => "RemoveAttachment",
         }
     }
 
