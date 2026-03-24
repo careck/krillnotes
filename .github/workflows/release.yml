@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-22.04, windows-latest, macos-14]
+        platform: [ubuntu-22.04, ubuntu-22.04-arm, windows-latest, macos-14]
 
     runs-on: ${{ matrix.platform }}
 
@@ -35,7 +35,7 @@ jobs:
           workspaces: ". -> target"
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
