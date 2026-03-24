@@ -306,6 +306,7 @@ export default function WorkspacePeersDialog({
             const dotClass = syncStatusDotClass(peer.syncStatus);
             const selectedChannelType = pendingChannelType[peer.peerDeviceId] ?? peer.channelType;
             const currentFolderPath = peer.channelType === 'folder' ? (() => { try { return JSON.parse(peer.channelParams).path as string ?? null; } catch { return null; } })() : null;
+            const currentRelayAccountId = peer.channelType === 'relay' ? (() => { try { return JSON.parse(peer.channelParams).relay_account_id as string ?? null; } catch { return null; } })() : null;
             return (
               <div
                 key={peer.peerDeviceId}
@@ -356,7 +357,7 @@ export default function WorkspacePeersDialog({
                         }
                       }}
                       relayAccounts={relayAccounts}
-                      selectedRelayAccountId={pendingRelayAccount[peer.peerDeviceId]}
+                      selectedRelayAccountId={pendingRelayAccount[peer.peerDeviceId] ?? currentRelayAccountId ?? undefined}
                       onRelayAccountSelect={async (accountId) => {
                         if (!accountId) return;
                         try {
