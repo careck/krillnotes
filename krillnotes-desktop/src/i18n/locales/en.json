@@ -460,7 +460,12 @@
     "syncNow": "Sync Now",
     "syncing": "Syncing…",
     "configure": "Configure",
-    "forceResync": "Force Resync"
+    "forceResync": "Force Resync",
+    "syncComplete": "Sync complete",
+    "syncNothingToSync": "Nothing to sync",
+    "syncSent": "Sent {{count}} bundle(s)",
+    "syncApplied": "Applied {{count}} bundle(s)",
+    "syncError": "Sync error"
   },
   "workspacePeers": {
     "noRelayAccounts": "No relay accounts configured. Add one in Identity Manager → Relays.",
