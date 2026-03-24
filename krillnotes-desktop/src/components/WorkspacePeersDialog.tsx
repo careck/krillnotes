@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, SyncEvent, RelayAccountInfo, ReceivedResponseInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, RelayAccountInfo, ReceivedResponseInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
@@ -76,8 +76,6 @@ export default function WorkspacePeersDialog({
   const [relayAccounts, setRelayAccounts] = useState<RelayAccountInfo[]>([]);
   // Per-peer selected relay account ID (for the dropdown)
   const [pendingRelayAccount, setPendingRelayAccount] = useState<Record<string, string>>({});
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [resyncingPeer, setResyncingPeer] = useState<string | null>(null);
   // Share Invite Link state
   const [sharingLink, setSharingLink] = useState(false);
@@ -151,27 +149,6 @@ export default function WorkspacePeersDialog({
       await loadPeers();
     } catch (e) {
       setError(String(e));
-    }
-  };
-
-  const handleSyncNow = async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const events = await invoke<SyncEvent[]>('poll_sync');
-      const sent = events.filter(e => e.type === 'delta_sent').length;
-      const applied = events.filter(e => e.type === 'bundle_applied').length;
-      const errors = events.filter(e => e.type === 'sync_error' || e.type === 'ingest_error');
-      if (errors.length > 0) {
-        setSyncResult(`Errors: ${errors.map(e => e.error).join(', ')}`);
-      } else {
-        setSyncResult(`Sent ${sent} bundle(s), applied ${applied} bundle(s)`);
-      }
-      await loadPeers();
-    } catch (e) {
-      setSyncResult(`Error: ${String(e)}`);
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -456,9 +433,6 @@ export default function WorkspacePeersDialog({
         </div>
 
         {/* Footer buttons */}
-        {syncResult && (
-          <p className="px-4 pb-1 text-xs text-[var(--color-muted-foreground)]">{syncResult}</p>
-        )}
         {shareSuccess && (
           shareSuccess.startsWith('http') ? (
             <div className="px-4 pb-1">
@@ -500,13 +474,6 @@ export default function WorkspacePeersDialog({
             className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
             Create Snapshot…
-          </button>
-          <button
-            onClick={handleSyncNow}
-            disabled={syncing || peers.filter(p => p.channelType !== 'manual').length === 0}
-            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
-          >
-            {syncing ? t('peers.syncing', 'Syncing…') : t('peers.syncNow', 'Sync Now')}
           </button>
         </div>
       </div>

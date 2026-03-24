@@ -28,7 +28,7 @@ import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
 import { ShareDialog } from './ShareDialog';
 import { CascadePreviewDialog } from './CascadePreviewDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo, CascadeImpactRow } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo, CascadeImpactRow, SyncEvent } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -103,6 +103,10 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
 
   // Invite response toast state
   const [responseToasts, setResponseToasts] = useState<ReceivedResponseInfo[]>([]);
+
+  // Sync result toast state
+  interface SyncToast { sent: number; applied: number; errors: string[]; }
+  const [syncToasts, setSyncToasts] = useState<SyncToast[]>([]);
 
   // Workspace-level relay polling
   const [hasRelayPeers, setHasRelayPeers] = useState(false);
@@ -198,6 +202,22 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
       }
       if (event.payload === 'Edit > Workspace Properties clicked') {
         setShowWorkspaceProperties(true);
+      }
+      if (event.payload === 'File > Sync Now clicked') {
+        invoke<SyncEvent[]>('poll_sync').then(events => {
+          const sent = events.filter(e => e.type === 'delta_sent').length;
+          const applied = events.filter(e => e.type === 'bundle_applied').length;
+          const errors = events
+            .filter(e => e.type === 'sync_error' || e.type === 'ingest_error')
+            .map(e => e.error ?? 'unknown error');
+          const toast: SyncToast = { sent, applied, errors };
+          setSyncToasts(prev => [...prev, toast]);
+          setTimeout(() => setSyncToasts(prev => prev.filter(t => t !== toast)), 5000);
+        }).catch(err => {
+          const toast: SyncToast = { sent: 0, applied: 0, errors: [String(err)] };
+          setSyncToasts(prev => [...prev, toast]);
+          setTimeout(() => setSyncToasts(prev => prev.filter(t => t !== toast)), 5000);
+        });
       }
     });
 
@@ -923,6 +943,36 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
                   onClick={() => setResponseToasts(prev => prev.filter(t2 => t2 !== toast))}
                 >
                   {t("common.dismiss", "Dismiss")}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Sync result toasts */}
+      {syncToasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+          {syncToasts.map((toast, i) => (
+            <div key={i} className={`bg-gray-800 border rounded-xl px-4 py-3 shadow-lg max-w-xs text-white ${toast.errors.length > 0 ? 'border-red-500' : 'border-green-600'}`}>
+              <div className="font-semibold text-sm">
+                {toast.errors.length > 0 ? t('peers.syncError', 'Sync error') : (toast.sent === 0 && toast.applied === 0 ? t('peers.syncNothingToSync', 'Nothing to sync') : t('peers.syncComplete', 'Sync complete'))}
+              </div>
+              {toast.errors.length > 0 ? (
+                <div className="text-xs text-red-300 mt-1">{toast.errors.join(', ')}</div>
+              ) : (toast.sent > 0 || toast.applied > 0) && (
+                <div className="text-xs text-gray-300 mt-1">
+                  {toast.sent > 0 && <span>{t('peers.syncSent', 'Sent {{count}} bundle(s)', { count: toast.sent })}</span>}
+                  {toast.sent > 0 && toast.applied > 0 && <span> · </span>}
+                  {toast.applied > 0 && <span>{t('peers.syncApplied', 'Applied {{count}} bundle(s)', { count: toast.applied })}</span>}
+                </div>
+              )}
+              <div className="flex gap-2 mt-2">
+                <button
+                  className="bg-transparent text-gray-400 border border-gray-600 text-xs px-3 py-1 rounded-md"
+                  onClick={() => setSyncToasts(prev => prev.filter(t2 => t2 !== toast))}
+                >
+                  {t('common.dismiss', 'Dismiss')}
                 </button>
               </div>
             </div>

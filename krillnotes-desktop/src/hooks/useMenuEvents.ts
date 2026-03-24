@@ -106,6 +106,7 @@ function createMenuHandlers(callbacks: MenuEventCallbacks) {
         // user cancelled
       }
     },
+
   };
 }
 
