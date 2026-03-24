@@ -507,7 +507,7 @@
         let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
-        ws.attach_file(&root_id, "hello.txt", Some("text/plain"), b"hello world").unwrap();
+        ws.attach_file(&root_id, "hello.txt", Some("text/plain"), b"hello world", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -529,7 +529,7 @@
         let mut ws = Workspace::create(&db_src, "pass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
-        ws.attach_file(&root_id, "data.txt", None, b"attachment content").unwrap();
+        ws.attach_file(&root_id, "data.txt", None, b"attachment content", None).unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();

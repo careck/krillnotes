@@ -40,6 +40,8 @@ impl RbacGate {
             Operation::MoveNote { note_id, .. } => Ok(Some(note_id.clone())),
             Operation::SetPermission { note_id, .. } => Ok(note_id.clone()),
             Operation::RevokePermission { note_id, .. } => Ok(note_id.clone()),
+            Operation::AddAttachment { note_id, .. }
+            | Operation::RemoveAttachment { note_id, .. } => Ok(Some(note_id.clone())),
             Operation::CreateUserScript { .. }
             | Operation::UpdateUserScript { .. }
             | Operation::DeleteUserScript { .. }

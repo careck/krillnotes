@@ -16,12 +16,16 @@ impl Workspace {
 
     /// Attaches a file to a note. Encrypts the bytes and writes them to
     /// `<workspace_root>/attachments/<uuid>.enc`, then inserts a DB metadata row.
+    ///
+    /// If `signing_key` is `Some`, an `AddAttachment` operation is signed, logged,
+    /// and an undo entry is pushed so the attachment can be removed.
     pub fn attach_file(
         &mut self,
         note_id: &str,
         filename: &str,
         mime_type: Option<&str>,
         data: &[u8],
+        signing_key: Option<&ed25519_dalek::SigningKey>,
     ) -> Result<AttachmentMeta> {
         // Enforce workspace size limit
         if let Some(limit) = self.attachment_max_size_bytes()? {
@@ -50,17 +54,7 @@ impl Workspace {
         let enc_path = self.workspace_root.join("attachments").join(format!("{id}.enc"));
         std::fs::write(&enc_path, &encrypted_bytes)?;
 
-        // Insert DB row
-        self.storage.connection().execute(
-            "INSERT INTO attachments (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            rusqlite::params![
-                id, note_id, filename, mime_type,
-                data.len() as i64, hash, file_salt.as_slice(), now
-            ],
-        )?;
-
-        Ok(AttachmentMeta {
+        let meta = AttachmentMeta {
             id,
             note_id: note_id.to_string(),
             filename: filename.to_string(),
@@ -69,7 +63,58 @@ impl Workspace {
             hash_sha256: hash,
             salt: hex::encode(file_salt),
             created_at: now,
-        })
+        };
+
+        // Build op and sign before opening transaction (avoids borrow conflict).
+        let signed_op: Option<(String, Operation)> = if let Some(key) = signing_key {
+            let op_id = Uuid::new_v4().to_string();
+            let mut op = Operation::AddAttachment {
+                operation_id: op_id.clone(),
+                timestamp: self.hlc.now(),
+                device_id: self.device_id().to_string(),
+                attachment_id: meta.id.clone(),
+                note_id: note_id.to_string(),
+                filename: filename.to_string(),
+                mime_type: mime_type.map(|s| s.to_string()),
+                size_bytes: meta.size_bytes,
+                hash_sha256: meta.hash_sha256.clone(),
+                added_by: String::new(),
+                signature: String::new(),
+            };
+            op.sign(key);
+            Some((op_id, op))
+        } else {
+            None
+        };
+
+        // Insert DB row (and op log row) in one transaction.
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            tx.execute(
+                "INSERT INTO attachments (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                rusqlite::params![
+                    meta.id, meta.note_id, meta.filename, meta.mime_type.as_deref(),
+                    meta.size_bytes, meta.hash_sha256, file_salt.as_slice(), meta.created_at
+                ],
+            )?;
+            if let Some((_, ref op)) = signed_op {
+                self.operation_log.log(&tx, op)?;
+            }
+            tx.commit()?;
+        }
+
+        if let Some((op_id, _)) = signed_op {
+            self.push_undo(UndoEntry {
+                retracted_ids: vec![op_id],
+                inverse: RetractInverse::AttachmentSoftDelete {
+                    attachment_id: meta.id.clone(),
+                },
+                propagate: true,
+            });
+        }
+
+        Ok(meta)
     }
 
     /// Import-only: attach a file with a pre-specified ID (preserves IDs from export).
@@ -261,10 +306,59 @@ impl Workspace {
     }
 
     /// Soft-deletes an attachment: renames `{id}.enc` → `{id}.enc.trash` and removes the
-    /// DB row. Pushes an `AttachmentRestore` entry onto the undo stack so the deletion
-    /// can be reversed. The `.enc.trash` file is cleaned up when the undo entry is
-    /// discarded (workspace close or stack overflow past the limit).
-    pub fn delete_attachment(&mut self, attachment_id: &str) -> Result<()> {
+    /// DB row.
+    ///
+    /// If `signing_key` is `Some`, a `RemoveAttachment` operation is signed, logged,
+    /// and an `AttachmentRestore` undo entry is pushed so the deletion can be reversed.
+    /// The `.enc.trash` file is cleaned up when the undo entry is discarded (workspace
+    /// close or stack overflow past the limit).
+    pub fn delete_attachment(
+        &mut self,
+        attachment_id: &str,
+        signing_key: Option<&ed25519_dalek::SigningKey>,
+    ) -> Result<()> {
+        // 1. Query full metadata BEFORE deletion (needed for undo + op logging).
+        let meta: Option<AttachmentMeta> = self.storage.connection().query_row(
+            "SELECT id, note_id, filename, mime_type, size_bytes, hash_sha256, hex(salt), created_at \
+             FROM attachments WHERE id = ?",
+            [attachment_id],
+            |row| {
+                Ok(AttachmentMeta {
+                    id: row.get(0)?,
+                    note_id: row.get(1)?,
+                    filename: row.get(2)?,
+                    mime_type: row.get(3)?,
+                    size_bytes: row.get(4)?,
+                    hash_sha256: row.get(5)?,
+                    salt: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            },
+        ).optional()?;
+
+        // Build the signed op before opening the transaction (avoids borrow conflict).
+        let signed_op: Option<(String, Operation)> = if let Some(key) = signing_key {
+            if let Some(ref m) = meta {
+                let op_id = Uuid::new_v4().to_string();
+                let mut op = Operation::RemoveAttachment {
+                    operation_id: op_id.clone(),
+                    timestamp: self.hlc.now(),
+                    device_id: self.device_id().to_string(),
+                    attachment_id: attachment_id.to_string(),
+                    note_id: m.note_id.clone(),
+                    removed_by: String::new(),
+                    signature: String::new(),
+                };
+                op.sign(key);
+                Some((op_id, op))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // 2. Soft-delete: rename .enc → .enc.trash, delete DB row (+ op log in one tx).
         let enc_path = self
             .workspace_root
             .join("attachments")
@@ -273,14 +367,28 @@ impl Workspace {
             .workspace_root
             .join("attachments")
             .join(format!("{attachment_id}.enc.trash"));
-
         if enc_path.exists() {
             std::fs::rename(&enc_path, &trash_path)?;
         }
-        self.storage.connection().execute(
-            "DELETE FROM attachments WHERE id = ?",
-            [attachment_id],
-        )?;
+        {
+            let tx = self.storage.connection_mut().transaction()?;
+            tx.execute("DELETE FROM attachments WHERE id = ?", [attachment_id])?;
+            if let Some((_, ref op)) = signed_op {
+                self.operation_log.log(&tx, op)?;
+            }
+            tx.commit()?;
+        }
+
+        // 3. Push undo entry (only when signing key was provided and meta was found).
+        if let Some((op_id, _)) = signed_op {
+            if let Some(ref m) = meta {
+                self.push_undo(UndoEntry {
+                    retracted_ids: vec![op_id],
+                    inverse: RetractInverse::AttachmentRestore { meta: m.clone() },
+                    propagate: true,
+                });
+            }
+        }
         Ok(())
     }
 

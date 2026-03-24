@@ -176,7 +176,12 @@ impl Workspace {
     ///
     /// Idempotent: calling this twice with the same operation is safe — the second call
     /// returns `Ok(false)` without modifying any data.
-    pub fn apply_incoming_operation(&mut self, op: Operation, received_from_peer: &str) -> Result<bool> {
+    pub fn apply_incoming_operation(
+        &mut self,
+        op: Operation,
+        received_from_peer: &str,
+        attachment_blobs: &[(String, Vec<u8>)],
+    ) -> Result<bool> {
         // 1. Skip local-only retracts — they must never cross device boundaries.
         if matches!(op, Operation::RetractOperation { propagate: false, .. }) {
             log::debug!(target: "krillnotes::sync", "skipping local-only retract operation {}", op.operation_id());
@@ -228,6 +233,9 @@ impl Workspace {
 
         // 5. Apply the state change to working tables.
         let mut scripts_changed = false;
+        // (attachment_id, note_id, filename, mime_type, blob)
+        let mut pending_attachment: Option<(String, String, String, Option<String>, Vec<u8>)> = None;
+        let mut pending_attachment_delete: Option<String> = None;
         let tx = self.storage.connection_mut().transaction()?;
         match &op {
             Operation::CreateNote {
@@ -362,8 +370,77 @@ impl Workspace {
             | Operation::RetractOperation { .. }
             | Operation::RemovePeer { .. }
             | Operation::TransferRootOwnership { .. } => {}
+
+            Operation::AddAttachment {
+                attachment_id, note_id, filename, mime_type, ..
+            } => {
+                let note_exists: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
+                    [note_id],
+                    |row| row.get(0),
+                )?;
+                if note_exists {
+                    if let Some((_, blob)) = attachment_blobs.iter().find(|(id, _)| id == attachment_id) {
+                        pending_attachment = Some((
+                            attachment_id.clone(),
+                            note_id.clone(),
+                            filename.clone(),
+                            mime_type.clone(),
+                            blob.clone(),
+                        ));
+                    } else {
+                        log::warn!(target: "krillnotes::sync",
+                            "AddAttachment {} has no matching blob in delta, recording op only",
+                            attachment_id);
+                    }
+                } else {
+                    log::warn!(target: "krillnotes::sync",
+                        "AddAttachment {} targets deleted note {}, skipping file write",
+                        attachment_id, note_id);
+                }
+            }
+
+            Operation::RemoveAttachment { attachment_id, .. } => {
+                tx.execute("DELETE FROM attachments WHERE id = ?1", [attachment_id])?;
+                pending_attachment_delete = Some(attachment_id.clone());
+            }
         }
         tx.commit()?;
+
+        // Deferred attachment file write (after state-mutation tx is committed).
+        //
+        // TODO: split-transaction window — `attach_file_with_id` both encrypts the file
+        // (generating the per-file salt) and inserts the DB row.  The salt is only known
+        // after encryption, so the DB insert cannot be moved inside the transaction above.
+        // If the process crashes between `tx.commit()` and the completion of
+        // `attach_file_with_id`, the operation is in the log but the attachment file and/or
+        // DB row may be missing.  Recovery: re-apply the delta (idempotent via
+        // INSERT OR IGNORE) or re-sync from the peer.
+        if let Some((att_id, note_id, filename, mime_type, blob)) = pending_attachment {
+            if let Err(e) = self.attach_file_with_id(&att_id, &note_id, &filename, mime_type.as_deref(), &blob) {
+                log::error!(target: "krillnotes::sync",
+                    "Failed to write attachment file {}: {e}", att_id);
+            }
+        }
+
+        // NOTE: DB row deleted in transaction above; file deletion below is best-effort.
+        // If process crashes between the two, an orphan .enc file may remain on disk.
+        // This is acceptable: the operation is in the log and will be replayed; orphans
+        // can be swept on next startup.
+        if let Some(att_id) = pending_attachment_delete {
+            let enc_path = self.workspace_root.join("attachments").join(format!("{att_id}.enc"));
+            if enc_path.exists() {
+                if let Err(e) = std::fs::remove_file(&enc_path) {
+                    log::error!(target: "krillnotes::sync",
+                        "Failed to delete attachment file {}: {e}", att_id);
+                }
+            }
+            // Also clean up any .trash file
+            let trash_path = self.workspace_root.join("attachments").join(format!("{att_id}.enc.trash"));
+            if trash_path.exists() {
+                let _ = std::fs::remove_file(&trash_path);
+            }
+        }
 
         // Re-register scripts with the Rhai engine after applying script ops.
         if scripts_changed {
@@ -394,6 +471,8 @@ impl Workspace {
             Operation::JoinWorkspace { .. } => "JoinWorkspace",
             Operation::RemovePeer { .. } => "RemovePeer",
             Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
+            Operation::AddAttachment { .. } => "AddAttachment",
+            Operation::RemoveAttachment { .. } => "RemoveAttachment",
         }
     }
 

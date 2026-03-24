@@ -233,6 +233,8 @@ impl OperationLog {
             Operation::JoinWorkspace { .. } => "JoinWorkspace",
             Operation::RemovePeer { .. } => "RemovePeer",
             Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
+            Operation::AddAttachment { .. } => "AddAttachment",
+            Operation::RemoveAttachment { .. } => "RemoveAttachment",
         }
     }
 

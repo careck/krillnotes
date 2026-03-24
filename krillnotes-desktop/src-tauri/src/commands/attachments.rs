@@ -6,6 +6,19 @@
 
 use crate::AppState;
 use tauri::{Manager, State};
+use krillnotes_core::Ed25519SigningKey;
+
+/// Get the signing key for the workspace associated with this window label.
+/// Returns None if no identity is loaded (e.g., pre-identity workspaces).
+fn get_signing_key_for_window(state: &AppState, label: &str) -> Option<Ed25519SigningKey> {
+    let identity_uuid = {
+        let m = state.workspace_identities.lock().expect("Mutex poisoned");
+        m.get(label).cloned()?
+    };
+    let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+    let id = ids.get(&identity_uuid)?;
+    Some(Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()))
+}
 
 #[tauri::command]
 pub fn attach_file(
@@ -15,6 +28,10 @@ pub fn attach_file(
     file_path: String,
 ) -> std::result::Result<crate::AttachmentMeta, String> {
     let label = window.label();
+
+    // Get signing key BEFORE locking workspaces (lock ordering)
+    let signing_key = get_signing_key_for_window(&state, label);
+
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
@@ -31,7 +48,7 @@ pub fn attach_file(
 
     let data = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;
     workspace
-        .attach_file(&note_id, &filename, mime_type.as_deref(), &data)
+        .attach_file(&note_id, &filename, mime_type.as_deref(), &data, signing_key.as_ref())
         .map_err(|e| { log::error!("attach_file failed: {e}"); e.to_string() })
 }
 
@@ -76,13 +93,17 @@ pub fn attach_file_bytes(
         .map_err(|e| format!("attach_file_bytes: invalid UTF-8 in filename: {e}"))?;
 
     let label = window.label();
+
+    // Get signing key BEFORE locking workspaces (lock ordering)
+    let signing_key = get_signing_key_for_window(&state, label);
+
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
     let mime_type = mime_guess::from_path(&filename)
         .first()
         .map(|m| m.to_string());
     workspace
-        .attach_file(&note_id, &filename, mime_type.as_deref(), data)
+        .attach_file(&note_id, &filename, mime_type.as_deref(), data, signing_key.as_ref())
         .map_err(|e| { log::error!("attach_file_bytes failed: {e}"); e.to_string() })
 }
 
@@ -133,10 +154,14 @@ pub fn delete_attachment(
     attachment_id: String,
 ) -> std::result::Result<(), String> {
     let label = window.label();
+
+    // Get signing key BEFORE locking workspaces (lock ordering)
+    let signing_key = get_signing_key_for_window(&state, label);
+
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
     workspace
-        .delete_attachment(&attachment_id)
+        .delete_attachment(&attachment_id, signing_key.as_ref())
         .map_err(|e| { log::error!("delete_attachment failed: {e}"); e.to_string() })
 }
 

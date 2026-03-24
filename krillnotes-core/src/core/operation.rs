@@ -306,6 +306,48 @@ pub enum Operation {
         transferred_by: String,
         signature: String,
     },
+    /// A file attachment was added to a note.
+    AddAttachment {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// HLC timestamp when the operation was created.
+        timestamp: HlcTimestamp,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// Stable UUID for the attachment itself.
+        attachment_id: String,
+        /// ID of the note this attachment belongs to.
+        note_id: String,
+        /// Original filename of the attachment.
+        filename: String,
+        /// MIME type of the attachment, if known.
+        mime_type: Option<String>,
+        /// Size of the attachment in bytes.
+        size_bytes: i64,
+        /// SHA-256 hex digest of the attachment content.
+        hash_sha256: String,
+        /// Public key (base64) of the identity that added this attachment.
+        added_by: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
+    /// A file attachment was removed from a note.
+    RemoveAttachment {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// HLC timestamp when the operation was created.
+        timestamp: HlcTimestamp,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// UUID of the attachment being removed.
+        attachment_id: String,
+        /// ID of the note this attachment belongs to.
+        note_id: String,
+        /// Public key (base64) of the identity that removed this attachment.
+        removed_by: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
 }
 
 impl Operation {
@@ -328,7 +370,9 @@ impl Operation {
             | Self::RevokePermission { operation_id, .. }
             | Self::JoinWorkspace { operation_id, .. }
             | Self::RemovePeer { operation_id, .. }
-            | Self::TransferRootOwnership { operation_id, .. } => operation_id,
+            | Self::TransferRootOwnership { operation_id, .. }
+            | Self::AddAttachment { operation_id, .. }
+            | Self::RemoveAttachment { operation_id, .. } => operation_id,
         }
     }
 
@@ -351,7 +395,9 @@ impl Operation {
             | Self::RevokePermission { timestamp, .. }
             | Self::JoinWorkspace { timestamp, .. }
             | Self::RemovePeer { timestamp, .. }
-            | Self::TransferRootOwnership { timestamp, .. } => *timestamp,
+            | Self::TransferRootOwnership { timestamp, .. }
+            | Self::AddAttachment { timestamp, .. }
+            | Self::RemoveAttachment { timestamp, .. } => *timestamp,
         }
     }
 
@@ -374,7 +420,9 @@ impl Operation {
             | Self::RevokePermission { device_id, .. }
             | Self::JoinWorkspace { device_id, .. }
             | Self::RemovePeer { device_id, .. }
-            | Self::TransferRootOwnership { device_id, .. } => device_id,
+            | Self::TransferRootOwnership { device_id, .. }
+            | Self::AddAttachment { device_id, .. }
+            | Self::RemoveAttachment { device_id, .. } => device_id,
         }
     }
 
@@ -400,6 +448,8 @@ impl Operation {
             Self::JoinWorkspace { identity_public_key, .. } => identity_public_key,
             Self::RemovePeer { removed_by, .. } => removed_by,
             Self::TransferRootOwnership { transferred_by, .. } => transferred_by,
+            Self::AddAttachment { added_by, .. } => added_by,
+            Self::RemoveAttachment { removed_by, .. } => removed_by,
         }
     }
 
@@ -423,6 +473,8 @@ impl Operation {
             Self::JoinWorkspace { identity_public_key, .. } => *identity_public_key = key,
             Self::RemovePeer { removed_by, .. } => *removed_by = key,
             Self::TransferRootOwnership { transferred_by, .. } => *transferred_by = key,
+            Self::AddAttachment { added_by, .. } => *added_by = key,
+            Self::RemoveAttachment { removed_by, .. } => *removed_by = key,
         }
     }
 
@@ -442,7 +494,9 @@ impl Operation {
             | Self::RevokePermission { signature, .. }
             | Self::JoinWorkspace { signature, .. }
             | Self::RemovePeer { signature, .. }
-            | Self::TransferRootOwnership { signature, .. } => *signature = sig,
+            | Self::TransferRootOwnership { signature, .. }
+            | Self::AddAttachment { signature, .. }
+            | Self::RemoveAttachment { signature, .. } => *signature = sig,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -463,7 +517,9 @@ impl Operation {
             | Self::RevokePermission { signature, .. }
             | Self::JoinWorkspace { signature, .. }
             | Self::RemovePeer { signature, .. }
-            | Self::TransferRootOwnership { signature, .. } => signature,
+            | Self::TransferRootOwnership { signature, .. }
+            | Self::AddAttachment { signature, .. }
+            | Self::RemoveAttachment { signature, .. } => signature,
             Self::RetractOperation { .. } => "",
         }
     }

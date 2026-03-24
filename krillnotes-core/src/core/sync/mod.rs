@@ -15,6 +15,7 @@ pub use channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel}
 pub use folder::FolderChannel;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use ed25519_dalek::SigningKey;
 
@@ -344,6 +345,7 @@ impl SyncEngine {
             op: Operation,
             sender_device_id: String,
             bundle_ack: Option<String>,
+            attachment_blobs: Arc<Vec<(String, Vec<u8>)>>,  // shared ref to parent delta's blobs
         }
 
         let mut op_entries: Vec<OpEntry> = pending_deltas
@@ -351,10 +353,12 @@ impl SyncEngine {
             .flat_map(|pd| {
                 let sender = pd.parsed.sender_device_id.clone();
                 let ack = pd.parsed.ack_operation_id.clone();
+                let blobs = Arc::new(pd.parsed.attachment_blobs.clone());
                 pd.parsed.operations.iter().map(move |op| OpEntry {
                     op: op.clone(),
                     sender_device_id: sender.clone(),
                     bundle_ack: ack.clone(),
+                    attachment_blobs: Arc::clone(&blobs),
                 })
             })
             .collect();
@@ -388,6 +392,7 @@ impl SyncEngine {
             match workspace.apply_incoming_operation(
                 entry.op.clone(),
                 &entry.sender_device_id,
+                &entry.attachment_blobs,
             ) {
                 Ok(true) => {
                     log::debug!(target: "krillnotes::sync",

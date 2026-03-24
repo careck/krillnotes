@@ -127,6 +127,7 @@ mod integration_tests {
             recipient_identity_id: "pk-bob".to_string(),
             owner_pubkey: "owner-pk-alice".to_string(),
             ack_operation_id: None,
+            attachment_blobs: vec![],
         }).unwrap();
 
         // === Step 8: Bob applies delta ===

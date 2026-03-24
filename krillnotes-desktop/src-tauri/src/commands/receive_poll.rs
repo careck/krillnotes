@@ -515,15 +515,18 @@ pub async fn poll_receive_workspace(
         struct OpEntry {
             op: krillnotes_core::core::operation::Operation,
             sender_device_id: String,
+            attachment_blobs: Arc<Vec<(String, Vec<u8>)>>,
         }
 
         let mut op_entries: Vec<OpEntry> = downloaded_deltas
             .iter()
             .flat_map(|dd| {
                 let sender = dd.parsed.sender_device_id.clone();
+                let blobs = Arc::new(dd.parsed.attachment_blobs.clone());
                 dd.parsed.operations.iter().map(move |op| OpEntry {
                     op: op.clone(),
                     sender_device_id: sender.clone(),
+                    attachment_blobs: Arc::clone(&blobs),
                 })
             })
             .collect();
@@ -577,7 +580,7 @@ pub async fn poll_receive_workspace(
                     .map_err(|e| e.to_string())?;
             }
 
-            match workspace.apply_incoming_operation(entry.op.clone(), &entry.sender_device_id) {
+            match workspace.apply_incoming_operation(entry.op.clone(), &entry.sender_device_id, &entry.attachment_blobs) {
                 Ok(true) => {
                     log::debug!(
                         "poll_receive_workspace: applied op {} from {}",

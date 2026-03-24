@@ -78,6 +78,21 @@ pub fn generate_delta(
     //    When last_sent_op is None (force-resync), operations_since(None) returns all ops.
     let ops = workspace.operations_since(peer.last_sent_op.as_deref(), &peer.peer_device_id)?;
 
+    // 3. Collect plaintext attachment blobs for any AddAttachment ops in the batch.
+    let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
+    for op in &ops {
+        if let Operation::AddAttachment { attachment_id, .. } = op {
+            match workspace.get_attachment_bytes(attachment_id) {
+                Ok(bytes) => attachment_blobs.push((attachment_id.clone(), bytes)),
+                Err(e) => {
+                    log::warn!(target: "krillnotes::sync",
+                        "Could not read attachment {} for delta, skipping blob: {e}",
+                        attachment_id);
+                }
+            }
+        }
+    }
+
     // 4. Resolve peer's public key from contacts.
     let contact = contact_manager
         .find_by_public_key(&peer.peer_identity_id)?
@@ -120,6 +135,7 @@ pub fn generate_delta(
         // ACK: tell the peer the last operation we received FROM them.
         // They can compare it with their last_sent_op to detect missed deltas.
         ack_operation_id: peer.last_received_op.clone(),
+        attachment_blobs,
     })?;
 
     // NOTE: watermark is NOT advanced here.
@@ -214,7 +230,7 @@ pub fn apply_delta(
             new_tofu_contacts.push(name);
         }
 
-        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id)? {
+        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id, &parsed.attachment_blobs)? {
             applied += 1;
         } else {
             skipped += 1;
@@ -736,6 +752,249 @@ mod tests {
         assert!(
             matches!(err, crate::core::error::KrillnotesError::ProtocolMismatch { .. }),
             "error should be ProtocolMismatch, got: {err}"
+        );
+    }
+
+    /// End-to-end: Alice attaches a file, generates a delta, Bob applies it and
+    /// can read the same bytes back.
+    #[test]
+    fn test_attachment_delta_sync_end_to_end() {
+        // ── Keys ──────────────────────────────────────────────────────────────
+        let alice_key = make_key();
+        let bob_key = make_key();
+        let alice_pubkey_b64 = b64(&alice_key);
+        let bob_pubkey_b64 = b64(&bob_key);
+
+        // ── Alice workspace (owns a real directory so attachments/ can exist) ─
+        let alice_dir = tempfile::tempdir().unwrap();
+        let alice_db = alice_dir.path().join("alice.db");
+        let mut alice_ws = crate::core::workspace::Workspace::create(
+            &alice_db,
+            "",
+            "alice-id",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            test_gate(),
+        )
+        .unwrap();
+
+        // Alice creates a note, then attaches a file with her signing key.
+        let note_id = alice_ws.create_note_root("TextNote").unwrap();
+        let file_bytes: &[u8] = b"hello attachment";
+        let meta = alice_ws
+            .attach_file(&note_id, "hello.txt", Some("text/plain"), file_bytes, Some(&alice_key))
+            .unwrap();
+        let attachment_id = meta.id.clone();
+
+        // Register Bob as a peer (watermark = None → send all ops).
+        alice_ws
+            .upsert_sync_peer("dev-bob", &bob_pubkey_b64, None, None)
+            .unwrap();
+
+        // Alice's contact manager knows Bob's key so the bundle can be encrypted.
+        let alice_cm_dir = tempfile::tempdir().unwrap();
+        let alice_cm = crate::core::contact::ContactManager::for_identity(
+            alice_cm_dir.path().to_path_buf(),
+            [30u8; 32],
+        )
+        .unwrap();
+        alice_cm
+            .find_or_create_by_public_key(
+                "Bob",
+                &bob_pubkey_b64,
+                crate::core::contact::TrustLevel::Tofu,
+            )
+            .unwrap();
+
+        let bundle =
+            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
+                .unwrap();
+
+        assert!(bundle.op_count > 0, "delta must contain ops");
+
+        // ── Bob workspace: separate directory, same workspace_id ──────────────
+        let bob_dir = tempfile::tempdir().unwrap();
+        let bob_db = bob_dir.path().join("bob.db");
+        let workspace_id = alice_ws.workspace_id().to_string();
+        let mut bob_ws = crate::core::workspace::Workspace::create_empty_with_id(
+            &bob_db,
+            "",
+            "bob-id",
+            SigningKey::from_bytes(&bob_key.to_bytes()),
+            &workspace_id,
+            test_gate(),
+        )
+        .unwrap();
+        // Adopt Alice's owner_pubkey so the bundle owner check passes.
+        bob_ws.set_owner_pubkey(&alice_pubkey_b64).unwrap();
+
+        let bob_cm_dir = tempfile::tempdir().unwrap();
+        let mut bob_cm = crate::core::contact::ContactManager::for_identity(
+            bob_cm_dir.path().to_path_buf(),
+            [31u8; 32],
+        )
+        .unwrap();
+
+        // Apply Alice's delta on Bob.
+        let result =
+            super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
+        assert!(
+            result.operations_applied > 0,
+            "Bob should have applied at least one op, got: {:?}",
+            result
+        );
+
+        // Verify the bundle actually carried a blob sidecar (guards against
+        // generate_delta regressions where blob collection is silently skipped).
+        let parsed = crate::core::swarm::delta::parse_delta_bundle(
+            &bundle.bundle_bytes, &bob_key,
+        ).unwrap();
+        assert_eq!(parsed.attachment_blobs.len(), 1,
+            "delta must carry exactly one blob sidecar");
+        assert_eq!(parsed.attachment_blobs[0].0, attachment_id,
+            "blob sidecar id must match attachment_id");
+
+        // ── Assertions ────────────────────────────────────────────────────────
+        // Bob should see the attachment in the note's list.
+        let bob_attachments = bob_ws.get_attachments(&note_id).unwrap();
+        assert_eq!(
+            bob_attachments.len(),
+            1,
+            "Bob should have exactly one attachment for the note"
+        );
+        assert_eq!(bob_attachments[0].id, attachment_id);
+        assert_eq!(bob_attachments[0].filename, "hello.txt");
+
+        // Bob should be able to decrypt and read back the original bytes.
+        let decrypted = bob_ws.get_attachment_bytes(&attachment_id).unwrap();
+        assert_eq!(
+            decrypted, file_bytes,
+            "Bob's decrypted attachment bytes must match Alice's original"
+        );
+    }
+
+    /// End-to-end: After Alice removes an attachment, Bob applies the delta and
+    /// the attachment disappears from his workspace.
+    #[test]
+    fn test_remove_attachment_delta_sync() {
+        // ── Keys ──────────────────────────────────────────────────────────────
+        let alice_key = make_key();
+        let bob_key = make_key();
+        let alice_pubkey_b64 = b64(&alice_key);
+        let bob_pubkey_b64 = b64(&bob_key);
+
+        // ── Alice workspace ───────────────────────────────────────────────────
+        let alice_dir = tempfile::tempdir().unwrap();
+        let alice_db = alice_dir.path().join("alice.db");
+        let mut alice_ws = crate::core::workspace::Workspace::create(
+            &alice_db,
+            "",
+            "alice-id",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            test_gate(),
+        )
+        .unwrap();
+
+        let note_id = alice_ws.create_note_root("TextNote").unwrap();
+        let file_bytes: &[u8] = b"data to be removed";
+        let meta = alice_ws
+            .attach_file(&note_id, "remove_me.bin", None, file_bytes, Some(&alice_key))
+            .unwrap();
+        let attachment_id = meta.id.clone();
+
+        // ── Bob workspace: receives the AddAttachment via first delta ─────────
+        let bob_dir = tempfile::tempdir().unwrap();
+        let bob_db = bob_dir.path().join("bob.db");
+        let workspace_id = alice_ws.workspace_id().to_string();
+        let mut bob_ws = crate::core::workspace::Workspace::create_empty_with_id(
+            &bob_db,
+            "",
+            "bob-id",
+            SigningKey::from_bytes(&bob_key.to_bytes()),
+            &workspace_id,
+            test_gate(),
+        )
+        .unwrap();
+        bob_ws.set_owner_pubkey(&alice_pubkey_b64).unwrap();
+
+        // Contact managers.
+        let alice_cm_dir = tempfile::tempdir().unwrap();
+        let alice_cm = crate::core::contact::ContactManager::for_identity(
+            alice_cm_dir.path().to_path_buf(),
+            [40u8; 32],
+        )
+        .unwrap();
+        alice_cm
+            .find_or_create_by_public_key(
+                "Bob",
+                &bob_pubkey_b64,
+                crate::core::contact::TrustLevel::Tofu,
+            )
+            .unwrap();
+
+        let bob_cm_dir = tempfile::tempdir().unwrap();
+        let mut bob_cm = crate::core::contact::ContactManager::for_identity(
+            bob_cm_dir.path().to_path_buf(),
+            [41u8; 32],
+        )
+        .unwrap();
+
+        // First sync: Bob receives the AddAttachment op.
+        alice_ws
+            .upsert_sync_peer("dev-bob", &bob_pubkey_b64, None, None)
+            .unwrap();
+        let add_bundle =
+            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
+                .unwrap();
+        super::apply_delta(&add_bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
+
+        // Verify Bob has the attachment after the first sync.
+        assert_eq!(
+            bob_ws.get_attachments(&note_id).unwrap().len(),
+            1,
+            "Bob should have the attachment after first sync"
+        );
+
+        // ── Alice removes the attachment ───────────────────────────────────────
+        alice_ws
+            .delete_attachment(&attachment_id, Some(&alice_key))
+            .unwrap();
+
+        // Advance the watermark so the second delta only includes the remove op.
+        alice_ws
+            .upsert_sync_peer(
+                "dev-bob",
+                &bob_pubkey_b64,
+                add_bundle.last_included_op.as_deref(),
+                None,
+            )
+            .unwrap();
+
+        // Second sync: Bob receives the RemoveAttachment op.
+        let remove_bundle =
+            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
+                .unwrap();
+        assert_eq!(remove_bundle.op_count, 1,
+            "second delta should contain only the RemoveAttachment op (watermark advance check)");
+        super::apply_delta(&remove_bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm)
+            .unwrap();
+
+        // ── Assertions ────────────────────────────────────────────────────────
+        // Bob's attachment list must now be empty.
+        let remaining = bob_ws.get_attachments(&note_id).unwrap();
+        assert!(
+            remaining.is_empty(),
+            "Bob should have no attachments after the remove sync, found: {:?}",
+            remaining
+        );
+
+        // The .enc file must also be gone from Bob's attachments directory.
+        let bob_enc_path = bob_dir
+            .path()
+            .join("attachments")
+            .join(format!("{attachment_id}.enc"));
+        assert!(
+            !bob_enc_path.exists(),
+            "Bob's .enc file must be deleted after remove sync"
         );
     }
 }

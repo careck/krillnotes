@@ -1742,7 +1742,7 @@ impl Workspace {
                         Some(FieldValue::File(Some(u))) if u == old_uuid
                     );
                     if !still_same {
-                        let _ = self.delete_attachment(old_uuid); // best-effort
+                        let _ = self.delete_attachment(old_uuid, None); // best-effort
                     }
                 }
             }
