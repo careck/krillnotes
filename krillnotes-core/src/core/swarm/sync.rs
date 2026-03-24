@@ -78,6 +78,21 @@ pub fn generate_delta(
     //    When last_sent_op is None (force-resync), operations_since(None) returns all ops.
     let ops = workspace.operations_since(peer.last_sent_op.as_deref(), &peer.peer_device_id)?;
 
+    // 3. Collect plaintext attachment blobs for any AddAttachment ops in the batch.
+    let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
+    for op in &ops {
+        if let Operation::AddAttachment { attachment_id, .. } = op {
+            match workspace.get_attachment_bytes(attachment_id) {
+                Ok(bytes) => attachment_blobs.push((attachment_id.clone(), bytes)),
+                Err(e) => {
+                    log::warn!(target: "krillnotes::sync",
+                        "Could not read attachment {} for delta, skipping blob: {e}",
+                        attachment_id);
+                }
+            }
+        }
+    }
+
     // 4. Resolve peer's public key from contacts.
     let contact = contact_manager
         .find_by_public_key(&peer.peer_identity_id)?
@@ -120,7 +135,7 @@ pub fn generate_delta(
         // ACK: tell the peer the last operation we received FROM them.
         // They can compare it with their last_sent_op to detect missed deltas.
         ack_operation_id: peer.last_received_op.clone(),
-        attachment_blobs: vec![],
+        attachment_blobs,
     })?;
 
     // NOTE: watermark is NOT advanced here.
@@ -215,7 +230,7 @@ pub fn apply_delta(
             new_tofu_contacts.push(name);
         }
 
-        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id, &[])? {
+        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id, &parsed.attachment_blobs)? {
             applied += 1;
         } else {
             skipped += 1;
