@@ -1790,7 +1790,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let root_id = &notes[0].id;
 
         let data = b"hello attachment";
-        let meta = ws.attach_file(root_id, "test.txt", Some("text/plain"), data).unwrap();
+        let meta = ws.attach_file(root_id, "test.txt", Some("text/plain"), data, None).unwrap();
         assert_eq!(meta.filename, "test.txt");
         assert_eq!(meta.size_bytes, data.len() as i64);
 
@@ -1806,7 +1806,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         let data = b"secret file content";
-        let meta = ws.attach_file(&root_id, "doc.txt", None, data).unwrap();
+        let meta = ws.attach_file(&root_id, "doc.txt", None, data, None).unwrap();
         let recovered = ws.get_attachment_bytes(&meta.id).unwrap();
         assert_eq!(recovered, data as &[u8]);
     }
@@ -1818,8 +1818,8 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
-        ws.attach_file(&root_id, "a.pdf", None, b"data a").unwrap();
-        ws.attach_file(&root_id, "b.pdf", None, b"data b").unwrap();
+        ws.attach_file(&root_id, "a.pdf", None, b"data a", None).unwrap();
+        ws.attach_file(&root_id, "b.pdf", None, b"data b", None).unwrap();
 
         let attachments = ws.get_attachments(&root_id).unwrap();
         assert_eq!(attachments.len(), 2);
@@ -1835,19 +1835,64 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let mut ws = Workspace::create(&db_path, "testpass", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
-        let meta = ws.attach_file(&root_id, "bye.txt", None, b"temp").unwrap();
+        let meta = ws.attach_file(&root_id, "bye.txt", None, b"temp", None).unwrap();
         let enc_path = dir.path().join("attachments").join(format!("{}.enc", meta.id));
         let trash_path = dir.path().join("attachments").join(format!("{}.enc.trash", meta.id));
         assert!(enc_path.exists());
 
         // Soft-delete: file moves to .enc.trash, DB row removed.
-        // Attachment deletions do NOT go on the main undo stack (to avoid interfering
-        // with note-edit undo/redo which uses the same Cmd+Z shortcut).
-        ws.delete_attachment(&meta.id).unwrap();
+        // When no signing key is provided (None), attachment ops do NOT go on the undo stack.
+        // When a signing key IS provided (Some(key)), ops ARE logged and push undo — see test_delete_attachment_with_signing_key_logs_op_and_pushes_undo.
+        ws.delete_attachment(&meta.id, None).unwrap();
         assert!(!enc_path.exists(), ".enc must be gone after soft-delete");
         assert!(trash_path.exists(), ".enc.trash must exist after soft-delete");
         assert!(ws.get_attachments(&root_id).unwrap().is_empty(), "DB row must be gone");
-        assert!(!ws.can_undo(), "attachment deletion must NOT push to main undo stack");
+        assert!(!ws.can_undo(), "attachment deletion without signing key must NOT push to main undo stack");
+    }
+
+    #[test]
+    fn test_attach_file_with_signing_key_logs_op_and_pushes_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let data = b"test file content";
+        let meta = ws.attach_file(&root_id, "test.txt", Some("text/plain"), data, Some(&key)).unwrap();
+
+        // Verify: op was logged with the correct type.
+        let ops = ws.list_operations(None, None, None).unwrap();
+        let has_add_op = ops.iter().any(|op| op.operation_type == "AddAttachment");
+        assert!(has_add_op, "AddAttachment op should be logged when signing key is provided");
+
+        // Verify: undo is available (attach_file with signing key DOES push undo).
+        let _ = &meta;
+        assert!(ws.can_undo(), "attach_file with signing key should push undo");
+    }
+
+    #[test]
+    fn test_delete_attachment_with_signing_key_logs_op_and_pushes_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
+        let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+
+        // Attach without signing key so the attach itself does not push undo.
+        let data = b"test file content";
+        let meta = ws.attach_file(&root_id, "test.txt", Some("text/plain"), data, None).unwrap();
+        assert!(!ws.can_undo(), "attach_file without signing key must not push undo");
+
+        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        ws.delete_attachment(&meta.id, Some(&key)).unwrap();
+
+        // Verify: op was logged with the correct type.
+        let ops = ws.list_operations(None, None, None).unwrap();
+        let has_remove_op = ops.iter().any(|op| op.operation_type == "RemoveAttachment");
+        assert!(has_remove_op, "RemoveAttachment op should be logged when signing key is provided");
+
+        // Verify: undo is available.
+        assert!(ws.can_undo(), "delete_attachment with signing key should push undo");
     }
 
     #[test]
@@ -1859,7 +1904,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
 
         ws.set_attachment_max_size_bytes(Some(10)).unwrap();
         let big_data = vec![0u8; 100];
-        let result = ws.attach_file(&root_id, "big.bin", None, &big_data);
+        let result = ws.attach_file(&root_id, "big.bin", None, &big_data, None);
         assert!(matches!(result, Err(KrillnotesError::AttachmentTooLarge { .. })));
     }
 
@@ -1873,7 +1918,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         // Attach a first file to the note.
-        let meta1 = ws.attach_file(&root_id, "a.png", Some("image/png"), b"fake_bytes_1").unwrap();
+        let meta1 = ws.attach_file(&root_id, "a.png", Some("image/png"), b"fake_bytes_1", None).unwrap();
 
         // Set the File field to point at the first attachment.
         let mut fields = ws.get_note(&root_id).unwrap().fields.clone();
@@ -1881,7 +1926,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         ws.update_note(&root_id, "Test".to_string(), fields).unwrap();
 
         // Attach a second file and replace the field value with it.
-        let meta2 = ws.attach_file(&root_id, "b.png", Some("image/png"), b"fake_bytes_2").unwrap();
+        let meta2 = ws.attach_file(&root_id, "b.png", Some("image/png"), b"fake_bytes_2", None).unwrap();
         let mut fields2 = ws.get_note(&root_id).unwrap().fields.clone();
         fields2.insert("photo".to_string(), FieldValue::File(Some(meta2.id.clone())));
         ws.update_note(&root_id, "Test".to_string(), fields2).unwrap();
@@ -1917,7 +1962,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         // Attach a file and store its UUID in a File field.
-        let meta = ws.attach_file(&root_id, "x.png", Some("image/png"), b"fake").unwrap();
+        let meta = ws.attach_file(&root_id, "x.png", Some("image/png"), b"fake", None).unwrap();
         let mut fields = ws.get_note(&root_id).unwrap().fields.clone();
         fields.insert("photo".to_string(), FieldValue::File(Some(meta.id.clone())));
         ws.update_note(&root_id, "Test".to_string(), fields).unwrap();
@@ -2830,7 +2875,7 @@ schema("SameVerType", #{
         let key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
         let mut ws = Workspace::create(&db_path, "", "test-id", key, test_gate()).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
-        ws.attach_file(&root_id, "test.txt", None, b"hello bytes").unwrap();
+        ws.attach_file(&root_id, "test.txt", None, b"hello bytes", None).unwrap();
         let json = ws.to_snapshot_json().unwrap();
         let snap: WorkspaceSnapshot = serde_json::from_slice(&json).unwrap();
         assert_eq!(snap.attachments.len(), 1);

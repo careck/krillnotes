@@ -31,7 +31,7 @@ pub fn attach_file(
 
     let data = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;
     workspace
-        .attach_file(&note_id, &filename, mime_type.as_deref(), &data)
+        .attach_file(&note_id, &filename, mime_type.as_deref(), &data, None)
         .map_err(|e| { log::error!("attach_file failed: {e}"); e.to_string() })
 }
 
@@ -82,7 +82,7 @@ pub fn attach_file_bytes(
         .first()
         .map(|m| m.to_string());
     workspace
-        .attach_file(&note_id, &filename, mime_type.as_deref(), data)
+        .attach_file(&note_id, &filename, mime_type.as_deref(), data, None)
         .map_err(|e| { log::error!("attach_file_bytes failed: {e}"); e.to_string() })
 }
 
@@ -136,7 +136,7 @@ pub fn delete_attachment(
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
     workspace
-        .delete_attachment(&attachment_id)
+        .delete_attachment(&attachment_id, None)
         .map_err(|e| { log::error!("delete_attachment failed: {e}"); e.to_string() })
 }
 
