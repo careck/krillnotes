@@ -120,6 +120,7 @@ pub fn generate_delta(
         // ACK: tell the peer the last operation we received FROM them.
         // They can compare it with their last_sent_op to detect missed deltas.
         ack_operation_id: peer.last_received_op.clone(),
+        attachment_blobs: vec![],
     })?;
 
     // NOTE: watermark is NOT advanced here.

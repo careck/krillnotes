@@ -12,11 +12,13 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::Utc;
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 use crate::core::operation::Operation;
-use crate::core::swarm::crypto::{decrypt_payload, encrypt_for_recipients};
+use crate::core::swarm::crypto::{
+    decrypt_blob, decrypt_payload_with_key, encrypt_blob, encrypt_for_recipients_with_key,
+};
 use crate::core::swarm::header::{SwarmHeader, SwarmMode};
 use crate::core::swarm::invite::read_zip_file;
 use crate::core::swarm::signature::{sign_manifest, verify_manifest};
@@ -41,6 +43,9 @@ pub struct DeltaParams<'a> {
     /// ACK: the last operation we received FROM the recipient.
     /// Lets the recipient self-correct its watermark if they're ahead of us.
     pub ack_operation_id: Option<String>,
+    /// Plaintext attachment bytes keyed by attachment_id.
+    /// Each blob corresponds to an AddAttachment operation in the batch.
+    pub attachment_blobs: Vec<(String, Vec<u8>)>,
 }
 
 pub struct ParsedDelta {
@@ -54,6 +59,8 @@ pub struct ParsedDelta {
     pub owner_pubkey: Option<String>,
     /// ACK from the sender: the last operation they received FROM us.
     pub ack_operation_id: Option<String>,
+    /// Decrypted attachment blobs from the delta bundle sidecar files.
+    pub attachment_blobs: Vec<(String, Vec<u8>)>,
 }
 
 /// Generate a delta.swarm bundle.
@@ -63,8 +70,8 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
 
     let ops_json = serde_json::to_vec(&params.operations)?;
     let prefixed = super::header::prefix_protocol(&params.protocol, &ops_json);
-    let (ciphertext, mut entries) =
-        encrypt_for_recipients(&prefixed, &params.recipient_keys)?;
+    let (ciphertext, sym_key, mut entries) =
+        encrypt_for_recipients_with_key(&prefixed, &params.recipient_keys)?;
     for (entry, peer_id) in entries.iter_mut().zip(params.recipient_peer_ids.iter()) {
         entry.peer_id = peer_id.clone();
     }
@@ -91,12 +98,18 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         target_peer: Some(params.recipient_identity_id),
         ack_operation_id: params.ack_operation_id.clone(),
         recipients: Some(entries),
-        has_attachments: false,
+        has_attachments: !params.attachment_blobs.is_empty(),
         owner_pubkey: Some(params.owner_pubkey.clone()),
     };
     header.validate()?;
 
     let header_bytes = serde_json::to_vec(&header)?;
+    // NOTE: attachment sidecar ciphertext is NOT included in the manifest.
+    // AES-GCM provides per-blob integrity (tampered blobs fail to decrypt), but
+    // an attacker can silently remove sidecars from the bundle without the
+    // signature check detecting it. A future hardening pass should add sidecar
+    // hashes to the manifest.
+    // TODO: include attachment sidecar hashes in manifest for full bundle integrity.
     let files: Vec<(&str, &[u8])> = vec![
         ("header.json", &header_bytes),
         ("payload.enc", &ciphertext),
@@ -114,6 +127,12 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         zip.write_all(&ciphertext)?;
         zip.start_file("signature.bin", opts)?;
         zip.write_all(&sig)?;
+        // Write encrypted attachment sidecar files.
+        for (att_id, plaintext) in &params.attachment_blobs {
+            let ct = encrypt_blob(&sym_key, plaintext)?;
+            zip.start_file(format!("attachments/{att_id}.enc"), opts)?;
+            zip.write_all(&ct)?;
+        }
         zip.finish()?;
     }
     Ok(buf)
@@ -153,19 +172,40 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
     let recipients = header.recipients
         .ok_or_else(|| KrillnotesError::Swarm("no recipients in delta".to_string()))?;
     let mut plaintext = None;
+    let mut sym_key_found: Option<[u8; 32]> = None;
     for entry in &recipients {
-        if let Ok(pt) = decrypt_payload(&ciphertext, entry, recipient_key) {
+        if let Ok((pt, key)) = decrypt_payload_with_key(&ciphertext, entry, recipient_key) {
             plaintext = Some(pt);
+            sym_key_found = Some(key);
             break;
         }
     }
     let decrypted = plaintext
         .ok_or_else(|| KrillnotesError::Swarm("no recipient entry matched our key".to_string()))?;
+    let sym_key = sym_key_found.expect("sym_key set iff decryption succeeded");
 
     // Strip the protocol tag embedded before encryption.
     let (protocol, ops_json) = super::header::strip_protocol(&decrypted)?;
 
     let operations: Vec<Operation> = serde_json::from_slice(&ops_json)?;
+
+    // Decrypt attachment sidecar files.
+    let mut attachment_blobs = Vec::new();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i)
+            .map_err(|e| KrillnotesError::Swarm(format!("zip index {i}: {e}")))?;
+        let name = file.name().to_string();
+        if let Some(att_id) = name
+            .strip_prefix("attachments/")
+            .and_then(|n| n.strip_suffix(".enc"))
+        {
+            let mut ct = Vec::new();
+            file.read_to_end(&mut ct)
+                .map_err(|e| KrillnotesError::Swarm(format!("read att {att_id}: {e}")))?;
+            let pt = decrypt_blob(&sym_key, &ct)?;
+            attachment_blobs.push((att_id.to_string(), pt));
+        }
+    }
 
     Ok(ParsedDelta {
         protocol,
@@ -176,6 +216,7 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
         operations,
         owner_pubkey: header.owner_pubkey,
         ack_operation_id: header.ack_operation_id,
+        attachment_blobs,
     })
 }
 
@@ -221,6 +262,7 @@ mod tests {
             recipient_identity_id: "pk-dev-2".to_string(),
             owner_pubkey: "owner-pk".to_string(),
             ack_operation_id: None,
+            attachment_blobs: vec![],
         }).unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
@@ -249,9 +291,105 @@ mod tests {
             recipient_identity_id: "pk-dev-2".to_string(),
             owner_pubkey: "owner-pk".to_string(),
             ack_operation_id: None,
+            attachment_blobs: vec![],
         }).unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.operations.len(), 0);
+    }
+
+    #[test]
+    fn test_delta_with_attachments_roundtrip() {
+        use ed25519_dalek::SigningKey;
+        use rand::rngs::OsRng;
+
+        let sender_key = SigningKey::generate(&mut OsRng);
+        let recipient_key = SigningKey::generate(&mut OsRng);
+        let recipient_vk = recipient_key.verifying_key();
+
+        let mut op = Operation::AddAttachment {
+            operation_id: "op-att-delta-1".to_string(),
+            timestamp: crate::core::hlc::HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            device_id: "dev-1".to_string(),
+            attachment_id: "att-uuid-1".to_string(),
+            note_id: "note-1".to_string(),
+            filename: "test.png".to_string(),
+            mime_type: Some("image/png".to_string()),
+            size_bytes: 4,
+            hash_sha256: "fakehash".to_string(),
+            added_by: String::new(),
+            signature: String::new(),
+        };
+        op.sign(&sender_key);
+
+        let blob_data = b"BLOB".to_vec();
+        let params = DeltaParams {
+            protocol: "krillnotes/1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            workspace_name: "Test".to_string(),
+            source_device_id: "dev-1".to_string(),
+            source_display_name: "Alice".to_string(),
+            since_operation_id: String::new(),
+            operations: vec![op],
+            sender_key: &sender_key,
+            recipient_keys: vec![&recipient_vk],
+            recipient_peer_ids: vec!["peer-1".to_string()],
+            recipient_identity_id: "recip-id".to_string(),
+            owner_pubkey: "owner-key".to_string(),
+            ack_operation_id: None,
+            attachment_blobs: vec![("att-uuid-1".to_string(), blob_data.clone())],
+        };
+
+        let bundle = create_delta_bundle(params).unwrap();
+        let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
+
+        assert_eq!(parsed.operations.len(), 1);
+        assert_eq!(parsed.attachment_blobs.len(), 1);
+        assert_eq!(parsed.attachment_blobs[0].0, "att-uuid-1");
+        assert_eq!(parsed.attachment_blobs[0].1, blob_data);
+    }
+
+    #[test]
+    fn test_delta_without_attachments_roundtrip() {
+        use ed25519_dalek::SigningKey;
+        use rand::rngs::OsRng;
+
+        let sender_key = SigningKey::generate(&mut OsRng);
+        let recipient_key = SigningKey::generate(&mut OsRng);
+        let recipient_vk = recipient_key.verifying_key();
+
+        let mut op = Operation::UpdateNote {
+            operation_id: "op-un-1".to_string(),
+            timestamp: crate::core::hlc::HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            device_id: "dev-1".to_string(),
+            note_id: "note-1".to_string(),
+            title: "Updated".to_string(),
+            modified_by: String::new(),
+            signature: String::new(),
+        };
+        op.sign(&sender_key);
+
+        let params = DeltaParams {
+            protocol: "krillnotes/1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            workspace_name: "Test".to_string(),
+            source_device_id: "dev-1".to_string(),
+            source_display_name: "Alice".to_string(),
+            since_operation_id: String::new(),
+            operations: vec![op],
+            sender_key: &sender_key,
+            recipient_keys: vec![&recipient_vk],
+            recipient_peer_ids: vec!["peer-1".to_string()],
+            recipient_identity_id: "recip-id".to_string(),
+            owner_pubkey: "owner-key".to_string(),
+            ack_operation_id: None,
+            attachment_blobs: vec![],
+        };
+
+        let bundle = create_delta_bundle(params).unwrap();
+        let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
+
+        assert_eq!(parsed.operations.len(), 1);
+        assert!(parsed.attachment_blobs.is_empty());
     }
 }
