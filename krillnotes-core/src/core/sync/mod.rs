@@ -388,6 +388,7 @@ impl SyncEngine {
             match workspace.apply_incoming_operation(
                 entry.op.clone(),
                 &entry.sender_device_id,
+                &[],
             ) {
                 Ok(true) => {
                     log::debug!(target: "krillnotes::sync",

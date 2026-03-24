@@ -577,7 +577,7 @@ pub async fn poll_receive_workspace(
                     .map_err(|e| e.to_string())?;
             }
 
-            match workspace.apply_incoming_operation(entry.op.clone(), &entry.sender_device_id) {
+            match workspace.apply_incoming_operation(entry.op.clone(), &entry.sender_device_id, &[]) {
                 Ok(true) => {
                     log::debug!(
                         "poll_receive_workspace: applied op {} from {}",

@@ -214,7 +214,7 @@ pub fn apply_delta(
             new_tofu_contacts.push(name);
         }
 
-        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id)? {
+        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id, &[])? {
             applied += 1;
         } else {
             skipped += 1;
