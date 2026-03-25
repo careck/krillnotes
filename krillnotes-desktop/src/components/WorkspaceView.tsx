@@ -37,9 +37,10 @@ import TagPill from './TagPill';
 interface WorkspaceViewProps {
   workspaceInfo: WorkspaceInfo;
   onOpenWorkspacePeers?: () => void;
+  sharingIndicatorMode?: 'off' | 'auto' | 'on';
 }
 
-function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewProps) {
+function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMode = 'auto' }: WorkspaceViewProps) {
   const { t } = useTranslation();
   const [notes, setNotes] = useState<Note[]>([]);
   const [schemas, setSchemas] = useState<Record<string, SchemaInfo>>({});
@@ -50,6 +51,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
   const [shareAnchorIds, setShareAnchorIds] = useState<Set<string>>(new Set());
   const [isRootOwner, setIsRootOwner] = useState(false);
   const [permissionRefreshSignal, setPermissionRefreshSignal] = useState(0);
+  const [hasPeers, setHasPeers] = useState(false);
   const treePanelRef = useRef<HTMLDivElement>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addDialogNoteId, setAddDialogNoteId] = useState<string | null>(null);
@@ -180,6 +182,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
       invoke<any[]>("list_workspace_peers").catch(() => []),
       invoke<boolean>("has_relay_credentials").catch(() => false),
     ]).then(([peers, hasCreds]) => {
+      setHasPeers((peers as any[]).length > 0);
       setHasRelayPeers(
         (peers as any[]).some((p: any) => p.channelType !== "manual") || (hasCreds as boolean)
       );
@@ -726,6 +729,11 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers }: WorkspaceViewPro
             onHoverEnd={handleHoverEnd}
             effectiveRoles={effectiveRoles}
             shareAnchorIds={shareAnchorIds}
+            showSharingIndicators={
+              sharingIndicatorMode === 'on' ? true :
+              sharingIndicatorMode === 'off' ? false :
+              hasPeers
+            }
           />
         </div>
 

@@ -5,6 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 
+import { useState, useEffect } from 'react';
 import { save, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
@@ -68,6 +69,14 @@ function App() {
 
   // Global snapshot polling for all unlocked identities (no workspace needed).
   useGlobalSnapshotPolling();
+
+  const [sharingIndicatorMode, setSharingIndicatorMode] = useState<'off' | 'auto' | 'on'>('auto');
+  const refreshSharingIndicatorMode = () => {
+    invoke<AppSettings>('get_settings')
+      .then(s => setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on'))
+      .catch(() => {});
+  };
+  useEffect(refreshSharingIndicatorMode, []);
 
   const handleImportConfirm = async () => {
     if (!importState) return;
@@ -198,7 +207,7 @@ function App() {
   return (
     <ThemeProvider>
     <div className="min-h-screen bg-background text-foreground">
-      {workspace ? <WorkspaceView workspaceInfo={workspace} onOpenWorkspacePeers={() => setShowWorkspacePeers(true)} /> : <div className="p-8"><EmptyState /></div>}
+      {workspace ? <WorkspaceView workspaceInfo={workspace} onOpenWorkspacePeers={() => setShowWorkspacePeers(true)} sharingIndicatorMode={sharingIndicatorMode} /> : <div className="p-8"><EmptyState /></div>}
       {status && <StatusMessage message={status} isError={isError} />}
 
       <NewWorkspaceDialog
@@ -216,6 +225,7 @@ function App() {
       <SettingsDialog
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
+        onSaved={refreshSharingIndicatorMode}
       />
 
       {/* Export password dialog */}

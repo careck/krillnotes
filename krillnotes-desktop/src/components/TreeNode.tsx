@@ -27,12 +27,13 @@ interface TreeNodeProps {
   onHoverEnd: () => void;
   effectiveRoles?: Record<string, string>;
   shareAnchorIds?: Set<string>;
+  showSharingIndicators?: boolean;
 }
 
 function TreeNode({
   node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
-  onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds,
+  onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds, showSharingIndicators,
 }: TreeNodeProps) {
   const { t } = useTranslation();
   const hasChildren = node.children.length > 0;
@@ -247,14 +248,14 @@ function TreeNode({
           </button>
         )}
         {!hasChildren && <span className="w-4 mr-1" />}
-        {!isGhost && role && (
+        {showSharingIndicators && !isGhost && role && (
           <span className={`text-[10px] mr-1 flex-shrink-0 ${
             role === 'owner' || role === 'root_owner' ? 'text-green-500' :
             role === 'writer' ? 'text-orange-500' :
             role === 'reader' ? 'text-yellow-500' : ''
           }`}>●</span>
         )}
-        {isShareAnchor && (role === 'owner' || role === 'root_owner') && (
+        {showSharingIndicators && isShareAnchor && (role === 'owner' || role === 'root_owner') && (
           <span className="text-[10px] mr-1 flex-shrink-0 text-zinc-400" title={t('tree.sharedSubtree', 'Shared subtree')}>👥</span>
         )}
         <span className={`text-sm truncate flex-1 min-w-0 ${isGhost ? 'text-zinc-400 italic' : ''}`}>{node.note.title}</span>
@@ -288,6 +289,7 @@ function TreeNode({
               onHoverEnd={onHoverEnd}
               effectiveRoles={effectiveRoles}
               shareAnchorIds={shareAnchorIds}
+              showSharingIndicators={showSharingIndicators}
             />
           ))}
         </div>

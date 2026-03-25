@@ -31,6 +31,10 @@ pub struct AppSettings {
     /// Language code for the UI ("en", "de", "fr", "es", "ja", "ko", "zh").
     #[serde(default = "default_language")]
     pub language: String,
+    /// Controls when sharing permission indicators (coloured dots) appear in the tree.
+    /// "on" = always, "off" = never, "auto" = only when the workspace has peers.
+    #[serde(default = "default_sharing_indicator_mode")]
+    pub sharing_indicator_mode: String,
 }
 
 impl Default for AppSettings {
@@ -43,6 +47,7 @@ impl Default for AppSettings {
             light_theme: default_light_theme(),
             dark_theme: default_dark_theme(),
             language: default_language(),
+            sharing_indicator_mode: default_sharing_indicator_mode(),
         }
     }
 }
@@ -84,6 +89,7 @@ fn default_theme_mode() -> String { "system".to_string() }
 fn default_light_theme() -> String { "light".to_string() }
 fn default_dark_theme() -> String { "dark".to_string() }
 fn default_language() -> String { "en".to_string() }
+fn default_sharing_indicator_mode() -> String { "auto".to_string() }
 
 /// Returns the default workspace directory: `~/Documents/Krillnotes`.
 pub fn default_workspace_directory() -> PathBuf {
@@ -137,6 +143,13 @@ mod tests {
         let json = r#"{"workspaceDirectory":"/tmp"}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.language, "en");
+    }
+
+    #[test]
+    fn deserializes_legacy_settings_without_sharing_indicator_mode_field() {
+        let json = r#"{"workspaceDirectory":"/tmp"}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.sharing_indicator_mode, "auto");
     }
 
     #[test]

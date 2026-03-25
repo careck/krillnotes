@@ -49,7 +49,11 @@
     "tabGeneral": "General",
     "tabAppearance": "Appearance",
     "undoHistoryLimit": "Undo history limit",
-    "undoHistoryLimitHint": "Number of actions that can be undone (1–500)"
+    "undoHistoryLimitHint": "Number of actions that can be undone (1–500)",
+    "sharingIndicators": "Sharing indicators",
+    "sharingIndicatorsOff": "Off",
+    "sharingIndicatorsAuto": "Auto",
+    "sharingIndicatorsOn": "On"
   },
   "themes": {
     "manage": "Manage Themes",
