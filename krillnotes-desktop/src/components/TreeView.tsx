@@ -28,12 +28,13 @@ interface TreeViewProps {
   onHoverEnd: () => void;
   effectiveRoles?: Record<string, string>;
   shareAnchorIds?: Set<string>;
+  showSharingIndicators?: boolean;
 }
 
 function TreeView({
   tree, selectedNoteId, onSelect, onToggleExpand, onContextMenu, onKeyDown,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
-  onBackgroundContextMenu, onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds,
+  onBackgroundContextMenu, onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds, showSharingIndicators,
 }: TreeViewProps) {
   const { t } = useTranslation();
 
@@ -119,6 +120,7 @@ function TreeView({
           onHoverEnd={onHoverEnd}
           effectiveRoles={effectiveRoles}
           shareAnchorIds={shareAnchorIds}
+          showSharingIndicators={showSharingIndicators}
         />
       ))}
       {draggedNoteId && dropIndicator?.noteId === '__root__' && (

@@ -166,6 +166,7 @@ export interface AppSettings {
   lightTheme?: string;
   darkTheme?: string;
   language?: string;
+  sharingIndicatorMode?: string;
 }
 
 export interface WorkspaceEntry {

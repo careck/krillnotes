@@ -16,9 +16,10 @@ import { useTranslation } from 'react-i18next';
 interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onSaved?: () => void;
 }
 
-function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
+function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
   const { t } = useTranslation();
   const [workspaceDir, setWorkspaceDir] = useState('');
   const [error, setError] = useState('');
@@ -29,6 +30,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [manageThemesOpen, setManageThemesOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'appearance'>('general');
   const [undoLimit, setUndoLimit] = useState<number | undefined>(undefined);
+  const [sharingIndicatorMode, setSharingIndicatorMode] = useState<'off' | 'auto' | 'on'>('auto');
 
   useEffect(() => {
     if (isOpen) {
@@ -37,6 +39,7 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
           setWorkspaceDir(s.workspaceDirectory);
           setLanguage(s.language ?? 'en');
           setOriginalLanguage(s.language ?? 'en');
+          setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on');
           setError('');
         })
         .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
@@ -87,12 +90,14 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         patch: {
           workspaceDirectory: workspaceDir,
           language,
+          sharingIndicatorMode,
         },
       });
       if (undoLimit !== undefined) {
         await invoke('set_undo_limit', { limit: undoLimit });
       }
       setOriginalLanguage(language); // committed — no revert on close
+      onSaved?.();
       onClose();
     } catch (err) {
       setError(t('settings.failedSave', { error: String(err) }));
@@ -217,6 +222,26 @@ function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                     }`}
                   >
                     {t(`settings.mode${m.charAt(0).toUpperCase() + m.slice(1)}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sharing indicators toggle */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm text-muted-foreground w-24">{t('settings.sharingIndicators')}</span>
+              <div className="flex rounded border border-border overflow-hidden">
+                {(['off', 'auto', 'on'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setSharingIndicatorMode(m)}
+                    className={`px-3 py-1 text-sm ${
+                      sharingIndicatorMode === m
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {t(`settings.sharingIndicators${m.charAt(0).toUpperCase() + m.slice(1)}`)}
                   </button>
                 ))}
               </div>
