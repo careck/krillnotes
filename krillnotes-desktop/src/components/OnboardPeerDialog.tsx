@@ -51,6 +51,14 @@ export function OnboardPeerDialog({
         });
       }
 
+      // Step 2b: Set relay channel so ongoing sync routes via the same relay
+      if (response.responseChannel === 'relay' && response.relayAccountId) {
+        await invoke('set_peer_relay', {
+          peerDeviceId: `identity:${response.inviteePublicKey}`,
+          relayAccountId: response.relayAccountId,
+        });
+      }
+
       // Step 3: Send snapshot via the channel the response arrived on
       if (response.responseChannel === 'relay') {
         await invoke('send_snapshot_via_relay', {
