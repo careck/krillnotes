@@ -315,8 +315,7 @@
     "refresh": "更新",
     "aboutKrillnotes": "Krillnotesについて",
     "createDeltaSwarm": "Create delta Swarm",
-    "openSwarmFile": "Open .swarm File…",
-    "acceptInvite": "Accept Invite…"
+    "openSwarmFile": "Open .swarm File…"
   },
   "identity": {
     "manageTitle": "Identities",

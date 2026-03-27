@@ -315,8 +315,7 @@
     "refresh": "刷新",
     "aboutKrillnotes": "关于 Krillnotes",
     "createDeltaSwarm": "Create delta Swarm",
-    "openSwarmFile": "Open .swarm File…",
-    "acceptInvite": "Accept Invite…"
+    "openSwarmFile": "Open .swarm File…"
   },
   "identity": {
     "manageTitle": "Identities",

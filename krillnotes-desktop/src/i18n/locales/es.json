@@ -317,8 +317,7 @@
     "refresh": "Actualizar",
     "aboutKrillnotes": "Acerca de Krillnotes",
     "createDeltaSwarm": "Create delta Swarm",
-    "openSwarmFile": "Open .swarm File…",
-    "acceptInvite": "Accept Invite…"
+    "openSwarmFile": "Open .swarm File…"
   },
   "identity": {
     "manageTitle": "Identities",
