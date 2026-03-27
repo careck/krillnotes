@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
@@ -9,11 +9,14 @@ interface Props {
   identityName: string;
   onResponded: () => void;
   onClose: () => void;
+  // Optional: pre-loaded invite from file-drop
+  preloadedInviteData?: InviteFileData;
+  preloadedPath?: string;
 }
 
 type Step = 'import' | 'review' | 'respond';
 
-export function AcceptInviteWorkflow({ identityUuid, identityName, onResponded, onClose }: Props) {
+export function AcceptInviteWorkflow({ identityUuid, identityName, onResponded, onClose, preloadedInviteData, preloadedPath }: Props) {
   const { t } = useTranslation();
 
   // Step management
@@ -40,6 +43,16 @@ export function AcceptInviteWorkflow({ identityUuid, identityName, onResponded, 
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [signingUp, setSigningUp] = useState(false);
+
+  // If pre-loaded data is provided (file-drop path), skip straight to the review step
+  useEffect(() => {
+    if (preloadedInviteData && preloadedPath) {
+      setInviteData(preloadedInviteData);
+      setInviteTempPath(preloadedPath);
+      setInviteRelayServer(null);
+      setStep('review');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Step 1: Import ──────────────────────────────────────────────────────────
 

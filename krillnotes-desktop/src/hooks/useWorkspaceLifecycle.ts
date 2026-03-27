@@ -13,7 +13,6 @@ import type { WorkspaceInfo as WorkspaceInfoType, AppSettings, IdentityRef, Invi
 interface WorkspaceLifecycleCallbacks {
   setShowCreateFirstIdentity: (show: boolean) => void;
   setShowSwarmOpen: (show: boolean) => void;
-  showSwarmInvite: boolean;
   showSwarmOpen: boolean;
   proceedWithImport: (zipPath: string, password: string | null) => Promise<void>;
   setPendingInvitePath: (path: string | null) => void;
@@ -35,7 +34,7 @@ export function useWorkspaceLifecycle(callbacks: WorkspaceLifecycleCallbacks) {
       .catch(() => {});
   }, []);
 
-  // Route a .swarm file to the correct dialog: Phase C invite → ImportInviteDialog,
+  // Route a .swarm file to the correct dialog: Phase C invite → AcceptInviteWorkflow,
   // all other formats (WP-A header.json based) → SwarmOpenDialog.
   const openSwarmFile = useCallback((path: string) => {
     invoke<InviteFileData>('import_invite', { path })
@@ -79,8 +78,8 @@ export function useWorkspaceLifecycle(callbacks: WorkspaceLifecycleCallbacks) {
 
   // Effect 2: Swarm dialog lifecycle — refresh unlocked identity whenever a swarm dialog opens
   useEffect(() => {
-    if (callbacks.showSwarmInvite || callbacks.showSwarmOpen) refreshUnlockedIdentity();
-  }, [callbacks.showSwarmInvite, callbacks.showSwarmOpen]);
+    if (callbacks.showSwarmOpen) refreshUnlockedIdentity();
+  }, [callbacks.showSwarmOpen]);
 
   // Effect 3: Cold-start — pull any file path that arrived via OS file-open before JS
   // listeners were registered. Only the "main" (launcher) window handles imports.

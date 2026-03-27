@@ -8,11 +8,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, RelayAccountInfo, ReceivedResponseInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, RelayAccountInfo, ReceivedResponseInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
-import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
 import PendingResponsesSection from './PendingResponsesSection';
@@ -66,7 +65,6 @@ export default function WorkspacePeersDialog({
   const [showAddFromContacts, setShowAddFromContacts] = useState(false);
   const [addContactForPeer, setAddContactForPeer] = useState<PeerInfo | null>(null);
   const [showInviteManager, setShowInviteManager] = useState(false);
-  const [pendingResponsePeer, setPendingResponsePeer] = useState<PendingPeer | null>(null);
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
   const [showSendSnapshot, setShowSendSnapshot] = useState(false);
   const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
@@ -157,25 +155,6 @@ export default function WorkspacePeersDialog({
     }
   };
 
-  // Track which ReceivedResponse we're currently accepting (for status update after dialog)
-  const [acceptingResponseId, setAcceptingResponseId] = useState<string | null>(null);
-
-  const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
-    try {
-      const fingerprint = await invoke<string>("get_fingerprint", {
-        publicKey: response.inviteePublicKey,
-      });
-      setAcceptingResponseId(response.responseId);
-      setPendingResponsePeer({
-        inviteId: response.inviteId,
-        inviteePublicKey: response.inviteePublicKey,
-        inviteeDeclaredName: response.inviteeDeclaredName,
-        fingerprint,
-      });
-    } catch (e) {
-      console.error("Failed to prepare accept response:", e);
-    }
-  };
   const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
     setSendSnapshotFor([response.inviteePublicKey]);
     setShowSendSnapshot(true);
@@ -232,7 +211,7 @@ export default function WorkspacePeersDialog({
           <PendingResponsesSection
             identityUuid={identityUuid}
             workspaceId={workspaceInfo?.workspaceId}
-            onAcceptResponse={handleAcceptResponse}
+            onAcceptResponse={handleOnboardPeer}
             onSendSnapshot={handleSendSnapshot}
             onOnboardPeer={handleOnboardPeer}
           />
@@ -437,33 +416,6 @@ export default function WorkspacePeersDialog({
           onClose={() => setShowInviteManager(false)}
         />
       )}
-      {pendingResponsePeer !== null && (
-        <AcceptPeerDialog
-          identityUuid={identityUuid}
-          pendingPeer={pendingResponsePeer}
-          onAccepted={async (contact: ContactInfo) => {
-            setPendingResponsePeer(null);
-            loadPeers();
-            const peerName = contact.localName || contact.declaredName;
-            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
-            // Update ReceivedResponse status if this was triggered by polling
-            if (acceptingResponseId) {
-              try {
-                await invoke("update_response_status", {
-                  identityUuid,
-                  responseId: acceptingResponseId,
-                  status: "peerAdded",
-                });
-              } catch (e) {
-                console.error("Failed to update response status:", e);
-              }
-              setAcceptingResponseId(null);
-            }
-          }}
-          onClose={() => { setPendingResponsePeer(null); setAcceptingResponseId(null); }}
-        />
-      )}
-
       <PostAcceptDialog
         open={postAcceptPeer !== null}
         peerName={postAcceptPeer?.name ?? ''}
