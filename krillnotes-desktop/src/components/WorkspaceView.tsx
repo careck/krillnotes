@@ -25,7 +25,7 @@ import HoverTooltip from './HoverTooltip';
 import ScriptManagerDialog from './ScriptManagerDialog';
 import OperationsLogDialog from './OperationsLogDialog';
 import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
-import { InviteManagerDialog } from './InviteManagerDialog';
+import InviteWorkflow from './InviteWorkflow';
 import { ShareDialog } from './ShareDialog';
 import { CascadePreviewDialog } from './CascadePreviewDialog';
 import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo, CascadeImpactRow, SyncEvent } from '../types';
@@ -876,10 +876,12 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
 
       {/* Invite to Subtree Dialog */}
       {inviteScope && workspaceInfo.identityUuid && (
-        <InviteManagerDialog
+        <InviteWorkflow
           identityUuid={workspaceInfo.identityUuid}
           workspaceName={workspaceInfo.filename}
-          initialScope={inviteScope}
+          scopeNoteId={inviteScope.noteId}
+          scopeNoteTitle={inviteScope.noteTitle}
+          onCreated={() => {}}
           onClose={() => setInviteScope(null)}
         />
       )}
