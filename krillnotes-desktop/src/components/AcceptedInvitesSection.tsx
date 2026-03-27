@@ -86,7 +86,18 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
           >
             <div className="flex items-center justify-between">
               <div>
-                <div className="font-semibold text-sm">{invite.workspaceName}</div>
+                <div className="flex items-center">
+                  <span className="font-semibold text-sm">{invite.workspaceName}</span>
+                  {invite.offeredRole && (
+                    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+                      invite.offeredRole === 'owner' ? 'bg-purple-500/20 text-purple-300' :
+                      invite.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
+                      'bg-blue-500/20 text-blue-300'
+                    }`}>
+                      {t(`roles.${invite.offeredRole}`)}
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-gray-400 mt-0.5">
                   {t("common.from", "From")}: {invite.inviterDeclaredName} · {new Date(invite.acceptedAt).toLocaleDateString()}
                 </div>
