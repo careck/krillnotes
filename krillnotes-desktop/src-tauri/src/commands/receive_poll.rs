@@ -368,7 +368,7 @@ pub async fn poll_receive_workspace(
                         .unwrap_or_default();
                     let scope_note_id = matched_invite.and_then(|inv| inv.scope_note_id.clone());
                     let scope_note_title = matched_invite.and_then(|inv| inv.scope_note_title.clone());
-                    let received = krillnotes_core::core::received_response::ReceivedResponse::new(
+                    let mut received = krillnotes_core::core::received_response::ReceivedResponse::new(
                         invite_id,
                         parsed.workspace_id.clone(),
                         workspace_name,
@@ -377,6 +377,13 @@ pub async fn poll_receive_workspace(
                         scope_note_id,
                         scope_note_title,
                     );
+
+                    // Set relay-specific fields so the response UI shows role and channel.
+                    received.response_channel = "relay".to_string();
+                    received.relay_account_id = Some(relay_accounts[0].relay_account_id.to_string());
+                    if let Some(inv) = matched_invite {
+                        received.offered_role = inv.offered_role.clone();
+                    }
 
                     {
                         let mut managers = received_response_managers_arc.lock().map_err(|e| e.to_string())?;

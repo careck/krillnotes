@@ -134,7 +134,7 @@ export function OnboardPeerDialog({
 
         {/* Role (read-only badge) */}
         <div className="mb-4 text-sm">
-          <span className="text-secondary">{t('invite.role')}</span>
+          <span className="text-muted-foreground">{t('invite.role')}</span>
           <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
             response.offeredRole === 'owner' ? 'bg-purple-500/20 text-purple-300' :
             response.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
@@ -146,7 +146,7 @@ export function OnboardPeerDialog({
 
         {/* Channel (read-only display) */}
         <div className="mb-4 text-sm">
-          <span className="text-secondary">{t('invite.channel')}</span>
+          <span className="text-muted-foreground">{t('invite.channel')}</span>
           <span className="ml-2">
             {response.responseChannel === 'relay' ? '🔗 Relay' : '💾 File'}
           </span>

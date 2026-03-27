@@ -790,7 +790,10 @@ pub async fn fetch_relay_invite_response(
             let existing = rr_mgr
                 .find_by_invite_and_invitee(invite_uuid, &pending_peer.invitee_public_key)
                 .map_err(|e| e.to_string())?;
-            if existing.is_none() {
+            let should_create_or_update = existing.is_none()
+                || existing.as_ref().map(|r| r.response_channel.is_empty()).unwrap_or(false);
+
+            if should_create_or_update {
                 let mut rr = krillnotes_core::core::received_response::ReceivedResponse::new(
                     invite_uuid,
                     invite_workspace_id,
