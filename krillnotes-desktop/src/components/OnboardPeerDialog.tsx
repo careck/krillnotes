@@ -140,7 +140,7 @@ export function OnboardPeerDialog({
             response.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
             'bg-blue-500/20 text-blue-300'
           }`}>
-            {t(`roles.${response.offeredRole}`)}
+            {t(`roles.${response.offeredRole}Short`)}
           </span>
         </div>
 

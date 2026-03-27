@@ -215,7 +215,7 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
                             invite.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
                             'bg-blue-500/20 text-blue-300'
                           }`}>
-                            {t(`roles.${invite.offeredRole}`)}
+                            {t(`roles.${invite.offeredRole}Short`)}
                           </span>
                         )}
                       </div>

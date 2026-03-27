@@ -85,7 +85,7 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
             className="bg-white/5 rounded-lg px-4 py-3"
           >
             <div className="flex items-center justify-between">
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center">
                   <span className="font-semibold text-sm">{invite.workspaceName}</span>
                   {invite.offeredRole && (
@@ -94,7 +94,7 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
                       invite.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
                       'bg-blue-500/20 text-blue-300'
                     }`}>
-                      {t(`roles.${invite.offeredRole}`)}
+                      {t(`roles.${invite.offeredRole}Short`)}
                     </span>
                   )}
                 </div>
@@ -102,7 +102,7 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
                   {t("common.from", "From")}: {invite.inviterDeclaredName} · {new Date(invite.acceptedAt).toLocaleDateString()}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {invite.status === "waitingSnapshot" && !invite.snapshotPath && (
                   <span className="bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
                     {t("polling.waitingForSnapshot")}

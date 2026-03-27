@@ -725,7 +725,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                     <span className="capitalize">
                       {activeRole.role === 'root_owner'
                         ? t('info.roleRootOwner', 'Owner (Root)')
-                        : t(`roles.${activeRole.role}`, activeRole.role)}
+                        : t(`roles.${activeRole.role}Short`, activeRole.role)}
                     </span>
                   </span>
                   {activeRole.inheritedFrom && activeRole.inheritedFromTitle && (

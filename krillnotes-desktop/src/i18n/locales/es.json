@@ -551,5 +551,13 @@
     "stepImport": "Import",
     "stepReview": "Review",
     "stepRespond": "Respond"
+  },
+  "roles": {
+    "owner": "Owner — full control of subtree",
+    "writer": "Writer — create and edit notes",
+    "reader": "Reader — view only",
+    "ownerShort": "Owner",
+    "writerShort": "Writer",
+    "readerShort": "Reader"
   }
 }
