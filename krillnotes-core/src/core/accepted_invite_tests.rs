@@ -18,6 +18,7 @@ fn test_save_and_get() {
         "base64key".to_string(),
         "Alice".to_string(),
         Some("https://relay.example.com/invites/abc".to_string()),
+        "editor".to_string(),
     );
     let id = invite.invite_id;
     mgr.save(&invite).unwrap();
@@ -26,6 +27,7 @@ fn test_save_and_get() {
     assert_eq!(fetched.workspace_name, "Research Notes");
     assert_eq!(fetched.status, AcceptedInviteStatus::WaitingSnapshot);
     assert!(fetched.workspace_path.is_none());
+    assert_eq!(fetched.offered_role, "editor");
 }
 
 #[test]
@@ -38,6 +40,7 @@ fn test_list_returns_sorted_by_accepted_at_desc() {
         "key1".into(),
         "Alice".into(),
         None,
+        "viewer".into(),
     );
     let invite2 = AcceptedInvite::new(
         Uuid::new_v4(),
@@ -46,6 +49,7 @@ fn test_list_returns_sorted_by_accepted_at_desc() {
         "key2".into(),
         "Bob".into(),
         None,
+        "editor".into(),
     );
     mgr.save(&invite1).unwrap();
     mgr.save(&invite2).unwrap();
@@ -65,6 +69,7 @@ fn test_update_status_to_workspace_created() {
         "key".into(),
         "Alice".into(),
         None,
+        "viewer".into(),
     );
     let id = invite.invite_id;
     mgr.save(&invite).unwrap();
@@ -91,6 +96,7 @@ fn test_list_waiting_snapshot() {
         "key1".into(),
         "Alice".into(),
         None,
+        "viewer".into(),
     );
     let id1 = invite1.invite_id;
     mgr.save(&invite1).unwrap();
@@ -102,6 +108,7 @@ fn test_list_waiting_snapshot() {
         "key2".into(),
         "Bob".into(),
         None,
+        "editor".into(),
     );
     mgr.save(&invite2).unwrap();
 
@@ -123,6 +130,7 @@ fn test_delete() {
         "key".into(),
         "Alice".into(),
         None,
+        "viewer".into(),
     );
     let id = invite.invite_id;
     mgr.save(&invite).unwrap();

@@ -22,6 +22,7 @@ pub struct AcceptedInviteInfo {
     pub status: String,
     pub workspace_path: Option<String>,
     pub snapshot_path: Option<String>,
+    pub offered_role: String,
 }
 
 impl From<krillnotes_core::core::accepted_invite::AcceptedInvite> for AcceptedInviteInfo {
@@ -40,6 +41,7 @@ impl From<krillnotes_core::core::accepted_invite::AcceptedInvite> for AcceptedIn
             },
             workspace_path: r.workspace_path,
             snapshot_path: r.snapshot_path,
+            offered_role: r.offered_role,
         }
     }
 }
@@ -69,6 +71,7 @@ pub fn save_accepted_invite(
     inviter_public_key: String,
     inviter_declared_name: String,
     response_relay_url: Option<String>,
+    offered_role: String,
 ) -> std::result::Result<AcceptedInviteInfo, String> {
     let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
     let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
@@ -78,6 +81,7 @@ pub fn save_accepted_invite(
     let invite = krillnotes_core::core::accepted_invite::AcceptedInvite::new(
         invite_uuid, workspace_id, workspace_name,
         inviter_public_key, inviter_declared_name, response_relay_url,
+        offered_role,
     );
     mgr.save(&invite).map_err(|e| e.to_string())?;
     Ok(AcceptedInviteInfo::from(invite))
