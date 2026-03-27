@@ -4,12 +4,11 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { ChannelPicker, type ChannelType } from './ChannelPicker';
-import type { ReceivedResponseInfo, RelayAccountInfo } from '../types';
+import type { ReceivedResponseInfo } from '../types';
 
 interface OnboardPeerDialogProps {
   open: boolean;
@@ -23,23 +22,8 @@ export function OnboardPeerDialog({
   open, response, identityUuid, onComplete, onClose,
 }: OnboardPeerDialogProps) {
   const { t } = useTranslation();
-  const [role, setRole] = useState<'owner' | 'writer' | 'reader'>('writer');
-  const [channelType, setChannelType] = useState<ChannelType>('relay');
-  const [relayAccounts, setRelayAccounts] = useState<RelayAccountInfo[]>([]);
-  const [selectedRelayId, setSelectedRelayId] = useState<string>('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      invoke<RelayAccountInfo[]>('list_relay_accounts', { identityUuid })
-        .then(accounts => {
-          setRelayAccounts(accounts);
-          if (accounts.length > 0) setSelectedRelayId(accounts[0].relayAccountId);
-        })
-        .catch(() => setRelayAccounts([]));
-    }
-  }, [open, identityUuid]);
 
   if (!open) return null;
 
@@ -58,25 +42,24 @@ export function OnboardPeerDialog({
         });
       }
 
-      // Step 2: Grant permission on the scoped subtree
+      // Step 2: Grant permission on the scoped subtree using the offered role
       if (response.scopeNoteId) {
         await invoke('set_permission', {
           noteId: response.scopeNoteId,
           userId: response.inviteePublicKey,
-          role,
+          role: response.offeredRole,
         });
       }
 
-      // Step 3: Send snapshot via selected channel
-      if (channelType === 'relay') {
+      // Step 3: Send snapshot via the channel the response arrived on
+      if (response.responseChannel === 'relay') {
         await invoke('send_snapshot_via_relay', {
           identityUuid,
           peerPublicKeys: [response.inviteePublicKey],
         });
       } else {
-        // Both 'folder' and 'manual' use file save
         const savePath = await save({
-          defaultPath: `snapshot_${response.inviteeDeclaredName}.swarm`,
+          defaultPath: `${response.workspaceName}-snapshot.swarm`,
           filters: [{ name: 'Swarm Bundle', extensions: ['swarm'] }],
         });
         if (!savePath) { setProcessing(false); return; }
@@ -94,31 +77,6 @@ export function OnboardPeerDialog({
         status: 'snapshotSent',
       });
 
-      onComplete();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleLater = async () => {
-    setProcessing(true);
-    try {
-      if (response.status === 'pending') {
-        await invoke('accept_peer', {
-          identityUuid,
-          inviteePublicKey: response.inviteePublicKey,
-          declaredName: response.inviteeDeclaredName,
-          trustLevel: 'Tofu',
-          localName: null,
-        });
-      }
-      await invoke('update_response_status', {
-        identityUuid,
-        responseId: response.responseId,
-        status: 'permissionPending',
-      });
       onComplete();
     } catch (e) {
       setError(String(e));
@@ -174,36 +132,24 @@ export function OnboardPeerDialog({
           </div>
         )}
 
-        {/* Role picker */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">
-            {t('onboard.role', 'Role')}
-          </label>
-          <select
-            className="w-full border border-border rounded px-3 py-2 bg-background"
-            value={role}
-            onChange={e => setRole(e.target.value as typeof role)}
-            disabled={processing}
-          >
-            <option value="owner">{t('roles.owner', 'Owner — full control of subtree')}</option>
-            <option value="writer">{t('roles.writer', 'Writer — create and edit notes')}</option>
-            <option value="reader">{t('roles.reader', 'Reader — view only')}</option>
-          </select>
+        {/* Role (read-only badge) */}
+        <div className="mb-4 text-sm">
+          <span className="text-secondary">{t('invite.role')}</span>
+          <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+            response.offeredRole === 'owner' ? 'bg-purple-500/20 text-purple-300' :
+            response.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
+            'bg-blue-500/20 text-blue-300'
+          }`}>
+            {t(`roles.${response.offeredRole}`)}
+          </span>
         </div>
 
-        {/* Channel picker */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">
-            {t('onboard.channel', 'Sync channel')}
-          </label>
-          <ChannelPicker
-            selectedType={channelType}
-            onTypeChange={setChannelType}
-            relayAccounts={relayAccounts}
-            selectedRelayAccountId={selectedRelayId}
-            onRelayAccountSelect={setSelectedRelayId}
-            disabled={processing}
-          />
+        {/* Channel (read-only display) */}
+        <div className="mb-4 text-sm">
+          <span className="text-secondary">{t('invite.channel')}</span>
+          <span className="ml-2">
+            {response.responseChannel === 'relay' ? '🔗 Relay' : '💾 File'}
+          </span>
         </div>
 
         {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
@@ -217,24 +163,15 @@ export function OnboardPeerDialog({
           >
             {t('onboard.reject', 'Reject')}
           </button>
-          <div className="flex gap-2">
-            <button
-              onClick={handleLater}
-              disabled={processing}
-              className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary disabled:opacity-50"
-            >
-              {t('onboard.later', 'Later')}
-            </button>
-            <button
-              onClick={handleGrantAndSync}
-              disabled={processing}
-              className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50"
-            >
-              {processing
-                ? t('common.saving', 'Saving…')
-                : t('onboard.grantAndSync', 'Grant & sync')}
-            </button>
-          </div>
+          <button
+            onClick={handleGrantAndSync}
+            disabled={processing}
+            className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50"
+          >
+            {processing
+              ? t('common.saving', 'Saving…')
+              : t('onboard.grantAndSync', 'Grant & sync')}
+          </button>
         </div>
       </div>
     </div>
