@@ -120,3 +120,16 @@ pub fn update_accepted_invite_snapshot_path(
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
     mgr.update_snapshot_path(invite_uuid, snapshot_path).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn delete_accepted_invite(
+    state: State<'_, AppState>,
+    identity_uuid: String,
+    invite_id: String,
+) -> std::result::Result<(), String> {
+    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
+    let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
+    let mut managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
+    mgr.delete(invite_uuid).map_err(|e| e.to_string())
+}

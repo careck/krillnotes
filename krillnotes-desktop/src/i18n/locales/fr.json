@@ -31,7 +31,8 @@
     "done": "Done",
     "email": "Email",
     "from": "From",
-    "password": "Password"
+    "password": "Password",
+    "remove": "Supprimer"
   },
   "settings": {
     "title": "Paramètres",

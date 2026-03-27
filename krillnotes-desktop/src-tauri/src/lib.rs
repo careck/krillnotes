@@ -436,6 +436,7 @@ pub fn run() {
             save_accepted_invite,
             update_accepted_invite_status,
             update_accepted_invite_snapshot_path,
+            delete_accepted_invite,
             list_received_responses,
             update_response_status,
             dismiss_response,

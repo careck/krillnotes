@@ -43,6 +43,15 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
     return () => { unlisten.then(f => f()); };
   }, [loadInvites]);
 
+  async function handleDelete(inviteId: string) {
+    try {
+      await invoke("delete_accepted_invite", { identityUuid, inviteId });
+      setInvites((prev) => prev.filter((i) => i.inviteId !== inviteId));
+    } catch (e) {
+      console.error("Failed to delete invite:", e);
+    }
+  }
+
   const handleCreateWorkspace = async (invite: AcceptedInviteInfo) => {
     if (!invite.snapshotPath) return;
     setCreatingId(invite.inviteId);
@@ -103,6 +112,13 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleDelete(invite.inviteId)}
+                  className="text-muted-foreground hover:text-foreground transition-colors text-sm leading-none"
+                  title={t('common.remove')}
+                >
+                  ×
+                </button>
                 {invite.status === "waitingSnapshot" && !invite.snapshotPath && (
                   <span className="bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
                     {t("polling.waitingForSnapshot")}
