@@ -3,30 +3,18 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import type { InviteInfo } from '../types';
-import { CreateInviteDialog } from './CreateInviteDialog';
-import AddRelayAccountDialog from './AddRelayAccountDialog';
 
 interface Props {
   identityUuid: string;
   workspaceName: string;
-  initialScope?: { noteId: string; noteTitle: string } | null;
   onClose: () => void;
 }
 
-export function InviteManagerDialog({ identityUuid, workspaceName, initialScope, onClose }: Props) {
+export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Props) {
   const { t } = useTranslation();
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  // Share Invite Link state
-  const [sharingLink, setSharingLink] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
-  const [showRelaySetup, setShowRelaySetup] = useState(false);
-  const [pendingShareAction, setPendingShareAction] = useState(false);
-  // Upload to relay state (per-invite)
-  const [uploadingRelayFor, setUploadingRelayFor] = useState<string | null>(null);
   // Import response from link state
   const [responseUrl, setResponseUrl] = useState('');
   const [fetchingResponse, setFetchingResponse] = useState(false);
@@ -44,13 +32,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
   };
 
   useEffect(() => { load(); }, [identityUuid]);
-
-  // Auto-open CreateInviteDialog when initialScope is set
-  useEffect(() => {
-    if (initialScope) {
-      setShowCreate(true);
-    }
-  }, [initialScope]);
 
   const handleRevoke = async (inviteId: string) => {
     try {
@@ -91,72 +72,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
     }
   };
 
-  const handleShareInviteLink = async () => {
-    setSharingLink(true);
-    setShareError(null);
-    setShareSuccess(null);
-    try {
-      const hasRelay = await invoke<boolean>('has_relay_credentials');
-      if (!hasRelay) {
-        setPendingShareAction(true);
-        setShowRelaySetup(true);
-        setSharingLink(false);
-        return;
-      }
-      await doShareInviteLink();
-    } catch (e) {
-      setShareError(String(e));
-      setSharingLink(false);
-    }
-  };
-
-  const doShareInviteLink = async () => {
-    setSharingLink(true);
-    setShareError(null);
-    try {
-      const info = await invoke<{ relayUrl: string | null }>('share_invite_link', {
-        identityUuid,
-        workspaceName,
-        expiresInDays: 7,
-      });
-      if (info.relayUrl) {
-        try {
-          await navigator.clipboard.writeText(info.relayUrl);
-          setShareSuccess(t('invite.linkCopied'));
-        } catch {
-          setShareSuccess(info.relayUrl);
-        }
-      }
-      await load();
-    } catch (e) {
-      setShareError(String(e));
-    } finally {
-      setSharingLink(false);
-    }
-  };
-
-  const handleUploadToRelay = async (inviteId: string) => {
-    setUploadingRelayFor(inviteId);
-    setError(null);
-    try {
-      const hasRelay = await invoke<boolean>('has_relay_credentials');
-      if (!hasRelay) {
-        setError(t('workspacePeers.noRelayAccounts'));
-        return;
-      }
-      const url = await invoke<string>('create_relay_invite', {
-        identityUuid,
-        inviteId,
-      });
-      try { await navigator.clipboard.writeText(url); } catch { /* WKWebView fallback */ }
-      await load();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setUploadingRelayFor(null);
-    }
-  };
-
   const handleFetchResponseFromLink = async () => {
     const token = extractRelayToken(responseUrl);
     if (!token) {
@@ -193,7 +108,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
     }
   };
 
-
   const formatExpiry = (invite: InviteInfo) => {
     if (!invite.expiresAt) return t('invite.noExpiry');
     const date = new Date(invite.expiresAt);
@@ -224,34 +138,10 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
           {/* Status messages */}
           <div className="px-4 pt-3">
             {error && <p className="text-sm text-red-500 p-2 rounded bg-red-500/10 mb-2">{error}</p>}
-            {shareSuccess && (
-              shareSuccess.startsWith('http') ? (
-                <div className="mb-2">
-                  <p className="text-green-500 text-sm mb-1">{t('invite.linkCopied')}</p>
-                  <input readOnly value={shareSuccess} className="w-full text-xs font-mono p-1 rounded border border-[var(--color-border)] bg-[var(--color-background)] select-all" onClick={e => (e.target as HTMLInputElement).select()} />
-                </div>
-              ) : (
-                <p className="text-green-500 text-sm mb-2">{shareSuccess}</p>
-              )
-            )}
-            {shareError && <p className="text-sm text-red-500 p-2 rounded bg-red-500/10 mb-2">{shareError}</p>}
           </div>
 
           {/* Action buttons */}
           <div className="flex gap-2 px-4 py-3">
-            <button
-              onClick={() => setShowCreate(true)}
-              className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white"
-            >
-              {t('invite.createInvite')}
-            </button>
-            <button
-              onClick={handleShareInviteLink}
-              disabled={sharingLink}
-              className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-50"
-            >
-              {sharingLink ? t('invite.sharing') : t('invite.shareInviteLink')}
-            </button>
             <button
               onClick={handleImportResponse}
               className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
@@ -307,17 +197,28 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm">{formatExpiry(invite)}</p>
-                      <p className="text-xs text-[var(--color-muted-foreground)]">
-                        {t('invite.usedCount', { count: invite.useCount })}
-                        {invite.revoked && (
-                          <span className="ml-2 text-red-500">{t('invite.revoked')}</span>
-                        )}
-                        {invite.scopeNoteId && (
-                          <span className="ml-2 text-xs text-zinc-400">
-                            → {invite.scopeNoteTitle ?? invite.scopeNoteId}
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        <p className="text-xs text-[var(--color-muted-foreground)]">
+                          {t('invite.usedCount', { count: invite.useCount })}
+                          {invite.revoked && (
+                            <span className="ml-2 text-red-500">{t('invite.revoked')}</span>
+                          )}
+                          {invite.scopeNoteId && (
+                            <span className="ml-2 text-xs text-zinc-400">
+                              → {invite.scopeNoteTitle ?? invite.scopeNoteId}
+                            </span>
+                          )}
+                        </p>
+                        {invite.offeredRole && (
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            invite.offeredRole === 'owner' ? 'bg-purple-500/20 text-purple-300' :
+                            invite.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
+                            'bg-blue-500/20 text-blue-300'
+                          }`}>
+                            {t(`roles.${invite.offeredRole}`)}
                           </span>
                         )}
-                      </p>
+                      </div>
                       {invite.relayUrl && (
                         <p className="text-xs text-[var(--color-muted-foreground)] font-mono truncate mt-0.5" title={invite.relayUrl}>
                           {invite.relayUrl}
@@ -331,15 +232,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
                           className="text-xs px-2 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
                         >
                           {t('invite.copyLink')}
-                        </button>
-                      )}
-                      {!invite.relayUrl && !invite.revoked && (
-                        <button
-                          onClick={() => handleUploadToRelay(invite.inviteId)}
-                          disabled={uploadingRelayFor === invite.inviteId}
-                          className="text-xs px-2 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-50"
-                        >
-                          {uploadingRelayFor === invite.inviteId ? t('common.loading') : t('invite.uploadToRelay')}
                         </button>
                       )}
                       {!invite.revoked && (
@@ -367,35 +259,6 @@ export function InviteManagerDialog({ identityUuid, workspaceName, initialScope,
           </div>
         </div>
       </div>
-
-      {showCreate && (
-        <CreateInviteDialog
-          identityUuid={identityUuid}
-          workspaceName={workspaceName}
-          scopeNoteId={initialScope?.noteId}
-          scopeNoteTitle={initialScope?.noteTitle}
-          onCreated={() => { load(); setShowCreate(false); }}
-          onClose={() => setShowCreate(false)}
-        />
-      )}
-
-
-      {showRelaySetup && (
-        <AddRelayAccountDialog
-          identityUuid={identityUuid}
-          onClose={() => {
-            setShowRelaySetup(false);
-            setPendingShareAction(false);
-          }}
-          onCreated={async () => {
-            setShowRelaySetup(false);
-            if (pendingShareAction) {
-              setPendingShareAction(false);
-              await doShareInviteLink();
-            }
-          }}
-        />
-      )}
     </>
   );
 }
