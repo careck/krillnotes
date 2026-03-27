@@ -157,6 +157,7 @@ pub fn create_invite(
             ws_tags,
             scope_note_id,
             scope_note_title,
+            "writer".to_string(),
         )
         .map_err(|e| {
             log::error!("create_invite(identity={identity_uuid}) failed: {e}");
@@ -243,6 +244,7 @@ pub fn save_invite_file(
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
         scope_note_id: record.scope_note_id.clone(),
         scope_note_title: record.scope_note_title.clone(),
+        offered_role: record.offered_role.clone(),
         signature: String::new(),
     };
     let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
