@@ -14,6 +14,7 @@ import UnlockIdentityDialog from './UnlockIdentityDialog';
 import ContactBookDialog from './ContactBookDialog';
 import RelayBookDialog from './RelayBookDialog';
 import AcceptedInvitesSection from './AcceptedInvitesSection';
+import { AcceptInviteWorkflow } from './AcceptInviteWorkflow';
 
 interface IdentityManagerDialogProps {
   isOpen: boolean;
@@ -51,6 +52,7 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
   const [fingerprint, setFingerprint] = useState('');
   const [publicKeyCopied, setPublicKeyCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showAcceptInvite, setShowAcceptInvite] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -542,6 +544,14 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
               >
                 {t('identity.export')}
               </button>
+              {selectedUuid && unlockedIds.has(selectedUuid) && (
+                <button
+                  onClick={() => setShowAcceptInvite(true)}
+                  className="px-2 py-1 text-xs border border-border rounded hover:bg-secondary"
+                >
+                  {t('invite.acceptInvite')}
+                </button>
+              )}
             </div>
 
             {/* Global actions */}
@@ -644,6 +654,17 @@ function IdentityManagerDialog({ isOpen, onClose }: IdentityManagerDialogProps) 
           identityUuid={showRelayBook}
           identityName={identities.find(i => i.uuid === showRelayBook)?.displayName ?? ''}
           onClose={() => { setShowRelayBook(null); loadData(); }}
+        />
+      )}
+
+      {showAcceptInvite && selectedUuid && (
+        <AcceptInviteWorkflow
+          identityUuid={selectedUuid}
+          identityName={identities.find(i => i.uuid === selectedUuid)?.displayName ?? ''}
+          onResponded={() => {
+            setShowAcceptInvite(false);
+          }}
+          onClose={() => setShowAcceptInvite(false)}
         />
       )}
     </>
