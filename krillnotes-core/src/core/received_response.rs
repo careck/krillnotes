@@ -37,6 +37,12 @@ pub struct ReceivedResponse {
     pub scope_note_id: Option<String>,
     #[serde(default)]
     pub scope_note_title: Option<String>,
+    #[serde(default)]
+    pub offered_role: String,
+    #[serde(default)]
+    pub response_channel: String,          // "relay" | "file"
+    #[serde(default)]
+    pub relay_account_id: Option<String>,
 }
 
 impl ReceivedResponse {
@@ -60,6 +66,9 @@ impl ReceivedResponse {
             status: ReceivedResponseStatus::Pending,
             scope_note_id,
             scope_note_title,
+            offered_role: String::new(),
+            response_channel: String::new(),
+            relay_account_id: None,
         }
     }
 }
