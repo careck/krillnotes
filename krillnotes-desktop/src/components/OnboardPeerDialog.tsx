@@ -4,7 +4,7 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
@@ -24,6 +24,15 @@ export function OnboardPeerDialog({
   const { t } = useTranslation();
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && response.inviteePublicKey) {
+      invoke<string>("get_fingerprint", { publicKey: response.inviteePublicKey })
+        .then(setFingerprint)
+        .catch(() => setFingerprint(null));
+    }
+  }, [open, response.inviteePublicKey]);
 
   if (!open) return null;
 
@@ -124,7 +133,7 @@ export function OnboardPeerDialog({
         <div className="bg-secondary rounded-lg p-3 mb-4">
           <p className="font-medium">{response.inviteeDeclaredName}</p>
           <p className="text-xs text-muted-foreground font-mono truncate">
-            {response.inviteePublicKey.slice(0, 16)}…
+            {fingerprint ?? response.inviteePublicKey.slice(0, 16) + "…"}
           </p>
         </div>
 
