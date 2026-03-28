@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Sharing indicator visibility setting (`Off` / `Auto` / `On`) in Settings → Appearance — `Auto` (default) hides permission dots and shared-subtree icon when the workspace has no peers, keeping the tree clean for solo users (#111, PR #120)
+- **Invite workflow redesign** — Streamlined the invite/onboard flow so role and channel are chosen upfront (#113, PR #123):
+  - **InviteWorkflow** — New single-step dialog (right-click → "Invite to subtree") with role picker (Owner/Writer/Reader), expiry, and channel toggle (relay with account picker, or file). Replaces `CreateInviteDialog`.
+  - **AcceptInviteWorkflow** — New 3-step wizard (import → review → respond) with invite details, role badge, collapsible workspace metadata, and inline relay signup. Also handles file-drop `.swarm` opens. Replaces `ImportInviteDialog`.
+  - **Simplified OnboardPeerDialog** — Role and channel are now read-only (set at invite time), auto-applied on "Grant & Sync". Removed role picker, channel picker, and "Later" button.
+  - **Role at invite time** — `offered_role` is signed into the invite wire format (Ed25519), carried through to accepted invites and received responses, and auto-applied during onboarding.
+  - **Channel tracking** — `response_channel` and `relay_account_id` on received responses determine snapshot delivery routing. Relay channel is auto-configured on both inviter and invitee peers after onboarding.
+  - **Accept Invite moved to Identity dialog** — Button shown for unlocked identities; removed from File menu.
+  - **InviteManagerDialog stripped to list-only** — No more create/share/upload buttons; role badges shown on each invite row.
+  - **Remove button on accepted invites** — Clean up old accepted invite entries from the Identity dialog.
+  - **Blake3 fingerprint words** in OnboardPeerDialog (e.g., "ghost-heavy-deliver-inject") instead of truncated public keys.
 
 ### Fixed
 - Relay account dropdown in workspace peer list now shows the stored relay server on load instead of appearing empty (#114, PR #119)
