@@ -79,7 +79,6 @@ export default function InviteWorkflow({
         relayAccountId: selectedRelayId || null,
       });
       if (invite.relayUrl) {
-        try { await navigator.clipboard.writeText(invite.relayUrl); } catch { /* WKWebView fallback — URL shown below */ }
         setRelayUrl(invite.relayUrl);
       }
       setCreatedInvite(invite);
@@ -169,7 +168,7 @@ export default function InviteWorkflow({
           {channel === "relay" && relayUrl && (
             <div className="mb-4">
               <p className="text-xs text-muted-foreground mb-1">
-                {t("invite.relayLinkLabel", "Link (copied to clipboard)")}
+                {t("invite.relayLinkLabel", "Invite link")}
               </p>
               <div className="flex items-center gap-2">
                 <p className="text-xs font-mono bg-secondary rounded px-3 py-2 break-all flex-1 select-all">
@@ -181,7 +180,7 @@ export default function InviteWorkflow({
                 >
                   {copied
                     ? t("invite.copied", "Copied!")
-                    : t("invite.copyAgain", "Copy again")}
+                    : t("invite.copyLink", "Copy link")}
                 </button>
               </div>
             </div>
