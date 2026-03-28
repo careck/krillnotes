@@ -64,6 +64,7 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
         path: invite.snapshotPath,
         identityUuid,
         workspaceNameOverride: nameOverride || null,
+        responseRelayUrl: invite.responseRelayUrl ?? null,
       });
       await invoke("update_accepted_invite_status", {
         identityUuid,
