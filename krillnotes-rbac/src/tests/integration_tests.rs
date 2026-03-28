@@ -408,7 +408,7 @@ fn test_non_owner_without_grants_is_denied() {
                 .encode(owner_key.verifying_key().as_bytes())
         },
     ));
-    let mut ws2 = Workspace::open(
+    let ws2 = Workspace::open(
         temp.path(), "", "non-owner-identity", non_owner_key, non_owner_gate,
     ).unwrap();
 
