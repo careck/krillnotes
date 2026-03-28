@@ -306,11 +306,11 @@
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/01_contact.rhai"
+            "/../example-scripts/contacts/contacts.rhai"
         )), "Contacts View").unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/01_contact.schema.rhai"
+            "/../example-scripts/contacts/contacts.schema.rhai"
         )), "Contacts").unwrap();
         registry.resolve_bindings();
         let schema = registry.get_schema("Contact").unwrap();
@@ -382,11 +382,11 @@
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/01_contact.rhai"
+            "/../example-scripts/contacts/contacts.rhai"
         )), "Contacts View").unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/01_contact.schema.rhai"
+            "/../example-scripts/contacts/contacts.schema.rhai"
         )), "Contacts").unwrap();
         registry.resolve_bindings();
         assert!(registry.has_hook("Contact"), "Contact schema should have an on_save hook");
@@ -551,11 +551,11 @@
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/01_contact.rhai"
+            "/../example-scripts/contacts/contacts.rhai"
         )), "Contacts View").unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/01_contact.schema.rhai"
+            "/../example-scripts/contacts/contacts.schema.rhai"
         )), "Contacts").unwrap();
         registry.resolve_bindings();
         let schema = registry.get_schema("Contact").unwrap();
@@ -823,12 +823,6 @@
         }
 
         assert!(registry.schema_exists("TextNote"));
-        assert!(registry.schema_exists("Contact"));
-        assert!(registry.schema_exists("ContactsFolder"));
-        assert!(registry.schema_exists("Task"));
-        assert!(registry.schema_exists("Project"));
-        assert!(registry.schema_exists("Product"));
-        assert!(registry.schema_exists("Recipe"));
     }
 
     #[test]
@@ -1021,11 +1015,11 @@
         let mut registry = ScriptRegistry::new().unwrap();
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../templates/book_collection.rhai"
+            "/../example-scripts/book-collection/book-collection.rhai"
         )), "Book Collection Views").expect("Book presentation script should load");
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../templates/book_collection.schema.rhai"
+            "/../example-scripts/book-collection/book-collection.schema.rhai"
         )), "Book Collection").expect("Book schema script should load");
         registry.resolve_bindings();
 

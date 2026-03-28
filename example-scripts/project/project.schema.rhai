@@ -4,12 +4,41 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-// @name: Task
-// @description: A trackable to-do item with status, priority, and due date.
+// @name: Project Management
+// @description: A project with tasks. Projects contain TextNote and Task children.
+
+schema("Project", #{
+    version: 1,
+    title_can_edit: true,
+    allowed_children_schemas: ["TextNote", "Task"],
+    fields: [
+        #{ name: "status",      type: "select",   required: true,
+           options: ["Planning", "Active", "On Hold", "Done"]                  },
+        #{ name: "priority",    type: "select",   required: false,
+           options: ["low", "medium", "high"]                                  },
+        #{ name: "start_date",  type: "date",     required: false              },
+        #{ name: "due_date",    type: "date",     required: false              },
+        #{ name: "description", type: "textarea", required: false              },
+        #{ name: "health",      type: "text",     required: false,
+           can_edit: false                                                      },
+    ],
+    on_save: |note| {
+        let status = note.fields["status"];
+
+        set_field(note.id, "health",
+            if status == "Done"          { "✅ Done" }
+            else if status == "Active"   { "🚧 Active" }
+            else if status == "On Hold"  { "⏸ On Hold" }
+            else                         { "📋 Planning" });
+
+        commit();
+    }
+});
 
 schema("Task", #{
     version: 1,
     title_can_edit: false,
+    allowed_parent_schemas: ["Project"],
     fields: [
         #{ name: "name",           type: "text",     required: true                     },
         #{ name: "status",         type: "select",   required: true,

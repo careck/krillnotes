@@ -9,6 +9,22 @@
         Box::new(AllowAllGate::new("test"))
     }
 
+    /// Loads the Contacts example scripts (view + schema) into the workspace so
+    /// tests that exercise Contact / ContactsFolder behaviour have the schemas
+    /// available. Call this right after `Workspace::create` when needed.
+    fn load_contacts_example(ws: &mut Workspace) {
+        let view_src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../example-scripts/contacts/contacts.rhai"
+        ));
+        let schema_src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../example-scripts/contacts/contacts.schema.rhai"
+        ));
+        ws.create_user_script(view_src).expect("contacts view script should load");
+        ws.create_user_script(schema_src).expect("contacts schema script should load");
+    }
+
     #[test]
     fn test_create_workspace() {
         let temp = NamedTempFile::new().unwrap();
@@ -484,7 +500,7 @@
     fn test_update_contact_rejects_empty_required_fields() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
-        // Contact schema is already loaded from starter scripts.
+        load_contacts_example(&mut ws);
 
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
         // Contact must be created under a ContactsFolder (allowed_parent_schemas constraint).
@@ -581,7 +597,7 @@
     fn test_update_contact_derives_title_from_hook() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate()).unwrap();
-        // Contact schema is already loaded from starter scripts.
+        load_contacts_example(&mut ws);
 
         let notes = ws.list_all_notes().unwrap();
         let root_id = notes[0].id.clone();

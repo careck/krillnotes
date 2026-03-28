@@ -7,6 +7,15 @@
 // @name: Text Note Actions
 // @description: Tree actions for TextNote.
 
+register_view("TextNote", "Content", #{ display_first: true }, |note| {
+    let body = note.fields["body"] ?? "";
+    if body != "" {
+        markdown(body)
+    } else {
+        text("(empty)")
+    }
+});
+
 register_menu("Sort Children A→Z", ["TextNote"], |note| {
     let children = get_children(note.id);
     children.sort_by(|a, b| a.title <= b.title);
