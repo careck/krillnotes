@@ -280,6 +280,7 @@ export interface InviteInfo {
   relayUrl: string | null;
   scopeNoteId: string | null;
   scopeNoteTitle: string | null;
+  offeredRole: string;
 }
 
 export interface FetchedRelayInvite {
@@ -309,6 +310,9 @@ export interface InviteFileData {
   inviterDeclaredName: string;
   inviterFingerprint: string;
   expiresAt: string | null;
+  offeredRole: string;
+  scopeNoteId: string | null;
+  scopeNoteTitle: string | null;
 }
 
 export interface SnapshotCreatedResult {
@@ -334,6 +338,7 @@ export interface AcceptedInviteInfo {
   status: "waitingSnapshot" | "workspaceCreated";
   workspacePath: string | null;
   snapshotPath: string | null;
+  offeredRole: string;
 }
 
 export interface ReceivedResponseInfo {
@@ -347,6 +352,9 @@ export interface ReceivedResponseInfo {
   status: "pending" | "peerAdded" | "permissionPending" | "snapshotSent";
   scopeNoteId: string | null;
   scopeNoteTitle: string | null;
+  offeredRole: string;
+  responseChannel: "relay" | "file";
+  relayAccountId: string | null;
 }
 
 export interface SnapshotReceivedEvent {

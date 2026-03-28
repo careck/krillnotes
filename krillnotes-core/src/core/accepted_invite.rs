@@ -34,6 +34,8 @@ pub struct AcceptedInvite {
     pub workspace_path: Option<String>,
     #[serde(default)]
     pub snapshot_path: Option<String>,
+    #[serde(default)]
+    pub offered_role: String,
 }
 
 impl AcceptedInvite {
@@ -44,6 +46,7 @@ impl AcceptedInvite {
         inviter_public_key: String,
         inviter_declared_name: String,
         response_relay_url: Option<String>,
+        offered_role: String,
     ) -> Self {
         Self {
             invite_id,
@@ -56,6 +59,7 @@ impl AcceptedInvite {
             status: AcceptedInviteStatus::WaitingSnapshot,
             workspace_path: None,
             snapshot_path: None,
+            offered_role,
         }
     }
 }

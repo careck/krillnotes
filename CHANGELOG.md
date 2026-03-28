@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Sharing indicator visibility setting (`Off` / `Auto` / `On`) in Settings → Appearance — `Auto` (default) hides permission dots and shared-subtree icon when the workspace has no peers, keeping the tree clean for solo users (#111, PR #120)
+
+### Fixed
+- Relay account dropdown in workspace peer list now shows the stored relay server on load instead of appearing empty (#114, PR #119)
+
 ## [0.9.0] — 2026-03-23
 
 > **Feature-complete release candidate.** This release adds role-based access control (RBAC) with subtree-level permissions, background sync polling, invite-to-subtree scoping, and one-click relay invite sharing. Every workspace mutation is now authorized, signed, and syncable across devices. Cross-platform testing on Windows and Linux is in progress ahead of v1.0.

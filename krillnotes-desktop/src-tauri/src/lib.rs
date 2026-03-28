@@ -106,7 +106,6 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("workspace_peers",       "Edit > Workspace Peers clicked"),
     ("file_identities",       "File > Manage Identities clicked"),
     ("file_open_swarm",       "File > Open Swarm File clicked"),
-    ("file_accept_invite",    "File > Accept Invite clicked"),
     ("create_delta_swarm",    "Edit > Create delta Swarm clicked"),
     ("file_sync_now",         "File > Sync Now clicked"),
 ];
@@ -437,6 +436,7 @@ pub fn run() {
             save_accepted_invite,
             update_accepted_invite_status,
             update_accepted_invite_snapshot_path,
+            delete_accepted_invite,
             list_received_responses,
             update_response_status,
             dismiss_response,

@@ -8,14 +8,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { PeerInfo, WorkspaceInfo, PendingPeer, ContactInfo, RelayAccountInfo, ReceivedResponseInfo } from '../types';
+import type { PeerInfo, WorkspaceInfo, RelayAccountInfo, ReceivedResponseInfo } from '../types';
 import AddPeerFromContactsDialog from './AddPeerFromContactsDialog';
 import AddContactDialog from './AddContactDialog';
 import { InviteManagerDialog } from './InviteManagerDialog';
-import { AcceptPeerDialog } from './AcceptPeerDialog';
 import { PostAcceptDialog } from './PostAcceptDialog';
 import { SendSnapshotDialog } from './SendSnapshotDialog';
-import AddRelayAccountDialog from './AddRelayAccountDialog';
 import PendingResponsesSection from './PendingResponsesSection';
 import { ChannelPicker } from './ChannelPicker';
 import { OnboardPeerDialog } from './OnboardPeerDialog';
@@ -67,7 +65,6 @@ export default function WorkspacePeersDialog({
   const [showAddFromContacts, setShowAddFromContacts] = useState(false);
   const [addContactForPeer, setAddContactForPeer] = useState<PeerInfo | null>(null);
   const [showInviteManager, setShowInviteManager] = useState(false);
-  const [pendingResponsePeer, setPendingResponsePeer] = useState<PendingPeer | null>(null);
   const [postAcceptPeer, setPostAcceptPeer] = useState<{ name: string; publicKey: string } | null>(null);
   const [showSendSnapshot, setShowSendSnapshot] = useState(false);
   const [sendSnapshotFor, setSendSnapshotFor] = useState<string[]>([]);
@@ -77,12 +74,6 @@ export default function WorkspacePeersDialog({
   // Per-peer selected relay account ID (for the dropdown)
   const [pendingRelayAccount, setPendingRelayAccount] = useState<Record<string, string>>({});
   const [resyncingPeer, setResyncingPeer] = useState<string | null>(null);
-  // Share Invite Link state
-  const [sharingLink, setSharingLink] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
-  const [showRelaySetup, setShowRelaySetup] = useState(false);
-  const [pendingShareAction, setPendingShareAction] = useState(false);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -164,71 +155,6 @@ export default function WorkspacePeersDialog({
     }
   };
 
-  const handleShareInviteLink = async () => {
-    if (!workspaceInfo) return;
-    setSharingLink(true);
-    setShareError(null);
-    setShareSuccess(null);
-    try {
-      const hasRelay = await invoke<boolean>('has_relay_credentials');
-      if (!hasRelay) {
-        setPendingShareAction(true);
-        setShowRelaySetup(true);
-        setSharingLink(false);
-        return;
-      }
-      await doShareInviteLink();
-    } catch (e) {
-      setShareError(String(e));
-      setSharingLink(false);
-    }
-  };
-
-  const doShareInviteLink = async () => {
-    if (!workspaceInfo) return;
-    setSharingLink(true);
-    setShareError(null);
-    try {
-      const info = await invoke<{ relayUrl: string | null }>('share_invite_link', {
-        identityUuid,
-        workspaceName: workspaceInfo.filename,
-        expiresInDays: 7,
-      });
-      if (info.relayUrl) {
-        try {
-          await navigator.clipboard.writeText(info.relayUrl);
-          setShareSuccess(t('invite.linkCopied'));
-        } catch {
-          // WKWebView blocks clipboard after async — show URL as fallback
-          setShareSuccess(info.relayUrl);
-        }
-      }
-    } catch (e) {
-      setShareError(String(e));
-    } finally {
-      setSharingLink(false);
-    }
-  };
-
-  // Track which ReceivedResponse we're currently accepting (for status update after dialog)
-  const [acceptingResponseId, setAcceptingResponseId] = useState<string | null>(null);
-
-  const handleAcceptResponse = async (response: ReceivedResponseInfo) => {
-    try {
-      const fingerprint = await invoke<string>("get_fingerprint", {
-        publicKey: response.inviteePublicKey,
-      });
-      setAcceptingResponseId(response.responseId);
-      setPendingResponsePeer({
-        inviteId: response.inviteId,
-        inviteePublicKey: response.inviteePublicKey,
-        inviteeDeclaredName: response.inviteeDeclaredName,
-        fingerprint,
-      });
-    } catch (e) {
-      console.error("Failed to prepare accept response:", e);
-    }
-  };
   const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
     setSendSnapshotFor([response.inviteePublicKey]);
     setShowSendSnapshot(true);
@@ -285,7 +211,7 @@ export default function WorkspacePeersDialog({
           <PendingResponsesSection
             identityUuid={identityUuid}
             workspaceId={workspaceInfo?.workspaceId}
-            onAcceptResponse={handleAcceptResponse}
+            onAcceptResponse={handleOnboardPeer}
             onSendSnapshot={handleSendSnapshot}
             onOnboardPeer={handleOnboardPeer}
           />
@@ -434,19 +360,6 @@ export default function WorkspacePeersDialog({
         </div>
 
         {/* Footer buttons */}
-        {shareSuccess && (
-          shareSuccess.startsWith('http') ? (
-            <div className="px-4 pb-1">
-              <p className="text-xs text-green-500 mb-1">{t('invite.linkCopied')}</p>
-              <input readOnly value={shareSuccess} className="w-full text-xs font-mono p-1 rounded border border-[var(--color-border)] bg-[var(--color-background)] select-all" onClick={e => (e.target as HTMLInputElement).select()} />
-            </div>
-          ) : (
-            <p className="px-4 pb-1 text-xs text-green-500">{shareSuccess}</p>
-          )
-        )}
-        {shareError && (
-          <p className="px-4 pb-1 text-xs text-red-500">{shareError}</p>
-        )}
         <div className="flex flex-wrap items-center gap-2 p-4 border-t border-[var(--color-border)]">
           <button
             onClick={() => setShowAddFromContacts(true)}
@@ -459,13 +372,6 @@ export default function WorkspacePeersDialog({
             className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
             {t('invite.manageInvites')}
-          </button>
-          <button
-            onClick={handleShareInviteLink}
-            disabled={sharingLink || !workspaceInfo}
-            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
-          >
-            {sharingLink ? t('invite.sharing') : t('invite.shareInviteLink')}
           </button>
           <button
             onClick={() => {
@@ -510,33 +416,6 @@ export default function WorkspacePeersDialog({
           onClose={() => setShowInviteManager(false)}
         />
       )}
-      {pendingResponsePeer !== null && (
-        <AcceptPeerDialog
-          identityUuid={identityUuid}
-          pendingPeer={pendingResponsePeer}
-          onAccepted={async (contact: ContactInfo) => {
-            setPendingResponsePeer(null);
-            loadPeers();
-            const peerName = contact.localName || contact.declaredName;
-            setPostAcceptPeer({ name: peerName, publicKey: contact.publicKey });
-            // Update ReceivedResponse status if this was triggered by polling
-            if (acceptingResponseId) {
-              try {
-                await invoke("update_response_status", {
-                  identityUuid,
-                  responseId: acceptingResponseId,
-                  status: "peerAdded",
-                });
-              } catch (e) {
-                console.error("Failed to update response status:", e);
-              }
-              setAcceptingResponseId(null);
-            }
-          }}
-          onClose={() => { setPendingResponsePeer(null); setAcceptingResponseId(null); }}
-        />
-      )}
-
       <PostAcceptDialog
         open={postAcceptPeer !== null}
         peerName={postAcceptPeer?.name ?? ''}
@@ -555,23 +434,6 @@ export default function WorkspacePeersDialog({
         onClose={() => setShowSendSnapshot(false)}
         onSuccess={() => {}}
       />
-
-      {showRelaySetup && (
-        <AddRelayAccountDialog
-          identityUuid={identityUuid}
-          onClose={() => {
-            setShowRelaySetup(false);
-            setPendingShareAction(false);
-          }}
-          onCreated={async () => {
-            setShowRelaySetup(false);
-            if (pendingShareAction) {
-              setPendingShareAction(false);
-              await doShareInviteLink();
-            }
-          }}
-        />
-      )}
 
       {onboardResponse && (
         <OnboardPeerDialog

@@ -36,8 +36,6 @@ export function useDialogState() {
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
   const [showCreateFirstIdentity, setShowCreateFirstIdentity] = useState(false);
   const [showIdentityManager, setShowIdentityManager] = useState(false);
-  const [showSwarmInvite, setShowSwarmInvite] = useState(false);
-  const [showAcceptInvite, setShowAcceptInvite] = useState(false);
   const [showSwarmOpen, setShowSwarmOpen] = useState(false);
   const [swarmFilePath, setSwarmFilePath] = useState<string | null>(null);
   const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
@@ -90,8 +88,6 @@ export function useDialogState() {
     exportPasswordConfirm, setExportPasswordConfirm,
     showCreateFirstIdentity, setShowCreateFirstIdentity,
     showIdentityManager, setShowIdentityManager,
-    showSwarmInvite, setShowSwarmInvite,
-    showAcceptInvite, setShowAcceptInvite,
     showSwarmOpen, setShowSwarmOpen,
     swarmFilePath, setSwarmFilePath,
     pendingInvitePath, setPendingInvitePath,

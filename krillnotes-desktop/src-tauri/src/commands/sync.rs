@@ -231,6 +231,8 @@ pub async fn share_invite_link(
     workspace_name: String,
     expires_in_days: Option<u32>,
     scope_note_id: Option<String>,
+    offered_role: String,
+    relay_account_id: Option<String>,
 ) -> Result<crate::commands::invites::InviteInfo, String> {
     log::debug!("share_invite_link(identity={identity_uuid})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
@@ -289,6 +291,7 @@ pub async fn share_invite_link(
             ws_tags,
             scope_note_id,
             scope_note_title,
+            offered_role,
         )
         .map_err(|e| {
             log::error!("share_invite_link create_invite failed: {e}");
@@ -313,7 +316,13 @@ pub async fn share_invite_link(
         let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
         let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
         let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
-        accounts.into_iter().next().ok_or("No relay account configured")?
+        if let Some(ref id) = relay_account_id {
+            accounts.into_iter()
+                .find(|a| a.relay_account_id.to_string() == *id)
+                .ok_or_else(|| format!("Relay account {id} not found"))?
+        } else {
+            accounts.into_iter().next().ok_or("No relay account configured")?
+        }
     };
 
     let relay_url_result = tokio::task::spawn_blocking(move || -> Result<String, String> {
@@ -429,6 +438,7 @@ pub async fn create_relay_invite(
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
         scope_note_id: record.scope_note_id.clone(),
         scope_note_title: record.scope_note_title.clone(),
+        offered_role: record.offered_role.clone(),
         signature: String::new(),
     };
     let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
@@ -549,6 +559,9 @@ pub async fn fetch_relay_invite(
         inviter_declared_name: invite.inviter_declared_name,
         inviter_fingerprint: fingerprint,
         expires_at: invite.expires_at,
+        offered_role: invite.offered_role,
+        scope_note_id: invite.scope_note_id,
+        scope_note_title: invite.scope_note_title,
     };
 
     Ok(crate::commands::invites::FetchedRelayInvite {
@@ -704,6 +717,7 @@ pub async fn fetch_relay_invite_response(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     let base_url = relay_base_url.unwrap_or_else(|| "https://swarm.krillnotes.org".to_string());
+    let base_url_for_lookup = base_url.clone();
 
     // Fetch + parse response from relay (unauthenticated GET).
     let response = tokio::task::spawn_blocking(move || -> Result<krillnotes_core::core::invite::InviteResponseFile, String> {
@@ -727,7 +741,7 @@ pub async fn fetch_relay_invite_response(
 
     // Validate invite is still active and increment use count.
     let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
-    {
+    let (invite_workspace_id, invite_workspace_name, invite_scope_note_id, invite_scope_note_title, invite_offered_role) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         let record = im
@@ -743,17 +757,61 @@ pub async fn fetch_relay_invite_response(
             }
         }
         im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
-    }
+        (record.workspace_id.clone(), record.workspace_name.clone(), record.scope_note_id.clone(), record.scope_note_title.clone(), record.offered_role.clone())
+    };
 
     let fingerprint = generate_fingerprint(&response.invitee_public_key)
         .map_err(|e| e.to_string())?;
 
-    Ok(crate::commands::invites::PendingPeer {
+    let pending_peer = crate::commands::invites::PendingPeer {
         invite_id: response.invite_id,
         invitee_public_key: response.invitee_public_key,
         invitee_declared_name: response.invitee_declared_name,
         fingerprint,
-    })
+    };
+
+    // Look up the relay account that corresponds to the base URL used for fetching.
+    let relay_account_id_str: Option<String> = {
+        let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
+        if let Some(mgr) = ram.get(&uuid) {
+            mgr.find_by_url(&base_url_for_lookup)
+                .ok()
+                .flatten()
+                .map(|a| a.relay_account_id.to_string())
+        } else {
+            None
+        }
+    };
+
+    // Create a ReceivedResponse record so the polling UI can track this response.
+    {
+        let mut rrm = state.received_response_managers.lock().expect("Mutex poisoned");
+        if let Some(rr_mgr) = rrm.get_mut(&uuid) {
+            let existing = rr_mgr
+                .find_by_invite_and_invitee(invite_uuid, &pending_peer.invitee_public_key)
+                .map_err(|e| e.to_string())?;
+            let should_create_or_update = existing.is_none()
+                || existing.as_ref().map(|r| r.response_channel.is_empty()).unwrap_or(false);
+
+            if should_create_or_update {
+                let mut rr = krillnotes_core::core::received_response::ReceivedResponse::new(
+                    invite_uuid,
+                    invite_workspace_id,
+                    invite_workspace_name,
+                    pending_peer.invitee_public_key.clone(),
+                    pending_peer.invitee_declared_name.clone(),
+                    invite_scope_note_id,
+                    invite_scope_note_title,
+                );
+                rr.response_channel = "relay".to_string();
+                rr.offered_role = invite_offered_role;
+                rr.relay_account_id = relay_account_id_str;
+                let _ = rr_mgr.save(&rr);
+            }
+        }
+    }
+
+    Ok(pending_peer)
 }
 
 // ── has_relay_credentials ──────────────────────────────────────────────────

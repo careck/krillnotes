@@ -578,7 +578,7 @@ mod tests {
     fn test_last_received_op_set_on_all_duplicates() {
         let alice_key = make_key();
         let bob_key = make_key();
-        let alice_pubkey_b64 = b64(&alice_key);
+        let _alice_pubkey_b64 = b64(&alice_key);
         let bob_pubkey_b64 = b64(&bob_key);
 
         // ── Alice workspace ──

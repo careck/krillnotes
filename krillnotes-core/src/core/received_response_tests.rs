@@ -173,6 +173,9 @@ fn received_response_with_scope_round_trips() {
         status: ReceivedResponseStatus::PermissionPending,
         scope_note_id: Some("note-42".into()),
         scope_note_title: Some("My Subtree".into()),
+        offered_role: String::new(),
+        response_channel: String::new(),
+        relay_account_id: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     let back: ReceivedResponse = serde_json::from_str(&json).unwrap();

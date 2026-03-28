@@ -43,6 +43,15 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
     return () => { unlisten.then(f => f()); };
   }, [loadInvites]);
 
+  async function handleDelete(inviteId: string) {
+    try {
+      await invoke("delete_accepted_invite", { identityUuid, inviteId });
+      setInvites((prev) => prev.filter((i) => i.inviteId !== inviteId));
+    } catch (e) {
+      console.error("Failed to delete invite:", e);
+    }
+  }
+
   const handleCreateWorkspace = async (invite: AcceptedInviteInfo) => {
     if (!invite.snapshotPath) return;
     setCreatingId(invite.inviteId);
@@ -55,6 +64,7 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
         path: invite.snapshotPath,
         identityUuid,
         workspaceNameOverride: nameOverride || null,
+        responseRelayUrl: invite.responseRelayUrl ?? null,
       });
       await invoke("update_accepted_invite_status", {
         identityUuid,
@@ -85,13 +95,31 @@ export default function AcceptedInvitesSection({ identityUuid }: Props) {
             className="bg-white/5 rounded-lg px-4 py-3"
           >
             <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-sm">{invite.workspaceName}</div>
+              <div className="min-w-0">
+                <div className="flex items-center">
+                  <span className="font-semibold text-sm">{invite.workspaceName}</span>
+                  {invite.offeredRole && (
+                    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+                      invite.offeredRole === 'owner' ? 'bg-purple-500/20 text-purple-300' :
+                      invite.offeredRole === 'writer' ? 'bg-green-500/20 text-green-300' :
+                      'bg-blue-500/20 text-blue-300'
+                    }`}>
+                      {t(`roles.${invite.offeredRole}Short`)}
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-gray-400 mt-0.5">
                   {t("common.from", "From")}: {invite.inviterDeclaredName} · {new Date(invite.acceptedAt).toLocaleDateString()}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleDelete(invite.inviteId)}
+                  className="text-muted-foreground hover:text-foreground transition-colors text-sm leading-none"
+                  title={t('common.remove')}
+                >
+                  ×
+                </button>
                 {invite.status === "waitingSnapshot" && !invite.snapshotPath && (
                   <span className="bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full text-xs font-semibold">
                     {t("polling.waitingForSnapshot")}

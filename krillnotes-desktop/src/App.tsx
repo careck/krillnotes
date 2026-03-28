@@ -17,10 +17,9 @@ import SettingsDialog from './components/SettingsDialog';
 import type { AppSettings, WorkspaceInfo as WorkspaceInfoType } from './types';
 import CreateIdentityDialog from './components/CreateIdentityDialog';
 import IdentityManagerDialog from './components/IdentityManagerDialog';
-import SwarmInviteDialog from './components/SwarmInviteDialog';
 import SwarmOpenDialog from './components/SwarmOpenDialog';
 import WorkspacePeersDialog from './components/WorkspacePeersDialog';
-import { ImportInviteDialog } from './components/ImportInviteDialog';
+import { AcceptInviteWorkflow } from './components/AcceptInviteWorkflow';
 import { CreateDeltaDialog } from './components/CreateDeltaDialog';
 import './styles/globals.css';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -56,8 +55,6 @@ function App() {
     exportPasswordConfirm, setExportPasswordConfirm,
     showCreateFirstIdentity, setShowCreateFirstIdentity,
     showIdentityManager, setShowIdentityManager,
-    showSwarmInvite, setShowSwarmInvite,
-    showAcceptInvite, setShowAcceptInvite,
     showSwarmOpen, setShowSwarmOpen,
     swarmFilePath, setSwarmFilePath,
     pendingInvitePath, setPendingInvitePath,
@@ -187,7 +184,6 @@ function App() {
     useWorkspaceLifecycle({
       setShowCreateFirstIdentity,
       setShowSwarmOpen,
-      showSwarmInvite,
       showSwarmOpen,
       proceedWithImport,
       setPendingInvitePath,
@@ -198,8 +194,7 @@ function App() {
 
   useMenuEvents(workspace, {
     setShowNewWorkspace, setShowOpenWorkspace, setShowSettings,
-    setShowExportPasswordDialog, setShowIdentityManager, setShowSwarmInvite,
-    setShowAcceptInvite,
+    setShowExportPasswordDialog, setShowIdentityManager,
     setShowWorkspacePeers, setShowCreateDeltaDialog,
     statusSetter, proceedWithImport, openSwarmFile,
   });
@@ -449,13 +444,6 @@ function App() {
         isOpen={showIdentityManager}
         onClose={() => { setShowIdentityManager(false); refreshUnlockedIdentity(); }}
       />
-      <SwarmInviteDialog
-        isOpen={showSwarmInvite}
-        onClose={() => setShowSwarmInvite(false)}
-        workspaceInfo={workspace}
-        unlockedIdentityUuid={unlockedIdentityUuid}
-        deviceId={unlockedIdentityUuid ?? ''}
-      />
       <SwarmOpenDialog
         isOpen={showSwarmOpen}
         onClose={() => { setShowSwarmOpen(false); setSwarmFilePath(null); }}
@@ -464,19 +452,13 @@ function App() {
         deviceId={unlockedIdentityUuid ?? ''}
       />
       {pendingInviteData && pendingInvitePath && (
-        <ImportInviteDialog
-          initialIdentityUuid={unlockedIdentityUuid ?? undefined}
-          invitePath={pendingInvitePath}
-          inviteData={pendingInviteData}
+        <AcceptInviteWorkflow
+          identityUuid={unlockedIdentityUuid ?? ''}
+          identityName={''}
+          preloadedInviteData={pendingInviteData}
+          preloadedPath={pendingInvitePath}
           onResponded={() => { setPendingInvitePath(null); setPendingInviteData(null); }}
           onClose={() => { setPendingInvitePath(null); setPendingInviteData(null); }}
-        />
-      )}
-      {showAcceptInvite && (
-        <ImportInviteDialog
-          initialIdentityUuid={unlockedIdentityUuid ?? undefined}
-          onResponded={() => setShowAcceptInvite(false)}
-          onClose={() => setShowAcceptInvite(false)}
         />
       )}
       {showWorkspacePeers && (

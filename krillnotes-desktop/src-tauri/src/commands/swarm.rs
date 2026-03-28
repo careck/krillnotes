@@ -378,6 +378,7 @@ pub async fn apply_swarm_snapshot(
     path: String,
     identity_uuid: String,
     workspace_name_override: Option<String>,
+    response_relay_url: Option<String>,
 ) -> std::result::Result<crate::WorkspaceInfo, String> {
     use base64::Engine;
     use krillnotes_core::core::swarm::snapshot::parse_snapshot_bundle;
@@ -476,6 +477,19 @@ pub async fn apply_swarm_snapshot(
         Some(&parsed.as_of_operation_id),  // last_sent_op — snapshot is the baseline
         Some(&parsed.as_of_operation_id),  // last_received_op
     );
+
+    // Set relay channel on inviter peer if snapshot arrived via relay
+    if let Some(ref relay_url) = response_relay_url {
+        let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
+        if let Some(ram) = rams.get(&identity_uuid_parsed) {
+            if let Ok(Some(account)) = ram.find_by_url(relay_url) {
+                let channel_params = serde_json::json!({
+                    "relay_account_id": account.relay_account_id.to_string()
+                }).to_string();
+                let _ = ws.update_peer_channel(&placeholder_device_id, "relay", &channel_params);
+            }
+        }
+    }
 
     // 7b. Register sender in the contact manager so generate_delta can resolve their
     //     encryption key. Snapshot bundles carry no display name, so use a synthetic

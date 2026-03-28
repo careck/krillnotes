@@ -22,6 +22,7 @@ pub struct InviteInfo {
     pub relay_url: Option<String>,
     pub scope_note_id: Option<String>,
     pub scope_note_title: Option<String>,
+    pub offered_role: String,
 }
 
 impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
@@ -37,6 +38,7 @@ impl From<krillnotes_core::core::invite::InviteRecord> for InviteInfo {
             relay_url: r.relay_url,
             scope_note_id: r.scope_note_id,
             scope_note_title: r.scope_note_title,
+            offered_role: r.offered_role,
         }
     }
 }
@@ -65,6 +67,9 @@ pub struct InviteFileData {
     pub inviter_declared_name: String,
     pub inviter_fingerprint: String,
     pub expires_at: Option<String>,
+    pub offered_role: String,
+    pub scope_note_id: Option<String>,
+    pub scope_note_title: Option<String>,
 }
 
 /// Serialisable pending peer data returned to the frontend after parsing a response file.
@@ -101,6 +106,7 @@ pub fn create_invite(
     expires_in_days: Option<u32>,
     save_path: String,
     scope_note_id: Option<String>,
+    offered_role: String,
 ) -> std::result::Result<InviteInfo, String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
@@ -157,6 +163,7 @@ pub fn create_invite(
             ws_tags,
             scope_note_id,
             scope_note_title,
+            offered_role,
         )
         .map_err(|e| {
             log::error!("create_invite(identity={identity_uuid}) failed: {e}");
@@ -243,6 +250,7 @@ pub fn save_invite_file(
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
         scope_note_id: record.scope_note_id.clone(),
         scope_note_title: record.scope_note_title.clone(),
+        offered_role: record.offered_role.clone(),
         signature: String::new(),
     };
     let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
@@ -319,7 +327,7 @@ pub fn import_invite_response(
 
     // Validate invite is still active and increment use count.
     let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
-    let (invite_workspace_id, invite_workspace_name, invite_scope_note_id, invite_scope_note_title) = {
+    let (invite_workspace_id, invite_workspace_name, invite_scope_note_id, invite_scope_note_title, invite_offered_role) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         let record = im
@@ -335,7 +343,7 @@ pub fn import_invite_response(
             }
         }
         im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
-        (record.workspace_id.clone(), record.workspace_name.clone(), record.scope_note_id.clone(), record.scope_note_title.clone())
+        (record.workspace_id.clone(), record.workspace_name.clone(), record.scope_note_id.clone(), record.scope_note_title.clone(), record.offered_role.clone())
     };
 
     let fingerprint = generate_fingerprint(&response.invitee_public_key)
@@ -356,7 +364,7 @@ pub fn import_invite_response(
                 .find_by_invite_and_invitee(invite_uuid, &pending_peer.invitee_public_key)
                 .map_err(|e| e.to_string())?;
             if existing.is_none() {
-                let rr = krillnotes_core::core::received_response::ReceivedResponse::new(
+                let mut rr = krillnotes_core::core::received_response::ReceivedResponse::new(
                     invite_uuid,
                     invite_workspace_id,
                     invite_workspace_name,
@@ -365,6 +373,8 @@ pub fn import_invite_response(
                     invite_scope_note_id,
                     invite_scope_note_title,
                 );
+                rr.response_channel = "file".to_string();
+                rr.offered_role = invite_offered_role;
                 let _ = rr_mgr.save(&rr);
             }
         }
@@ -401,6 +411,9 @@ pub fn import_invite(path: String) -> std::result::Result<InviteFileData, String
         inviter_declared_name: invite.inviter_declared_name,
         inviter_fingerprint: fingerprint,
         expires_at: invite.expires_at,
+        offered_role: invite.offered_role,
+        scope_note_id: invite.scope_note_id,
+        scope_note_title: invite.scope_note_title,
     })
 }
 
