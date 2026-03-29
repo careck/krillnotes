@@ -163,11 +163,13 @@ pub async fn login_relay_account(
     log::debug!("login_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let device_public_key = {
+    let (signing_key, device_public_key) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        hex::encode(id.verifying_key.to_bytes())
+        let sk = id.signing_key.clone();
+        let dpk = hex::encode(id.verifying_key.to_bytes());
+        (sk, dpk)
     };
 
     let relay_url_clone = relay_url.clone();
@@ -177,10 +179,30 @@ pub async fn login_relay_account(
 
     // RelayClient uses reqwest::blocking — must run in spawn_blocking.
     let session_token = tokio::task::spawn_blocking(move || {
-        let client = RelayClient::new(&relay_url_clone);
+        let mut client = RelayClient::new(&relay_url_clone);
         let session = client
             .login(&email_clone, &password_clone, &dpk)
             .map_err(|e| e.to_string())?;
+
+        // If the relay returned a PoP challenge (unknown/unverified device),
+        // decrypt and verify automatically.
+        if let Some(challenge) = &session.challenge {
+            log::info!(target: "krillnotes::relay", "login returned device challenge — auto-verifying");
+            let nonce_bytes = decrypt_pop_challenge(
+                &signing_key,
+                &challenge.encrypted_nonce,
+                &challenge.server_public_key,
+            )
+            .map_err(|e| e.to_string())?;
+            let nonce_hex = hex::encode(&nonce_bytes);
+
+            client.set_session_token(&session.session_token);
+            client
+                .verify_device(&dpk, &nonce_hex)
+                .map_err(|e| e.to_string())?;
+            log::info!(target: "krillnotes::relay", "device verified successfully");
+        }
+
         Ok::<_, String>(session.session_token)
     })
     .await
