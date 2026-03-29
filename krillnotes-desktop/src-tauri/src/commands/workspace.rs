@@ -39,6 +39,8 @@ pub struct WorkspaceInfo {
     pub identity_uuid: Option<String>,
     /// The workspace's own UUID (from workspace_meta).
     pub workspace_id: Option<String>,
+    /// Base64-encoded Ed25519 public key of the identity bound to this workspace.
+    pub identity_public_key: Option<String>,
 }
 
 // ── Private helpers ───────────────────────────────────────────────
@@ -371,6 +373,7 @@ pub fn get_workspace_info_internal(
         selected_note_id,
         identity_uuid,
         workspace_id,
+        identity_public_key: Some(workspace.identity_pubkey().to_string()),
     })
 }
 

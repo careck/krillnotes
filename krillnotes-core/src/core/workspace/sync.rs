@@ -635,6 +635,7 @@ impl Workspace {
                     contact_id: contact.map(|c| c.contact_id.to_string()),
                     last_sync: peer.last_sync,
                     is_owner: peer.peer_identity_id == self.owner_pubkey,
+                    is_self_peer: peer.peer_identity_id == self.current_identity_pubkey,
                     channel_type: peer.channel_type,
                     channel_params: peer.channel_params,
                     sync_status: peer.sync_status,
