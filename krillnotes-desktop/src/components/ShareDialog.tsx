@@ -39,6 +39,7 @@ export function ShareDialog({
   const availablePeers = useMemo(() => {
     const grantedKeys = new Set(existingGrants.map(g => g.userId));
     return peers.filter(p =>
+      !p.isSelfPeer &&
       !grantedKeys.has(p.peerIdentityId) &&
       (search === '' ||
         p.displayName.toLowerCase().includes(search.toLowerCase()) ||
