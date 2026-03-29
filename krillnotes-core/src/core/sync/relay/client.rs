@@ -37,6 +37,9 @@ pub struct RegisterResult {
 #[derive(Debug, Deserialize)]
 pub struct SessionResponse {
     pub session_token: String,
+    /// Present when the server detected an unknown or unverified device key
+    /// during login. The client should decrypt the nonce and call `verify_device`.
+    pub challenge: Option<RegisterChallenge>,
 }
 
 #[derive(Debug, Deserialize)]
