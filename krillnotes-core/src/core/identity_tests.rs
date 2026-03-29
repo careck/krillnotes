@@ -815,3 +815,53 @@ fn test_relay_key_deterministic() {
     assert_eq!(unlocked.relay_key(), unlocked.relay_key(),
         "relay_key must be deterministic");
 }
+
+// ---------------------------------------------------------------------------
+// Tests for ensure_device_uuid and identity_from_device_id
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_ensure_device_uuid_creates_and_persists() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity_dir = dir.path();
+
+    // First call: file does not exist — should create and return a UUID.
+    let uuid1 = super::ensure_device_uuid(identity_dir).expect("first call should succeed");
+    assert!(!uuid1.is_empty(), "UUID should not be empty");
+    // Should be a valid UUID format.
+    assert!(uuid::Uuid::parse_str(&uuid1).is_ok(), "Must be a valid UUID string: {uuid1}");
+
+    // Second call: file now exists — should return the same UUID.
+    let uuid2 = super::ensure_device_uuid(identity_dir).expect("second call should succeed");
+    assert_eq!(uuid1, uuid2, "Second call must return the same UUID");
+
+    // The file should exist on disk.
+    let device_id_path = identity_dir.join("device_id");
+    assert!(device_id_path.exists(), "device_id file must exist after ensure_device_uuid");
+}
+
+#[test]
+fn test_ensure_device_uuid_reads_existing() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity_dir = dir.path();
+    let device_id_path = identity_dir.join("device_id");
+
+    // Pre-write a known UUID.
+    let known_uuid = "550e8400-e29b-41d4-a716-446655440000";
+    std::fs::write(&device_id_path, known_uuid).unwrap();
+
+    let result = super::ensure_device_uuid(identity_dir).expect("should read existing UUID");
+    assert_eq!(result, known_uuid, "Should return the pre-existing UUID");
+}
+
+#[test]
+fn test_identity_from_device_id_composite() {
+    let device_id = "alice-uuid:device-uuid";
+    assert_eq!(super::identity_from_device_id(device_id), "alice-uuid");
+}
+
+#[test]
+fn test_identity_from_device_id_legacy() {
+    let device_id = "legacy-uuid-only";
+    assert_eq!(super::identity_from_device_id(device_id), "legacy-uuid-only");
+}

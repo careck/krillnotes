@@ -428,7 +428,8 @@ pub async fn create_workspace(
                 base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
             };
             let gate = create_permission_gate(owner_pubkey);
-            let workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key, gate)
+            let identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&uuid);
+            let workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key, gate, Some(&identity_dir))
                 .map_err(|e| format!("Failed to create: {e}"))?;
 
             // Read the workspace_id from the newly created workspace
@@ -536,7 +537,8 @@ pub async fn open_workspace(
                 base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
             };
             let gate = create_permission_gate(owner_pubkey);
-            let mut workspace = Workspace::open(&db_path, &db_password, &identity_uuid.to_string(), signing_key, gate)
+            let identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&identity_uuid);
+            let mut workspace = Workspace::open(&db_path, &db_password, &identity_uuid.to_string(), signing_key, gate, Some(&identity_dir))
                 .map_err(|e| match e {
                     KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
                     KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
@@ -698,7 +700,8 @@ pub async fn execute_import(
         base64::engine::general_purpose::STANDARD.encode(import_signing_key.verifying_key().as_bytes())
     };
     let gate = create_permission_gate(owner_pubkey);
-    let workspace = Workspace::open(&db_path_buf, &workspace_password, &uuid.to_string(), import_signing_key, gate)
+    let identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&uuid);
+    let workspace = Workspace::open(&db_path_buf, &workspace_password, &uuid.to_string(), import_signing_key, gate, Some(&identity_dir))
         .map_err(|e| e.to_string())?;
 
     // Bind the imported workspace to the chosen identity so it can be opened later.
@@ -1121,7 +1124,8 @@ pub fn duplicate_workspace(
         base64::engine::general_purpose::STANDARD.encode(source_signing_key.verifying_key().as_bytes())
     };
     let gate = create_permission_gate(owner_pubkey);
-    let workspace = Workspace::open(&source_db, &source_password, &identity_uuid, source_signing_key, gate)
+    let copy_identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&copy_uuid);
+    let workspace = Workspace::open(&source_db, &source_password, &identity_uuid, source_signing_key, gate, Some(&copy_identity_dir))
         .map_err(|e| e.to_string())?;
 
     let mut tmp_file = tempfile::tempfile()
@@ -1148,7 +1152,7 @@ pub fn duplicate_workspace(
         base64::engine::general_purpose::STANDARD.encode(dest_signing_key.verifying_key().as_bytes())
     };
     let dest_gate = create_permission_gate(dest_owner_pubkey);
-    let new_ws = Workspace::open(&dest_db, &new_password, &identity_uuid, dest_signing_key, dest_gate)
+    let new_ws = Workspace::open(&dest_db, &new_password, &identity_uuid, dest_signing_key, dest_gate, Some(&copy_identity_dir))
         .map_err(|e| format!("Failed to open new workspace: {e}"))?;
     let _ = new_ws.write_info_json();
     let new_ws_uuid = new_ws.workspace_id().to_string();

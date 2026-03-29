@@ -876,6 +876,35 @@ impl IdentityManager {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Per-machine device UUID helpers
+// ---------------------------------------------------------------------------
+
+/// Returns the stable device UUID for this identity on this machine.
+/// Creates the UUID file if it doesn't exist.
+/// The UUID is stored as a plain string in `identity_dir/device_id`.
+pub fn ensure_device_uuid(identity_dir: &std::path::Path) -> crate::Result<String> {
+    let device_id_path = identity_dir.join("device_id");
+    if device_id_path.exists() {
+        let content = std::fs::read_to_string(&device_id_path)?;
+        Ok(content.trim().to_string())
+    } else {
+        let new_uuid = Uuid::new_v4().to_string();
+        std::fs::write(&device_id_path, &new_uuid)?;
+        Ok(new_uuid)
+    }
+}
+
+/// Extracts the identity UUID prefix from a composite `{identity_uuid}:{device_uuid}` device_id.
+/// If the string contains ':', returns the part before ':'; otherwise returns the whole string.
+pub fn identity_from_device_id(device_id: &str) -> &str {
+    if let Some(pos) = device_id.find(':') {
+        &device_id[..pos]
+    } else {
+        device_id
+    }
+}
+
 #[cfg(test)]
 #[path = "identity_tests.rs"]
 mod tests;

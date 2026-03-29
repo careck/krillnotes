@@ -432,6 +432,7 @@ pub async fn apply_swarm_snapshot(
         base64::engine::general_purpose::STANDARD
             .encode(Ed25519SigningKey::from_bytes(&import_seed).verifying_key().as_bytes())
     };
+    let swarm_identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&identity_uuid_parsed);
     let mut ws = Workspace::create_empty_with_id(
         &db_path,
         &workspace_password,
@@ -439,6 +440,7 @@ pub async fn apply_swarm_snapshot(
         Ed25519SigningKey::from_bytes(&import_seed),
         &parsed.workspace_id,
         super::workspace::create_permission_gate(owner_pubkey),
+        Some(&swarm_identity_dir),
     )
     .map_err(|e| e.to_string())?;
 
