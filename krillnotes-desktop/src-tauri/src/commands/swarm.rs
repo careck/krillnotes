@@ -912,6 +912,7 @@ pub async fn send_self_snapshot_via_relay(
     window: tauri::Window,
     state: State<'_, AppState>,
     identity_uuid: String,
+    relay_account_id: String,
     target_device_id: String,
 ) -> std::result::Result<(), String> {
     use base64::Engine;
@@ -971,6 +972,7 @@ pub async fn send_self_snapshot_via_relay(
     };
 
     // 4. Build the bundle — recipient is own key (self-encryption).
+    let source_device_id_for_header = source_device_id.clone();
     let bundle_bytes = create_snapshot_bundle(SnapshotParams {
         protocol,
         workspace_id: workspace_id.clone(),
@@ -990,11 +992,15 @@ pub async fn send_self_snapshot_via_relay(
     })?;
 
     // 5. Upload via relay, routing to the specific target device.
+    let relay_account_uuid = Uuid::parse_str(&relay_account_id).map_err(|e| e.to_string())?;
     let relay_account = {
         let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
         let ram = rams.get(&identity_uuid_parsed).ok_or("No relay account manager for this identity")?;
-        let accounts = ram.list_relay_accounts().map_err(|e| e.to_string())?;
-        accounts.into_iter().next().ok_or("No relay account configured for this identity")?
+        ram.list_relay_accounts()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|a| a.relay_account_id == relay_account_uuid)
+            .ok_or("Relay account not found")?
     };
 
     // own_pubkey_hex is both the sender key and the recipient key (self-snapshot).
@@ -1022,7 +1028,7 @@ pub async fn send_self_snapshot_via_relay(
         let header = BundleHeader {
             workspace_id,
             sender_device_key: own_pubkey_hex.clone(),
-            sender_device_id: String::new(),
+            sender_device_id: source_device_id_for_header,
             recipient_device_keys: vec![own_pubkey_hex],
             recipient_device_ids: vec![target_device_id],
             mode: Some("snapshot".to_string()),
@@ -1097,6 +1103,11 @@ pub async fn list_devices_on_relay(
 
         let remote_devices = client.list_devices(Some(&own_key_hex))
             .map_err(|e| e.to_string())?;
+
+        // Client-side safety net: remove own device in case server filter didn't apply.
+        let remote_devices: Vec<_> = remote_devices.into_iter()
+            .filter(|d| d.device_key != own_key_hex)
+            .collect();
 
         let json_devices: Vec<serde_json::Value> = remote_devices.into_iter()
             .map(|d| serde_json::json!({
