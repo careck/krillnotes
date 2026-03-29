@@ -288,6 +288,9 @@ export default function WorkspacePeersDialog({
               {selfPeers.map((peer) => {
                 const channelBadge = CHANNEL_BADGE[peer.channelType] ?? { label: peer.channelType, class: 'bg-gray-500/20 text-gray-400' };
                 const dotClass = syncStatusDotClass(peer.syncStatus);
+                const selectedChannelType = pendingChannelType[peer.peerDeviceId] ?? peer.channelType;
+                const currentFolderPath = peer.channelType === 'folder' ? (() => { try { return JSON.parse(peer.channelParams).path as string ?? null; } catch { return null; } })() : null;
+                const currentRelayAccountId = peer.channelType === 'relay' ? (() => { try { return JSON.parse(peer.channelParams).relay_account_id as string ?? null; } catch { return null; } })() : null;
                 return (
                   <div
                     key={peer.peerDeviceId}
@@ -306,6 +309,38 @@ export default function WorkspacePeersDialog({
                       </div>
                       <div className="text-xs text-[var(--color-muted-foreground)] mt-0.5">
                         {formatLastSync(peer.lastSync)}
+                      </div>
+                      <div className="mt-1.5">
+                        <ChannelPicker
+                          selectedType={selectedChannelType as ChannelType}
+                          onTypeChange={async (type) => {
+                            setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: type }));
+                            if (type === 'manual') {
+                              await handleUpdateChannel(peer, type);
+                            }
+                          }}
+                          relayAccounts={relayAccounts}
+                          selectedRelayAccountId={pendingRelayAccount[peer.peerDeviceId] ?? currentRelayAccountId ?? undefined}
+                          onRelayAccountSelect={async (accountId) => {
+                            if (!accountId) return;
+                            try {
+                              await invoke('set_peer_relay', {
+                                peerDeviceId: peer.peerDeviceId,
+                                relayAccountId: accountId,
+                              });
+                              setPendingRelayAccount(prev => {
+                                const next = { ...prev };
+                                delete next[peer.peerDeviceId];
+                                return next;
+                              });
+                              await loadPeers();
+                            } catch (err) {
+                              setError(String(err));
+                            }
+                          }}
+                          currentFolderPath={currentFolderPath}
+                          onConfigureFolder={() => handleUpdateChannel(peer, selectedChannelType)}
+                        />
                       </div>
                     </div>
                   </div>
