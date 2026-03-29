@@ -1365,20 +1365,8 @@ impl Workspace {
     pub(crate) fn emit_register_device_if_needed(&mut self) -> Result<()> {
         let device_uuid = crate::core::identity::device_part_from_device_id(&self.device_id).to_string();
 
-        // Check if a RegisterDevice op for this device_uuid already exists.
-        let count: i64 = self.storage.connection().query_row(
-            "SELECT COUNT(*) FROM operations \
-             WHERE operation_type = 'RegisterDevice' \
-             AND json_extract(operation_data, '$.device_uuid') = ?1",
-            rusqlite::params![&device_uuid],
-            |row| row.get(0),
-        )?;
-
-        if count > 0 {
-            return Ok(());
-        }
-
-        // Determine a human-readable device name from the hostname.
+        // Determine a human-readable device name from the hostname (outside the
+        // transaction so we don't hold the lock while calling OS APIs).
         let device_name = {
             let raw = hostname::get()
                 .ok()
@@ -1393,7 +1381,24 @@ impl Workspace {
         };
 
         let ts = self.hlc.now();
+
+        // Open the write transaction first, then check for duplicates inside it.
+        // This eliminates the TOCTOU race between the SELECT COUNT and the INSERT.
         let tx = self.storage.connection_mut().transaction()?;
+
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM operations \
+             WHERE operation_type = 'RegisterDevice' \
+             AND json_extract(operation_data, '$.device_uuid') = ?1",
+            rusqlite::params![&device_uuid],
+            |row| row.get(0),
+        )?;
+
+        if count > 0 {
+            tx.commit()?;
+            return Ok(());
+        }
+
         Self::save_hlc(&ts, &tx)?;
         let mut op = Operation::RegisterDevice {
             operation_id: uuid::Uuid::new_v4().to_string(),
