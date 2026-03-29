@@ -305,11 +305,7 @@ impl Workspace {
         let undo_limit: usize = 50;
 
         // Initialise HLC for this workspace.
-        let device_uuid_str = if device_id.contains(':') {
-            device_id.split(':').nth(1).unwrap_or(&device_id)
-        } else {
-            &device_id
-        };
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
             &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
@@ -530,11 +526,7 @@ impl Workspace {
         let undo_limit: usize = 50;
 
         // Initialise HLC for this workspace.
-        let device_uuid_str = if device_id.contains(':') {
-            device_id.split(':').nth(1).unwrap_or(&device_id)
-        } else {
-            &device_id
-        };
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
             &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
@@ -684,11 +676,7 @@ impl Workspace {
         )?;
         let undo_limit: usize = 50;
 
-        let device_uuid_str = if device_id.contains(':') {
-            device_id.split(':').nth(1).unwrap_or(&device_id)
-        } else {
-            &device_id
-        };
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
             &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
@@ -801,11 +789,7 @@ impl Workspace {
         )?;
         let undo_limit: usize = 50;
 
-        let device_uuid_str = if device_id.contains(':') {
-            device_id.split(':').nth(1).unwrap_or(&device_id)
-        } else {
-            &device_id
-        };
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
             &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
@@ -868,10 +852,12 @@ impl Workspace {
             let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
             let composite = format!("{identity_uuid}:{device_uuid}");
             if device_id != composite {
-                storage.connection().execute(
+                let tx = storage.connection().unchecked_transaction()?;
+                tx.execute(
                     "UPDATE workspace_meta SET value = ? WHERE key = 'device_id'",
                     [&composite],
                 )?;
+                tx.commit()?;
                 device_id = composite;
             }
         }
@@ -928,11 +914,7 @@ impl Workspace {
             .unwrap_or(50);
 
         // Load HLC state from DB (uses stored node_id if present, else derives from device_id).
-        let device_uuid_str = if device_id.contains(':') {
-            device_id.split(':').nth(1).unwrap_or(&device_id)
-        } else {
-            &device_id
-        };
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
             &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
