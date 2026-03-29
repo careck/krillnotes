@@ -64,6 +64,8 @@ pub struct PeerInfo {
     pub last_sync: Option<String>,
     /// True if this peer's identity is the workspace owner.
     pub is_owner: bool,
+    /// True if this peer runs the same identity as the local device (same Ed25519 key, different device UUID).
+    pub is_self_peer: bool,
     /// How this peer is reached: "manual", "relay", etc.
     pub channel_type: String,
     /// JSON-encoded channel configuration (e.g. `{"path":"/shared/folder"}`).

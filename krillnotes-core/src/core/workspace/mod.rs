@@ -131,14 +131,18 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
-    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
+    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
-        // Use identity UUID as device ID so multiple identities on the same
-        // machine have distinct device IDs (hardware device ID is shared).
-        let device_id = identity_uuid.to_string();
+        // Build composite device_id: {identity_uuid}:{device_uuid} when identity_dir is known.
+        let device_id = if let Some(dir) = identity_dir {
+            let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
+            format!("{identity_uuid}:{device_uuid}")
+        } else {
+            identity_uuid.to_string()
+        };
 
         // Store metadata
         storage.connection().execute(
@@ -301,15 +305,16 @@ impl Workspace {
         let undo_limit: usize = 50;
 
         // Initialise HLC for this workspace.
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
-            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+            &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
         let hlc = HlcClock::new(node_id);
 
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -332,6 +337,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
     }
@@ -346,14 +353,19 @@ impl Workspace {
         signing_key: ed25519_dalek::SigningKey,
         workspace_id: &str,
         permission_gate: Box<dyn crate::core::permission::PermissionGate>,
+        identity_dir: Option<&Path>,
     ) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
-        // Use identity UUID as device ID so multiple identities on the same
-        // machine have distinct device IDs (hardware device ID is shared).
-        let device_id = identity_uuid.to_string();
+        // Build composite device_id: {identity_uuid}:{device_uuid} when identity_dir is known.
+        let device_id = if let Some(dir) = identity_dir {
+            let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
+            format!("{identity_uuid}:{device_uuid}")
+        } else {
+            identity_uuid.to_string()
+        };
 
         // Store metadata
         storage.connection().execute(
@@ -516,15 +528,16 @@ impl Workspace {
         let undo_limit: usize = 50;
 
         // Initialise HLC for this workspace.
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
-            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+            &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
         let hlc = HlcClock::new(node_id);
 
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -547,6 +560,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
     }
@@ -556,14 +571,18 @@ impl Workspace {
     /// Use this when the workspace content will immediately be populated from an
     /// external source (e.g. a snapshot import), so the seed note would only create
     /// unwanted noise alongside the imported tree.
-    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
+    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
-        // Use identity UUID as device ID so multiple identities on the same
-        // machine have distinct device IDs (hardware device ID is shared).
-        let device_id = identity_uuid.to_string();
+        // Build composite device_id: {identity_uuid}:{device_uuid} when identity_dir is known.
+        let device_id = if let Some(dir) = identity_dir {
+            let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
+            format!("{identity_uuid}:{device_uuid}")
+        } else {
+            identity_uuid.to_string()
+        };
 
         storage.connection().execute(
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
@@ -661,15 +680,16 @@ impl Workspace {
         )?;
         let undo_limit: usize = 50;
 
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
-            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+            &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
         let hlc = HlcClock::new(node_id);
 
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -692,6 +712,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json();
         Ok(workspace)
     }
@@ -707,14 +729,19 @@ impl Workspace {
         signing_key: ed25519_dalek::SigningKey,
         workspace_id: &str,
         permission_gate: Box<dyn crate::core::permission::PermissionGate>,
+        identity_dir: Option<&Path>,
     ) -> Result<Self> {
         let storage = Storage::create(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
-        // Use identity UUID as device ID so multiple identities on the same
-        // machine have distinct device IDs (hardware device ID is shared).
-        let device_id = identity_uuid.to_string();
+        // Build composite device_id: {identity_uuid}:{device_uuid} when identity_dir is known.
+        let device_id = if let Some(dir) = identity_dir {
+            let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
+            format!("{identity_uuid}:{device_uuid}")
+        } else {
+            identity_uuid.to_string()
+        };
 
         storage.connection().execute(
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
@@ -768,15 +795,16 @@ impl Workspace {
         )?;
         let undo_limit: usize = 50;
 
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
-            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+            &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
         let hlc = HlcClock::new(node_id);
 
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -799,6 +827,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json();
         Ok(workspace)
     }
@@ -811,18 +841,34 @@ impl Workspace {
     /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
     /// is a plain unencrypted SQLite database, or
     /// [`crate::KrillnotesError::Database`] for any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, mut permission_gate: Box<dyn crate::core::permission::PermissionGate>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, mut permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
 
         // Read metadata from database
-        let device_id = storage.connection()
+        let mut device_id: String = storage.connection()
             .query_row(
                 "SELECT value FROM workspace_meta WHERE key = 'device_id'",
                 [],
                 |row| row.get::<_, String>(0)
             )?;
+
+        // If an identity directory is provided, always recompute composite device_id
+        // so the format is {identity_uuid}:{device_uuid} regardless of what is stored.
+        if let Some(dir) = identity_dir {
+            let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
+            let composite = format!("{identity_uuid}:{device_uuid}");
+            if device_id != composite {
+                let tx = storage.connection().unchecked_transaction()?;
+                tx.execute(
+                    "UPDATE workspace_meta SET value = ? WHERE key = 'device_id'",
+                    [&composite],
+                )?;
+                tx.commit()?;
+                device_id = composite;
+            }
+        }
 
         // Derive the base64-encoded public key from the signing key.
         let identity_pubkey_b64 = {
@@ -876,8 +922,9 @@ impl Workspace {
             .unwrap_or(50);
 
         // Load HLC state from DB (uses stored node_id if present, else derives from device_id).
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
-            &uuid::Uuid::parse_str(&device_id).unwrap_or_else(|_| uuid::Uuid::new_v4()),
+            &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
         let hlc = HlcClock::load_from_db(storage.connection(), node_id)
             .map_err(KrillnotesError::Database)?;
@@ -960,6 +1007,9 @@ impl Workspace {
 
         // Phase D: batch-migrate notes whose schema_version is behind current schema.
         ws.pending_migration_results = ws.run_schema_migrations()?;
+
+        // Emit a RegisterDevice operation the first time this device opens this workspace.
+        ws.emit_register_device_if_needed()?;
 
         // Clean up any .enc.trash files left from a previous session.
         // Undo stacks are in-session only, so prior-session trash is always safe to remove.
@@ -1305,6 +1355,65 @@ impl Workspace {
         }
 
         Ok(results)
+    }
+
+    /// Emits a `RegisterDevice` operation the first time this device opens this workspace.
+    ///
+    /// Checks whether a `RegisterDevice` operation for this `device_uuid` already exists
+    /// in the operations log. If not, creates and logs one. This is idempotent across
+    /// multiple opens of the same workspace on the same device.
+    pub(crate) fn emit_register_device_if_needed(&mut self) -> Result<()> {
+        let device_uuid = crate::core::identity::device_part_from_device_id(&self.device_id).to_string();
+
+        // Determine a human-readable device name from the hostname (outside the
+        // transaction so we don't hold the lock while calling OS APIs).
+        let device_name = {
+            let raw = hostname::get()
+                .ok()
+                .and_then(|n| n.into_string().ok())
+                .unwrap_or_default();
+            let trimmed = raw.trim().to_lowercase();
+            if trimmed.is_empty() || trimmed == "localhost" || trimmed == "unknown" {
+                format!("{} Device", std::env::consts::OS)
+            } else {
+                raw.trim().to_string()
+            }
+        };
+
+        let ts = self.hlc.now();
+
+        // Open the write transaction first, then check for duplicates inside it.
+        // This eliminates the TOCTOU race between the SELECT COUNT and the INSERT.
+        let tx = self.storage.connection_mut().transaction()?;
+
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM operations \
+             WHERE operation_type = 'RegisterDevice' \
+             AND json_extract(operation_data, '$.device_uuid') = ?1",
+            rusqlite::params![&device_uuid],
+            |row| row.get(0),
+        )?;
+
+        if count > 0 {
+            tx.commit()?;
+            return Ok(());
+        }
+
+        Self::save_hlc(&ts, &tx)?;
+        let mut op = Operation::RegisterDevice {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: ts,
+            device_id: self.device_id.clone(),
+            device_uuid,
+            device_name,
+            identity_public_key: String::new(),
+            signature: String::new(),
+        };
+        Self::sign_op_with(&self.signing_key, &mut op);
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        tx.commit()?;
+
+        Ok(())
     }
 
 }

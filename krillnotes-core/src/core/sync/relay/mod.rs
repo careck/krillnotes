@@ -28,12 +28,13 @@ pub struct RelayChannel {
     client: RelayClient,
     workspace_id: String,
     sender_device_key: String,
+    sender_device_id: String,
 }
 
 #[cfg(feature = "relay")]
 impl RelayChannel {
-    pub fn new(client: RelayClient, workspace_id: String, sender_device_key: String) -> Self {
-        Self { client, workspace_id, sender_device_key }
+    pub fn new(client: RelayClient, workspace_id: String, sender_device_key: String, sender_device_id: String) -> Self {
+        Self { client, workspace_id, sender_device_key, sender_device_id }
     }
 
     pub fn client(&self) -> &RelayClient {
@@ -63,7 +64,12 @@ impl SyncChannel for RelayChannel {
         let header = client::BundleHeader {
             workspace_id: self.workspace_id.clone(),
             sender_device_key: self.sender_device_key.clone(),
+            sender_device_id: self.sender_device_id.clone(),
             recipient_device_keys: vec![recipient_key_hex],
+            // Leave empty: the relay routes by recipient_device_keys (account-level).
+            // Device-level filtering via recipient_device_ids will be used once the
+            // relay server and client agree on a stable composite device ID format.
+            recipient_device_ids: Vec::new(),
             mode: None,
         };
         let bundle_ids = self.client.upload_bundle(&header, bundle_bytes)?;
@@ -83,7 +89,9 @@ impl SyncChannel for RelayChannel {
         // Ensure a mailbox exists for this workspace so the relay routes bundles
         // to this account. The call is idempotent (201 on first call, 200 after).
         self.client.ensure_mailbox(workspace_id)?;
-        let metas = self.client.list_bundles()?;
+        // sender_device_id is this device's own composite ID.
+        // The relay uses it to filter to bundles addressed to us specifically.
+        let metas = self.client.list_bundles(&self.sender_device_id)?;
         let metas: Vec<_> = metas.into_iter().filter(|m| m.workspace_id == workspace_id).collect();
         log::debug!(target: "krillnotes::relay", "{} bundles pending for workspace {workspace_id}", metas.len());
         let mut bundles = Vec::new();
@@ -128,7 +136,7 @@ mod tests {
     fn test_relay_channel_construction() {
         let client = RelayClient::new("https://relay.example.com")
             .with_session_token("tok_test");
-        let channel = RelayChannel::new(client, "ws-test".to_string(), "sender-key".to_string());
+        let channel = RelayChannel::new(client, "ws-test".to_string(), "sender-key".to_string(), "sender-device-id".to_string());
         assert_eq!(channel.channel_type(), ChannelType::Relay);
     }
 }

@@ -4,7 +4,7 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
@@ -74,6 +74,15 @@ export default function WorkspacePeersDialog({
   // Per-peer selected relay account ID (for the dropdown)
   const [pendingRelayAccount, setPendingRelayAccount] = useState<Record<string, string>>({});
   const [resyncingPeer, setResyncingPeer] = useState<string | null>(null);
+
+  const [showSendToMyDevice, setShowSendToMyDevice] = useState(false);
+  const sendToMyDeviceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sendToMyDeviceStep, setSendToMyDeviceStep] = useState<'choice' | 'device-pick'>('choice');
+  const [sendToMyDeviceRelay, setSendToMyDeviceRelay] = useState<string>(''); // relay_account_id
+  const [sendToMyDeviceDevices, setSendToMyDeviceDevices] = useState<{ deviceKey: string; deviceId: string | null }[]>([]);
+  const [sendToMyDeviceLoading, setSendToMyDeviceLoading] = useState(false);
+  const [sendToMyDeviceError, setSendToMyDeviceError] = useState<string | null>(null);
+  const [sendToMyDeviceSuccess, setSendToMyDeviceSuccess] = useState(false);
 
   const loadPeers = useCallback(async () => {
     setLoading(true);
@@ -155,6 +164,48 @@ export default function WorkspacePeersDialog({
     }
   };
 
+  const handleSendToMyDeviceViaRelay = async (relayAccountId: string) => {
+    setSendToMyDeviceLoading(true);
+    setSendToMyDeviceError(null);
+    try {
+      const devices = await invoke<{ deviceKey: string; deviceId: string | null }[]>('list_devices_on_relay', {
+        identityUuid,
+        relayAccountId,
+      });
+      setSendToMyDeviceDevices(devices);
+      setSendToMyDeviceRelay(relayAccountId);
+      setSendToMyDeviceStep('device-pick');
+    } catch (e) {
+      setSendToMyDeviceError(String(e));
+    } finally {
+      setSendToMyDeviceLoading(false);
+    }
+  };
+
+  const handleSendToMyDeviceConfirm = async (targetDeviceId: string) => {
+    setSendToMyDeviceLoading(true);
+    setSendToMyDeviceError(null);
+    try {
+      await invoke('send_self_snapshot_via_relay', {
+        identityUuid,
+        targetDeviceId,
+        relayAccountId: sendToMyDeviceRelay,
+      });
+      setSendToMyDeviceSuccess(true);
+      if (sendToMyDeviceTimerRef.current) clearTimeout(sendToMyDeviceTimerRef.current);
+      sendToMyDeviceTimerRef.current = setTimeout(() => {
+        sendToMyDeviceTimerRef.current = null;
+        setShowSendToMyDevice(false);
+        setSendToMyDeviceStep('choice');
+        setSendToMyDeviceSuccess(false);
+      }, 1500);
+    } catch (e) {
+      setSendToMyDeviceError(String(e));
+    } finally {
+      setSendToMyDeviceLoading(false);
+    }
+  };
+
   const handleSendSnapshot = async (response: ReceivedResponseInfo) => {
     setSendSnapshotFor([response.inviteePublicKey]);
     setShowSendSnapshot(true);
@@ -185,6 +236,9 @@ export default function WorkspacePeersDialog({
     if (hours < 24) return `${hours}h ago`;
     return d.toLocaleDateString();
   };
+
+  const selfPeers = peers.filter(p => p.isSelfPeer);
+  const otherPeers = peers.filter(p => !p.isSelfPeer);
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50">
@@ -226,7 +280,78 @@ export default function WorkspacePeersDialog({
           {error && (
             <p className="text-sm text-red-500 p-2 rounded bg-red-500/10">{error}</p>
           )}
-          {peers.map((peer) => {
+          {selfPeers.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-1 mt-2">
+                My Devices
+              </div>
+              {selfPeers.map((peer) => {
+                const channelBadge = CHANNEL_BADGE[peer.channelType] ?? { label: peer.channelType, class: 'bg-gray-500/20 text-gray-400' };
+                const dotClass = syncStatusDotClass(peer.syncStatus);
+                const selectedChannelType = pendingChannelType[peer.peerDeviceId] ?? peer.channelType;
+                const currentFolderPath = peer.channelType === 'folder' ? (() => { try { return JSON.parse(peer.channelParams).path as string ?? null; } catch { return null; } })() : null;
+                const currentRelayAccountId = peer.channelType === 'relay' ? (() => { try { return JSON.parse(peer.channelParams).relay_account_id as string ?? null; } catch { return null; } })() : null;
+                return (
+                  <div
+                    key={peer.peerDeviceId}
+                    className="flex items-center justify-between p-3 rounded-md border border-[var(--color-border)] bg-[var(--color-secondary)]/20 mb-2"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">{peer.displayName}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${channelBadge.class}`}>
+                          {channelBadge.label}
+                        </span>
+                        <span
+                          title={peer.syncStatusDetail ?? undefined}
+                          className={`inline-block w-2 h-2 rounded-full ${dotClass} shrink-0`}
+                        />
+                      </div>
+                      <div className="text-xs text-[var(--color-muted-foreground)] mt-0.5">
+                        {formatLastSync(peer.lastSync)}
+                      </div>
+                      <div className="mt-1.5">
+                        <ChannelPicker
+                          selectedType={selectedChannelType as ChannelType}
+                          onTypeChange={async (type) => {
+                            setPendingChannelType(prev => ({ ...prev, [peer.peerDeviceId]: type }));
+                            if (type === 'manual') {
+                              await handleUpdateChannel(peer, type);
+                            }
+                          }}
+                          relayAccounts={relayAccounts}
+                          selectedRelayAccountId={pendingRelayAccount[peer.peerDeviceId] ?? currentRelayAccountId ?? undefined}
+                          onRelayAccountSelect={async (accountId) => {
+                            if (!accountId) return;
+                            try {
+                              await invoke('set_peer_relay', {
+                                peerDeviceId: peer.peerDeviceId,
+                                relayAccountId: accountId,
+                              });
+                              setPendingRelayAccount(prev => {
+                                const next = { ...prev };
+                                delete next[peer.peerDeviceId];
+                                return next;
+                              });
+                              await loadPeers();
+                            } catch (err) {
+                              setError(String(err));
+                            }
+                          }}
+                          currentFolderPath={currentFolderPath}
+                          onConfigureFolder={() => handleUpdateChannel(peer, selectedChannelType)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-1 mt-3">
+                Peers
+              </div>
+            </div>
+          )}
+          {otherPeers.map((peer) => {
             const badge = peer.trustLevel ? (TRUST_BADGE[peer.trustLevel] ?? TRUST_BADGE.Tofu) : null;
             const channelBadge = CHANNEL_BADGE[peer.channelType] ?? { label: peer.channelType, class: 'bg-gray-500/20 text-gray-400' };
             const dotClass = syncStatusDotClass(peer.syncStatus);
@@ -382,8 +507,137 @@ export default function WorkspacePeersDialog({
           >
             Create Snapshot…
           </button>
+          <button
+            onClick={() => {
+              setSendToMyDeviceStep('choice');
+              setSendToMyDeviceError(null);
+              setSendToMyDeviceSuccess(false);
+              setShowSendToMyDevice(true);
+            }}
+            className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
+          >
+            Send to My Device…
+          </button>
         </div>
       </div>
+
+      {showSendToMyDevice && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50">
+          <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg shadow-xl w-[380px] p-5 flex flex-col gap-4">
+            <h3 className="text-base font-semibold">Send to My Device</h3>
+            {sendToMyDeviceSuccess ? (
+              <p className="text-sm text-green-400">Snapshot sent successfully!</p>
+            ) : sendToMyDeviceStep === 'choice' ? (
+              <>
+                <p className="text-sm text-[var(--color-muted-foreground)]">
+                  Choose how to send this workspace to another device running the same identity.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {relayAccounts.length > 0 ? (
+                    relayAccounts.length === 1 ? (
+                      <button
+                        onClick={() => handleSendToMyDeviceViaRelay(relayAccounts[0].relayAccountId)}
+                        disabled={sendToMyDeviceLoading}
+                        className="px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+                      >
+                        Via Relay
+                      </button>
+                    ) : (
+                      <div>
+                        <p className="text-xs text-[var(--color-muted-foreground)] mb-1">Choose relay:</p>
+                        {relayAccounts.map(acc => (
+                          <button
+                            key={acc.relayAccountId}
+                            onClick={() => handleSendToMyDeviceViaRelay(acc.relayAccountId)}
+                            disabled={sendToMyDeviceLoading}
+                            className="w-full text-left px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] mb-1 disabled:opacity-40"
+                          >
+                            {acc.email} ({acc.relayUrl})
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    <p className="text-xs text-[var(--color-muted-foreground)] italic">
+                      No relay accounts configured. Use the file method or set up a relay account first.
+                    </p>
+                  )}
+                  <button
+                    disabled={!workspaceInfo?.identityPublicKey}
+                    onClick={() => {
+                      if (sendToMyDeviceTimerRef.current) { clearTimeout(sendToMyDeviceTimerRef.current); sendToMyDeviceTimerRef.current = null; }
+                      setShowSendToMyDevice(false);
+                      setSendSnapshotFor([workspaceInfo!.identityPublicKey!]);
+                      setShowSendSnapshot(true);
+                    }}
+                    className="px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Export File…
+                  </button>
+                </div>
+                {sendToMyDeviceError && (
+                  <p className="text-xs text-red-500">{sendToMyDeviceError}</p>
+                )}
+              </>
+            ) : sendToMyDeviceStep === 'device-pick' ? (
+              <>
+                <p className="text-sm text-[var(--color-muted-foreground)]">
+                  Select the target device:
+                </p>
+                {sendToMyDeviceLoading ? (
+                  <p className="text-sm text-[var(--color-muted-foreground)]">Loading…</p>
+                ) : sendToMyDeviceDevices.length === 0 ? (
+                  <p className="text-sm text-[var(--color-muted-foreground)] italic">
+                    No other devices found on this relay. Make sure Device B has registered with the relay.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {sendToMyDeviceDevices.map(device => (
+                      <button
+                        key={device.deviceKey}
+                        onClick={() => {
+                          const targetId = device.deviceId ?? device.deviceKey;
+                          handleSendToMyDeviceConfirm(targetId);
+                        }}
+                        disabled={sendToMyDeviceLoading}
+                        className="w-full text-left px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
+                      >
+                        <div className="font-mono text-xs text-[var(--color-muted-foreground)]">
+                          {device.deviceId ? `ID: ${device.deviceId.split(':')[1] ?? device.deviceId}` : `Key: ${device.deviceKey.slice(0, 12)}…`}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {sendToMyDeviceError && (
+                  <p className="text-xs text-red-500">{sendToMyDeviceError}</p>
+                )}
+              </>
+            ) : null}
+            <div className="flex justify-end gap-2 mt-2">
+              {sendToMyDeviceStep !== 'choice' && !sendToMyDeviceSuccess && (
+                <button
+                  onClick={() => setSendToMyDeviceStep('choice')}
+                  className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (sendToMyDeviceTimerRef.current) { clearTimeout(sendToMyDeviceTimerRef.current); sendToMyDeviceTimerRef.current = null; }
+                  setShowSendToMyDevice(false);
+                  setSendToMyDeviceStep('choice');
+                  setSendToMyDeviceSuccess(false);
+                }}
+                className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
+              >
+                {sendToMyDeviceSuccess ? 'Close' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddFromContacts && (
         <AddPeerFromContactsDialog

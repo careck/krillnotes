@@ -56,6 +56,16 @@ pub struct AccountInfo {
     pub storage_used: u64,
 }
 
+/// Info about another device registered on the same relay account.
+#[derive(Debug, Deserialize)]
+pub struct RemoteDeviceInfo {
+    /// Hex-encoded Ed25519 public key of the device.
+    pub device_key: String,
+    /// Composite device_id (may be absent on older relay servers).
+    #[serde(default)]
+    pub device_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MailboxInfo {
     pub workspace_id: String,
@@ -150,7 +160,9 @@ struct EnsureMailboxRequest<'a> {
 pub struct BundleHeader {
     pub workspace_id: String,
     pub sender_device_key: String,
+    pub sender_device_id: String,
     pub recipient_device_keys: Vec<String>,
+    pub recipient_device_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
@@ -544,13 +556,18 @@ impl RelayClient {
     }
 
     /// List all pending bundles for the authenticated account.
-    pub fn list_bundles(&self) -> Result<Vec<BundleMeta>, KrillnotesError> {
-        log::debug!(target: "krillnotes::relay", "GET {}/bundles", self.base_url);
+    ///
+    /// `device_id` is sent as a `?device_id=` query parameter so the relay can
+    /// filter bundles to the specific device (Task D relay-server changes will
+    /// honour this; the current server ignores it but still returns 200).
+    pub fn list_bundles(&self, device_id: &str) -> Result<Vec<BundleMeta>, KrillnotesError> {
+        log::debug!(target: "krillnotes::relay", "GET {}/bundles (device_id={device_id})", self.base_url);
         let auth = self.auth_header()?;
         let resp = self
             .http
             .get(self.url("/bundles"))
             .header("Authorization", auth)
+            .query(&[("device_id", device_id)])
             .send()
             .map_err(|e| {
                 log::error!(target: "krillnotes::relay", "list_bundles request failed: {e}");
@@ -672,6 +689,30 @@ impl RelayClient {
                 KrillnotesError::RelayUnavailable(e.to_string())
             })?;
         Self::handle_empty(resp)
+    }
+
+    /// List devices registered on the account (other devices sharing the same identity).
+    ///
+    /// Pass `exclude_key` to filter out the calling device's own hex public key.
+    /// The relay server may support a `?exclude_key=` query parameter for this.
+    pub fn list_devices(
+        &self,
+        exclude_key: Option<&str>,
+    ) -> Result<Vec<RemoteDeviceInfo>, KrillnotesError> {
+        log::debug!(target: "krillnotes::relay", "GET {}/account/devices", self.base_url);
+        let auth = self.auth_header()?;
+        let mut req = self
+            .http
+            .get(self.url("/account/devices"))
+            .header("Authorization", auth);
+        if let Some(key) = exclude_key {
+            req = req.query(&[("exclude_key", key)]);
+        }
+        let resp = req.send().map_err(|e| {
+            log::error!(target: "krillnotes::relay", "list_devices request failed: {e}");
+            KrillnotesError::RelayUnavailable(e.to_string())
+        })?;
+        Self::handle_response(resp)
     }
 }
 

@@ -39,6 +39,7 @@ export function ShareDialog({
   const availablePeers = useMemo(() => {
     const grantedKeys = new Set(existingGrants.map(g => g.userId));
     return peers.filter(p =>
+      !p.isSelfPeer &&
       !grantedKeys.has(p.peerIdentityId) &&
       (search === '' ||
         p.displayName.toLowerCase().includes(search.toLowerCase()) ||
@@ -71,11 +72,11 @@ export function ShareDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl p-6 w-full max-w-md">
+      <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-xl shadow-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-semibold mb-1">
           {t('share.title', 'Share subtree')}
         </h2>
-        <p className="text-xs text-zinc-500 mb-4">{noteTitle}</p>
+        <p className="text-xs text-[var(--color-muted-foreground)] mb-4">{noteTitle}</p>
 
         {/* Search */}
         <input
@@ -83,13 +84,13 @@ export function ShareDialog({
           placeholder={t('share.searchPeers', 'Search peers...')}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-sm mb-2 dark:bg-zinc-800 dark:border-zinc-700"
+          className="w-full border border-[var(--color-border)] bg-[var(--color-background)] rounded px-3 py-2 text-sm mb-2"
         />
 
         {/* Peer list */}
-        <div className="max-h-40 overflow-y-auto border rounded dark:border-zinc-700 mb-3">
+        <div className="max-h-40 overflow-y-auto border border-[var(--color-border)] rounded mb-3">
           {availablePeers.length === 0 ? (
-            <p className="text-xs text-zinc-400 p-3 text-center">
+            <p className="text-xs text-[var(--color-muted-foreground)] p-3 text-center">
               {t('share.noPeers', 'No available peers')}
             </p>
           ) : (
@@ -99,19 +100,19 @@ export function ShareDialog({
                 onClick={() => setSelectedPeerId(peer.peerIdentityId)}
                 className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
                   selectedPeerId === peer.peerIdentityId
-                    ? 'bg-blue-50 dark:bg-blue-900/30'
-                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                    ? 'bg-blue-500/20'
+                    : 'hover:bg-[var(--color-secondary)]'
                 }`}
               >
                 <span className="flex-1 truncate">{peer.displayName}</span>
-                <span className="text-xs text-zinc-400 font-mono">
+                <span className="text-xs text-[var(--color-muted-foreground)] font-mono">
                   {peer.fingerprint?.slice(0, 8) ?? ''}
                 </span>
               </button>
             ))
           )}
         </div>
-        <p className="text-xs text-zinc-400 mb-3">
+        <p className="text-xs text-[var(--color-muted-foreground)] mb-3">
           {t('share.peerCount', '{{available}} of {{total}} peers', { available: availablePeers.length, total: peers.length })}
         </p>
 
@@ -121,7 +122,7 @@ export function ShareDialog({
             {t('share.role', 'Role')}
           </label>
           <select
-            className="w-full border rounded px-3 py-2 dark:bg-zinc-800 dark:border-zinc-700"
+            className="w-full border border-[var(--color-border)] bg-[var(--color-background)] rounded px-3 py-2"
             value={role}
             onChange={e => setRole(e.target.value)}
             disabled={processing}
@@ -141,7 +142,7 @@ export function ShareDialog({
           <button
             onClick={onClose}
             disabled={processing}
-            className="px-4 py-2 text-sm rounded border dark:border-zinc-700 disabled:opacity-50"
+            className="px-4 py-2 text-sm rounded border border-[var(--color-border)] disabled:opacity-50"
           >
             {t('common.cancel', 'Cancel')}
           </button>

@@ -369,7 +369,8 @@ impl Workspace {
             | Operation::UpdateSchema { .. }
             | Operation::RetractOperation { .. }
             | Operation::RemovePeer { .. }
-            | Operation::TransferRootOwnership { .. } => {}
+            | Operation::TransferRootOwnership { .. }
+            | Operation::RegisterDevice { .. } => {}
 
             Operation::AddAttachment {
                 attachment_id, note_id, filename, mime_type, ..
@@ -473,6 +474,7 @@ impl Workspace {
             Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
             Operation::AddAttachment { .. } => "AddAttachment",
             Operation::RemoveAttachment { .. } => "RemoveAttachment",
+            Operation::RegisterDevice { .. } => "RegisterDevice",
         }
     }
 
@@ -633,6 +635,7 @@ impl Workspace {
                     contact_id: contact.map(|c| c.contact_id.to_string()),
                     last_sync: peer.last_sync,
                     is_owner: peer.peer_identity_id == self.owner_pubkey,
+                    is_self_peer: peer.peer_identity_id == self.current_identity_pubkey,
                     channel_type: peer.channel_type,
                     channel_params: peer.channel_params,
                     sync_status: peer.sync_status,

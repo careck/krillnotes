@@ -290,7 +290,7 @@ pub async fn poll_receive_workspace(
             }
 
             // List all pending relay bundles (single API call).
-            let all_bundles = match client.list_bundles() {
+            let all_bundles = match client.list_bundles(&device_id) {
                 Ok(b) => b,
                 Err(e) => {
                     log::warn!("poll_receive_workspace: list_bundles failed: {e}");
@@ -731,6 +731,7 @@ pub async fn poll_receive_identity(
 
     // Build RelayConnections and call core function inside spawn_blocking
     let temp_dir = std::env::temp_dir();
+    let device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
 
     let result = tokio::task::spawn_blocking(move || {
         use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};
@@ -744,7 +745,7 @@ pub async fn poll_receive_identity(
             })
             .collect();
 
-        receive_poll_identity(&connections, &waiting, &temp_dir)
+        receive_poll_identity(&connections, &waiting, &temp_dir, &device_id)
             .map_err(|e| e.to_string())
     }).await.map_err(|e| e.to_string())??;
 
@@ -814,6 +815,7 @@ pub async fn poll_all_identity_snapshots(
         );
 
         let temp_dir = std::env::temp_dir();
+        let device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
         let result = tokio::task::spawn_blocking(move || {
             use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};
             use krillnotes_core::core::sync::relay::client::RelayClient;
@@ -826,7 +828,7 @@ pub async fn poll_all_identity_snapshots(
                 })
                 .collect();
 
-            receive_poll_identity(&connections, &waiting, &temp_dir)
+            receive_poll_identity(&connections, &waiting, &temp_dir, &device_id)
                 .map_err(|e| e.to_string())
         }).await.map_err(|e| e.to_string())??;
 
