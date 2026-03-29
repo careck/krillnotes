@@ -86,6 +86,8 @@ impl SyncChannel for RelayChannel {
         // Ensure a mailbox exists for this workspace so the relay routes bundles
         // to this account. The call is idempotent (201 on first call, 200 after).
         self.client.ensure_mailbox(workspace_id)?;
+        // sender_device_id is this device's own composite ID.
+        // The relay uses it to filter to bundles addressed to us specifically.
         let metas = self.client.list_bundles(&self.sender_device_id)?;
         let metas: Vec<_> = metas.into_iter().filter(|m| m.workspace_id == workspace_id).collect();
         log::debug!(target: "krillnotes::relay", "{} bundles pending for workspace {workspace_id}", metas.len());
