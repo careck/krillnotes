@@ -3764,4 +3764,7 @@ schema("SameVerType", #{
         // device_name must be non-empty.
         let device_name = data["device_name"].as_str().expect("device_name must be present");
         assert!(!device_name.is_empty(), "device_name must be non-empty");
+
+        let pubkey = data["identity_public_key"].as_str().expect("identity_public_key must be present");
+        assert!(!pubkey.is_empty(), "identity_public_key must be non-empty after signing");
     }
