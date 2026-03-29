@@ -178,6 +178,7 @@ pub async fn poll_sync(
                 relay_client,
                 workspace_id_str.clone(),
                 acct.device_public_key.clone(),
+                device_id.clone(),
             )));
         }
 

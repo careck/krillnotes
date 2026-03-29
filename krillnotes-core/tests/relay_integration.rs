@@ -225,7 +225,9 @@ fn relay_delta_roundtrip() {
     let header = BundleHeader {
         workspace_id: alice_ws.workspace_id().to_string(),
         sender_device_key: b64_pubkey(&alice_key),
+        sender_device_id: "alice-device-test".to_string(),
         recipient_device_keys: vec![bob_pubkey_b64.clone()],
+        recipient_device_ids: vec!["bob-device-test".to_string()],
         mode: Some("delta".to_string()),
     };
     let bundle_ids = alice_client.upload_bundle(&header, &bundle.bundle_bytes).expect("upload_bundle");
