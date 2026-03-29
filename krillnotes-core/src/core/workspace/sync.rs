@@ -369,7 +369,8 @@ impl Workspace {
             | Operation::UpdateSchema { .. }
             | Operation::RetractOperation { .. }
             | Operation::RemovePeer { .. }
-            | Operation::TransferRootOwnership { .. } => {}
+            | Operation::TransferRootOwnership { .. }
+            | Operation::RegisterDevice { .. } => {}
 
             Operation::AddAttachment {
                 attachment_id, note_id, filename, mime_type, ..
@@ -473,6 +474,7 @@ impl Workspace {
             Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
             Operation::AddAttachment { .. } => "AddAttachment",
             Operation::RemoveAttachment { .. } => "RemoveAttachment",
+            Operation::RegisterDevice { .. } => "RegisterDevice",
         }
     }
 

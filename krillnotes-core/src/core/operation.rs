@@ -348,6 +348,24 @@ pub enum Operation {
         /// Ed25519 signature over the canonical JSON payload (base64).
         signature: String,
     },
+    /// A device registered itself in this workspace for the first time.
+    /// Emitted once per (workspace, device) pair on first open.
+    RegisterDevice {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// HLC timestamp when the operation was created.
+        timestamp: HlcTimestamp,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// The composite device UUID portion (part after ':' in device_id).
+        device_uuid: String,
+        /// Human-readable name for this device (from hostname).
+        device_name: String,
+        /// Base64-encoded Ed25519 public key of the registering identity.
+        identity_public_key: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
 }
 
 impl Operation {
@@ -372,7 +390,8 @@ impl Operation {
             | Self::RemovePeer { operation_id, .. }
             | Self::TransferRootOwnership { operation_id, .. }
             | Self::AddAttachment { operation_id, .. }
-            | Self::RemoveAttachment { operation_id, .. } => operation_id,
+            | Self::RemoveAttachment { operation_id, .. }
+            | Self::RegisterDevice { operation_id, .. } => operation_id,
         }
     }
 
@@ -397,7 +416,8 @@ impl Operation {
             | Self::RemovePeer { timestamp, .. }
             | Self::TransferRootOwnership { timestamp, .. }
             | Self::AddAttachment { timestamp, .. }
-            | Self::RemoveAttachment { timestamp, .. } => *timestamp,
+            | Self::RemoveAttachment { timestamp, .. }
+            | Self::RegisterDevice { timestamp, .. } => *timestamp,
         }
     }
 
@@ -422,7 +442,8 @@ impl Operation {
             | Self::RemovePeer { device_id, .. }
             | Self::TransferRootOwnership { device_id, .. }
             | Self::AddAttachment { device_id, .. }
-            | Self::RemoveAttachment { device_id, .. } => device_id,
+            | Self::RemoveAttachment { device_id, .. }
+            | Self::RegisterDevice { device_id, .. } => device_id,
         }
     }
 
@@ -450,6 +471,7 @@ impl Operation {
             Self::TransferRootOwnership { transferred_by, .. } => transferred_by,
             Self::AddAttachment { added_by, .. } => added_by,
             Self::RemoveAttachment { removed_by, .. } => removed_by,
+            Self::RegisterDevice { identity_public_key, .. } => identity_public_key,
         }
     }
 
@@ -475,6 +497,7 @@ impl Operation {
             Self::TransferRootOwnership { transferred_by, .. } => *transferred_by = key,
             Self::AddAttachment { added_by, .. } => *added_by = key,
             Self::RemoveAttachment { removed_by, .. } => *removed_by = key,
+            Self::RegisterDevice { identity_public_key, .. } => *identity_public_key = key,
         }
     }
 
@@ -496,7 +519,8 @@ impl Operation {
             | Self::RemovePeer { signature, .. }
             | Self::TransferRootOwnership { signature, .. }
             | Self::AddAttachment { signature, .. }
-            | Self::RemoveAttachment { signature, .. } => *signature = sig,
+            | Self::RemoveAttachment { signature, .. }
+            | Self::RegisterDevice { signature, .. } => *signature = sig,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -519,7 +543,8 @@ impl Operation {
             | Self::RemovePeer { signature, .. }
             | Self::TransferRootOwnership { signature, .. }
             | Self::AddAttachment { signature, .. }
-            | Self::RemoveAttachment { signature, .. } => signature,
+            | Self::RemoveAttachment { signature, .. }
+            | Self::RegisterDevice { signature, .. } => signature,
             Self::RetractOperation { .. } => "",
         }
     }

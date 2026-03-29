@@ -314,7 +314,7 @@ impl Workspace {
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -337,6 +337,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
     }
@@ -535,7 +537,7 @@ impl Workspace {
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -558,6 +560,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json(); // best-effort; non-fatal
         Ok(workspace)
     }
@@ -685,7 +689,7 @@ impl Workspace {
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -708,6 +712,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json();
         Ok(workspace)
     }
@@ -798,7 +804,7 @@ impl Workspace {
         // Initialise permission gate tables.
         permission_gate.ensure_schema(storage.connection())?;
 
-        let workspace = Self {
+        let mut workspace = Self {
             storage,
             script_registry,
             operation_log,
@@ -821,6 +827,8 @@ impl Workspace {
             pending_migration_results: Vec::new(),
             permission_gate,
         };
+        // Emit a RegisterDevice operation for the creating device.
+        workspace.emit_register_device_if_needed()?;
         let _ = workspace.write_info_json();
         Ok(workspace)
     }
@@ -999,6 +1007,9 @@ impl Workspace {
 
         // Phase D: batch-migrate notes whose schema_version is behind current schema.
         ws.pending_migration_results = ws.run_schema_migrations()?;
+
+        // Emit a RegisterDevice operation the first time this device opens this workspace.
+        ws.emit_register_device_if_needed()?;
 
         // Clean up any .enc.trash files left from a previous session.
         // Undo stacks are in-session only, so prior-session trash is always safe to remove.
@@ -1344,6 +1355,60 @@ impl Workspace {
         }
 
         Ok(results)
+    }
+
+    /// Emits a `RegisterDevice` operation the first time this device opens this workspace.
+    ///
+    /// Checks whether a `RegisterDevice` operation for this `device_uuid` already exists
+    /// in the operations log. If not, creates and logs one. This is idempotent across
+    /// multiple opens of the same workspace on the same device.
+    pub(crate) fn emit_register_device_if_needed(&mut self) -> Result<()> {
+        let device_uuid = crate::core::identity::device_part_from_device_id(&self.device_id).to_string();
+
+        // Check if a RegisterDevice op for this device_uuid already exists.
+        let count: i64 = self.storage.connection().query_row(
+            "SELECT COUNT(*) FROM operations \
+             WHERE operation_type = 'RegisterDevice' \
+             AND json_extract(operation_data, '$.device_uuid') = ?1",
+            rusqlite::params![&device_uuid],
+            |row| row.get(0),
+        )?;
+
+        if count > 0 {
+            return Ok(());
+        }
+
+        // Determine a human-readable device name from the hostname.
+        let device_name = {
+            let raw = hostname::get()
+                .ok()
+                .and_then(|n| n.into_string().ok())
+                .unwrap_or_default();
+            let trimmed = raw.trim().to_lowercase();
+            if trimmed.is_empty() || trimmed == "localhost" || trimmed == "unknown" {
+                format!("{} Device", std::env::consts::OS)
+            } else {
+                raw.trim().to_string()
+            }
+        };
+
+        let ts = self.hlc.now();
+        let tx = self.storage.connection_mut().transaction()?;
+        Self::save_hlc(&ts, &tx)?;
+        let mut op = Operation::RegisterDevice {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            timestamp: ts,
+            device_id: self.device_id.clone(),
+            device_uuid,
+            device_name,
+            identity_public_key: String::new(),
+            signature: String::new(),
+        };
+        Self::sign_op_with(&self.signing_key, &mut op);
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        tx.commit()?;
+
+        Ok(())
     }
 
 }

@@ -2905,8 +2905,8 @@ schema("SameVerType", #{
         let db_path = dir.path().join("notes.db");
         let key = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
         let ws = Workspace::create(&db_path, "", "test-id", key, test_gate(), None).unwrap();
-        // A freshly created workspace has no operations logged yet.
-        assert!(ws.get_latest_operation_id().unwrap().is_none());
+        // A freshly created workspace has a RegisterDevice operation, so latest is Some.
+        assert!(ws.get_latest_operation_id().unwrap().is_some());
     }
 
     #[test]
@@ -3189,8 +3189,10 @@ schema("SameVerType", #{
         let temp = NamedTempFile::new().unwrap();
         let ws = Workspace::create(temp.path(), "", "id-1",
             ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
-        // No operations yet, so operations_since(None, "other-device") returns empty
-        let ops = ws.operations_since(None, "other-device").unwrap();
+        // A freshly created workspace has a RegisterDevice op, so operations_since is non-empty.
+        // operations_since excludes ops from the given device_id; "id-1" is the local device_id
+        // so pass "id-1" to exclude local ops, making the result empty.
+        let ops = ws.operations_since(None, "id-1").unwrap();
         assert!(ops.is_empty());
     }
 
@@ -3204,14 +3206,15 @@ schema("SameVerType", #{
         let _id1 = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
         let _id2 = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
 
-        // Get all ops (excluding this device — but we need to use "nonexistent-device" so local ops show)
+        // Get all ops (excluding this device — but we need to use "nonexistent-device" so local ops show).
+        // Now includes RegisterDevice + 2x CreateNote = 3 ops total.
         let all_ops = ws.operations_since(None, "nonexistent-device").unwrap();
-        assert_eq!(all_ops.len(), 2);
+        assert_eq!(all_ops.len(), 3);
         let first_op_id = all_ops[0].operation_id().to_string();
 
-        // Only second op should be returned when watermark = first_op_id
+        // Ops after the first op: should be the remaining 2.
         let since_ops = ws.operations_since(Some(&first_op_id), "nonexistent-device").unwrap();
-        assert_eq!(since_ops.len(), 1);
+        assert_eq!(since_ops.len(), 2);
         assert_eq!(since_ops[0].operation_id(), all_ops[1].operation_id());
     }
 
@@ -3701,4 +3704,64 @@ schema("SameVerType", #{
         assert!(trash_path.exists(), ".enc.trash must exist after redo of delete_attachment");
         assert!(ws.can_undo(), "undo stack should have an entry after redo");
         assert!(!ws.can_redo(), "redo stack should be empty after redo");
+    }
+
+    #[test]
+    fn test_register_device_emitted_once_on_create() {
+        // Opening a workspace twice (create then open) should produce exactly ONE RegisterDevice op.
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        {
+            let _ws = Workspace::create(
+                temp.path(), "", "test-identity",
+                ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+                test_gate(), None,
+            ).unwrap();
+        }
+        // Open the same workspace a second time.
+        let ws = Workspace::open(
+            temp.path(), "", "test-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+            test_gate(), None,
+        ).unwrap();
+
+        let ops = ws.list_operations(None, None, None).unwrap();
+        let register_ops: Vec<_> = ops.iter()
+            .filter(|o| o.operation_type == "RegisterDevice")
+            .collect();
+        assert_eq!(
+            register_ops.len(), 1,
+            "exactly one RegisterDevice op should be emitted even after create + open"
+        );
+    }
+
+    #[test]
+    fn test_register_device_fields_are_correct() {
+        // The emitted RegisterDevice op should contain the correct device_uuid and a non-empty device_name.
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let ws = Workspace::create(
+            temp.path(), "", "test-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+            test_gate(), None,
+        ).unwrap();
+
+        // Query the raw operation_data JSON directly from the DB.
+        let data_json: String = ws.connection()
+            .query_row(
+                "SELECT operation_data FROM operations WHERE operation_type = 'RegisterDevice' LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("RegisterDevice op must be present after workspace create");
+
+        let data: serde_json::Value = serde_json::from_str(&data_json)
+            .expect("operation_data must be valid JSON");
+
+        // device_uuid: since we passed identity_dir=None, device_id = "test-identity"
+        // and device_part_from_device_id returns the whole string.
+        let device_uuid = data["device_uuid"].as_str().expect("device_uuid must be present");
+        assert_eq!(device_uuid, "test-identity", "device_uuid should match the device_id part");
+
+        // device_name must be non-empty.
+        let device_name = data["device_name"].as_str().expect("device_name must be present");
+        assert!(!device_name.is_empty(), "device_name must be non-empty");
     }
