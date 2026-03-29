@@ -414,6 +414,8 @@ pub fn run() {
             add_contact_as_peer,
             create_snapshot_for_peers,
             send_snapshot_via_relay,
+            send_self_snapshot_via_relay,
+            list_devices_on_relay,
             apply_swarm_snapshot,
             apply_swarm_delta,
             generate_deltas_for_peers,

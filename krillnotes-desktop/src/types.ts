@@ -10,6 +10,7 @@ export interface WorkspaceInfo {
   noteCount: number;
   selectedNoteId?: string;
   identityUuid?: string;
+  identityPublicKey?: string;
   workspaceId?: string;
 }
 
@@ -245,11 +246,17 @@ export interface PeerInfo {
   contactId?: string;     // UUID string, undefined if not in contacts
   lastSync?: string;      // ISO 8601, undefined if never synced
   isOwner?: boolean;
+  isSelfPeer?: boolean;
   channelType: string;          // "relay" | "folder" | "manual"
   channelParams: string;        // JSON-encoded channel config, e.g. {"path":"/shared/folder"}
   syncStatus: string;           // "idle" | "syncing" | "error" | "auth_expired"
   syncStatusDetail: string | null;
   lastSyncError: string | null;
+}
+
+export interface RemoteDeviceInfo {
+  deviceKey: string;
+  deviceId: string | null;
 }
 
 export interface SyncEvent {

@@ -46,6 +46,8 @@ pub struct ParsedSnapshot {
     pub as_of_operation_id: String,
     pub sender_public_key: String,
     pub sender_display_name: String,
+    /// Composite device_id of the sending device (from SwarmHeader.source_device_id).
+    pub sender_device_id: String,
     /// Decrypted workspace.json bytes — caller parses with serde.
     pub workspace_json: Vec<u8>,
     pub attachment_blobs: Vec<(String, Vec<u8>)>,
@@ -212,6 +214,7 @@ pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<
         as_of_operation_id: header.as_of_operation_id.unwrap_or_default(),
         sender_public_key: header.source_identity,
         sender_display_name: header.source_display_name,
+        sender_device_id: header.source_device_id,
         workspace_json,
         attachment_blobs,
         owner_pubkey: header.owner_pubkey,

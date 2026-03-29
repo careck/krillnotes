@@ -235,6 +235,7 @@ impl OperationLog {
             Operation::TransferRootOwnership { .. } => "TransferRootOwnership",
             Operation::AddAttachment { .. } => "AddAttachment",
             Operation::RemoveAttachment { .. } => "RemoveAttachment",
+            Operation::RegisterDevice { .. } => "RegisterDevice",
         }
     }
 

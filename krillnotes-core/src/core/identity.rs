@@ -876,6 +876,55 @@ impl IdentityManager {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Per-machine device UUID helpers
+// ---------------------------------------------------------------------------
+
+/// Returns the stable device UUID for this identity on this machine.
+/// Creates the UUID file if it doesn't exist.
+/// The UUID is stored as a plain string in `identity_dir/device_id`.
+pub fn ensure_device_uuid(identity_dir: &std::path::Path) -> crate::Result<String> {
+    let device_id_path = identity_dir.join("device_id");
+    let new_uuid = Uuid::new_v4().to_string();
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&device_id_path)
+    {
+        Ok(mut f) => {
+            use std::io::Write;
+            f.write_all(new_uuid.as_bytes())?;
+            Ok(new_uuid)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let content = std::fs::read_to_string(&device_id_path)?;
+            Ok(content.trim().to_string())
+        }
+        Err(e) => Err(crate::KrillnotesError::Io(e)),
+    }
+}
+
+/// Extracts the identity UUID prefix from a composite `{identity_uuid}:{device_uuid}` device_id.
+/// If the string contains ':', returns the part before ':'; otherwise returns the whole string.
+pub fn identity_from_device_id(device_id: &str) -> &str {
+    if let Some(pos) = device_id.find(':') {
+        &device_id[..pos]
+    } else {
+        device_id
+    }
+}
+
+/// Extracts the device UUID suffix from a composite `{identity_uuid}:{device_uuid}` device_id.
+/// If the string contains ':', returns the part after ':'; otherwise returns the whole string.
+/// This is the part used as the HLC node ID.
+pub fn device_part_from_device_id(device_id: &str) -> &str {
+    if let Some(pos) = device_id.find(':') {
+        &device_id[pos + 1..]
+    } else {
+        device_id
+    }
+}
+
 #[cfg(test)]
 #[path = "identity_tests.rs"]
 mod tests;

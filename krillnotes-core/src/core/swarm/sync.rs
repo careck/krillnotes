@@ -333,6 +333,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
 
@@ -389,6 +390,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
 
@@ -440,6 +442,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
         let snap_op = alice_ws
@@ -483,6 +486,7 @@ mod tests {
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
 
@@ -520,6 +524,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
         let snap_op = alice_ws
@@ -555,6 +560,7 @@ mod tests {
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();
@@ -589,6 +595,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
 
@@ -635,6 +642,7 @@ mod tests {
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
         let bob_cm_dir = tempfile::tempdir().unwrap();
@@ -684,6 +692,7 @@ mod tests {
             SigningKey::from_bytes(&alice_key.to_bytes()),
             // Alice uses protocol "wrong/1"
             Box::new(AllowAllGate::new("wrong/1")),
+            None,
         )
         .unwrap();
 
@@ -736,6 +745,7 @@ mod tests {
             "bob-id",
             SigningKey::from_bytes(&bob_key.to_bytes()),
             test_gate(), // protocol "test"
+            None,
         )
         .unwrap();
 
@@ -774,6 +784,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
 
@@ -822,6 +833,7 @@ mod tests {
             SigningKey::from_bytes(&bob_key.to_bytes()),
             &workspace_id,
             test_gate(),
+            None,
         )
         .unwrap();
         // Adopt Alice's owner_pubkey so the bundle owner check passes.
@@ -891,6 +903,7 @@ mod tests {
             "alice-id",
             SigningKey::from_bytes(&alice_key.to_bytes()),
             test_gate(),
+            None,
         )
         .unwrap();
 
@@ -912,6 +925,7 @@ mod tests {
             SigningKey::from_bytes(&bob_key.to_bytes()),
             &workspace_id,
             test_gate(),
+            None,
         )
         .unwrap();
         bob_ws.set_owner_pubkey(&alice_pubkey_b64).unwrap();
