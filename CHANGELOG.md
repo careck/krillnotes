@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-03-29
+
 ### Added
+- **Multi-device sync** — Run the same identity on multiple machines with full relay routing between them (PR #124):
+  - **Composite device IDs** — Device IDs are now `{identity_uuid}:{device_uuid}`, so two machines running the same identity have distinct addresses. A stable `device_uuid` is persisted per machine in the identity directory.
+  - **`RegisterDevice` operation** — A new CRDT operation is emitted once per (workspace, device) pair on open, recording device UUID, human-readable device name (hostname), and identity public key. All peers eventually learn about each other's devices.
+  - **Relay device routing** — `BundleHeader` now carries `sender_device_id` and `recipient_device_ids` so the relay can route bundles to specific devices. `list_bundles()` accepts a device ID filter parameter.
+  - **My Devices UI** — Workspace Peers dialog groups same-identity peers into a "My Devices" section with simplified display (name, channel, sync status — no fingerprint or contact badge). Self-peers are excluded from the Share dialog since they already share identical access.
+  - **Send to My Device** — Footer button in Workspace Peers with two paths: *Via Relay* (device picker → `send_self_snapshot_via_relay`) and *Export File* (snapshot addressed to own identity key). Enables bootstrapping a new device without going through the invite flow.
+  - **Self-snapshot relay support** — `send_self_snapshot_via_relay` and `list_devices_on_relay` Tauri commands for discovering and syncing with your own devices on the relay.
 - Sharing indicator visibility setting (`Off` / `Auto` / `On`) in Settings → Appearance — `Auto` (default) hides permission dots and shared-subtree icon when the workspace has no peers, keeping the tree clean for solo users (#111, PR #120)
 - **Invite workflow redesign** — Streamlined the invite/onboard flow so role and channel are chosen upfront (#113, PR #123):
   - **InviteWorkflow** — New single-step dialog (right-click → "Invite to subtree") with role picker (Owner/Writer/Reader), expiry, and channel toggle (relay with account picker, or file). Replaces `CreateInviteDialog`.
@@ -19,9 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **InviteManagerDialog stripped to list-only** — No more create/share/upload buttons; role badges shown on each invite row.
   - **Remove button on accepted invites** — Clean up old accepted invite entries from the Identity dialog.
   - **Blake3 fingerprint words** in OnboardPeerDialog (e.g., "ghost-heavy-deliver-inject") instead of truncated public keys.
+- **TextNote content view** — TextNote schema now registers a markdown-style content view tab via `register_view()`, giving TextNote a dedicated reading pane alongside the fields tab.
+
+### Changed
+- **Scripts reorganised** — Only `TextNote` ships as a bundled system script. All other schemas (contacts, project, recipe, product) and templates (book-collection, photo-note, zettelkasten) moved to `example-scripts/` so new workspaces start clean. Task schema merged into project with parent/child constraints.
 
 ### Fixed
 - Relay account dropdown in workspace peer list now shows the stored relay server on load instead of appearing empty (#114, PR #119)
+- ShareDialog now uses CSS variables to respect the active app theme setting (PR #124)
+- Relay delta sync: cleared `recipient_device_ids` in `send_bundle()` to fix bundles being invisible to recipients, and added prefix fallback in `find_by_url` so relay accounts are matched correctly when stored as full invite URLs (PR #124)
 
 ## [0.9.0] — 2026-03-23
 
