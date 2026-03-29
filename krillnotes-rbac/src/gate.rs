@@ -49,7 +49,8 @@ impl RbacGate {
             | Operation::TransferRootOwnership { .. }
             | Operation::UpdateSchema { .. }
             | Operation::RetractOperation { .. }
-            | Operation::JoinWorkspace { .. } => Ok(None),
+            | Operation::JoinWorkspace { .. }
+            | Operation::RegisterDevice { .. } => Ok(None),
         }
     }
 

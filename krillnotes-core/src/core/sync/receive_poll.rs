@@ -92,6 +92,7 @@ pub fn receive_poll_identity(
     relay_connections: &[RelayConnection],
     accepted_invites: &[AcceptedInvite],
     temp_dir: &std::path::Path,
+    device_id: &str,
 ) -> Result<IdentityPollResult> {
     let mut result = IdentityPollResult {
         received_snapshots: Vec::new(),
@@ -116,7 +117,7 @@ pub fn receive_poll_identity(
             }
         }
 
-        let bundle_metas = match conn.client.list_bundles() {
+        let bundle_metas = match conn.client.list_bundles(device_id) {
             Ok(metas) => metas,
             Err(e) => {
                 result.errors.push(PollError {

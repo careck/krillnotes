@@ -157,7 +157,7 @@ pub async fn poll_sync(
 
     let events = tokio::task::spawn_blocking(move || -> Result<Vec<SyncEvent>, String> {
         let mut engine = SyncEngine::new();
-        engine.register_channel(Box::new(FolderChannel::new(identity_pubkey, device_id)));
+        engine.register_channel(Box::new(FolderChannel::new(identity_pubkey, device_id.clone())));
 
         // NOTE: SyncEngine supports one channel per ChannelType (HashMap keyed by type).
         // Multiple relay accounts would overwrite each other. For now, register only the
@@ -656,7 +656,7 @@ pub async fn send_invite_response_via_relay(
                 protocol: "krillnotes/1".to_string(),
                 workspace_id: invite.workspace_id.clone(),
                 workspace_name: invite.workspace_name.clone(),
-                source_device_id: device_id,
+                source_device_id: device_id.clone(),
                 declared_name: declared_name.clone(),
                 pairing_token: String::new(), // Not available from InviteFile; left empty
                 acceptor_key: &signing_key,
@@ -677,7 +677,9 @@ pub async fn send_invite_response_via_relay(
                 let bundle_header = krillnotes_core::core::sync::relay::client::BundleHeader {
                     workspace_id: invite.workspace_id.clone(),
                     sender_device_key: invitee_pubkey_hex,
+                    sender_device_id: device_id.clone(),
                     recipient_device_keys: vec![inviter_pubkey_hex],
+                    recipient_device_ids: Vec::new(),
                     mode: Some("accept".to_string()),
                 };
                 match client.upload_bundle(&bundle_header, &bundle_bytes) {
