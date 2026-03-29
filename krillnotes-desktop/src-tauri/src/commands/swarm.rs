@@ -501,11 +501,20 @@ pub async fn apply_swarm_snapshot(
         Some(&parsed.as_of_operation_id),  // last_received_op
     );
 
-    // Set relay channel on sender peer if snapshot arrived via relay
+    // Set relay channel on sender peer if snapshot arrived via relay.
+    // The stored URL may be a full invite URL (https://relay/invites/<token>)
+    // rather than the relay base URL, so try exact match first, then prefix.
     if let Some(ref relay_url) = response_relay_url {
         let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
         if let Some(ram) = rams.get(&identity_uuid_parsed) {
-            if let Ok(Some(account)) = ram.find_by_url(relay_url) {
+            let account = ram.find_by_url(relay_url).ok().flatten().or_else(|| {
+                // The URL might be a full invite link — find an account whose
+                // base URL is a prefix of the provided URL.
+                ram.list_relay_accounts().ok().and_then(|accounts| {
+                    accounts.into_iter().find(|a| relay_url.starts_with(&a.relay_url))
+                })
+            });
+            if let Some(account) = account {
                 let channel_params = serde_json::json!({
                     "relay_account_id": account.relay_account_id.to_string()
                 }).to_string();
