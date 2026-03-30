@@ -122,6 +122,8 @@ struct RegisterRequest<'a> {
 struct RegisterVerifyRequest<'a> {
     device_public_key: &'a str,
     nonce: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -333,11 +335,13 @@ impl RelayClient {
         &self,
         device_public_key: &str,
         nonce: &str,
+        device_id: Option<&str>,
     ) -> Result<SessionResponse, KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/auth/register/verify", self.base_url);
         let body = RegisterVerifyRequest {
             device_public_key,
             nonce,
+            device_id,
         };
         let resp = self
             .http

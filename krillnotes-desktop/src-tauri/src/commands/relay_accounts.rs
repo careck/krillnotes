@@ -89,6 +89,10 @@ pub async fn register_relay_account(
         (device_sk, dpk)
     };
 
+    let composite_device_id = {
+        let short = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, uuid)
+    };
     let identity_uuid_str = identity_uuid.clone();
     let relay_url_clone = relay_url.clone();
     let email_clone = email.clone();
@@ -115,7 +119,7 @@ pub async fn register_relay_account(
 
         // Step 3: Verify registration → obtain session token.
         let session = client
-            .register_verify(&dpk, &nonce_hex)
+            .register_verify(&dpk, &nonce_hex, Some(&composite_device_id))
             .map_err(|e| e.to_string())?;
 
         let expires = Utc::now() + chrono::Duration::days(30);
