@@ -812,7 +812,8 @@ pub async fn poll_all_identity_snapshots(
                 }
             };
 
-            let device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+            let short_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+            let device_id = format!("{}:identity:{}", short_device_id, uuid);
             let relay_accounts_clone = relay_accounts.clone();
             let device_id_clone = device_id.clone();
             let all_ws_ids_clone = all_invite_ws_ids.clone();
@@ -903,7 +904,10 @@ pub async fn poll_all_identity_snapshots(
         );
 
         let temp_dir = std::env::temp_dir();
-        let device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+        let device_id = {
+            let short = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+            format!("{}:identity:{}", short, uuid)
+        };
         let result = tokio::task::spawn_blocking(move || {
             use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};
             use krillnotes_core::core::sync::relay::client::RelayClient;
