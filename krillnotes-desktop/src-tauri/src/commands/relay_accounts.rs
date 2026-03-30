@@ -78,14 +78,15 @@ pub async fn register_relay_account(
     log::debug!("register_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    // Capture signing key and device public key while holding brief lock.
+    // Derive a per-device signing key so each device gets a unique relay identity.
     let (signing_key, device_public_key) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        let sk = id.signing_key.clone();
-        let dpk = hex::encode(id.verifying_key.to_bytes());
-        (sk, dpk)
+        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_sk = id.device_signing_key(&device_id);
+        let dpk = hex::encode(device_sk.verifying_key().to_bytes());
+        (device_sk, dpk)
     };
 
     let identity_uuid_str = identity_uuid.clone();
@@ -167,9 +168,10 @@ pub async fn login_relay_account(
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        let sk = id.signing_key.clone();
-        let dpk = hex::encode(id.verifying_key.to_bytes());
-        (sk, dpk)
+        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_sk = id.device_signing_key(&device_id);
+        let dpk = hex::encode(device_sk.verifying_key().to_bytes());
+        (device_sk, dpk)
     };
 
     let relay_url_clone = relay_url.clone();

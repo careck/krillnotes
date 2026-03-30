@@ -1083,12 +1083,13 @@ pub async fn list_devices_on_relay(
             .ok_or("Relay account not found")?
     };
 
-    // 2. Build own key hex to exclude from results.
+    // 2. Build own key hex to exclude from results (per-device key).
     let own_key_hex = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
         let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
-        let vk = Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()).verifying_key();
-        hex::encode(vk.as_bytes())
+        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_sk = id.device_signing_key(&device_id);
+        hex::encode(device_sk.verifying_key().to_bytes())
     };
 
     let relay_url = relay_account.relay_url.clone();

@@ -153,6 +153,20 @@ impl UnlockedIdentity {
             .expect("HKDF expand failed — output length is valid");
         okm
     }
+
+    /// Derives a per-device Ed25519 signing key for relay device registration.
+    ///
+    /// Each device + identity combination produces a unique keypair, derived via
+    /// HKDF-SHA256 from the identity's seed and the device ID (a MAC-address hash).
+    /// This ensures the relay can distinguish devices that share the same identity.
+    pub fn device_signing_key(&self, device_id: &str) -> SigningKey {
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, self.signing_key.as_bytes());
+        let info = format!("krillnotes-device-key-v1:{device_id}");
+        let mut okm = [0u8; 32];
+        hk.expand(info.as_bytes(), &mut okm)
+            .expect("HKDF expand failed — output length is valid");
+        SigningKey::from_bytes(&okm)
+    }
 }
 
 // ---------------------------------------------------------------------------
