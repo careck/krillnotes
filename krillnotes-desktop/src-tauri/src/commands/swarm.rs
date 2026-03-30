@@ -933,11 +933,15 @@ pub async fn send_self_snapshot_via_relay(
     let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     // 1. Sender signing key + display name + per-device key.
-    let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+    let source_device_id = {
+        let short = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, identity_uuid_parsed)
+    };
     let (signing_key, source_display_name, own_device_pubkey_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
         let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
-        let device_sk = id.device_signing_key(&source_device_id);
+        let short_device_id = source_device_id.split(':').next().unwrap_or(&source_device_id);
+        let device_sk = id.device_signing_key(short_device_id);
         let device_pubkey_hex = hex::encode(device_sk.verifying_key().to_bytes());
         (
             Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
