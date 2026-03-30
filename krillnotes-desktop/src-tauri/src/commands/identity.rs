@@ -252,13 +252,14 @@ pub fn unlock_identity(
         if let (Some(id), Ok(device_id)) = (ids.get(&uuid), krillnotes_core::core::device::get_device_id()) {
             let device_sk = id.device_signing_key(&device_id);
             let dpk_hex = hex::encode(device_sk.verifying_key().to_bytes());
-            Some((device_sk, dpk_hex))
+            let composite = format!("{}:identity:{}", device_id, uuid);
+            Some((device_sk, dpk_hex, composite))
         } else {
             None
         }
     };
 
-    if let Some((device_sk, current_dpk_hex)) = current_dpk {
+    if let Some((device_sk, current_dpk_hex, composite_device_id)) = current_dpk {
         let stale_accounts = {
             let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
             managers.get(&uuid)
@@ -285,7 +286,7 @@ pub fn unlock_identity(
                                 let nonce_hex = hex::encode(&nonce_bytes);
                                 let mut authed = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
                                 authed.set_session_token(&session.session_token);
-                                if let Err(e) = authed.verify_device(&current_dpk_hex, &nonce_hex) {
+                                if let Err(e) = authed.verify_device(&current_dpk_hex, &nonce_hex, Some(&composite_device_id)) {
                                     log::warn!("Device verify failed for {}: {e}", account.relay_url);
                                 } else {
                                     log::info!("Device verified on {}", account.relay_url);

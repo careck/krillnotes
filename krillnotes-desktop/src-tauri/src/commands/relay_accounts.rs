@@ -164,14 +164,15 @@ pub async fn login_relay_account(
     log::debug!("login_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let (signing_key, device_public_key) = {
+    let (signing_key, device_public_key, composite_device_id) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
         let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         let device_sk = id.device_signing_key(&device_id);
         let dpk = hex::encode(device_sk.verifying_key().to_bytes());
-        (device_sk, dpk)
+        let composite = format!("{}:identity:{}", device_id, uuid);
+        (device_sk, dpk, composite)
     };
 
     let relay_url_clone = relay_url.clone();
@@ -200,7 +201,7 @@ pub async fn login_relay_account(
 
             client.set_session_token(&session.session_token);
             client
-                .verify_device(&dpk, &nonce_hex)
+                .verify_device(&dpk, &nonce_hex, Some(&composite_device_id))
                 .map_err(|e| e.to_string())?;
             log::info!(target: "krillnotes::relay", "device verified successfully");
         }
