@@ -31,7 +31,7 @@ pub use core::{
     operation_log::{OperationLog, OperationSummary, PurgeStrategy},
     scripting::{FieldDefinition, FieldGroup, QueryContext, Schema, ScriptError, ScriptRegistry, ScriptWarning, StarterScript, ViewRegistration},
     hlc::{HlcClock, HlcTimestamp},
-    identity::{IdentityFile, IdentityManager, IdentitySettings, IdentityRef, WorkspaceBinding, LegacyWorkspaceBinding, UnlockedIdentity, SwarmIdFile},
+    identity::{ExportedRelayFile, IdentityFile, IdentityManager, IdentitySettings, IdentityRef, WorkspaceBinding, LegacyWorkspaceBinding, UnlockedIdentity, SwarmIdFile},
     invite::{InviteFile, InviteManager, InviteRecord, InviteResponseFile},
     save_transaction::{SaveResult, SaveTransaction, SoftError},
     storage::Storage,

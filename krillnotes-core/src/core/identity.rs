@@ -159,6 +159,15 @@ impl UnlockedIdentity {
 // .swarmid portable identity file
 // ---------------------------------------------------------------------------
 
+/// A relay account file embedded in a `.swarmid` export.
+/// The `contents` field is the raw JSON of an already-encrypted relay account
+/// file (AES-256-GCM with the identity's HKDF-derived relay key).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedRelayFile {
+    pub filename: String,
+    pub contents: String,
+}
+
 /// Portable identity export file (`<name>.swarmid`).
 /// The `identity` field is the same on-disk `IdentityFile` — private key
 /// is already encrypted with Argon2id + AES-256-GCM.
@@ -167,6 +176,9 @@ pub struct SwarmIdFile {
     pub format: String,   // always "swarmid"
     pub version: u32,     // always 1
     pub identity: IdentityFile,
+    /// Encrypted relay account files. Empty for old exports (backward compat).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relays: Vec<ExportedRelayFile>,
 }
 
 impl SwarmIdFile {
@@ -664,10 +676,26 @@ impl IdentityManager {
         let identity: IdentityFile = serde_json::from_str(&data)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("JSON parse: {e}")))?;
 
+        // Collect encrypted relay account files (if any exist).
+        let relays_dir = self.identity_dir(identity_uuid).join("relays");
+        let mut relays = Vec::new();
+        if relays_dir.is_dir() {
+            for entry in std::fs::read_dir(&relays_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                    let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                    let contents = std::fs::read_to_string(&path)?;
+                    relays.push(ExportedRelayFile { filename, contents });
+                }
+            }
+        }
+
         Ok(SwarmIdFile {
             format: SwarmIdFile::FORMAT.to_string(),
             version: SwarmIdFile::VERSION,
             identity,
+            relays,
         })
     }
 
@@ -729,9 +757,16 @@ impl IdentityManager {
         std::fs::create_dir_all(&identity_dir)?;
         std::fs::create_dir_all(identity_dir.join("contacts"))?;
         std::fs::create_dir_all(identity_dir.join("invites"))?;
+        let relays_dir = identity_dir.join("relays");
+        std::fs::create_dir_all(&relays_dir)?;
         let file_path = identity_dir.join("identity.json");
         let json = serde_json::to_string_pretty(&identity)?;
         std::fs::write(&file_path, json)?;
+
+        // Restore encrypted relay account files from the export.
+        for relay in &file.relays {
+            std::fs::write(relays_dir.join(&relay.filename), &relay.contents)?;
+        }
 
         // Register in settings registry
         let mut settings = self.load_settings()?;

@@ -213,6 +213,32 @@ pub async fn login_relay_account(
 
     let session_expires_at = Utc::now() + chrono::Duration::days(30);
 
+    // Ensure the relay account manager exists (it may be missing for imported identities).
+    {
+        let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
+        if !managers.contains_key(&uuid) {
+            drop(managers);
+            let relay_key = {
+                let ids = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
+                let id = ids.get(&uuid).ok_or("Identity is not unlocked")?;
+                id.relay_key()
+            };
+            let relays_dir = crate::settings::config_dir()
+                .join("identities")
+                .join(uuid.to_string())
+                .join("relays");
+            let mgr = krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(
+                relays_dir, relay_key,
+            )
+            .map_err(|e| e.to_string())?;
+            state
+                .relay_account_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, mgr);
+        }
+    }
+
     // Update existing account or create a new one.
     let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
     let mgr = managers.get(&uuid).ok_or("Identity not unlocked")?;
