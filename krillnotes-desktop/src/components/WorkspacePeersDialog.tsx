@@ -604,7 +604,7 @@ export default function WorkspacePeersDialog({
                         className="w-full text-left px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
                       >
                         <div className="font-mono text-xs text-[var(--color-muted-foreground)]">
-                          {device.deviceId ? `ID: ${device.deviceId.split(':')[1] ?? device.deviceId}` : `Key: ${device.deviceKey.slice(0, 12)}…`}
+                          {device.deviceId ? device.deviceId.split(':')[0] : `Key: ${device.deviceKey.slice(0, 12)}…`}
                         </div>
                       </button>
                     ))}

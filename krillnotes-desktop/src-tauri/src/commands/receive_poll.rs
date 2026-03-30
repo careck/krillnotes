@@ -858,7 +858,7 @@ pub async fn poll_all_identity_snapshots(
                 let invite = krillnotes_core::core::accepted_invite::AcceptedInvite {
                     invite_id: Uuid::new_v4(),
                     workspace_id: meta.workspace_id.clone(),
-                    workspace_name: meta.workspace_id.clone(),
+                    workspace_name: "Workspace from my device".to_string(),
                     inviter_public_key: meta.sender_device_key.clone(),
                     inviter_declared_name: "My Device".to_string(),
                     accepted_at: chrono::Utc::now(),
