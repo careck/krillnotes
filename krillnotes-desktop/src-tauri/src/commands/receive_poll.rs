@@ -789,17 +789,7 @@ pub async fn poll_all_identity_snapshots(
     };
 
     for uuid in identity_uuids {
-        // Check if this identity has waiting invites.
-        let waiting = {
-            let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
-            match aim.get(&uuid) {
-                Some(mgr) => mgr.list_waiting_snapshot().unwrap_or_default(),
-                None => continue,
-            }
-        };
-        if waiting.is_empty() { continue; }
-
-        // Check if this identity has relay accounts.
+        // 1. Check relay accounts FIRST (needed for both discovery and polling).
         let relay_accounts = {
             let rams = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
             match rams.get(&uuid) {
@@ -808,6 +798,104 @@ pub async fn poll_all_identity_snapshots(
             }
         };
         if relay_accounts.is_empty() { continue; }
+
+        // 2. Discover self-device snapshots on the relay that have no matching invite.
+        //    "Send to My Device" puts a snapshot bundle on the relay but the receiving
+        //    device has no AcceptedInvite for it, so normal polling would never find it.
+        {
+            // Collect workspace_ids from ALL existing invites (any status).
+            let all_invite_ws_ids: std::collections::HashSet<String> = {
+                let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+                match aim.get(&uuid) {
+                    Some(mgr) => mgr.list().unwrap_or_default().iter().map(|i| i.workspace_id.clone()).collect(),
+                    None => std::collections::HashSet::new(),
+                }
+            };
+
+            let device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+            let relay_accounts_clone = relay_accounts.clone();
+            let device_id_clone = device_id.clone();
+            let all_ws_ids_clone = all_invite_ws_ids.clone();
+
+            let self_transfers: Vec<(krillnotes_core::core::sync::relay::client::BundleMeta, Vec<u8>)> =
+                tokio::task::spawn_blocking(move || {
+                    use krillnotes_core::core::sync::relay::client::RelayClient;
+
+                    let mut transfers = Vec::new();
+                    for account in &relay_accounts_clone {
+                        let client = RelayClient::new(&account.relay_url)
+                            .with_session_token(&account.session_token);
+                        match client.list_bundles(&device_id_clone) {
+                            Ok(metas) => {
+                                for meta in metas {
+                                    if meta.mode == "snapshot" && !all_ws_ids_clone.contains(&meta.workspace_id) {
+                                        log::info!("Discovered self-device snapshot for workspace {}", meta.workspace_id);
+                                        match client.download_bundle(&meta.bundle_id) {
+                                            Ok(bytes) => {
+                                                let _ = client.delete_bundle(&meta.bundle_id);
+                                                transfers.push((meta, bytes));
+                                            }
+                                            Err(e) => log::warn!("Failed to download self-transfer bundle: {e}"),
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => log::warn!("list_bundles for self-transfer discovery failed: {e}"),
+                        }
+                    }
+                    transfers
+                }).await.map_err(|e| e.to_string())?;
+
+            // Create synthetic accepted invites for discovered self-transfers.
+            for (meta, bytes) in self_transfers {
+                let snapshot_path = std::env::temp_dir().join(format!("snapshot-{}.bin", Uuid::new_v4()));
+                if let Err(e) = std::fs::write(&snapshot_path, &bytes) {
+                    log::warn!("Failed to write self-transfer snapshot: {e}");
+                    continue;
+                }
+
+                let invite = krillnotes_core::core::accepted_invite::AcceptedInvite {
+                    invite_id: Uuid::new_v4(),
+                    workspace_id: meta.workspace_id.clone(),
+                    workspace_name: meta.workspace_id.clone(),
+                    inviter_public_key: meta.sender_device_key.clone(),
+                    inviter_declared_name: "My Device".to_string(),
+                    accepted_at: chrono::Utc::now(),
+                    response_relay_url: None,
+                    status: krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WaitingSnapshot,
+                    workspace_path: None,
+                    snapshot_path: Some(snapshot_path.to_string_lossy().to_string()),
+                    offered_role: "owner".to_string(),
+                };
+
+                {
+                    let mut aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+                    if let Some(ai_mgr) = aim.get_mut(&uuid) {
+                        if let Err(e) = ai_mgr.save(&invite) {
+                            log::warn!("Failed to save synthetic invite: {e}");
+                            continue;
+                        }
+                    }
+                }
+
+                log::info!("Created synthetic invite for self-device transfer: workspace={}", meta.workspace_id);
+                let _ = app_handle.emit("snapshot-received", serde_json::json!({
+                    "workspaceId": meta.workspace_id,
+                    "inviteId": invite.invite_id.to_string(),
+                    "snapshotPath": snapshot_path.to_string_lossy(),
+                }));
+            }
+        }
+
+        // 3. Normal invite-based polling (existing logic).
+        let waiting = {
+            let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+            match aim.get(&uuid) {
+                Some(mgr) => mgr.list_waiting_snapshot().unwrap_or_default(),
+                None => continue,
+            }
+        };
+        if waiting.is_empty() { continue; }
 
         log::debug!(
             "poll_all_identity_snapshots: identity={uuid}, {} waiting invite(s), {} relay account(s)",
