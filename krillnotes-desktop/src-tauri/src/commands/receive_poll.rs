@@ -818,12 +818,13 @@ pub async fn poll_all_identity_snapshots(
             let device_id_clone = device_id.clone();
             let all_ws_ids_clone = all_invite_ws_ids.clone();
 
-            let self_transfers: Vec<(krillnotes_core::core::sync::relay::client::BundleMeta, Vec<u8>)> =
+            let self_transfers: Vec<(krillnotes_core::core::sync::relay::client::BundleMeta, Vec<u8>, String)> =
                 tokio::task::spawn_blocking(move || {
                     use krillnotes_core::core::sync::relay::client::RelayClient;
 
                     let mut transfers = Vec::new();
                     for account in &relay_accounts_clone {
+                        let relay_url = account.relay_url.clone();
                         let client = RelayClient::new(&account.relay_url)
                             .with_session_token(&account.session_token);
                         match client.list_bundles(&device_id_clone) {
@@ -834,7 +835,7 @@ pub async fn poll_all_identity_snapshots(
                                         match client.download_bundle(&meta.bundle_id) {
                                             Ok(bytes) => {
                                                 let _ = client.delete_bundle(&meta.bundle_id);
-                                                transfers.push((meta, bytes));
+                                                transfers.push((meta, bytes, relay_url.clone()));
                                             }
                                             Err(e) => log::warn!("Failed to download self-transfer bundle: {e}"),
                                         }
@@ -848,7 +849,7 @@ pub async fn poll_all_identity_snapshots(
                 }).await.map_err(|e| e.to_string())?;
 
             // Create synthetic accepted invites for discovered self-transfers.
-            for (meta, bytes) in self_transfers {
+            for (meta, bytes, relay_url) in self_transfers {
                 let snapshot_path = std::env::temp_dir().join(format!("snapshot-{}.bin", Uuid::new_v4()));
                 if let Err(e) = std::fs::write(&snapshot_path, &bytes) {
                     log::warn!("Failed to write self-transfer snapshot: {e}");
@@ -862,7 +863,7 @@ pub async fn poll_all_identity_snapshots(
                     inviter_public_key: meta.sender_device_key.clone(),
                     inviter_declared_name: "My Device".to_string(),
                     accepted_at: chrono::Utc::now(),
-                    response_relay_url: None,
+                    response_relay_url: Some(relay_url.clone()),
                     status: krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WaitingSnapshot,
                     workspace_path: None,
                     snapshot_path: Some(snapshot_path.to_string_lossy().to_string()),
