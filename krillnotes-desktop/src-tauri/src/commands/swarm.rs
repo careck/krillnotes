@@ -984,6 +984,8 @@ pub async fn send_self_snapshot_via_relay(
     };
 
     // 4. Build the bundle — recipient is own key (self-encryption).
+    let target_device_id_for_peer = target_device_id.clone();
+    let own_pubkey_b64_for_peer = own_pubkey_b64.clone();
     let source_device_id_for_header = source_device_id.clone();
     let bundle_bytes = create_snapshot_bundle(SnapshotParams {
         protocol,
@@ -1056,6 +1058,30 @@ pub async fn send_self_snapshot_via_relay(
     })
     .await
     .map_err(|e| e.to_string())??;
+
+    // 6. Register the target device as a peer on the sending workspace
+    //    so we can receive deltas back from it.
+    {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        if let Some(ws) = workspaces.get(window.label()) {
+            let _ = ws.upsert_sync_peer(
+                &target_device_id_for_peer,
+                &own_pubkey_b64_for_peer,
+                Some(&as_of_op_id),
+                None,
+            );
+            // Set the relay channel on the peer.
+            let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
+            if let Some(ram) = rams.get(&identity_uuid_parsed) {
+                if let Some(account) = ram.get_relay_account(relay_account_uuid).ok().flatten() {
+                    let channel_params = serde_json::json!({
+                        "relay_account_id": account.relay_account_id.to_string()
+                    }).to_string();
+                    let _ = ws.update_peer_channel(&target_device_id_for_peer, "relay", &channel_params);
+                }
+            }
+        }
+    }
 
     Ok(())
 }
