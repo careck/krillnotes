@@ -931,21 +931,23 @@ pub async fn send_self_snapshot_via_relay(
 
     let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    // 1. Sender signing key + display name.
-    let (signing_key, source_display_name) = {
+    // 1. Sender signing key + display name + per-device key.
+    let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+    let (signing_key, source_display_name, own_device_pubkey_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
         let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        let device_sk = id.device_signing_key(&source_device_id);
+        let device_pubkey_hex = hex::encode(device_sk.verifying_key().to_bytes());
         (
             Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
             id.display_name.clone(),
+            device_pubkey_hex,
         )
     };
-    let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
 
     // 2. The recipient is the same identity — encrypt to own verifying key.
     let sender_vk = signing_key.verifying_key();
     let own_pubkey_b64 = base64::engine::general_purpose::STANDARD.encode(sender_vk.as_bytes());
-    let own_pubkey_hex = hex::encode(sender_vk.as_bytes());
 
     // 3. Collect workspace data (hold lock only briefly).
     let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
@@ -1032,13 +1034,14 @@ pub async fn send_self_snapshot_via_relay(
         }
         let client = RelayClient::new(&relay_url).with_session_token(&token);
 
-        // Sender and recipient keys are both the own key (self-snapshot).
-        // recipient_device_ids routes the bundle to the specific target device.
+        // sender_device_key is the sender's per-device relay key (registered with the relay).
+        // recipient_device_keys uses the same key so the relay can resolve the account;
+        // actual routing to the target device is done via recipient_device_ids.
         let header = BundleHeader {
             workspace_id,
-            sender_device_key: own_pubkey_hex.clone(),
+            sender_device_key: own_device_pubkey_hex.clone(),
             sender_device_id: source_device_id_for_header,
-            recipient_device_keys: vec![own_pubkey_hex],
+            recipient_device_keys: vec![own_device_pubkey_hex],
             recipient_device_ids: vec![target_device_id],
             mode: Some("snapshot".to_string()),
         };
