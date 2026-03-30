@@ -156,8 +156,11 @@ pub async fn poll_receive_workspace(
         (id.signing_key.clone(), pubkey_b64)
     };
 
-    let device_id = krillnotes_core::core::device::get_device_id()
-        .map_err(|e| e.to_string())?;
+    let device_id = {
+        let short = krillnotes_core::core::device::get_device_id()
+            .map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, identity_uuid)
+    };
 
     // Get relay accounts for this identity (brief lock).
     let relay_accounts = {
@@ -731,7 +734,10 @@ pub async fn poll_receive_identity(
 
     // Build RelayConnections and call core function inside spawn_blocking
     let temp_dir = std::env::temp_dir();
-    let device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+    let device_id = {
+        let short = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, uuid)
+    };
 
     let result = tokio::task::spawn_blocking(move || {
         use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};

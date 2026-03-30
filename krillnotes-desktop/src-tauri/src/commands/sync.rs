@@ -78,7 +78,10 @@ pub async fn poll_sync(
             .unwrap_or_else(|| workspace_label.clone())
     };
 
-    let device_id = get_device_id().map_err(|e| e.to_string())?;
+    let device_id = {
+        let short = get_device_id().map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, identity_uuid)
+    };
 
     // Load all relay accounts from RelayAccountManager (clone before spawn_blocking)
     let relay_accounts: Vec<RelayAccount> = {
