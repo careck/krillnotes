@@ -923,6 +923,7 @@ pub async fn send_self_snapshot_via_relay(
     identity_uuid: String,
     relay_account_id: String,
     target_device_id: String,
+    target_device_key: String,
 ) -> std::result::Result<(), String> {
     use base64::Engine;
     use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
@@ -1035,13 +1036,13 @@ pub async fn send_self_snapshot_via_relay(
         let client = RelayClient::new(&relay_url).with_session_token(&token);
 
         // sender_device_key is the sender's per-device relay key (registered with the relay).
-        // recipient_device_keys uses the same key so the relay can resolve the account;
-        // actual routing to the target device is done via recipient_device_ids.
+        // recipient_device_keys uses the TARGET device's key so the relay won't skip routing
+        // due to sender_key == recipient_key self-send prevention.
         let header = BundleHeader {
             workspace_id,
-            sender_device_key: own_device_pubkey_hex.clone(),
+            sender_device_key: own_device_pubkey_hex,
             sender_device_id: source_device_id_for_header,
-            recipient_device_keys: vec![own_device_pubkey_hex],
+            recipient_device_keys: vec![target_device_key],
             recipient_device_ids: vec![target_device_id],
             mode: Some("snapshot".to_string()),
         };
