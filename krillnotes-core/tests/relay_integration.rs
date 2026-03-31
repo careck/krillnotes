@@ -117,7 +117,7 @@ fn relay_registration_flow() {
 
     // 4. Verify registration → receive session token.
     let session = client
-        .register_verify(&device_pubkey_b64, &nonce_hex)
+        .register_verify(&device_pubkey_b64, &nonce_hex, None)
         .expect("register_verify should succeed");
 
     assert!(!session.session_token.is_empty(), "session token must be non-empty");
@@ -175,7 +175,7 @@ fn relay_delta_roundtrip() {
         let nonce = decrypt_pop_challenge(key, &reg.challenge.encrypted_nonce, &reg.challenge.server_public_key)
             .expect("decrypt_pop_challenge");
         let session = relay
-            .register_verify(&pk, &hex::encode(&nonce))
+            .register_verify(&pk, &hex::encode(&nonce), None)
             .expect("register_verify");
         RelayClient::new(&relay_url).with_session_token(&session.session_token)
     };

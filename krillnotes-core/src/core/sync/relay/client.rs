@@ -34,9 +34,18 @@ pub struct RegisterResult {
     pub challenge: RegisterChallenge,
 }
 
+/// Result of adding a device (POST /account/devices).
+#[derive(Debug, Deserialize)]
+pub struct AddDeviceResult {
+    pub challenge: RegisterChallenge,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SessionResponse {
     pub session_token: String,
+    /// Present when the server detected an unknown or unverified device key
+    /// during login. The client should decrypt the nonce and call `verify_device`.
+    pub challenge: Option<RegisterChallenge>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,6 +128,8 @@ struct RegisterRequest<'a> {
 struct RegisterVerifyRequest<'a> {
     device_public_key: &'a str,
     nonce: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -148,6 +159,8 @@ struct AddDeviceRequest<'a> {
 struct VerifyDeviceRequest<'a> {
     device_public_key: &'a str,
     nonce: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -328,11 +341,13 @@ impl RelayClient {
         &self,
         device_public_key: &str,
         nonce: &str,
+        device_id: Option<&str>,
     ) -> Result<SessionResponse, KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/auth/register/verify", self.base_url);
         let body = RegisterVerifyRequest {
             device_public_key,
             nonce,
+            device_id,
         };
         let resp = self
             .http
@@ -434,7 +449,7 @@ impl RelayClient {
     }
 
     /// Add an additional device key to the account. Returns a challenge.
-    pub fn add_device(&self, device_public_key: &str) -> Result<RegisterChallenge, KrillnotesError> {
+    pub fn add_device(&self, device_public_key: &str) -> Result<AddDeviceResult, KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/account/devices", self.base_url);
         let auth = self.auth_header()?;
         let body = AddDeviceRequest { device_public_key };
@@ -452,10 +467,12 @@ impl RelayClient {
     }
 
     /// Verify a newly added device by proving knowledge of the challenge nonce.
-    pub fn verify_device(&self, device_public_key: &str, nonce: &str) -> Result<(), KrillnotesError> {
+    /// `device_id` is the composite device ID (`{hash}:identity:{uuid}`) sent so
+    /// the relay can store it in `device_keys` for per-device bundle routing.
+    pub fn verify_device(&self, device_public_key: &str, nonce: &str, device_id: Option<&str>) -> Result<(), KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/account/devices/verify", self.base_url);
         let auth = self.auth_header()?;
-        let body = VerifyDeviceRequest { device_public_key, nonce };
+        let body = VerifyDeviceRequest { device_public_key, nonce, device_id };
         let resp = self
             .http
             .post(self.url("/account/devices/verify"))

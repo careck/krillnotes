@@ -66,10 +66,7 @@ impl SyncChannel for RelayChannel {
             sender_device_key: self.sender_device_key.clone(),
             sender_device_id: self.sender_device_id.clone(),
             recipient_device_keys: vec![recipient_key_hex],
-            // Leave empty: the relay routes by recipient_device_keys (account-level).
-            // Device-level filtering via recipient_device_ids will be used once the
-            // relay server and client agree on a stable composite device ID format.
-            recipient_device_ids: Vec::new(),
+            recipient_device_ids: vec![peer.peer_device_id.clone()],
             mode: None,
         };
         let bundle_ids = self.client.upload_bundle(&header, bundle_bytes)?;

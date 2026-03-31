@@ -80,6 +80,8 @@ impl AcceptedInviteManager {
 
     pub fn save(&mut self, invite: &AcceptedInvite) -> Result<()> {
         let path = self.path_for(invite.invite_id);
+        // Ensure directory exists — may be missing on freshly-imported identities.
+        std::fs::create_dir_all(&self.dir)?;
         let json = serde_json::to_string_pretty(invite)?;
         std::fs::write(path, json)?;
         Ok(())

@@ -243,6 +243,95 @@ pub fn unlock_identity(
         }
     }
 
+    // ── Auto-refresh stale relay device keys ────────────────────────────
+    // When a .swarmid is imported to a new device, the relay accounts carry
+    // the old device's per-device key. Detect this and re-login to register
+    // the current device's key with the relay.
+    let current_dpk = {
+        let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
+        if let (Some(id), Ok(device_id)) = (ids.get(&uuid), krillnotes_core::core::device::get_device_id()) {
+            let device_sk = id.device_signing_key(&device_id);
+            let dpk_hex = hex::encode(device_sk.verifying_key().to_bytes());
+            let composite = format!("{}:identity:{}", device_id, uuid);
+            let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
+            let identity_pk = hex::encode(identity_sk.verifying_key().to_bytes());
+            Some((device_sk, dpk_hex, composite, identity_sk, identity_pk))
+        } else {
+            None
+        }
+    };
+
+    if let Some((device_sk, current_dpk_hex, composite_device_id, identity_signing_key, identity_pubkey_hex)) = current_dpk {
+        let stale_accounts = {
+            let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
+            managers.get(&uuid)
+                .and_then(|mgr| mgr.list_relay_accounts().ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| a.device_public_key != current_dpk_hex)
+                .collect::<Vec<_>>()
+        };
+        // All locks released here — safe to do blocking network I/O.
+
+        for mut account in stale_accounts {
+            log::info!("Relay account {} has stale device key — re-authenticating", account.relay_url);
+            let client = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
+            match client.login(&account.email, &account.password, &current_dpk_hex) {
+                Ok(session) => {
+                    if let Some(challenge) = &session.challenge {
+                        match krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge(
+                            &device_sk,
+                            &challenge.encrypted_nonce,
+                            &challenge.server_public_key,
+                        ) {
+                            Ok(nonce_bytes) => {
+                                let nonce_hex = hex::encode(&nonce_bytes);
+                                let mut authed = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
+                                authed.set_session_token(&session.session_token);
+                                if let Err(e) = authed.verify_device(&current_dpk_hex, &nonce_hex, Some(&composite_device_id)) {
+                                    log::warn!("Device verify failed for {}: {e}", account.relay_url);
+                                } else {
+                                    log::info!("Device verified on {}", account.relay_url);
+                                }
+                            }
+                            Err(e) => log::warn!("PoP decryption failed for {}: {e}", account.relay_url),
+                        }
+                    }
+                    // Also register the identity's main public key for peer routing (best-effort).
+                    if identity_pubkey_hex != current_dpk_hex {
+                        let mut id_client = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
+                        id_client.set_session_token(&session.session_token);
+                        match id_client.add_device(&identity_pubkey_hex) {
+                            Ok(result) => {
+                                if let Ok(nonce) = krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge(
+                                    &identity_signing_key,
+                                    &result.challenge.encrypted_nonce,
+                                    &result.challenge.server_public_key,
+                                ) {
+                                    let _ = id_client.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
+                                    log::info!("Registered identity public key on {}", account.relay_url);
+                                }
+                            }
+                            Err(_) => {} // 409 KEY_EXISTS expected
+                        }
+                    }
+
+                    // Update account with new session + device key
+                    account.session_token = session.session_token;
+                    account.session_expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+                    account.device_public_key = current_dpk_hex.clone();
+                    let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
+                    if let Some(mgr) = managers.get(&uuid) {
+                        if let Err(e) = mgr.save_relay_account(&account) {
+                            log::warn!("Failed to save refreshed relay account: {e}");
+                        }
+                    }
+                }
+                Err(e) => log::warn!("Relay re-login failed for {}: {e}", account.relay_url),
+            }
+        }
+    }
+
     let accepted_dir = crate::settings::config_dir()
         .join("identities")
         .join(uuid.to_string())

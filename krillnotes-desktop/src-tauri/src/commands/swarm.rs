@@ -658,6 +658,7 @@ pub async fn send_snapshot_via_relay(
         )
     };
     let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+    let sender_composite_device_id = format!("{}:identity:{}", source_device_id, identity_uuid);
 
     // 2. Decode recipient verifying keys from base64.
     let recipient_vks: Vec<Ed25519VerifyingKey> = peer_public_keys
@@ -738,6 +739,21 @@ pub async fn send_snapshot_via_relay(
         })
         .collect();
 
+    // Look up peer device IDs from the workspace's peer registry for relay routing.
+    let recipient_device_ids: Vec<String> = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let peer_map: std::collections::HashMap<String, String> = workspaces
+            .get(window.label())
+            .and_then(|ws| ws.get_active_sync_peers().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| (p.peer_identity_id, p.peer_device_id))
+            .collect();
+        peer_public_keys.iter()
+            .filter_map(|pk| peer_map.get(pk).cloned())
+            .collect()
+    };
+
     let relay_url = relay_account.relay_url.clone();
     let relay_email = relay_account.email.clone();
     let relay_password = relay_account.password.clone();
@@ -760,9 +776,9 @@ pub async fn send_snapshot_via_relay(
         let header = BundleHeader {
             workspace_id,
             sender_device_key: sender_hex,
-            sender_device_id: String::new(),
+            sender_device_id: sender_composite_device_id,
             recipient_device_keys: recipient_hexes,
-            recipient_device_ids: Vec::new(),
+            recipient_device_ids,
             mode: Some("snapshot".to_string()),
         };
 
@@ -923,6 +939,7 @@ pub async fn send_self_snapshot_via_relay(
     identity_uuid: String,
     relay_account_id: String,
     target_device_id: String,
+    target_device_key: String,
 ) -> std::result::Result<(), String> {
     use base64::Engine;
     use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
@@ -931,21 +948,27 @@ pub async fn send_self_snapshot_via_relay(
 
     let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    // 1. Sender signing key + display name.
-    let (signing_key, source_display_name) = {
+    // 1. Sender signing key + display name + per-device key.
+    let source_device_id = {
+        let short = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, identity_uuid_parsed)
+    };
+    let (signing_key, source_display_name, own_device_pubkey_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
         let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        let short_device_id = source_device_id.split(':').next().unwrap_or(&source_device_id);
+        let device_sk = id.device_signing_key(short_device_id);
+        let device_pubkey_hex = hex::encode(device_sk.verifying_key().to_bytes());
         (
             Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()),
             id.display_name.clone(),
+            device_pubkey_hex,
         )
     };
-    let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
 
     // 2. The recipient is the same identity — encrypt to own verifying key.
     let sender_vk = signing_key.verifying_key();
     let own_pubkey_b64 = base64::engine::general_purpose::STANDARD.encode(sender_vk.as_bytes());
-    let own_pubkey_hex = hex::encode(sender_vk.as_bytes());
 
     // 3. Collect workspace data (hold lock only briefly).
     let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
@@ -981,6 +1004,8 @@ pub async fn send_self_snapshot_via_relay(
     };
 
     // 4. Build the bundle — recipient is own key (self-encryption).
+    let target_device_id_for_peer = target_device_id.clone();
+    let own_pubkey_b64_for_peer = own_pubkey_b64.clone();
     let source_device_id_for_header = source_device_id.clone();
     let bundle_bytes = create_snapshot_bundle(SnapshotParams {
         protocol,
@@ -1032,13 +1057,14 @@ pub async fn send_self_snapshot_via_relay(
         }
         let client = RelayClient::new(&relay_url).with_session_token(&token);
 
-        // Sender and recipient keys are both the own key (self-snapshot).
-        // recipient_device_ids routes the bundle to the specific target device.
+        // sender_device_key is the sender's per-device relay key (registered with the relay).
+        // recipient_device_keys uses the TARGET device's key so the relay won't skip routing
+        // due to sender_key == recipient_key self-send prevention.
         let header = BundleHeader {
             workspace_id,
-            sender_device_key: own_pubkey_hex.clone(),
+            sender_device_key: own_device_pubkey_hex,
             sender_device_id: source_device_id_for_header,
-            recipient_device_keys: vec![own_pubkey_hex],
+            recipient_device_keys: vec![target_device_key],
             recipient_device_ids: vec![target_device_id],
             mode: Some("snapshot".to_string()),
         };
@@ -1052,6 +1078,30 @@ pub async fn send_self_snapshot_via_relay(
     })
     .await
     .map_err(|e| e.to_string())??;
+
+    // 6. Register the target device as a peer on the sending workspace
+    //    so we can receive deltas back from it.
+    {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        if let Some(ws) = workspaces.get(window.label()) {
+            let _ = ws.upsert_sync_peer(
+                &target_device_id_for_peer,
+                &own_pubkey_b64_for_peer,
+                Some(&as_of_op_id),
+                None,
+            );
+            // Set the relay channel on the peer.
+            let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
+            if let Some(ram) = rams.get(&identity_uuid_parsed) {
+                if let Some(account) = ram.get_relay_account(relay_account_uuid).ok().flatten() {
+                    let channel_params = serde_json::json!({
+                        "relay_account_id": account.relay_account_id.to_string()
+                    }).to_string();
+                    let _ = ws.update_peer_channel(&target_device_id_for_peer, "relay", &channel_params);
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -1083,12 +1133,15 @@ pub async fn list_devices_on_relay(
             .ok_or("Relay account not found")?
     };
 
-    // 2. Build own key hex to exclude from results.
-    let own_key_hex = {
+    // 2. Build own key hex + identity key hex to exclude from results.
+    let (own_key_hex, identity_key_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
         let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
-        let vk = Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes()).verifying_key();
-        hex::encode(vk.as_bytes())
+        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_sk = id.device_signing_key(&device_id);
+        let own = hex::encode(device_sk.verifying_key().to_bytes());
+        let identity = hex::encode(id.signing_key.verifying_key().to_bytes());
+        (own, identity)
     };
 
     let relay_url = relay_account.relay_url.clone();
@@ -1113,9 +1166,10 @@ pub async fn list_devices_on_relay(
         let remote_devices = client.list_devices(Some(&own_key_hex))
             .map_err(|e| e.to_string())?;
 
-        // Client-side safety net: remove own device in case server filter didn't apply.
+        // Client-side safety net: remove own device key and the shared identity key
+        // (registered for peer routing, not a real device) from the list.
         let remote_devices: Vec<_> = remote_devices.into_iter()
-            .filter(|d| d.device_key != own_key_hex)
+            .filter(|d| d.device_key != own_key_hex && d.device_key != identity_key_hex)
             .collect();
 
         let json_devices: Vec<serde_json::Value> = remote_devices.into_iter()

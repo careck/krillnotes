@@ -93,23 +93,32 @@ pub fn generate_delta(
         }
     }
 
-    // 4. Resolve peer's public key from contacts.
-    let contact = contact_manager
-        .find_by_public_key(&peer.peer_identity_id)?
-        .ok_or_else(|| {
-            KrillnotesError::Swarm(format!(
-                "no contact for peer identity {}",
-                peer.peer_identity_id
-            ))
+    // 4. Resolve peer's public key.
+    //    For self-identity peers (multi-device sync) the signing key's verifying
+    //    key IS the recipient key — skip the contact manager lookup.
+    let sender_vk = signing_key.verifying_key();
+    let sender_pubkey_b64 = BASE64.encode(sender_vk.as_bytes());
+
+    let recipient_vk = if peer.peer_identity_id == sender_pubkey_b64 {
+        sender_vk
+    } else {
+        let contact = contact_manager
+            .find_by_public_key(&peer.peer_identity_id)?
+            .ok_or_else(|| {
+                KrillnotesError::Swarm(format!(
+                    "no contact for peer identity {}",
+                    peer.peer_identity_id
+                ))
+            })?;
+        let recipient_key_bytes = BASE64
+            .decode(&contact.public_key)
+            .map_err(|e| KrillnotesError::Swarm(format!("bad contact public key: {e}")))?;
+        let recipient_key_arr: [u8; 32] = recipient_key_bytes.try_into().map_err(|_| {
+            KrillnotesError::Swarm("contact public key wrong length".to_string())
         })?;
-    let recipient_key_bytes = BASE64
-        .decode(&contact.public_key)
-        .map_err(|e| KrillnotesError::Swarm(format!("bad contact public key: {e}")))?;
-    let recipient_key_arr: [u8; 32] = recipient_key_bytes.try_into().map_err(|_| {
-        KrillnotesError::Swarm("contact public key wrong length".to_string())
-    })?;
-    let recipient_vk = VerifyingKey::from_bytes(&recipient_key_arr)
-        .map_err(|e| KrillnotesError::Swarm(format!("invalid recipient key: {e}")))?;
+        VerifyingKey::from_bytes(&recipient_key_arr)
+            .map_err(|e| KrillnotesError::Swarm(format!("invalid recipient key: {e}")))?
+    };
 
     // 5. Build delta bundle.
     // Use the workspace's identity-based device_id (not the hardware device ID)
@@ -424,6 +433,60 @@ mod tests {
             "all ops should be included when watermark is None, got op_count={}",
             bundle.op_count
         );
+    }
+
+    /// generate_delta succeeds for a self-identity peer (multi-device sync).
+    /// No contact entry exists for the peer because it's the same identity.
+    #[test]
+    fn test_generate_delta_self_identity_peer() {
+        let alice_key = make_key();
+        let alice_pubkey_b64 = b64(&alice_key);
+
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let mut ws = crate::core::workspace::Workspace::create(
+            temp.path(),
+            "",
+            "alice-id",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            test_gate(),
+            None,
+        )
+        .unwrap();
+
+        // Register a self-identity peer (same pubkey, different device).
+        let snap_op = ws.get_latest_operation_id().unwrap().unwrap_or_default();
+        ws.upsert_sync_peer(
+            "device-other:identity:alice-id",
+            &alice_pubkey_b64,
+            Some(&snap_op),
+            None,
+        )
+        .unwrap();
+
+        // Empty contact manager — no contact for self.
+        let cm_dir = tempfile::tempdir().unwrap();
+        let cm = crate::core::contact::ContactManager::for_identity(
+            cm_dir.path().to_path_buf(),
+            [3u8; 32],
+        )
+        .unwrap();
+
+        // generate_delta must succeed without a contact entry.
+        let bundle = super::generate_delta(
+            &mut ws,
+            "device-other:identity:alice-id",
+            "TestWorkspace",
+            &alice_key,
+            "Alice",
+            &cm,
+        )
+        .unwrap();
+
+        // Parse with alice's own key (same identity on both devices).
+        let parsed =
+            crate::core::swarm::delta::parse_delta_bundle(&bundle.bundle_bytes, &alice_key)
+                .unwrap();
+        assert_eq!(parsed.workspace_id, ws.workspace_id());
     }
 
     /// apply_delta smoke test: a bundle created by Alice can be applied by Bob.

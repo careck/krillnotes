@@ -182,13 +182,14 @@ export default function WorkspacePeersDialog({
     }
   };
 
-  const handleSendToMyDeviceConfirm = async (targetDeviceId: string) => {
+  const handleSendToMyDeviceConfirm = async (targetDeviceId: string, targetDeviceKey: string) => {
     setSendToMyDeviceLoading(true);
     setSendToMyDeviceError(null);
     try {
       await invoke('send_self_snapshot_via_relay', {
         identityUuid,
         targetDeviceId,
+        targetDeviceKey,
         relayAccountId: sendToMyDeviceRelay,
       });
       setSendToMyDeviceSuccess(true);
@@ -597,13 +598,13 @@ export default function WorkspacePeersDialog({
                         key={device.deviceKey}
                         onClick={() => {
                           const targetId = device.deviceId ?? device.deviceKey;
-                          handleSendToMyDeviceConfirm(targetId);
+                          handleSendToMyDeviceConfirm(targetId, device.deviceKey);
                         }}
                         disabled={sendToMyDeviceLoading}
                         className="w-full text-left px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40"
                       >
                         <div className="font-mono text-xs text-[var(--color-muted-foreground)]">
-                          {device.deviceId ? `ID: ${device.deviceId.split(':')[1] ?? device.deviceId}` : `Key: ${device.deviceKey.slice(0, 12)}…`}
+                          {device.deviceId ? device.deviceId.split(':')[0] : `Key: ${device.deviceKey.slice(0, 12)}…`}
                         </div>
                       </button>
                     ))}
