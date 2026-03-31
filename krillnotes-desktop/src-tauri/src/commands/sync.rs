@@ -631,8 +631,6 @@ pub async fn send_invite_response_via_relay(
                 log::error!("send_invite_response_via_relay: parse invite failed: {e}");
                 e.to_string()
             })?;
-        log::debug!("send_invite_response_via_relay: inviter_device_id={:?}", invite.inviter_device_id);
-
         // Build the response.
         let response = InviteManager::build_response(&invite, &signing_key, &declared_name)
             .map_err(|e| {
@@ -698,7 +696,6 @@ pub async fn send_invite_response_via_relay(
                     recipient_device_ids: invite.inviter_device_id.clone().into_iter().collect(),
                     mode: Some("accept".to_string()),
                 };
-                log::debug!("send_invite_response_via_relay: recipient_device_ids={:?}", bundle_header.recipient_device_ids);
                 match client.upload_bundle(&bundle_header, &bundle_bytes) {
                     Ok(ids) => log::info!("send_invite_response_via_relay: accept bundle uploaded ({} copies)", ids.len()),
                     Err(e) => log::warn!("send_invite_response_via_relay: accept bundle upload failed (non-fatal): {e}"),
