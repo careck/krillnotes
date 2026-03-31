@@ -658,6 +658,7 @@ pub async fn send_snapshot_via_relay(
         )
     };
     let source_device_id = krillnotes_core::get_device_id().map_err(|e| e.to_string())?;
+    let sender_composite_device_id = format!("{}:identity:{}", source_device_id, identity_uuid);
 
     // 2. Decode recipient verifying keys from base64.
     let recipient_vks: Vec<Ed25519VerifyingKey> = peer_public_keys
@@ -738,6 +739,21 @@ pub async fn send_snapshot_via_relay(
         })
         .collect();
 
+    // Look up peer device IDs from the workspace's peer registry for relay routing.
+    let recipient_device_ids: Vec<String> = {
+        let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        let peer_map: std::collections::HashMap<String, String> = workspaces
+            .get(window.label())
+            .and_then(|ws| ws.get_active_sync_peers().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| (p.peer_identity_id, p.peer_device_id))
+            .collect();
+        peer_public_keys.iter()
+            .filter_map(|pk| peer_map.get(pk).cloned())
+            .collect()
+    };
+
     let relay_url = relay_account.relay_url.clone();
     let relay_email = relay_account.email.clone();
     let relay_password = relay_account.password.clone();
@@ -760,9 +776,9 @@ pub async fn send_snapshot_via_relay(
         let header = BundleHeader {
             workspace_id,
             sender_device_key: sender_hex,
-            sender_device_id: String::new(),
+            sender_device_id: sender_composite_device_id,
             recipient_device_keys: recipient_hexes,
-            recipient_device_ids: Vec::new(),
+            recipient_device_ids,
             mode: Some("snapshot".to_string()),
         };
 

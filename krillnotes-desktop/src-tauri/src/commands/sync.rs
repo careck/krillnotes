@@ -278,7 +278,7 @@ pub async fn share_invite_link(
     };
 
     // Create the invite record + InviteFile.
-    let (record, file) = {
+    let (record, mut file) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         im.create_invite(
@@ -302,6 +302,14 @@ pub async fn share_invite_link(
             e.to_string()
         })?
     };
+
+    // Stamp the inviter's composite device ID so the acceptor can route the
+    // acceptance bundle via the relay's findByDeviceId fallback.
+    if let Ok(short) = krillnotes_core::core::device::get_device_id() {
+        file.inviter_device_id = Some(format!("{}:identity:{}", short, uuid));
+        let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
+        file.signature = krillnotes_core::core::invite::sign_payload(&payload, &signing_key);
+    }
 
     // Serialize + base64-encode the invite file.
     let bytes = krillnotes_core::core::invite::InviteManager::serialize_invite_to_bytes(&file)
@@ -439,6 +447,10 @@ pub async fn create_relay_invite(
         workspace_tags: ws_tags,
         inviter_public_key: pubkey_b64,
         inviter_declared_name: declared_name,
+        inviter_device_id: {
+            let short = krillnotes_core::core::device::get_device_id().ok();
+            short.map(|s| format!("{}:identity:{}", s, uuid))
+        },
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
         scope_note_id: record.scope_note_id.clone(),
         scope_note_title: record.scope_note_title.clone(),
@@ -619,6 +631,7 @@ pub async fn send_invite_response_via_relay(
                 log::error!("send_invite_response_via_relay: parse invite failed: {e}");
                 e.to_string()
             })?;
+        log::debug!("send_invite_response_via_relay: inviter_device_id={:?}", invite.inviter_device_id);
 
         // Build the response.
         let response = InviteManager::build_response(&invite, &signing_key, &declared_name)
@@ -682,9 +695,10 @@ pub async fn send_invite_response_via_relay(
                     sender_device_key: invitee_pubkey_hex,
                     sender_device_id: device_id.clone(),
                     recipient_device_keys: vec![inviter_pubkey_hex],
-                    recipient_device_ids: Vec::new(),
+                    recipient_device_ids: invite.inviter_device_id.clone().into_iter().collect(),
                     mode: Some("accept".to_string()),
                 };
+                log::debug!("send_invite_response_via_relay: recipient_device_ids={:?}", bundle_header.recipient_device_ids);
                 match client.upload_bundle(&bundle_header, &bundle_bytes) {
                     Ok(ids) => log::info!("send_invite_response_via_relay: accept bundle uploaded ({} copies)", ids.len()),
                     Err(e) => log::warn!("send_invite_response_via_relay: accept bundle upload failed (non-fatal): {e}"),

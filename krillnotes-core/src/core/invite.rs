@@ -67,6 +67,8 @@ pub struct InviteFile {
     pub inviter_public_key: String,
     pub inviter_declared_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inviter_device_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_note_id: Option<String>,
@@ -273,6 +275,7 @@ impl InviteManager {
             workspace_tags,
             inviter_public_key: pubkey_b64,
             inviter_declared_name: inviter_declared_name.to_string(),
+            inviter_device_id: None,
             expires_at: expires_at.map(|dt| dt.to_rfc3339()),
             scope_note_id,
             scope_note_title,

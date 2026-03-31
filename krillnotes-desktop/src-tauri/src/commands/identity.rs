@@ -253,13 +253,15 @@ pub fn unlock_identity(
             let device_sk = id.device_signing_key(&device_id);
             let dpk_hex = hex::encode(device_sk.verifying_key().to_bytes());
             let composite = format!("{}:identity:{}", device_id, uuid);
-            Some((device_sk, dpk_hex, composite))
+            let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
+            let identity_pk = hex::encode(identity_sk.verifying_key().to_bytes());
+            Some((device_sk, dpk_hex, composite, identity_sk, identity_pk))
         } else {
             None
         }
     };
 
-    if let Some((device_sk, current_dpk_hex, composite_device_id)) = current_dpk {
+    if let Some((device_sk, current_dpk_hex, composite_device_id, identity_signing_key, identity_pubkey_hex)) = current_dpk {
         let stale_accounts = {
             let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
             managers.get(&uuid)
@@ -295,6 +297,25 @@ pub fn unlock_identity(
                             Err(e) => log::warn!("PoP decryption failed for {}: {e}", account.relay_url),
                         }
                     }
+                    // Also register the identity's main public key for peer routing (best-effort).
+                    if identity_pubkey_hex != current_dpk_hex {
+                        let mut id_client = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
+                        id_client.set_session_token(&session.session_token);
+                        match id_client.add_device(&identity_pubkey_hex) {
+                            Ok(result) => {
+                                if let Ok(nonce) = krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge(
+                                    &identity_signing_key,
+                                    &result.challenge.encrypted_nonce,
+                                    &result.challenge.server_public_key,
+                                ) {
+                                    let _ = id_client.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
+                                    log::info!("Registered identity public key on {}", account.relay_url);
+                                }
+                            }
+                            Err(_) => {} // 409 KEY_EXISTS expected
+                        }
+                    }
+
                     // Update account with new session + device key
                     account.session_token = session.session_token;
                     account.session_expires_at = chrono::Utc::now() + chrono::Duration::days(30);

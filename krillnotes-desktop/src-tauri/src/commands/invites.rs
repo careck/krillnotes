@@ -148,7 +148,7 @@ pub fn create_invite(
 
     let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
     let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
-    let (record, file) = im
+    let (record, mut file) = im
         .create_invite(
             &ws_id,
             &workspace_name,
@@ -169,6 +169,15 @@ pub fn create_invite(
             log::error!("create_invite(identity={identity_uuid}) failed: {e}");
             e.to_string()
         })?;
+
+    // Stamp the inviter's composite device ID so the acceptor can route the
+    // acceptance bundle via the relay's findByDeviceId fallback.
+    if let Ok(short) = krillnotes_core::core::device::get_device_id() {
+        file.inviter_device_id = Some(format!("{}:identity:{}", short, uuid));
+        // Re-sign after mutation.
+        let payload = serde_json::to_value(&file).map_err(|e| e.to_string())?;
+        file.signature = krillnotes_core::core::invite::sign_payload(&payload, &signing_key);
+    }
 
     krillnotes_core::core::invite::InviteManager::save_invite_file(&file, std::path::Path::new(&save_path))
         .map_err(|e| {
@@ -247,6 +256,10 @@ pub fn save_invite_file(
         workspace_tags: ws_tags,
         inviter_public_key: pubkey_b64,
         inviter_declared_name: declared_name,
+        inviter_device_id: {
+            let short = krillnotes_core::core::device::get_device_id().ok();
+            short.map(|s| format!("{}:identity:{}", s, uuid))
+        },
         expires_at: record.expires_at.map(|dt| dt.to_rfc3339()),
         scope_note_id: record.scope_note_id.clone(),
         scope_note_title: record.scope_note_title.clone(),

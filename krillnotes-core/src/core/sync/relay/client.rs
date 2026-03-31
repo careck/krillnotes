@@ -34,6 +34,12 @@ pub struct RegisterResult {
     pub challenge: RegisterChallenge,
 }
 
+/// Result of adding a device (POST /account/devices).
+#[derive(Debug, Deserialize)]
+pub struct AddDeviceResult {
+    pub challenge: RegisterChallenge,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SessionResponse {
     pub session_token: String,
@@ -443,7 +449,7 @@ impl RelayClient {
     }
 
     /// Add an additional device key to the account. Returns a challenge.
-    pub fn add_device(&self, device_public_key: &str) -> Result<RegisterChallenge, KrillnotesError> {
+    pub fn add_device(&self, device_public_key: &str) -> Result<AddDeviceResult, KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/account/devices", self.base_url);
         let auth = self.auth_header()?;
         let body = AddDeviceRequest { device_public_key };

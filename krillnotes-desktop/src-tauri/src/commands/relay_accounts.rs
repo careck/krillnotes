@@ -78,15 +78,18 @@ pub async fn register_relay_account(
     log::debug!("register_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    // Derive a per-device signing key so each device gets a unique relay identity.
-    let (signing_key, device_public_key) = {
+    // Derive a per-device signing key so each device gets a unique relay identity,
+    // and also grab the identity's main signing key for peer-to-peer routing.
+    let (signing_key, device_public_key, identity_signing_key, identity_pubkey_hex) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
         let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         let device_sk = id.device_signing_key(&device_id);
         let dpk = hex::encode(device_sk.verifying_key().to_bytes());
-        (device_sk, dpk)
+        let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
+        let identity_pk = hex::encode(identity_sk.verifying_key().to_bytes());
+        (device_sk, dpk, identity_sk, identity_pk)
     };
 
     let composite_device_id = {
@@ -121,6 +124,26 @@ pub async fn register_relay_account(
         let session = client
             .register_verify(&dpk, &nonce_hex, Some(&composite_device_id))
             .map_err(|e| e.to_string())?;
+
+        // Step 4: Also register the identity's main public key so peers can
+        // route bundles using the identity key (which differs from the per-device key).
+        // This is best-effort — 409 KEY_EXISTS is expected if another device already did it.
+        if identity_pubkey_hex != dpk {
+            let authed = RelayClient::new(&relay_url_clone).with_session_token(&session.session_token);
+            match authed.add_device(&identity_pubkey_hex) {
+                Ok(result) => {
+                    if let Ok(nonce) = decrypt_pop_challenge(
+                        &identity_signing_key,
+                        &result.challenge.encrypted_nonce,
+                        &result.challenge.server_public_key,
+                    ) {
+                        let _ = authed.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
+                        log::info!(target: "krillnotes::relay", "registered identity public key for peer routing");
+                    }
+                }
+                Err(e) => log::debug!(target: "krillnotes::relay", "identity key add_device skipped (may already exist): {e}"),
+            }
+        }
 
         let expires = Utc::now() + chrono::Duration::days(30);
         Ok::<_, String>((session.session_token, expires))
@@ -168,7 +191,7 @@ pub async fn login_relay_account(
     log::debug!("login_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let (signing_key, device_public_key, composite_device_id) = {
+    let (signing_key, device_public_key, composite_device_id, identity_signing_key, identity_pubkey_hex) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
@@ -176,7 +199,9 @@ pub async fn login_relay_account(
         let device_sk = id.device_signing_key(&device_id);
         let dpk = hex::encode(device_sk.verifying_key().to_bytes());
         let composite = format!("{}:identity:{}", device_id, uuid);
-        (device_sk, dpk, composite)
+        let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
+        let identity_pk = hex::encode(identity_sk.verifying_key().to_bytes());
+        (device_sk, dpk, composite, identity_sk, identity_pk)
     };
 
     let relay_url_clone = relay_url.clone();
@@ -208,6 +233,25 @@ pub async fn login_relay_account(
                 .verify_device(&dpk, &nonce_hex, Some(&composite_device_id))
                 .map_err(|e| e.to_string())?;
             log::info!(target: "krillnotes::relay", "device verified successfully");
+        }
+
+        // Also register the identity's main public key so peers can route
+        // bundles using the identity key (best-effort, 409 = already exists).
+        if identity_pubkey_hex != dpk {
+            client.set_session_token(&session.session_token);
+            match client.add_device(&identity_pubkey_hex) {
+                Ok(result) => {
+                    if let Ok(nonce) = decrypt_pop_challenge(
+                        &identity_signing_key,
+                        &result.challenge.encrypted_nonce,
+                        &result.challenge.server_public_key,
+                    ) {
+                        let _ = client.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
+                        log::info!(target: "krillnotes::relay", "registered identity public key for peer routing");
+                    }
+                }
+                Err(e) => log::debug!(target: "krillnotes::relay", "identity key add_device skipped: {e}"),
+            }
         }
 
         Ok::<_, String>(session.session_token)
