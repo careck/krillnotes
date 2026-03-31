@@ -1133,13 +1133,15 @@ pub async fn list_devices_on_relay(
             .ok_or("Relay account not found")?
     };
 
-    // 2. Build own key hex to exclude from results (per-device key).
-    let own_key_hex = {
+    // 2. Build own key hex + identity key hex to exclude from results.
+    let (own_key_hex, identity_key_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
         let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
         let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         let device_sk = id.device_signing_key(&device_id);
-        hex::encode(device_sk.verifying_key().to_bytes())
+        let own = hex::encode(device_sk.verifying_key().to_bytes());
+        let identity = hex::encode(id.signing_key.verifying_key().to_bytes());
+        (own, identity)
     };
 
     let relay_url = relay_account.relay_url.clone();
@@ -1164,9 +1166,10 @@ pub async fn list_devices_on_relay(
         let remote_devices = client.list_devices(Some(&own_key_hex))
             .map_err(|e| e.to_string())?;
 
-        // Client-side safety net: remove own device in case server filter didn't apply.
+        // Client-side safety net: remove own device key and the shared identity key
+        // (registered for peer routing, not a real device) from the list.
         let remote_devices: Vec<_> = remote_devices.into_iter()
-            .filter(|d| d.device_key != own_key_hex)
+            .filter(|d| d.device_key != own_key_hex && d.device_key != identity_key_hex)
             .collect();
 
         let json_devices: Vec<serde_json::Value> = remote_devices.into_iter()
