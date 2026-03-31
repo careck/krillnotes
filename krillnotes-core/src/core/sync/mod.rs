@@ -327,12 +327,9 @@ impl SyncEngine {
                         }
                     }
                     other => {
-                        log::warn!(target: "krillnotes::sync", "unexpected bundle mode: {:?}", other);
-                        events.push(SyncEvent::UnexpectedBundleMode {
-                            workspace_id: workspace_id.clone(),
-                            mode: format!("{:?}", other).to_lowercase(),
-                        });
-                        let _ = channel.acknowledge(&bundle_ref);
+                        log::debug!(target: "krillnotes::sync", "skipping bundle mode {:?} — handled by invite poller", other);
+                        // Do NOT acknowledge Accept/Invite bundles here.
+                        // They are consumed by poll_receive_workspace, not the sync engine.
                     }
                 }
             }

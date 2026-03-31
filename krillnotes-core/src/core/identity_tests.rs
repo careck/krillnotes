@@ -445,6 +445,7 @@ fn swarmid_file_roundtrip() {
         format: SwarmIdFile::FORMAT.to_string(),
         version: SwarmIdFile::VERSION,
         identity: inner.clone(),
+        relays: vec![],
     };
     let json = serde_json::to_string(&swarmid).unwrap();
     assert!(json.contains("\"format\":\"swarmid\""));
@@ -486,6 +487,7 @@ fn import_swarmid_adds_identity() {
         format: SwarmIdFile::FORMAT.to_string(),
         version: SwarmIdFile::VERSION,
         identity: original.clone(),
+        relays: vec![],
     };
     let ws_base = dir.path().join("workspaces");
     std::fs::create_dir_all(&ws_base).unwrap();
@@ -509,6 +511,7 @@ fn import_swarmid_collision_returns_error() {
         format: SwarmIdFile::FORMAT.to_string(),
         version: SwarmIdFile::VERSION,
         identity: original.clone(),
+        relays: vec![],
     };
     // Import again — same UUID should fail with IdentityAlreadyExists
     let result = mgr.import_swarmid(swarmid);
@@ -524,6 +527,7 @@ fn import_swarmid_overwrite_replaces() {
         format: SwarmIdFile::FORMAT.to_string(),
         version: SwarmIdFile::VERSION,
         identity: original.clone(),
+        relays: vec![],
     };
     swarmid.identity.display_name = "Eve Updated".to_string();
     let identity_ref = mgr.import_swarmid_overwrite(swarmid).unwrap();
@@ -542,6 +546,7 @@ fn import_swarmid_invalid_format_rejected() {
         format: "notswarmid".to_string(),
         version: 1,
         identity: identity.clone(),
+        relays: vec![],
     };
     assert!(matches!(
         mgr.import_swarmid(bad_format),
@@ -552,6 +557,7 @@ fn import_swarmid_invalid_format_rejected() {
         format: SwarmIdFile::FORMAT.to_string(),
         version: 99,
         identity,
+        relays: vec![],
     };
     assert!(matches!(
         mgr.import_swarmid(bad_version),

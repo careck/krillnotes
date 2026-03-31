@@ -78,16 +78,24 @@ pub async fn register_relay_account(
     log::debug!("register_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    // Capture signing key and device public key while holding brief lock.
-    let (signing_key, device_public_key) = {
+    // Derive a per-device signing key so each device gets a unique relay identity,
+    // and also grab the identity's main signing key for peer-to-peer routing.
+    let (signing_key, device_public_key, identity_signing_key, identity_pubkey_hex) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        let sk = id.signing_key.clone();
-        let dpk = hex::encode(id.verifying_key.to_bytes());
-        (sk, dpk)
+        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_sk = id.device_signing_key(&device_id);
+        let dpk = hex::encode(device_sk.verifying_key().to_bytes());
+        let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
+        let identity_pk = hex::encode(identity_sk.verifying_key().to_bytes());
+        (device_sk, dpk, identity_sk, identity_pk)
     };
 
+    let composite_device_id = {
+        let short = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        format!("{}:identity:{}", short, uuid)
+    };
     let identity_uuid_str = identity_uuid.clone();
     let relay_url_clone = relay_url.clone();
     let email_clone = email.clone();
@@ -114,8 +122,28 @@ pub async fn register_relay_account(
 
         // Step 3: Verify registration → obtain session token.
         let session = client
-            .register_verify(&dpk, &nonce_hex)
+            .register_verify(&dpk, &nonce_hex, Some(&composite_device_id))
             .map_err(|e| e.to_string())?;
+
+        // Step 4: Also register the identity's main public key so peers can
+        // route bundles using the identity key (which differs from the per-device key).
+        // This is best-effort — 409 KEY_EXISTS is expected if another device already did it.
+        if identity_pubkey_hex != dpk {
+            let authed = RelayClient::new(&relay_url_clone).with_session_token(&session.session_token);
+            match authed.add_device(&identity_pubkey_hex) {
+                Ok(result) => {
+                    if let Ok(nonce) = decrypt_pop_challenge(
+                        &identity_signing_key,
+                        &result.challenge.encrypted_nonce,
+                        &result.challenge.server_public_key,
+                    ) {
+                        let _ = authed.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
+                        log::info!(target: "krillnotes::relay", "registered identity public key for peer routing");
+                    }
+                }
+                Err(e) => log::debug!(target: "krillnotes::relay", "identity key add_device skipped (may already exist): {e}"),
+            }
+        }
 
         let expires = Utc::now() + chrono::Duration::days(30);
         Ok::<_, String>((session.session_token, expires))
@@ -163,11 +191,17 @@ pub async fn login_relay_account(
     log::debug!("login_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let device_public_key = {
+    let (signing_key, device_public_key, composite_device_id, identity_signing_key, identity_pubkey_hex) = {
         let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
         let id = m.get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        hex::encode(id.verifying_key.to_bytes())
+        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_sk = id.device_signing_key(&device_id);
+        let dpk = hex::encode(device_sk.verifying_key().to_bytes());
+        let composite = format!("{}:identity:{}", device_id, uuid);
+        let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
+        let identity_pk = hex::encode(identity_sk.verifying_key().to_bytes());
+        (device_sk, dpk, composite, identity_sk, identity_pk)
     };
 
     let relay_url_clone = relay_url.clone();
@@ -177,10 +211,49 @@ pub async fn login_relay_account(
 
     // RelayClient uses reqwest::blocking — must run in spawn_blocking.
     let session_token = tokio::task::spawn_blocking(move || {
-        let client = RelayClient::new(&relay_url_clone);
+        let mut client = RelayClient::new(&relay_url_clone);
         let session = client
             .login(&email_clone, &password_clone, &dpk)
             .map_err(|e| e.to_string())?;
+
+        // If the relay returned a PoP challenge (unknown/unverified device),
+        // decrypt and verify automatically.
+        if let Some(challenge) = &session.challenge {
+            log::info!(target: "krillnotes::relay", "login returned device challenge — auto-verifying");
+            let nonce_bytes = decrypt_pop_challenge(
+                &signing_key,
+                &challenge.encrypted_nonce,
+                &challenge.server_public_key,
+            )
+            .map_err(|e| e.to_string())?;
+            let nonce_hex = hex::encode(&nonce_bytes);
+
+            client.set_session_token(&session.session_token);
+            client
+                .verify_device(&dpk, &nonce_hex, Some(&composite_device_id))
+                .map_err(|e| e.to_string())?;
+            log::info!(target: "krillnotes::relay", "device verified successfully");
+        }
+
+        // Also register the identity's main public key so peers can route
+        // bundles using the identity key (best-effort, 409 = already exists).
+        if identity_pubkey_hex != dpk {
+            client.set_session_token(&session.session_token);
+            match client.add_device(&identity_pubkey_hex) {
+                Ok(result) => {
+                    if let Ok(nonce) = decrypt_pop_challenge(
+                        &identity_signing_key,
+                        &result.challenge.encrypted_nonce,
+                        &result.challenge.server_public_key,
+                    ) {
+                        let _ = client.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
+                        log::info!(target: "krillnotes::relay", "registered identity public key for peer routing");
+                    }
+                }
+                Err(e) => log::debug!(target: "krillnotes::relay", "identity key add_device skipped: {e}"),
+            }
+        }
+
         Ok::<_, String>(session.session_token)
     })
     .await
@@ -190,6 +263,32 @@ pub async fn login_relay_account(
     })??;
 
     let session_expires_at = Utc::now() + chrono::Duration::days(30);
+
+    // Ensure the relay account manager exists (it may be missing for imported identities).
+    {
+        let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
+        if !managers.contains_key(&uuid) {
+            drop(managers);
+            let relay_key = {
+                let ids = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
+                let id = ids.get(&uuid).ok_or("Identity is not unlocked")?;
+                id.relay_key()
+            };
+            let relays_dir = crate::settings::config_dir()
+                .join("identities")
+                .join(uuid.to_string())
+                .join("relays");
+            let mgr = krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(
+                relays_dir, relay_key,
+            )
+            .map_err(|e| e.to_string())?;
+            state
+                .relay_account_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, mgr);
+        }
+    }
 
     // Update existing account or create a new one.
     let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
