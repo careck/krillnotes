@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-03-31
+
 ### Fixed
 - **Cross-peer relay routing** — PR #124 introduced per-device derived signing keys for relay registration, but peer-to-peer bundle routing still used identity public keys. Invite acceptances and onboarding snapshots were silently dropped. Fixed by registering the identity public key as an additional device key on the relay (PR #126).
 - **Sync engine consuming Accept bundles** — The sync engine acknowledged Accept-mode bundles before the invite poller could process them, causing invite acceptances to disappear.
 - **Snapshot relay routing** — `send_snapshot_via_relay` now populates `sender_device_id` and `recipient_device_ids` for proper relay routing.
 - **Identity key appearing in My Devices list** — The identity public key registered for routing was showing as a phantom device in the "Send to My Device" dialog.
 - **Synthetic invite save on imported identities** — Defensive directory creation prevents "No such file or directory" errors on freshly-imported identities.
+- **ARM Linux release build** — Added missing `xdg-utils` dependency for AppImage bundling on `ubuntu-22.04-arm` runners.
 
 ## [0.9.1] — 2026-03-29
 
