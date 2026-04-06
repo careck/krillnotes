@@ -162,7 +162,6 @@ export interface OperationSummary {
 }
 
 export interface AppSettings {
-  workspaceDirectory: string;
   activeThemeMode?: string;
   lightTheme?: string;
   darkTheme?: string;

@@ -99,13 +99,10 @@ function App() {
     setImportError('');
 
     try {
-      const settings = await invoke<AppSettings>('get_settings');
-      const folderPath = `${settings.workspaceDirectory}/${slug}`;
-
       const prev = importState;
       await invoke<WorkspaceInfoType>('execute_import', {
         zipPath: importState.zipPath,
-        folderPath,
+        name: slug,
         password: pendingImportPassword ?? null,
         identityUuid: importSelectedIdentity,
       });

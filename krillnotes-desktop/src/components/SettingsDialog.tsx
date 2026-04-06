@@ -6,7 +6,6 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
 import type { AppSettings } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import ManageThemesDialog from './ManageThemesDialog';
@@ -21,7 +20,7 @@ interface SettingsDialogProps {
 
 function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
   const { t } = useTranslation();
-  const [workspaceDir, setWorkspaceDir] = useState('');
+  const [homeDir, setHomeDir] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [language, setLanguage] = useState(() => i18n.language ?? 'en');
@@ -34,9 +33,9 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
 
   useEffect(() => {
     if (isOpen) {
+      invoke<string>('get_home_dir_path').then(setHomeDir).catch(() => {});
       invoke<AppSettings>('get_settings')
         .then(s => {
-          setWorkspaceDir(s.workspaceDirectory);
           setLanguage(s.language ?? 'en');
           setOriginalLanguage(s.language ?? 'en');
           setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on');
@@ -71,24 +70,12 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
 
   if (!isOpen) return null;
 
-  const handleBrowse = async () => {
-    const selected = await open({
-      directory: true,
-      title: 'Choose Workspace Directory',
-      defaultPath: workspaceDir,
-    });
-    if (selected && typeof selected === 'string') {
-      setWorkspaceDir(selected);
-    }
-  };
-
   const handleSave = async () => {
     setSaving(true);
     setError('');
     try {
       await invoke('update_settings', {
         patch: {
-          workspaceDirectory: workspaceDir,
           language,
           sharingIndicatorMode,
         },
@@ -139,27 +126,13 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
           <>
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">
-                {t('settings.workspaceDir')}
+                {t('settings.homeFolder')}
               </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={workspaceDir}
-                  readOnly
-                  className="flex-1 bg-secondary border border-secondary rounded px-3 py-2 text-sm"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-                <button
-                  onClick={handleBrowse}
-                  className="px-3 py-2 border border-secondary rounded hover:bg-secondary text-sm"
-                >
-                  {t('common.browse')}
-                </button>
-              </div>
+              <p className="text-sm bg-secondary border border-secondary rounded px-3 py-2 text-muted-foreground select-all">
+                {homeDir || '...'}
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {t('settings.workspaceDirHint')}
+                {t('settings.homeFolderHint')}
               </p>
             </div>
 

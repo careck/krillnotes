@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import type { AppSettings, WorkspaceInfo, IdentityRef } from '../types';
+import type { WorkspaceInfo, IdentityRef } from '../types';
 import { slugify } from '../utils/slugify';
 
 interface NewWorkspaceDialogProps {
@@ -20,7 +20,6 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
-  const [workspaceDir, setWorkspaceDir] = useState('');
   const [identities, setIdentities] = useState<IdentityRef[]>([]);
   const [selectedIdentity, setSelectedIdentity] = useState<string>('');
 
@@ -31,11 +30,9 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
     setCreating(false);
 
     Promise.all([
-      invoke<AppSettings>('get_settings'),
       invoke<IdentityRef[]>('list_identities'),
       invoke<string[]>('get_unlocked_identities'),
-    ]).then(([settings, ids, unlocked]) => {
-      setWorkspaceDir(settings.workspaceDirectory);
+    ]).then(([ids, unlocked]) => {
       const unlockedIdentities = ids.filter(i => unlocked.includes(i.uuid));
       setIdentities(unlockedIdentities);
       if (unlockedIdentities.length > 0 && !selectedIdentity) {
@@ -64,12 +61,11 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
     if (!slug) { setError(t('workspace.nameInvalid')); return; }
     if (!selectedIdentity) { setError(t('identity.noUnlockedIdentities')); return; }
 
-    const path = `${workspaceDir}/${slug}`;
     setCreating(true);
     setError('');
     try {
       await invoke<WorkspaceInfo>('create_workspace', {
-        path,
+        name: slug,
         identityUuid: selectedIdentity,
       });
       onClose();
@@ -101,9 +97,9 @@ function NewWorkspaceDialog({ isOpen, onClose }: NewWorkspaceDialogProps) {
             spellCheck={false}
             disabled={creating}
           />
-          {workspaceDir && (
+          {name.trim() && (
             <p className="text-xs text-muted-foreground mt-1">
-              {t('workspace.savedTo', { path: `${workspaceDir}/${slugify(name.trim()) || '...'}` })}
+              {t('workspace.savedAs', { name: slugify(name.trim()) || '...' })}
             </p>
           )}
         </div>
