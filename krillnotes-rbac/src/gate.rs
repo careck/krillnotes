@@ -128,6 +128,7 @@ impl RbacGate {
     /// After revoking a user's grant, check all grants they issued.
     /// If the granter no longer holds a sufficient role for the grant,
     /// invalidate it and recurse.
+    #[allow(dead_code)] // called only from #[cfg(test)] wrapper for now
     fn cascade_revoke(
         &self,
         conn: &Connection,

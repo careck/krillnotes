@@ -1117,7 +1117,6 @@ pub async fn list_devices_on_relay(
     identity_uuid: String,
     relay_account_id: String,
 ) -> std::result::Result<Vec<serde_json::Value>, String> {
-    use base64::Engine;
     use krillnotes_core::core::sync::relay::client::RelayClient;
 
     let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
