@@ -6,19 +6,20 @@
 
 //! Application settings persistence for Krillnotes.
 //!
-//! Stores user preferences (e.g. default workspace directory) in a JSON file
-//! at an OS-appropriate location.
+//! Settings live in the Krillnotes home folder (`~/Krillnotes/settings.json`).
+//! A breadcrumb file at the OS config directory stores a custom home path
+//! if the user overrides the default.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
 /// Persisted application settings.
+///
+/// Stored at `{home_dir}/settings.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    /// Directory where new workspaces are created and listed from.
-    pub workspace_directory: String,
     /// Current theme mode: "light", "dark", or "system".
     #[serde(default = "default_theme_mode")]
     pub active_theme_mode: String,
@@ -40,9 +41,6 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            workspace_directory: default_workspace_directory()
-                .to_string_lossy()
-                .to_string(),
             active_theme_mode: default_theme_mode(),
             light_theme: default_light_theme(),
             dark_theme: default_dark_theme(),
@@ -52,38 +50,74 @@ impl Default for AppSettings {
     }
 }
 
-/// Returns the config directory for Krillnotes.
+// ── Breadcrumb (custom home folder override) ─────────────────────────
+
+/// Returns the OS-appropriate breadcrumb directory.
 /// - macOS / Linux: `~/.config/krillnotes/`
 /// - Windows: `%APPDATA%/Krillnotes/`
-pub fn config_dir() -> PathBuf {
+fn breadcrumb_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        base.join("Krillnotes")
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Krillnotes")
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        home.join(".config").join("krillnotes")
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".config")
+            .join("krillnotes")
     }
 }
 
-/// Returns the path to the settings JSON file.
-///
-/// - macOS / Linux: `~/.config/krillnotes/settings.json`
-/// - Windows: `%APPDATA%/Krillnotes/settings.json`
-pub fn settings_file_path() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        base.join("Krillnotes").join("settings.json")
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        home.join(".config").join("krillnotes").join("settings.json")
-    }
+/// Path to the breadcrumb file that stores a custom home folder location.
+fn breadcrumb_path() -> PathBuf {
+    breadcrumb_dir().join("home_path")
 }
+
+// ── Home directory ───────────────────────────────────────────────────
+
+/// Returns the default home directory: `~/Krillnotes/`.
+fn default_home_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Krillnotes")
+}
+
+/// Returns the Krillnotes home directory.
+///
+/// Reads the breadcrumb file if it exists; otherwise returns the
+/// platform default (`~/Krillnotes/` on all platforms).
+pub fn home_dir() -> PathBuf {
+    let bp = breadcrumb_path();
+    if let Ok(content) = fs::read_to_string(&bp) {
+        let trimmed = content.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    default_home_dir()
+}
+
+/// Writes a custom home directory path to the breadcrumb file.
+pub fn set_home_dir(path: &str) -> Result<(), String> {
+    let bp = breadcrumb_path();
+    if let Some(parent) = bp.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create breadcrumb directory: {e}"))?;
+    }
+    fs::write(&bp, path.trim())
+        .map_err(|e| format!("Failed to write breadcrumb file: {e}"))
+}
+
+/// Temporary shim — remove after all callers are migrated.
+#[deprecated(note = "Use home_dir() instead")]
+pub fn config_dir() -> PathBuf {
+    home_dir()
+}
+
+// ── Settings I/O ─────────────────────────────────────────────────────
 
 fn default_theme_mode() -> String { "system".to_string() }
 fn default_light_theme() -> String { "light".to_string() }
@@ -91,15 +125,9 @@ fn default_dark_theme() -> String { "dark".to_string() }
 fn default_language() -> String { "en".to_string() }
 fn default_sharing_indicator_mode() -> String { "auto".to_string() }
 
-/// Returns the default workspace directory: `~/Documents/Krillnotes`.
-pub fn default_workspace_directory() -> PathBuf {
-    dirs::document_dir()
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("Documents")
-        })
-        .join("Krillnotes")
+/// Returns the path to the settings JSON file: `{home_dir}/settings.json`.
+pub fn settings_file_path() -> PathBuf {
+    home_dir().join("settings.json")
 }
 
 /// Loads settings from disk; returns defaults if the file is missing or corrupt.
@@ -130,34 +158,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deserializes_legacy_settings_without_theme_fields() {
-        let json = r#"{"workspaceDirectory":"/tmp"}"#;
-        let s: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.active_theme_mode, "system");
-        assert_eq!(s.light_theme, "light");
-        assert_eq!(s.dark_theme, "dark");
+    fn home_dir_returns_default_when_no_breadcrumb() {
+        let dir = home_dir();
+        assert!(dir.to_string_lossy().ends_with("Krillnotes"));
     }
 
     #[test]
-    fn deserializes_legacy_settings_without_language_field() {
-        let json = r#"{"workspaceDirectory":"/tmp"}"#;
+    fn settings_deserializes_without_workspace_directory() {
+        let json = r#"{"activeThemeMode":"dark","language":"fr"}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.active_theme_mode, "dark");
+        assert_eq!(s.language, "fr");
+    }
+
+    #[test]
+    fn settings_ignores_legacy_workspace_directory_field() {
+        // Old settings files with workspaceDirectory should still deserialize
+        let json = r#"{"workspaceDirectory":"/old/path","language":"en"}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.language, "en");
     }
 
     #[test]
-    fn deserializes_legacy_settings_without_sharing_indicator_mode_field() {
-        let json = r#"{"workspaceDirectory":"/tmp"}"#;
+    fn settings_defaults_are_applied() {
+        let json = r#"{}"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.active_theme_mode, "system");
+        assert_eq!(s.light_theme, "light");
+        assert_eq!(s.dark_theme, "dark");
+        assert_eq!(s.language, "en");
         assert_eq!(s.sharing_indicator_mode, "auto");
-    }
-
-    #[test]
-    fn deserializes_legacy_settings_with_old_cache_passwords_field() {
-        // Old settings files may still have cacheWorkspacePasswords — they
-        // should be ignored rather than causing a parse error.
-        let json = r#"{"workspaceDirectory":"/tmp","cacheWorkspacePasswords":false}"#;
-        let s: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.workspace_directory, "/tmp");
     }
 }
