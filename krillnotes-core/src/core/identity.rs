@@ -7,8 +7,8 @@
 //! Per-workspace cryptographic identity management.
 //!
 //! Manages Ed25519 keypairs protected by Argon2id-derived passphrases.
-//! Each identity is stored as an encrypted JSON file. A separate settings
-//! file binds workspaces to identities with encrypted DB passwords.
+//! Each identity is stored in a display-name folder under `home_dir/`,
+//! with its encrypted key file inside `<folder>/.identity/identity.json`.
 
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
@@ -20,6 +20,8 @@ use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::Result;
@@ -44,13 +46,15 @@ const ARGON2_P_COST: u32 = 1;
 // Identity file format (on-disk JSON)
 // ---------------------------------------------------------------------------
 
-/// On-disk identity file: `~/.config/krillnotes/identities/<uuid>.json`
+/// On-disk identity file: `<home_dir>/<display-name>/.identity/identity.json`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityFile {
     pub identity_uuid: Uuid,
     pub display_name: String,
     pub public_key: String,
     pub private_key_enc: EncryptedKey,
+    #[serde(default)]
+    pub last_used: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,18 +74,8 @@ pub struct KdfParams {
 }
 
 // ---------------------------------------------------------------------------
-// Identity settings (workspace registry)
+// Identity references
 // ---------------------------------------------------------------------------
-
-/// `~/.config/krillnotes/identity_settings.json`
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct IdentitySettings {
-    #[serde(default)]
-    pub identities: Vec<IdentityRef>,
-    /// Migration-only: readable from old files, never written back.
-    #[serde(default, skip_serializing)]
-    pub workspaces: std::collections::HashMap<String, LegacyWorkspaceBinding>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,27 +98,20 @@ pub struct WorkspaceBinding {
     pub db_password_enc: String,
 }
 
-/// Legacy workspace binding as stored in `identity_settings.json.workspaces`.
-/// Read-only during migration; never written after migration runs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LegacyWorkspaceBinding {
-    pub db_path: String,
-    pub identity_uuid: Uuid,
-    pub db_password_enc: String,
-}
-
 // ---------------------------------------------------------------------------
 // IdentityManager
 // ---------------------------------------------------------------------------
 
-use std::path::PathBuf;
-
-/// Manages identity files and the identity settings registry.
+/// Manages identity files in a display-name folder layout.
+///
+/// Layout: `home_dir/<display-name>/.identity/identity.json`
 pub struct IdentityManager {
-    config_dir: PathBuf,
+    home_dir: PathBuf,
+    /// UUID -> folder name (the display-name folder as it appears on disk).
+    folder_cache: HashMap<Uuid, String>,
 }
 
-/// Returned after successful unlock — caller holds this and wipes on lock.
+/// Returned after successful unlock -- caller holds this and wipes on lock.
 #[derive(Debug)]
 pub struct UnlockedIdentity {
     pub identity_uuid: Uuid,
@@ -203,201 +190,93 @@ impl SwarmIdFile {
 impl IdentityManager {
     /// Create a new `IdentityManager`.
     ///
-    /// Ensures the `identities/` subdirectory exists under `config_dir`.
-    /// Runs on-disk migrations (idempotent).
-    pub fn new(config_dir: PathBuf) -> Result<Self> {
-        let identities_dir = config_dir.join("identities");
-        std::fs::create_dir_all(&identities_dir)?;
-        Self::migrate(&config_dir);
-        // Remove vestigial top-level contacts/ dir (empty, superseded by per-identity folders)
-        let legacy_contacts = config_dir.join("contacts");
-        if legacy_contacts.is_dir() {
-            let is_empty = std::fs::read_dir(&legacy_contacts)
-                .map(|mut d| d.next().is_none())
-                .unwrap_or(false);
-            if is_empty {
-                let _ = std::fs::remove_dir(&legacy_contacts);
-            }
-        }
-        Ok(Self { config_dir })
+    /// Ensures `home_dir` exists and scans for identity folders.
+    pub fn new(home_dir: PathBuf) -> Result<Self> {
+        std::fs::create_dir_all(&home_dir)?;
+        let folder_cache = Self::scan_identities(&home_dir);
+        Ok(Self { home_dir, folder_cache })
     }
 
-    /// Runs on-disk migrations. Called once from `new()`. Idempotent.
-    fn migrate(config_dir: &std::path::Path) {
-        Self::migrate_pass1_identity_files(config_dir);
-        Self::migrate_pass2_workspace_bindings(config_dir);
-    }
-
-    /// Pass 2: migrate workspace bindings from `identity_settings.json.workspaces`
-    /// into per-workspace `binding.json` files.
-    fn migrate_pass2_workspace_bindings(config_dir: &std::path::Path) {
-        let settings_path = config_dir.join("identity_settings.json");
-        let raw = match std::fs::read_to_string(&settings_path) {
-            Ok(r) => r,
-            Err(_) => return,
+    /// Scans `home_dir` for display-name folders that contain `.identity/identity.json`.
+    fn scan_identities(home_dir: &Path) -> HashMap<Uuid, String> {
+        let mut cache = HashMap::new();
+        let entries = match std::fs::read_dir(home_dir) {
+            Ok(e) => e,
+            Err(_) => return cache,
         };
-        let mut settings: IdentitySettings = match serde_json::from_str(&raw) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        if settings.workspaces.is_empty() { return; }
-
-        for (ws_uuid, legacy) in &settings.workspaces {
-            // Derive workspace folder from db_path (parent of the .db file)
-            let workspace_dir = std::path::Path::new(&legacy.db_path)
-                .parent()
-                .map(|p| p.to_path_buf());
-
-            let workspace_dir = match workspace_dir {
-                Some(d) if d.is_dir() => d,
-                _ => {
-                    log::warn!("Workspace folder missing for {ws_uuid}, dropping binding");
-                    continue;
-                }
-            };
-
-            let binding = WorkspaceBinding {
-                workspace_uuid: ws_uuid.clone(),
-                identity_uuid: legacy.identity_uuid,
-                db_password_enc: legacy.db_password_enc.clone(),
-            };
-            let binding_path = workspace_dir.join("binding.json");
-            match serde_json::to_string_pretty(&binding) {
-                Ok(json) => {
-                    if let Err(e) = std::fs::write(&binding_path, json) {
-                        log::warn!("Cannot write binding.json to {binding_path:?}: {e}");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() { continue; }
+            let identity_json = path.join(".identity").join("identity.json");
+            if let Ok(content) = std::fs::read_to_string(&identity_json) {
+                if let Ok(file) = serde_json::from_str::<IdentityFile>(&content) {
+                    if let Some(folder_name) = path.file_name().and_then(|n| n.to_str()) {
+                        cache.insert(file.identity_uuid, folder_name.to_string());
                     }
                 }
-                Err(e) => log::warn!("Cannot serialise binding for {ws_uuid}: {e}"),
             }
         }
-
-        // Clear workspaces from settings regardless (stale entries are dropped)
-        settings.workspaces.clear();
-        if let Ok(json) = serde_json::to_string_pretty(&settings) {
-            let _ = std::fs::write(&settings_path, json);
-        }
+        cache
     }
 
-    /// Pass 1: move flat `identities/<uuid>.json` → `identities/<uuid>/identity.json`.
-    fn migrate_pass1_identity_files(config_dir: &std::path::Path) {
-        let identities_dir = config_dir.join("identities");
-        let settings_path = config_dir.join("identity_settings.json");
-
-        // Collect flat .json files (entries like `<uuid>.json` at root of identities/)
-        let flat_files: Vec<(Uuid, std::path::PathBuf)> = match std::fs::read_dir(&identities_dir) {
-            Ok(rd) => rd.flatten()
-                .filter_map(|e| {
-                    let p = e.path();
-                    if p.is_file() && p.extension().map(|x| x == "json").unwrap_or(false) {
-                        let stem = p.file_stem()?.to_str()?;
-                        let uuid = Uuid::parse_str(stem).ok()?;
-                        Some((uuid, p))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            Err(_) => return,
-        };
-
-        if flat_files.is_empty() { return; }
-
-        // Load settings to update file refs
-        let raw = match std::fs::read_to_string(&settings_path) {
-            Ok(r) => r,
-            Err(_) => return,
-        };
-        let mut settings: IdentitySettings = match serde_json::from_str(&raw) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        let mut changed = false;
-        for (uuid, src_path) in flat_files {
-            let dest_dir = identities_dir.join(uuid.to_string());
-            let dest_path = dest_dir.join("identity.json");
-
-            if dest_path.exists() {
-                // Already migrated — remove the now-orphaned flat file
-                let _ = std::fs::remove_file(&src_path);
-                changed = true;
-                continue;
-            }
-
-            if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-                log::warn!("Cannot create {dest_dir:?}: {e}");
-                continue;
-            }
-            if let Err(e) = std::fs::rename(&src_path, &dest_path) {
-                log::warn!("Cannot move {src_path:?}: {e}");
-                continue;
-            }
-
-            // Update IdentityRef.file in settings
-            let new_file = format!("identities/{uuid}/identity.json");
-            for id_ref in settings.identities.iter_mut() {
-                if id_ref.uuid == uuid {
-                    id_ref.file = new_file.clone();
-                    break;
-                }
-            }
-            changed = true;
-        }
-
-        if changed {
-            if let Ok(json) = serde_json::to_string_pretty(&settings) {
-                let _ = std::fs::write(&settings_path, json);
-            }
-        }
+    pub fn home_dir(&self) -> &Path {
+        &self.home_dir
     }
 
-    fn identities_dir(&self) -> PathBuf {
-        self.config_dir.join("identities")
+    /// Returns the display-name base directory for an identity, e.g. `home_dir/Alice`.
+    pub fn identity_base_dir(&self, identity_uuid: &Uuid) -> Option<PathBuf> {
+        self.folder_cache
+            .get(identity_uuid)
+            .map(|name| self.home_dir.join(name))
     }
 
-    /// Returns the directory for a single identity (contains identity.json, contacts/, invites/).
+    /// Returns the `.identity` directory for a given UUID.
+    /// Falls back to `home_dir/<uuid>/.identity` if not in the cache (with a warning).
     pub fn identity_dir(&self, identity_uuid: &Uuid) -> PathBuf {
-        self.identities_dir().join(identity_uuid.to_string())
+        match self.identity_base_dir(identity_uuid) {
+            Some(base) => base.join(".identity"),
+            None => {
+                log::warn!("identity_dir: UUID {identity_uuid} not in cache");
+                self.home_dir.join(identity_uuid.to_string()).join(".identity")
+            }
+        }
     }
 
     /// Returns the absolute path to the identity key file for a given UUID.
-    /// Replaces the pattern: `config_dir.join(&identity_ref.file)` in lib.rs.
     pub fn identity_file_path(&self, identity_uuid: &Uuid) -> PathBuf {
         self.identity_dir(identity_uuid).join("identity.json")
     }
 
-    fn settings_path(&self) -> PathBuf {
-        self.config_dir.join("identity_settings.json")
-    }
-
-    fn load_settings(&self) -> Result<IdentitySettings> {
-        let path = self.settings_path();
-        if path.exists() {
-            let data = std::fs::read_to_string(&path)?;
-            let settings: IdentitySettings = serde_json::from_str(&data)
-                .map_err(|e| crate::KrillnotesError::IdentityCorrupt(
-                    format!("identity_settings.json: {e}")
-                ))?;
-            Ok(settings)
-        } else {
-            Ok(IdentitySettings::default())
+    fn pick_folder_name(&self, display_name: &str) -> String {
+        let base = display_name.to_string();
+        if !self.home_dir.join(&base).exists() {
+            return base;
         }
+        for i in 2u32.. {
+            let candidate = format!("{} ({})", display_name, i);
+            if !self.home_dir.join(&candidate).exists() {
+                return candidate;
+            }
+        }
+        unreachable!()
     }
 
-    fn save_settings(&self, settings: &IdentitySettings) -> Result<()> {
-        let path = self.settings_path();
-        let data = serde_json::to_string_pretty(settings)?;
-        std::fs::write(&path, data)?;
+    /// Helper to create the standard `.identity/` subdirectory tree.
+    fn create_identity_subdirs(identity_dir: &Path) -> Result<()> {
+        std::fs::create_dir_all(identity_dir)?;
+        std::fs::create_dir_all(identity_dir.join("contacts"))?;
+        std::fs::create_dir_all(identity_dir.join("invites"))?;
+        std::fs::create_dir_all(identity_dir.join("relays"))?;
+        std::fs::create_dir_all(identity_dir.join("accepted_invites"))?;
+        std::fs::create_dir_all(identity_dir.join("invite_responses"))?;
         Ok(())
     }
 
     /// Create a new identity with the given display name and passphrase.
     ///
     /// Generates an Ed25519 keypair, encrypts the seed with Argon2id + AES-256-GCM,
-    /// writes the identity file, and registers it in settings.
-    pub fn create_identity(&self, display_name: &str, passphrase: &str) -> Result<IdentityFile> {
+    /// writes the identity file, and registers it in the folder cache.
+    pub fn create_identity(&mut self, display_name: &str, passphrase: &str) -> Result<IdentityFile> {
         // Generate Ed25519 keypair
         let mut seed = [0u8; 32];
         OsRng.fill_bytes(&mut seed);
@@ -450,40 +329,33 @@ impl IdentityManager {
                     p_cost: ARGON2_P_COST,
                 },
             },
+            last_used: Some(Utc::now()),
         };
 
-        // Write identity file into per-identity directory
-        let identity_dir = self.identity_dir(&identity_uuid);
-        std::fs::create_dir_all(&identity_dir)?;
-        // Pre-create data subdirs so the identity folder is complete from the start
-        std::fs::create_dir_all(identity_dir.join("contacts"))?;
-        std::fs::create_dir_all(identity_dir.join("invites"))?;
+        // Create display-name folder with .identity/ subdirs
+        let folder_name = self.pick_folder_name(display_name);
+        let identity_dir = self.home_dir.join(&folder_name).join(".identity");
+        Self::create_identity_subdirs(&identity_dir)?;
+
         let file_path = identity_dir.join("identity.json");
         let json = serde_json::to_string_pretty(&identity_file)?;
         std::fs::write(&file_path, json)?;
 
-        // Register in settings
-        let mut settings = self.load_settings()?;
-        settings.identities.push(IdentityRef {
-            uuid: identity_uuid,
-            display_name: display_name.to_string(),
-            file: format!("identities/{identity_uuid}/identity.json"),
-            last_used: Utc::now(),
-        });
-        self.save_settings(&settings)?;
+        // Update folder cache
+        self.folder_cache.insert(identity_uuid, folder_name);
 
         Ok(identity_file)
     }
 
     /// Unlock an identity by decrypting its Ed25519 seed with the given passphrase.
-    pub fn unlock_identity(&self, identity_uuid: &Uuid, passphrase: &str) -> Result<UnlockedIdentity> {
+    pub fn unlock_identity(&mut self, identity_uuid: &Uuid, passphrase: &str) -> Result<UnlockedIdentity> {
         // Load identity file
         let file_path = self.identity_file_path(identity_uuid);
         if !file_path.exists() {
             return Err(crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()));
         }
         let data = std::fs::read_to_string(&file_path)?;
-        let identity_file: IdentityFile = serde_json::from_str(&data)
+        let mut identity_file: IdentityFile = serde_json::from_str(&data)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("JSON parse: {e}")))?;
 
         // Decode stored values
@@ -523,12 +395,10 @@ impl IdentityManager {
         let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
 
-        // Update last_used timestamp
-        let mut settings = self.load_settings()?;
-        if let Some(entry) = settings.identities.iter_mut().find(|i| i.uuid == *identity_uuid) {
-            entry.last_used = Utc::now();
-            self.save_settings(&settings)?;
-        }
+        // Update last_used timestamp directly in identity.json
+        identity_file.last_used = Some(Utc::now());
+        let json = serde_json::to_string_pretty(&identity_file)?;
+        std::fs::write(&file_path, json)?;
 
         Ok(UnlockedIdentity {
             identity_uuid: *identity_uuid,
@@ -540,47 +410,54 @@ impl IdentityManager {
 
     /// List all registered identities.
     pub fn list_identities(&self) -> Result<Vec<IdentityRef>> {
-        let settings = self.load_settings()?;
-        Ok(settings.identities)
+        let mut refs = Vec::new();
+        for (uuid, folder_name) in &self.folder_cache {
+            let identity_json = self.home_dir.join(folder_name).join(".identity").join("identity.json");
+            if let Ok(content) = std::fs::read_to_string(&identity_json) {
+                if let Ok(file) = serde_json::from_str::<IdentityFile>(&content) {
+                    refs.push(IdentityRef {
+                        uuid: *uuid,
+                        display_name: file.display_name,
+                        file: identity_json.to_string_lossy().to_string(),
+                        last_used: file.last_used.unwrap_or_else(Utc::now),
+                    });
+                }
+            }
+        }
+        refs.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+        Ok(refs)
     }
 
     /// Look up the display name for a given base64-encoded public key.
     /// Reads each identity file until a match is found. Returns `None` if
     /// no local identity has that public key.
     pub fn lookup_display_name(&self, public_key: &str) -> Option<String> {
-        let settings = self.load_settings().ok()?;
-        for identity_ref in &settings.identities {
-            let file_path = self.identity_file_path(&identity_ref.uuid);
-            let Ok(data) = std::fs::read_to_string(&file_path) else { continue };
-            let Ok(identity_file) = serde_json::from_str::<IdentityFile>(&data) else { continue };
-            if identity_file.public_key == public_key {
-                return Some(identity_file.display_name);
+        for (_uuid, folder_name) in &self.folder_cache {
+            let identity_json = self.home_dir.join(folder_name).join(".identity").join("identity.json");
+            if let Ok(content) = std::fs::read_to_string(&identity_json) {
+                if let Ok(file) = serde_json::from_str::<IdentityFile>(&content) {
+                    if file.public_key == public_key {
+                        return Some(file.display_name);
+                    }
+                }
             }
         }
         None
     }
 
     /// Delete an identity. Fails if any workspaces are still bound to it.
-    pub fn delete_identity(&self, identity_uuid: &Uuid, workspace_base_dir: &std::path::Path) -> Result<()> {
-        // Check for bound workspaces in the workspace base directory
-        let bound = self.get_workspaces_for_identity(identity_uuid, workspace_base_dir)?;
-        if !bound.is_empty() {
+    pub fn delete_identity(&mut self, identity_uuid: &Uuid) -> Result<()> {
+        let workspaces = self.get_workspaces_for_identity(identity_uuid)?;
+        if !workspaces.is_empty() {
             return Err(crate::KrillnotesError::IdentityHasBoundWorkspaces(
                 identity_uuid.to_string(),
             ));
         }
 
-        let mut settings = self.load_settings()?;
-
-        // Remove from settings
-        settings.identities.retain(|i| i.uuid != *identity_uuid);
-        self.save_settings(&settings)?;
-
-        // Delete entire identity directory
-        let identity_dir = self.identity_dir(identity_uuid);
-        if identity_dir.exists() {
-            std::fs::remove_dir_all(&identity_dir)?;
+        if let Some(base_dir) = self.identity_base_dir(identity_uuid) {
+            std::fs::remove_dir_all(&base_dir)?;
         }
+        self.folder_cache.remove(identity_uuid);
 
         Ok(())
     }
@@ -590,7 +467,7 @@ impl IdentityManager {
     /// Decrypts the seed with the old passphrase, generates a new Argon2id salt,
     /// and re-encrypts with the new passphrase. The keypair is unchanged.
     pub fn change_passphrase(
-        &self,
+        &mut self,
         identity_uuid: &Uuid,
         old_passphrase: &str,
         new_passphrase: &str,
@@ -626,7 +503,7 @@ impl IdentityManager {
             .encrypt(nonce, seed.as_ref())
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("AES encrypt: {e}")))?;
 
-        // Load and update identity file
+        // Load and update identity file (preserves last_used)
         let file_path = self.identity_file_path(identity_uuid);
         let data = std::fs::read_to_string(&file_path)?;
         let mut identity_file: IdentityFile = serde_json::from_str(&data)
@@ -650,31 +527,33 @@ impl IdentityManager {
         Ok(())
     }
 
-    /// Renames an identity's display name in both the identity file and the settings registry.
-    pub fn rename_identity(&self, identity_uuid: &Uuid, new_name: &str) -> Result<()> {
+    /// Renames an identity's display name and moves its folder.
+    pub fn rename_identity(&mut self, identity_uuid: &Uuid, new_name: &str) -> Result<()> {
         // Update identity file
-        let identity_path = self.identity_file_path(identity_uuid);
-        let content = std::fs::read_to_string(&identity_path)
+        let file_path = self.identity_file_path(identity_uuid);
+        let raw = std::fs::read_to_string(&file_path)
             .map_err(|_| crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()))?;
-        let mut identity_file: IdentityFile = serde_json::from_str(&content)
+        let mut id_file: IdentityFile = serde_json::from_str(&raw)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))?;
-        identity_file.display_name = new_name.to_string();
-        let json = serde_json::to_string_pretty(&identity_file)?;
-        std::fs::write(&identity_path, json)?;
+        id_file.display_name = new_name.to_string();
+        let json = serde_json::to_string_pretty(&id_file)?;
+        std::fs::write(&file_path, json)?;
 
-        // Update settings registry
-        let mut settings = self.load_settings()?;
-        if let Some(identity_ref) = settings.identities.iter_mut().find(|i| i.uuid == *identity_uuid) {
-            identity_ref.display_name = new_name.to_string();
+        // Rename folder if needed
+        if let Some(old_base) = self.identity_base_dir(identity_uuid) {
+            let new_folder_name = self.pick_folder_name(new_name);
+            let new_base = self.home_dir.join(&new_folder_name);
+            if old_base != new_base {
+                std::fs::rename(&old_base, &new_base)?;
+                self.folder_cache.insert(*identity_uuid, new_folder_name);
+            }
         }
-        self.save_settings(&settings)?;
-
         Ok(())
     }
 
     /// Verifies the passphrase, then returns a `SwarmIdFile` ready to be serialised
     /// and written to disk by the caller. Does NOT write any file itself.
-    pub fn export_swarmid(&self, identity_uuid: &Uuid, passphrase: &str) -> Result<SwarmIdFile> {
+    pub fn export_swarmid(&mut self, identity_uuid: &Uuid, passphrase: &str) -> Result<SwarmIdFile> {
         // Verify passphrase by attempting an unlock (propagates IdentityWrongPassphrase on mismatch)
         self.unlock_identity(identity_uuid, passphrase)?;
         self.export_swarmid_no_verify(identity_uuid)
@@ -717,11 +596,10 @@ impl IdentityManager {
     ///
     /// Returns `IdentityAlreadyExists` if the same UUID is already registered.
     /// Call `import_swarmid_overwrite` if the user confirms they want to replace it.
-    pub fn import_swarmid(&self, file: SwarmIdFile) -> Result<IdentityRef> {
+    pub fn import_swarmid(&mut self, file: SwarmIdFile) -> Result<IdentityRef> {
         self.validate_swarmid_file(&file)?;
         let uuid = file.identity.identity_uuid;
-        let settings = self.load_settings()?;
-        if settings.identities.iter().any(|i| i.uuid == uuid) {
+        if self.folder_cache.contains_key(&uuid) {
             return Err(crate::KrillnotesError::IdentityAlreadyExists(uuid.to_string()));
         }
         self.write_swarmid_to_store(file)
@@ -732,17 +610,14 @@ impl IdentityManager {
     /// Workspace bindings for the overwritten UUID are intentionally preserved — the
     /// imported `.swarmid` is assumed to carry the same Ed25519 key material, so the
     /// bound DB passwords remain decryptable after import.
-    pub fn import_swarmid_overwrite(&self, file: SwarmIdFile) -> Result<IdentityRef> {
+    pub fn import_swarmid_overwrite(&mut self, file: SwarmIdFile) -> Result<IdentityRef> {
         self.validate_swarmid_file(&file)?;
         let uuid = file.identity.identity_uuid;
-        // Remove existing entry if present
-        let mut settings = self.load_settings()?;
-        settings.identities.retain(|i| i.uuid != uuid);
-        self.save_settings(&settings)?;
-        let identity_dir = self.identity_dir(&uuid);
-        if identity_dir.exists() {
-            std::fs::remove_dir_all(&identity_dir)?;
+        // Remove existing folder if present
+        if let Some(base_dir) = self.identity_base_dir(&uuid) {
+            std::fs::remove_dir_all(&base_dir)?;
         }
+        self.folder_cache.remove(&uuid);
         self.write_swarmid_to_store(file)
     }
 
@@ -761,37 +636,35 @@ impl IdentityManager {
         Ok(())
     }
 
-    fn write_swarmid_to_store(&self, file: SwarmIdFile) -> Result<IdentityRef> {
+    fn write_swarmid_to_store(&mut self, file: SwarmIdFile) -> Result<IdentityRef> {
         let identity = file.identity;
         let uuid = identity.identity_uuid;
         let display_name = identity.display_name.clone();
 
-        // Write identity file into per-identity directory
-        let identity_dir = self.identity_dir(&uuid);
-        std::fs::create_dir_all(&identity_dir)?;
-        std::fs::create_dir_all(identity_dir.join("contacts"))?;
-        std::fs::create_dir_all(identity_dir.join("invites"))?;
-        let relays_dir = identity_dir.join("relays");
-        std::fs::create_dir_all(&relays_dir)?;
+        // Create display-name folder with .identity/ subdirs
+        let folder_name = self.pick_folder_name(&display_name);
+        let identity_dir = self.home_dir.join(&folder_name).join(".identity");
+        Self::create_identity_subdirs(&identity_dir)?;
+
         let file_path = identity_dir.join("identity.json");
         let json = serde_json::to_string_pretty(&identity)?;
         std::fs::write(&file_path, json)?;
 
         // Restore encrypted relay account files from the export.
+        let relays_dir = identity_dir.join("relays");
         for relay in &file.relays {
             std::fs::write(relays_dir.join(&relay.filename), &relay.contents)?;
         }
 
-        // Register in settings registry
-        let mut settings = self.load_settings()?;
+        // Update folder cache
+        self.folder_cache.insert(uuid, folder_name);
+
         let identity_ref = IdentityRef {
             uuid,
-            display_name: display_name.clone(),
-            file: format!("identities/{uuid}/identity.json"),
-            last_used: Utc::now(),
+            display_name,
+            file: file_path.to_string_lossy().to_string(),
+            last_used: identity.last_used.unwrap_or_else(Utc::now),
         };
-        settings.identities.push(identity_ref.clone());
-        self.save_settings(&settings)?;
 
         Ok(identity_ref)
     }
@@ -864,32 +737,36 @@ impl IdentityManager {
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))
     }
 
-    /// Scans all subdirectories of `workspace_base_dir` for `binding.json` files
-    /// that belong to `identity_uuid`. Returns `(workspace_folder, WorkspaceBinding)` pairs.
+    /// Scans the identity's base directory for workspace folders that contain
+    /// `binding.json` files belonging to `identity_uuid`.
+    /// Returns `(workspace_folder, WorkspaceBinding)` pairs.
     pub fn get_workspaces_for_identity(
         &self,
         identity_uuid: &Uuid,
-        workspace_base_dir: &std::path::Path,
     ) -> Result<Vec<(PathBuf, WorkspaceBinding)>> {
-        let mut results = Vec::new();
-        let entries = match std::fs::read_dir(workspace_base_dir) {
-            Ok(rd) => rd,
-            Err(_) => return Ok(results), // directory doesn't exist yet
+        let base_dir = match self.identity_base_dir(identity_uuid) {
+            Some(dir) => dir,
+            None => return Ok(vec![]),
+        };
+        let mut result = Vec::new();
+        let entries = match std::fs::read_dir(&base_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(vec![]),
         };
         for entry in entries.flatten() {
-            let folder = entry.path();
-            if !folder.is_dir() { continue; }
-            let binding_path = folder.join("binding.json");
-            if !binding_path.exists() { continue; }
-            if let Ok(raw) = std::fs::read_to_string(&binding_path) {
-                if let Ok(b) = serde_json::from_str::<WorkspaceBinding>(&raw) {
-                    if b.identity_uuid == *identity_uuid {
-                        results.push((folder, b));
+            let path = entry.path();
+            if !path.is_dir() { continue; }
+            if path.file_name().map(|n| n == ".identity").unwrap_or(false) { continue; }
+            let binding_path = path.join("binding.json");
+            if let Ok(content) = std::fs::read_to_string(&binding_path) {
+                if let Ok(binding) = serde_json::from_str::<WorkspaceBinding>(&content) {
+                    if binding.identity_uuid == *identity_uuid {
+                        result.push((path, binding));
                     }
                 }
             }
         }
-        Ok(results)
+        Ok(result)
     }
 
     // --- private helpers ---
