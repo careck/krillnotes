@@ -111,12 +111,6 @@ pub fn set_home_dir(path: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to write breadcrumb file: {e}"))
 }
 
-/// Temporary shim — remove after all callers are migrated.
-#[deprecated(note = "Use home_dir() instead")]
-pub fn config_dir() -> PathBuf {
-    home_dir()
-}
-
 // ── Settings I/O ─────────────────────────────────────────────────────
 
 fn default_theme_mode() -> String { "system".to_string() }
