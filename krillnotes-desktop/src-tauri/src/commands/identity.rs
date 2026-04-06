@@ -73,7 +73,7 @@ pub fn create_identity(
     display_name: String,
     passphrase: String,
 ) -> std::result::Result<crate::IdentityRef, String> {
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let file = mgr.create_identity(&display_name, &passphrase)
         .map_err(|e| { log::error!("create_identity failed: {e}"); e.to_string() })?;
     let uuid = file.identity_uuid;
@@ -81,15 +81,13 @@ pub fn create_identity(
     // Auto-unlock after creation
     let unlocked = mgr.unlock_identity(&uuid, &passphrase)
         .map_err(|e| e.to_string())?;
+    let identity_dir = mgr.identity_dir(&uuid);
     drop(mgr); // Release the lock before acquiring unlocked_identities
     // Derive contacts key before consuming `unlocked` via insert
     let contacts_key = unlocked.contacts_key();
     state.unlocked_identities.lock().expect("Mutex poisoned")
         .insert(uuid, unlocked);
-    let contacts_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("contacts");
+    let contacts_dir = identity_dir.join("contacts");
     match krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
         Ok(cm) => {
             state.contact_managers.lock().expect("Mutex poisoned").insert(uuid, cm);
@@ -99,10 +97,7 @@ pub fn create_identity(
             log::warn!("Failed to initialize contact manager for {uuid}: {e}");
         }
     }
-    let invites_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("invites");
+    let invites_dir = identity_dir.join("invites");
     match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
         Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
         Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
@@ -114,10 +109,7 @@ pub fn create_identity(
         ids.get(&uuid).map(|u| u.relay_key())
     };
     if let Some(relay_key) = relay_key {
-        let relays_dir = crate::settings::config_dir()
-            .join("identities")
-            .join(uuid.to_string())
-            .join("relays");
+        let relays_dir = identity_dir.join("relays");
         match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
             Ok(relay_mgr) => {
                 state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
@@ -128,19 +120,13 @@ pub fn create_identity(
         }
     }
 
-    let accepted_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("accepted_invites");
+    let accepted_dir = identity_dir.join("accepted_invites");
     match krillnotes_core::core::accepted_invite::AcceptedInviteManager::new(accepted_dir) {
         Ok(mgr) => { state.accepted_invite_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
         Err(e) => { log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}"); }
     }
 
-    let responses_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("invite_responses");
+    let responses_dir = identity_dir.join("invite_responses");
     match krillnotes_core::core::received_response::ReceivedResponseManager::new(responses_dir) {
         Ok(mgr) => { state.received_response_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
         Err(e) => { log::warn!("Failed to initialize received response manager for {uuid}: {e}"); }
@@ -161,7 +147,7 @@ pub fn unlock_identity(
     passphrase: String,
 ) -> std::result::Result<(), String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let unlocked = mgr.unlock_identity(&uuid, &passphrase)
         .map_err(|e| match e {
             crate::KrillnotesError::IdentityWrongPassphrase => "WRONG_PASSPHRASE".to_string(),
@@ -170,16 +156,14 @@ pub fn unlock_identity(
                 other.to_string()
             }
         })?;
+    let identity_dir = mgr.identity_dir(&uuid);
     drop(mgr);
     // Derive contacts key before consuming `unlocked` via insert
     let contacts_key = unlocked.contacts_key();
     state.unlocked_identities.lock().expect("Mutex poisoned")
         .insert(uuid, unlocked);
     // Create per-identity ContactManager (decrypts contacts into memory)
-    let contacts_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("contacts");
+    let contacts_dir = identity_dir.join("contacts");
     match krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
         Ok(cm) => {
             state.contact_managers.lock().expect("Mutex poisoned").insert(uuid, cm);
@@ -189,10 +173,7 @@ pub fn unlock_identity(
             log::warn!("Failed to initialize contact manager for {uuid}: {e}");
         }
     }
-    let invites_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("invites");
+    let invites_dir = identity_dir.join("invites");
     match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
         Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
         Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
@@ -204,37 +185,9 @@ pub fn unlock_identity(
         ids.get(&uuid).map(|u| u.relay_key())
     };
     if let Some(relay_key) = relay_key {
-        let relays_dir = crate::settings::config_dir()
-            .join("identities")
-            .join(uuid.to_string())
-            .join("relays");
+        let relays_dir = identity_dir.join("relays");
         match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
             Ok(relay_mgr) => {
-                // Migrate old-style single relay credentials if they exist
-                let old_relay_dir = crate::settings::config_dir().join("relay");
-                if let Ok(Some(old_creds)) = krillnotes_core::core::sync::relay::load_relay_credentials(
-                    &old_relay_dir,
-                    &identity_uuid,
-                    &relay_key,
-                ) {
-                    if relay_mgr.find_by_url(&old_creds.relay_url).unwrap_or(None).is_none() {
-                        match relay_mgr.create_relay_account(
-                            &old_creds.relay_url,
-                            &old_creds.email,
-                            "",  // old format has no password
-                            &old_creds.session_token,
-                            old_creds.session_expires_at,
-                            &old_creds.device_public_key,
-                        ) {
-                            Ok(_) => log::info!("Migrated old relay credentials for {uuid}"),
-                            Err(e) => log::warn!("Failed to migrate old relay credentials for {uuid}: {e}"),
-                        }
-                    }
-                    let _ = krillnotes_core::core::sync::relay::delete_relay_credentials(
-                        &old_relay_dir,
-                        &identity_uuid,
-                    );
-                }
                 state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
             }
             Err(e) => {
@@ -332,19 +285,13 @@ pub fn unlock_identity(
         }
     }
 
-    let accepted_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("accepted_invites");
+    let accepted_dir = identity_dir.join("accepted_invites");
     match krillnotes_core::core::accepted_invite::AcceptedInviteManager::new(accepted_dir) {
         Ok(mgr) => { state.accepted_invite_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
         Err(e) => { log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}"); }
     }
 
-    let responses_dir = crate::settings::config_dir()
-        .join("identities")
-        .join(uuid.to_string())
-        .join("invite_responses");
+    let responses_dir = identity_dir.join("invite_responses");
     match krillnotes_core::core::received_response::ReceivedResponseManager::new(responses_dir) {
         Ok(mgr) => { state.received_response_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
         Err(e) => { log::warn!("Failed to initialize received response manager for {uuid}: {e}"); }
@@ -418,10 +365,9 @@ pub fn lock_identity(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     // Find and close all workspace windows belonging to this identity
-    let workspace_base_dir = PathBuf::from(&crate::settings::load_settings().workspace_directory);
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let bound_folders: std::collections::HashSet<PathBuf> =
-        mgr.get_workspaces_for_identity(&uuid, &workspace_base_dir)
+        mgr.get_workspaces_for_identity(&uuid)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|(folder, _)| folder)
@@ -468,9 +414,8 @@ pub fn delete_identity(
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
-    let workspace_base_dir = PathBuf::from(&crate::settings::load_settings().workspace_directory);
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.delete_identity(&uuid, &workspace_base_dir).map_err(|e| { log::error!("delete_identity(identity={identity_uuid}) failed: {e}"); e.to_string() })
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    mgr.delete_identity(&uuid).map_err(|e| { log::error!("delete_identity(identity={identity_uuid}) failed: {e}"); e.to_string() })
 }
 
 /// Renames an identity.
@@ -488,7 +433,7 @@ pub fn rename_identity(
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
     mgr.rename_identity(&uuid, &new_name).map_err(|e| { log::error!("rename_identity(identity={identity_uuid}) failed: {e}"); e.to_string() })
 }
 
@@ -508,7 +453,7 @@ pub fn change_identity_passphrase(
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
     mgr.change_passphrase(&uuid, &old_passphrase, &new_passphrase)
         .map_err(|e| match e {
             crate::KrillnotesError::IdentityWrongPassphrase => "WRONG_PASSPHRASE".to_string(),
@@ -548,10 +493,9 @@ pub fn get_workspaces_for_identity(
     identity_uuid: String,
 ) -> std::result::Result<Vec<WorkspaceBindingInfo>, String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
-    let workspace_base_dir = PathBuf::from(&crate::settings::load_settings().workspace_directory);
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let bindings = mgr
-        .get_workspaces_for_identity(&uuid, &workspace_base_dir)
+        .get_workspaces_for_identity(&uuid)
         .map_err(|e| e.to_string())?;
     let result: Vec<WorkspaceBindingInfo> = bindings
         .into_iter()
@@ -622,7 +566,7 @@ pub fn import_swarmid_cmd(
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let file: crate::SwarmIdFile = serde_json::from_str(&data)
         .map_err(|e| format!("Invalid .swarmid file: {e}"))?;
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
     mgr.import_swarmid(file).map_err(|e| {
         match e {
             crate::KrillnotesError::IdentityAlreadyExists(uuid) => format!("IDENTITY_EXISTS:{uuid}"),
@@ -643,6 +587,6 @@ pub fn import_swarmid_overwrite_cmd(
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let file: crate::SwarmIdFile = serde_json::from_str(&data)
         .map_err(|e| format!("Invalid .swarmid file: {e}"))?;
-    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
     mgr.import_swarmid_overwrite(file).map_err(|e| { log::error!("import_swarmid_overwrite failed: {e}"); e.to_string() })
 }
