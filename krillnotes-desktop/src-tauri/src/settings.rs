@@ -36,6 +36,9 @@ pub struct AppSettings {
     /// "on" = always, "off" = never, "auto" = only when the workspace has peers.
     #[serde(default = "default_sharing_indicator_mode")]
     pub sharing_indicator_mode: String,
+    /// Maximum number of actions that can be undone (1–500). Applied to all workspaces.
+    #[serde(default = "default_undo_history_limit")]
+    pub undo_history_limit: usize,
 }
 
 impl Default for AppSettings {
@@ -46,6 +49,7 @@ impl Default for AppSettings {
             dark_theme: default_dark_theme(),
             language: default_language(),
             sharing_indicator_mode: default_sharing_indicator_mode(),
+            undo_history_limit: default_undo_history_limit(),
         }
     }
 }
@@ -118,6 +122,7 @@ fn default_light_theme() -> String { "light".to_string() }
 fn default_dark_theme() -> String { "dark".to_string() }
 fn default_language() -> String { "en".to_string() }
 fn default_sharing_indicator_mode() -> String { "auto".to_string() }
+fn default_undo_history_limit() -> usize { 50 }
 
 /// Returns the path to the settings JSON file: `{home_dir}/settings.json`.
 pub fn settings_file_path() -> PathBuf {

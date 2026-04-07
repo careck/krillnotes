@@ -167,6 +167,7 @@ export interface AppSettings {
   darkTheme?: string;
   language?: string;
   sharingIndicatorMode?: string;
+  undoHistoryLimit?: number;
 }
 
 export interface WorkspaceEntry {

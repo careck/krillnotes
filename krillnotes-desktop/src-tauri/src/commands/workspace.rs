@@ -554,6 +554,10 @@ pub async fn open_workspace(
                     other => format!("Failed to open: {other}"),
                 })?;
 
+            // Apply global undo limit from settings
+            let global_undo_limit = crate::settings::load_settings().undo_history_limit;
+            let _ = workspace.set_undo_limit(global_undo_limit);
+
             let migration_results = std::mem::take(&mut workspace.pending_migration_results);
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone(), identity_uuid);
@@ -868,6 +872,14 @@ pub fn update_settings(
 
     if updated.language != old_lang {
         rebuild_menus(&app, &state, &updated.language)?;
+    }
+
+    // Apply undo limit to all open workspaces
+    if updated.undo_history_limit != current.undo_history_limit {
+        let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        for ws in workspaces.values_mut() {
+            let _ = ws.set_undo_limit(updated.undo_history_limit);
+        }
     }
 
     Ok(())

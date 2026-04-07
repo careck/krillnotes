@@ -40,10 +40,10 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
           setLanguage(s.language ?? 'en');
           setOriginalLanguage(s.language ?? 'en');
           setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on');
+          setUndoLimit(s.undoHistoryLimit ?? 50);
           setError('');
         })
         .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
-      invoke<number>('get_undo_limit').then(setUndoLimit).catch(() => {});
     }
   }, [isOpen]);
 
@@ -79,13 +79,11 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
         patch: {
           language,
           sharingIndicatorMode,
+          undoHistoryLimit: undoLimit ?? 50,
         },
       });
       if (homeDir) {
         await invoke('set_home_dir_path', { path: homeDir });
-      }
-      if (undoLimit !== undefined) {
-        await invoke('set_undo_limit', { limit: undoLimit });
       }
       setOriginalLanguage(language); // committed — no revert on close
       onSaved?.();
