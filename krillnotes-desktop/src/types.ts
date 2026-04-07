@@ -162,12 +162,12 @@ export interface OperationSummary {
 }
 
 export interface AppSettings {
-  workspaceDirectory: string;
   activeThemeMode?: string;
   lightTheme?: string;
   darkTheme?: string;
   language?: string;
   sharingIndicatorMode?: string;
+  undoHistoryLimit?: number;
 }
 
 export interface WorkspaceEntry {

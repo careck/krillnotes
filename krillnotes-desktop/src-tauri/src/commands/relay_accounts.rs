@@ -274,9 +274,8 @@ pub async fn login_relay_account(
                 let id = ids.get(&uuid).ok_or("Identity is not unlocked")?;
                 id.relay_key()
             };
-            let relays_dir = crate::settings::config_dir()
-                .join("identities")
-                .join(uuid.to_string())
+            let relays_dir = state.identity_manager.lock().expect("Mutex poisoned")
+                .identity_dir(&uuid)
                 .join("relays");
             let mgr = krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(
                 relays_dir, relay_key,

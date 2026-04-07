@@ -21,7 +21,7 @@ interface SettingsDialogProps {
 
 function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
   const { t } = useTranslation();
-  const [workspaceDir, setWorkspaceDir] = useState('');
+  const [homeDir, setHomeDir] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [language, setLanguage] = useState(() => i18n.language ?? 'en');
@@ -34,16 +34,16 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
 
   useEffect(() => {
     if (isOpen) {
+      invoke<string>('get_home_dir_path').then(setHomeDir).catch(() => {});
       invoke<AppSettings>('get_settings')
         .then(s => {
-          setWorkspaceDir(s.workspaceDirectory);
           setLanguage(s.language ?? 'en');
           setOriginalLanguage(s.language ?? 'en');
           setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on');
+          setUndoLimit(s.undoHistoryLimit ?? 50);
           setError('');
         })
         .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
-      invoke<number>('get_undo_limit').then(setUndoLimit).catch(() => {});
     }
   }, [isOpen]);
 
@@ -71,30 +71,19 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
 
   if (!isOpen) return null;
 
-  const handleBrowse = async () => {
-    const selected = await open({
-      directory: true,
-      title: 'Choose Workspace Directory',
-      defaultPath: workspaceDir,
-    });
-    if (selected && typeof selected === 'string') {
-      setWorkspaceDir(selected);
-    }
-  };
-
   const handleSave = async () => {
     setSaving(true);
     setError('');
     try {
       await invoke('update_settings', {
         patch: {
-          workspaceDirectory: workspaceDir,
           language,
           sharingIndicatorMode,
+          undoHistoryLimit: undoLimit ?? 50,
         },
       });
-      if (undoLimit !== undefined) {
-        await invoke('set_undo_limit', { limit: undoLimit });
+      if (homeDir) {
+        await invoke('set_home_dir_path', { path: homeDir });
       }
       setOriginalLanguage(language); // committed — no revert on close
       onSaved?.();
@@ -139,27 +128,27 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
           <>
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">
-                {t('settings.workspaceDir')}
+                {t('settings.homeFolder')}
               </label>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={workspaceDir}
                   readOnly
-                  className="flex-1 bg-secondary border border-secondary rounded px-3 py-2 text-sm"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
+                  value={homeDir}
+                  className="flex-1 text-sm bg-background border border-input rounded px-3 py-2 select-all"
                 />
                 <button
-                  onClick={handleBrowse}
-                  className="px-3 py-2 border border-secondary rounded hover:bg-secondary text-sm"
+                  onClick={async () => {
+                    const selected = await open({ directory: true, defaultPath: homeDir || undefined });
+                    if (selected && typeof selected === 'string') setHomeDir(selected);
+                  }}
+                  className="px-3 py-2 text-sm border border-input rounded hover:bg-secondary"
                 >
                   {t('common.browse')}
                 </button>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {t('settings.workspaceDirHint')}
+                {t('settings.homeFolderHint')}
               </p>
             </div>
 

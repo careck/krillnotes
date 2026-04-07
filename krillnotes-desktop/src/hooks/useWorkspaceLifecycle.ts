@@ -11,7 +11,7 @@ import i18n from '../i18n';
 import type { WorkspaceInfo as WorkspaceInfoType, AppSettings, IdentityRef, InviteFileData } from '../types';
 
 interface WorkspaceLifecycleCallbacks {
-  setShowCreateFirstIdentity: (show: boolean) => void;
+  setShowIdentityManager: (show: boolean) => void;
   setShowSwarmOpen: (show: boolean) => void;
   showSwarmOpen: boolean;
   proceedWithImport: (zipPath: string, password: string | null) => Promise<void>;
@@ -64,10 +64,11 @@ export function useWorkspaceLifecycle(callbacks: WorkspaceLifecycleCallbacks) {
     }
 
     // First-launch identity check: only on main window
+    // Show the full identity manager so users can create OR import
     if (getCurrentWebviewWindow().label === 'main') {
       invoke<IdentityRef[]>('list_identities').then(identities => {
         if (identities.length === 0) {
-          callbacksRef.current.setShowCreateFirstIdentity(true);
+          callbacksRef.current.setShowIdentityManager(true);
         }
       }).catch(err => console.error('Failed to check identities:', err));
     }

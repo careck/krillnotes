@@ -388,10 +388,16 @@ pub async fn create_workspace(
     window: tauri::Window,
     app: AppHandle,
     state: State<'_, AppState>,
-    path: String,
+    name: String,
     identity_uuid: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    let folder = PathBuf::from(&path);
+    let uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let folder = {
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.identity_base_dir(&uuid_parsed)
+            .ok_or_else(|| format!("Identity folder not found for {identity_uuid}"))?
+            .join(&name)
+    };
 
     if folder.exists() {
         return Err("Workspace already exists. Use Open Workspace instead.".to_string());
@@ -403,7 +409,7 @@ pub async fn create_workspace(
             Err("focused_existing".to_string())
         }
         None => {
-            let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+            let uuid = uuid_parsed;
 
             // Generate random DB password (32 bytes, base64-encoded)
             let password: String = {
@@ -548,6 +554,10 @@ pub async fn open_workspace(
                     other => format!("Failed to open: {other}"),
                 })?;
 
+            // Apply global undo limit from settings
+            let global_undo_limit = crate::settings::load_settings().undo_history_limit;
+            let _ = workspace.set_undo_limit(global_undo_limit);
+
             let migration_results = std::mem::take(&mut workspace.pending_migration_results);
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone(), identity_uuid);
@@ -662,11 +672,17 @@ pub async fn execute_import(
     app: AppHandle,
     state: State<'_, AppState>,
     zip_path: String,
-    folder_path: String,
+    name: String,
     password: Option<String>,
     identity_uuid: String,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    let folder = PathBuf::from(&folder_path);
+    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let folder = {
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.identity_base_dir(&uuid)
+            .ok_or_else(|| format!("Identity folder not found for {identity_uuid}"))?
+            .join(&name)
+    };
     std::fs::create_dir_all(&folder)
         .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
     let db_path_buf = folder.join("notes.db");
@@ -679,9 +695,6 @@ pub async fn execute_import(
         rand::thread_rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     };
-
-    // Extract the signing key from the unlocked identity before opening the workspace.
-    let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let import_seed = {
         let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
         let unlocked = identities.get(&uuid)
@@ -861,6 +874,14 @@ pub fn update_settings(
         rebuild_menus(&app, &state, &updated.language)?;
     }
 
+    // Apply undo limit to all open workspaces
+    if updated.undo_history_limit != current.undo_history_limit {
+        let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+        for ws in workspaces.values_mut() {
+            let _ = ws.set_undo_limit(updated.undo_history_limit);
+        }
+    }
+
     Ok(())
 }
 
@@ -937,14 +958,8 @@ pub fn read_info_json_full(workspace_dir: &Path) -> (Option<String>, Option<i64>
 pub fn list_workspace_files(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<WorkspaceEntry>, String> {
-    let app_settings = crate::settings::load_settings();
-    let dir = PathBuf::from(&app_settings.workspace_directory);
-
-    // Create the directory if it doesn't exist yet
-    if !dir.exists() {
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create workspace directory: {e}"))?;
-    }
+    let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+    let identities = mgr.list_identities().map_err(|e| e.to_string())?;
 
     // Build path → label map for open workspaces.
     // Collected as an owned HashMap so the lock is released before we
@@ -958,63 +973,63 @@ pub fn list_workspace_files(
         .collect();
 
     let mut entries = Vec::new();
-    let read_dir = std::fs::read_dir(&dir)
-        .map_err(|e| format!("Failed to read directory: {e}"))?;
 
-    for entry in read_dir.flatten() {
-        let folder = entry.path();
-        if !folder.is_dir() { continue; }
-        let db_file = folder.join("notes.db");
-        if !db_file.exists() { continue; }
-        if let Some(name) = folder.file_name().and_then(|s| s.to_str()) {
-            let is_open = open_labels.contains_key(&folder);
+    for identity_ref in &identities {
+        let base_dir = match mgr.identity_base_dir(&identity_ref.uuid) {
+            Some(dir) => dir,
+            None => continue,
+        };
 
-            // For open workspaces, refresh info.json from the live workspace
-            // object so that notes created since open() are counted correctly.
-            if let Some(label) = open_labels.get(&folder) {
-                if let Some(ws) = state.workspaces.lock().expect("Mutex poisoned").get(label) {
-                    let _ = ws.write_info_json();
+        let read_dir = match std::fs::read_dir(&base_dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+
+        for entry in read_dir.flatten() {
+            let folder = entry.path();
+            if !folder.is_dir() { continue; }
+            if folder.file_name().map(|n| n == ".identity").unwrap_or(false) { continue; }
+            let db_file = folder.join("notes.db");
+            if !db_file.exists() { continue; }
+
+            if let Some(name) = folder.file_name().and_then(|s| s.to_str()) {
+                let is_open = open_labels.contains_key(&folder);
+
+                // For open workspaces, refresh info.json from the live workspace
+                // object so that notes created since open() are counted correctly.
+                if let Some(label) = open_labels.get(&folder) {
+                    if let Some(ws) = state.workspaces.lock().expect("Mutex poisoned").get(label) {
+                        let _ = ws.write_info_json();
+                    }
                 }
+
+                let last_modified = std::fs::metadata(&folder)
+                    .and_then(|m| m.modified())
+                    .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                    .unwrap_or(0);
+                let size_bytes = dir_size_bytes(&folder);
+                let (workspace_id, created_at, note_count, attachment_count) =
+                    read_info_json_full(&folder);
+
+                entries.push(WorkspaceEntry {
+                    name: name.to_string(),
+                    path: folder.display().to_string(),
+                    is_open,
+                    last_modified,
+                    size_bytes,
+                    created_at,
+                    note_count,
+                    attachment_count,
+                    workspace_uuid: workspace_id,
+                    identity_uuid: Some(identity_ref.uuid.to_string()),
+                    identity_name: Some(identity_ref.display_name.clone()),
+                });
             }
-            let last_modified = std::fs::metadata(&folder)
-                .and_then(|m| m.modified())
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
-                .unwrap_or(0);
-            let size_bytes = dir_size_bytes(&folder);
-            let (workspace_id, created_at, note_count, attachment_count) = read_info_json_full(&folder);
-
-            // Look up identity binding for this workspace
-            let (identity_uuid, identity_name) = if workspace_id.is_some() {
-                let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-                if let Ok(Some(binding)) = mgr.get_workspace_binding(&folder) {
-                    let identities = mgr.list_identities().unwrap_or_default();
-                    let identity = identities.iter().find(|i| i.uuid == binding.identity_uuid);
-                    (
-                        Some(binding.identity_uuid.to_string()),
-                        identity.map(|i| i.display_name.clone()),
-                    )
-                } else {
-                    (None, None)
-                }
-            } else {
-                (None, None)
-            };
-
-            entries.push(WorkspaceEntry {
-                name: name.to_string(),
-                path: folder.display().to_string(),
-                is_open,
-                last_modified,
-                size_bytes,
-                created_at,
-                note_count,
-                attachment_count,
-                workspace_uuid: workspace_id,
-                identity_uuid,
-                identity_name,
-            });
         }
     }
+
+    // Drop the identity manager lock before sorting
+    drop(mgr);
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(entries)
@@ -1056,9 +1071,13 @@ pub fn duplicate_workspace(
     identity_uuid: String,
     new_name: String,
 ) -> std::result::Result<(), String> {
-    let app_settings = crate::settings::load_settings();
-    let workspace_dir = PathBuf::from(&app_settings.workspace_directory);
-    let dest_folder = workspace_dir.join(&new_name);
+    let dest_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
+    let dest_folder = {
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.identity_base_dir(&dest_uuid)
+            .ok_or_else(|| format!("Identity folder not found for {identity_uuid}"))?
+            .join(&new_name)
+    };
 
     if dest_folder.exists() {
         return Err(format!("A workspace named '{new_name}' already exists."));

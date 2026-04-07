@@ -143,6 +143,18 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     }
 }
 
+/// Returns the path to the Krillnotes home directory.
+#[tauri::command]
+fn get_home_dir_path() -> String {
+    settings::home_dir().to_string_lossy().to_string()
+}
+
+/// Sets a custom Krillnotes home directory path (writes a breadcrumb file).
+#[tauri::command]
+fn set_home_dir_path(path: String) -> std::result::Result<(), String> {
+    settings::set_home_dir(&path)
+}
+
 /// Configures and starts the Tauri application event loop.
 ///
 /// Registers all plugins, commands, the global [`AppState`], window event
@@ -172,7 +184,7 @@ pub fn run() {
             workspace_identities: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
             identity_manager: Arc::new(Mutex::new(
-                IdentityManager::new(settings::config_dir()).expect("Failed to init IdentityManager")
+                IdentityManager::new(settings::home_dir()).expect("Failed to init IdentityManager")
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
             invite_managers: Arc::new(Mutex::new(HashMap::new())),
@@ -246,33 +258,10 @@ pub fn run() {
                     .insert("macos".to_string(), menu_result.workspace_items);
             }
 
-            // Ensure default workspace directory exists on startup
-            let app_settings = settings::load_settings();
-            let dir = std::path::Path::new(&app_settings.workspace_directory);
-            if !dir.exists() {
-                std::fs::create_dir_all(dir).ok();
-            }
-
-            // Auto-migrate flat *.db files to per-workspace folders
-            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-                let path = entry.path();
-                if path.extension().map(|e| e == "db").unwrap_or(false) {
-                    let stem = path.file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or_default();
-                    if stem.is_empty() { continue; }
-                    let new_folder = dir.join(stem);
-                    if new_folder.exists() { continue; } // already migrated
-                    if std::fs::create_dir_all(&new_folder).is_ok() {
-                        if let Err(e) = std::fs::rename(&path, new_folder.join("notes.db")) {
-                            log::warn!("[migration] Failed to move {:?}: {e}", path);
-                            let _ = std::fs::remove_dir(&new_folder); // rollback folder
-                        } else {
-                            let _ = std::fs::create_dir_all(new_folder.join("attachments"));
-                            log::info!("[migration] Migrated {:?} → {:?}", path, new_folder);
-                        }
-                    }
-                }
+            // Ensure home directory exists
+            let home = settings::home_dir();
+            if !home.exists() {
+                std::fs::create_dir_all(&home).expect("Failed to create Krillnotes home directory");
             }
 
             // Windows / Linux cold-start: the OS passes the file path as a
@@ -348,6 +337,8 @@ pub fn run() {
             consume_pending_swarm_file,
             get_settings,
             update_settings,
+            get_home_dir_path,
+            set_home_dir_path,
             list_themes,
             read_theme,
             write_theme,

@@ -6,8 +6,8 @@
 
 //! App-level theme file storage.
 //!
-//! Themes are stored as `.krilltheme` JSON files in the same config
-//! directory as `settings.json`.
+//! Themes are stored as `.krilltheme` JSON files in the `.themes/`
+//! subdirectory of the Krillnotes home folder.
 
 use std::fs;
 use std::path::PathBuf;
@@ -23,14 +23,11 @@ pub struct ThemeMeta {
 }
 
 /// Returns the themes directory path, creating it if absent.
+///
+/// Themes live at `{home_dir}/.themes/` — hidden to avoid clutter
+/// alongside identity folders.
 pub fn themes_dir() -> PathBuf {
-    let base = {
-        #[cfg(target_os = "windows")]
-        { dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("Krillnotes") }
-        #[cfg(not(target_os = "windows"))]
-        { dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".config").join("krillnotes") }
-    };
-    let dir = base.join("themes");
+    let dir = crate::settings::home_dir().join(".themes");
     if let Err(e) = fs::create_dir_all(&dir) {
         log::warn!("Failed to create themes directory {:?}: {e}", dir);
     }

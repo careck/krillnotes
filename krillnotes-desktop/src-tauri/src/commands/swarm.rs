@@ -8,7 +8,6 @@ use crate::AppState;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use krillnotes_core::Ed25519SigningKey;
 use krillnotes_core::Ed25519VerifyingKey;
 
@@ -407,10 +406,14 @@ pub async fn apply_swarm_snapshot(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| parsed.workspace_name.clone());
 
-    // Derive folder inside the user's configured workspace directory,
+    // Derive folder inside the identity's base directory,
     // the same location used by create_workspace and list_workspace_files.
-    let folder = PathBuf::from(&crate::settings::load_settings().workspace_directory)
-        .join(&ws_name);
+    let folder = {
+        let mgr = state.identity_manager.lock().expect("Mutex poisoned");
+        mgr.identity_base_dir(&identity_uuid_parsed)
+            .ok_or_else(|| format!("Identity folder not found for {identity_uuid}"))?
+            .join(&ws_name)
+    };
 
     std::fs::create_dir_all(&folder)
         .map_err(|e| format!("create workspace dir: {e}"))?;
