@@ -38,14 +38,18 @@ function MarkdownField({ noteId, text }: { noteId: string; text: string }) {
 }
 
 function NoteLinkDisplay({ noteId }: { noteId: string }) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState(false);
 
   useEffect(() => {
+    setDeleted(false);
     invoke<{ id: string; title: string }>('get_note', { noteId })
       .then(n => setTitle(n.title))
-      .catch(() => setTitle('(deleted)'));
+      .catch(() => { setTitle(null); setDeleted(true); });
   }, [noteId]);
 
+  if (deleted) return <span>{t('fields.deleted')}</span>;
   if (title === null) return <span>…</span>;
 
   return (

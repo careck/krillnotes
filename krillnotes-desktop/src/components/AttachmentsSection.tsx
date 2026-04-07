@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { Paperclip, Trash2, FileText, Image } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { AttachmentMeta } from '../types';
 
 function mimeToExtension(mime: string): string {
@@ -45,6 +46,7 @@ function isImageMime(mime: string | null): boolean {
 }
 
 export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal, recentlyDeleted, onRecentlyDeletedChange }: AttachmentsSectionProps) {
+  const { t } = useTranslation();
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -87,7 +89,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
     const files = Array.from(e.dataTransfer.files);
     for (const file of files) {
       if (allowedTypes.length > 0 && !allowedTypes.includes(file.type)) {
-        setError(`File type "${file.type || file.name}" is not allowed.`);
+        setError(t('attachments.fileTypeNotAllowed', { type: file.type || file.name }));
         continue;
       }
       try {
@@ -101,7 +103,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
           headers: { 'x-note-id': noteId, 'x-filename': filenameB64 },
         });
       } catch (err) {
-        setError(`Failed to attach ${file.name}: ${err}`);
+        setError(t('attachments.failedAttach', { name: file.name, error: String(err) }));
       }
     }
     await loadAttachments();
@@ -125,7 +127,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
       }
       await loadAttachments();
     } catch (e) {
-      setError(`Failed to attach: ${e}`);
+      setError(t('attachments.failedAttachFile', { error: String(e) }));
     }
   };
 
@@ -133,12 +135,12 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
     try {
       await invoke('open_attachment', { attachmentId: att.id, filename: att.filename });
     } catch (e) {
-      setError(`Failed to open: ${e}`);
+      setError(t('attachments.failedOpen', { error: String(e) }));
     }
   };
 
   const handleDelete = async (att: AttachmentMeta) => {
-    const ok = await confirm(`Delete attachment "${att.filename}"?`, { title: 'Delete Attachment' });
+    const ok = await confirm(t('attachments.deleteConfirm', { name: att.filename }), { title: t('attachments.deleteTitle') });
     if (!ok) return;
     try {
       await invoke('delete_attachment', { attachmentId: att.id });
@@ -146,7 +148,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
       setThumbnails(prev => { const copy = { ...prev }; delete copy[att.id]; return copy; });
       onRecentlyDeletedChange(prev => [...prev, att]);
     } catch (e) {
-      setError(`Failed to delete: ${e}`);
+      setError(t('attachments.failedDelete', { error: String(e) }));
     }
   };
 
@@ -156,7 +158,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
       onRecentlyDeletedChange(prev => prev.filter(a => a.id !== att.id));
       await loadAttachments();
     } catch (e) {
-      setError(`Failed to restore: ${e}`);
+      setError(t('attachments.failedRestore', { error: String(e) }));
     }
   };
 
@@ -171,13 +173,13 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
     >
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-          <Paperclip size={12} /> Attachments {attachments.length > 0 && `(${attachments.length})`}
+          <Paperclip size={12} /> {t('attachments.title')} {attachments.length > 0 && `(${attachments.length})`}
         </span>
         <button
           onClick={handleAdd}
           className="text-xs text-primary hover:text-primary/80 px-2 py-1 rounded hover:bg-secondary"
         >
-          + Add
+          {t('common.add')}
         </button>
       </div>
 
@@ -187,7 +189,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
 
       {attachments.length === 0 ? (
         <p className="text-xs text-muted-foreground italic">
-          {dragging ? 'Drop files here' : 'No attachments — drop files or click Add'}
+          {dragging ? t('attachments.dropHere') : t('attachments.noAttachments')}
         </p>
       ) : (
         <div className="space-y-1">
@@ -221,7 +223,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
               <button
                 onClick={() => handleDelete(att)}
                 className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 hover:text-red-500 flex-shrink-0"
-                title="Delete attachment"
+                title={t('attachments.deleteTitle')}
               >
                 <Trash2 size={14} />
               </button>
@@ -232,7 +234,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
 
       {recentlyDeleted.filter(a => a.noteId === noteId).length > 0 && (
         <div className="mt-2 pt-2 border-t border-dashed border-border">
-          <p className="text-xs text-muted-foreground mb-1">Recently deleted</p>
+          <p className="text-xs text-muted-foreground mb-1">{t('attachments.recentlyDeleted')}</p>
           <div className="space-y-1">
             {recentlyDeleted.filter(a => a.noteId === noteId).map(att => (
               <div key={att.id} className="flex items-center gap-2 rounded p-1 opacity-60">
@@ -249,7 +251,7 @@ export default function AttachmentsSection({ noteId, allowedTypes, refreshSignal
                   onClick={() => handleRestore(att)}
                   className="text-xs text-primary hover:text-primary/80 px-2 py-1 rounded hover:bg-secondary flex-shrink-0"
                 >
-                  Restore
+                  {t('attachments.restore')}
                 </button>
               </div>
             ))}

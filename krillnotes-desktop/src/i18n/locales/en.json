@@ -243,7 +243,9 @@
     "linkedNote": "(linked note)",
     "starRating_one": "{{count}} star",
     "starRating_other": "{{count}} stars",
-    "unknownFieldType": "Unknown field type"
+    "unknownFieldType": "Unknown field type",
+    "imageNotFound": "Image not found",
+    "deleted": "(deleted)"
   },
   "tags": {
     "addPlaceholder": "Add tag…",
@@ -273,7 +275,10 @@
     "deleteAll": "Delete all operations?",
     "purgeAll": "Purge All",
     "failedLoad": "Failed to load operations: {{error}}",
-    "failedPurge": "Failed to purge operations: {{error}}"
+    "failedPurge": "Failed to purge operations: {{error}}",
+    "metadata": "Metadata",
+    "data": "Data",
+    "operation": "Operation"
   },
   "empty": {
     "getStarted": "Use File > New Workspace or File > Open Workspace to get started"
@@ -374,7 +379,12 @@
     "exportSuccess": "Identity exported successfully",
     "importSuccess": "Identity imported successfully",
     "importOverwrite": "This identity already exists on this device. Replace it?",
-    "invalidSwarmid": "Invalid .swarmid file"
+    "invalidSwarmid": "Invalid .swarmid file",
+    "publicKeyLabel": "Public Key",
+    "fingerprintLabel": "Fingerprint",
+    "publicKeyCopied": "Public key copied",
+    "copyPublicKey": "Copy public key",
+    "publicKeyPrompt": "Share this public key with contacts"
   },
   "swarm": {
     "inviteDialogTitle": "Invite Peer to Workspace",
@@ -411,7 +421,12 @@
     "signatureInvalid": "Bundle signature verification failed. Do not proceed.",
     "identityLocked": "Unlock your identity first.",
     "noIdentity": "You need to create an identity before using sync features.",
-    "saveCancelled": "Save cancelled."
+    "saveCancelled": "Save cancelled.",
+    "appliedOps": "Applied {{count}} operation(s).",
+    "deltaFrom": "Delta from",
+    "workspaceLabel": "Workspace:",
+    "senderFingerprint": "Sender fingerprint:",
+    "applyDelta": "Apply Delta"
   },
   "contacts": {
     "title": "Contacts",
@@ -476,7 +491,27 @@
     "syncNothingToSync": "Nothing to sync",
     "syncSent": "Sent {{count}} bundle(s)",
     "syncApplied": "Applied {{count}} bundle(s)",
-    "syncError": "Sync error"
+    "syncError": "Sync error",
+    "addFromContactsTitle": "Add contact as peer",
+    "loadingContacts": "Loading contacts…",
+    "allContactsArePeers": "All contacts are already peers, or you have no contacts.",
+    "adding": "Adding…",
+    "addAsPeer": "Add as peer",
+    "myDevices": "My Devices",
+    "peersSection": "Peers",
+    "createSnapshot": "Create Snapshot…",
+    "sendToDevice": "Send to My Device…",
+    "sendToDeviceTitle": "Send to My Device",
+    "snapshotSentSuccess": "Snapshot sent successfully!",
+    "chooseHowToSend": "Choose how to send...",
+    "viaRelay": "Via Relay",
+    "exportFile": "Export File…",
+    "noRelayConfigured": "No relay accounts configured...",
+    "selectTargetDevice": "Select the target device:",
+    "noOtherDevices": "No other devices found...",
+    "chooseRelay": "Choose relay:",
+    "timeAgoMinutes": "{{count}}m ago",
+    "timeAgoHours": "{{count}}h ago"
   },
   "workspacePeers": {
     "noRelayAccounts": "No relay accounts configured. Add one in Identity Manager → Relays.",
@@ -625,7 +660,10 @@
     "createAccountAndRespond": "Create account & respond",
     "stepImport": "Import",
     "stepReview": "Review",
-    "stepRespond": "Respond"
+    "stepRespond": "Respond",
+    "expiryDays7": "7 days",
+    "expiryDays30": "30 days",
+    "expiryCustom": "Custom"
   },
   "polling": {
     "acceptedInvites": "Accepted Invites",
@@ -674,5 +712,34 @@
     "revokeOnly": "Revoke only",
     "demoteAndRevoke": "Demote & revoke selected",
     "revokeAndRevoke": "Revoke & revoke selected"
+  },
+  "attachments": {
+    "title": "Attachments",
+    "dropHere": "Drop files here",
+    "noAttachments": "No attachments — drop files or click Add",
+    "deleteConfirm": "Delete attachment \"{{name}}\"?",
+    "deleteTitle": "Delete Attachment",
+    "recentlyDeleted": "Recently deleted",
+    "restore": "Restore",
+    "fileTypeNotAllowed": "File type \"{{type}}\" is not allowed.",
+    "failedAttach": "Failed to attach {{name}}: {{error}}",
+    "failedOpen": "Failed to open: {{error}}",
+    "failedDelete": "Failed to delete: {{error}}",
+    "failedRestore": "Failed to restore: {{error}}",
+    "removeFile": "Remove file",
+    "chooseFile": "Choose file…",
+    "replaceFile": "Replace…",
+    "failedAttachFile": "Failed to attach file: {{error}}"
+  },
+  "delta": {
+    "createTitle": "Create delta Swarm",
+    "saveToDir": "Save to directory",
+    "chooseDirPlaceholder": "Choose a directory…",
+    "generateFor": "Generate delta for",
+    "loadingPeers": "Loading peers…",
+    "neverSynced": "— never synced",
+    "filesWritten": "{{count}} file(s) written to {{dir}}",
+    "generating": "Generating…",
+    "generate": "Generate"
   }
 }

@@ -21,9 +21,9 @@ type SortKey = 'name' | 'modified';
 
 type ActiveView = 'list' | 'delete-confirm' | 'duplicate-form';
 
-function formatDate(timestampSeconds: number): string {
+function formatDate(timestampSeconds: number, locale?: string): string {
   const d = new Date(timestampSeconds * 1000);
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function formatSize(bytes: number): string {
@@ -33,7 +33,7 @@ function formatSize(bytes: number): string {
 }
 
 function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceManagerDialogProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -142,7 +142,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
           workspacePath: target.path,
         });
       } else if (errStr === 'IDENTITY_REQUIRED') {
-        setError('This workspace is not bound to any identity.');
+        setError(t('identity.workspaceNotBound'));
       } else if (!errStr.includes('focused_existing')) {
         setError(errStr);
       } else {
@@ -302,7 +302,7 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
                       {entry.isOpen && (
                         <span className="text-primary font-medium">{t('workspace.alreadyOpen')}</span>
                       )}
-                      <span>{formatDate(entry.lastModified)}</span>
+                      <span>{formatDate(entry.lastModified, i18n.language)}</span>
                       <span>{formatSize(entry.sizeBytes)}</span>
                     </div>
                   </button>
@@ -318,12 +318,12 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
                 <div>
                   <div className="text-muted-foreground text-xs mb-0.5">{t('workspaceManager.infoCreated')}</div>
                   <div className="font-medium">
-                    {selected.createdAt !== null ? formatDate(selected.createdAt) : '—'}
+                    {selected.createdAt !== null ? formatDate(selected.createdAt, i18n.language) : '—'}
                   </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground text-xs mb-0.5">{t('workspaceManager.infoModified')}</div>
-                  <div className="font-medium">{formatDate(selected.lastModified)}</div>
+                  <div className="font-medium">{formatDate(selected.lastModified, i18n.language)}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground text-xs mb-0.5">{t('workspaceManager.infoNotes')}</div>

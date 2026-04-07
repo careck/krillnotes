@@ -232,9 +232,9 @@ export default function WorkspacePeersDialog({
     const diff = Date.now() - d.getTime();
     const minutes = Math.floor(diff / 60000);
     if (minutes < 1) return t('peers.justNow', 'just now');
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 60) return t('peers.timeAgoMinutes', { count: minutes });
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
+    if (hours < 24) return t('peers.timeAgoHours', { count: hours });
     return d.toLocaleDateString();
   };
 
@@ -284,7 +284,7 @@ export default function WorkspacePeersDialog({
           {selfPeers.length > 0 && (
             <div>
               <div className="text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-1 mt-2">
-                My Devices
+                {t('peers.myDevices')}
               </div>
               {selfPeers.map((peer) => {
                 const channelBadge = CHANNEL_BADGE[peer.channelType] ?? { label: peer.channelType, class: 'bg-gray-500/20 text-gray-400' };
@@ -348,7 +348,7 @@ export default function WorkspacePeersDialog({
                 );
               })}
               <div className="text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-1 mt-3">
-                Peers
+                {t('peers.peersSection')}
               </div>
             </div>
           )}
@@ -378,7 +378,7 @@ export default function WorkspacePeersDialog({
                     )}
                     {peer.isOwner && (
                       <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-amber-500/20 text-amber-400">
-                        Owner
+                        {t('roles.ownerShort')}
                       </span>
                     )}
                     {/* Channel type badge */}
@@ -506,7 +506,7 @@ export default function WorkspacePeersDialog({
             }}
             className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
-            Create Snapshot…
+            {t('peers.createSnapshot')}
           </button>
           <button
             onClick={() => {
@@ -517,7 +517,7 @@ export default function WorkspacePeersDialog({
             }}
             className="whitespace-nowrap px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
           >
-            Send to My Device…
+            {t('peers.sendToDevice')}
           </button>
         </div>
       </div>
@@ -525,13 +525,13 @@ export default function WorkspacePeersDialog({
       {showSendToMyDevice && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50">
           <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg shadow-xl w-[380px] p-5 flex flex-col gap-4">
-            <h3 className="text-base font-semibold">Send to My Device</h3>
+            <h3 className="text-base font-semibold">{t('peers.sendToDeviceTitle')}</h3>
             {sendToMyDeviceSuccess ? (
-              <p className="text-sm text-green-400">Snapshot sent successfully!</p>
+              <p className="text-sm text-green-400">{t('peers.snapshotSentSuccess')}</p>
             ) : sendToMyDeviceStep === 'choice' ? (
               <>
                 <p className="text-sm text-[var(--color-muted-foreground)]">
-                  Choose how to send this workspace to another device running the same identity.
+                  {t('peers.chooseHowToSend')}
                 </p>
                 <div className="flex flex-col gap-2">
                   {relayAccounts.length > 0 ? (
@@ -541,11 +541,11 @@ export default function WorkspacePeersDialog({
                         disabled={sendToMyDeviceLoading}
                         className="px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
                       >
-                        Via Relay
+                        {t('peers.viaRelay')}
                       </button>
                     ) : (
                       <div>
-                        <p className="text-xs text-[var(--color-muted-foreground)] mb-1">Choose relay:</p>
+                        <p className="text-xs text-[var(--color-muted-foreground)] mb-1">{t('peers.chooseRelay')}</p>
                         {relayAccounts.map(acc => (
                           <button
                             key={acc.relayAccountId}
@@ -560,7 +560,7 @@ export default function WorkspacePeersDialog({
                     )
                   ) : (
                     <p className="text-xs text-[var(--color-muted-foreground)] italic">
-                      No relay accounts configured. Use the file method or set up a relay account first.
+                      {t('peers.noRelayConfigured')}
                     </p>
                   )}
                   <button
@@ -573,7 +573,7 @@ export default function WorkspacePeersDialog({
                     }}
                     className="px-3 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Export File…
+                    {t('peers.exportFile')}
                   </button>
                 </div>
                 {sendToMyDeviceError && (
@@ -583,13 +583,13 @@ export default function WorkspacePeersDialog({
             ) : sendToMyDeviceStep === 'device-pick' ? (
               <>
                 <p className="text-sm text-[var(--color-muted-foreground)]">
-                  Select the target device:
+                  {t('peers.selectTargetDevice')}
                 </p>
                 {sendToMyDeviceLoading ? (
-                  <p className="text-sm text-[var(--color-muted-foreground)]">Loading…</p>
+                  <p className="text-sm text-[var(--color-muted-foreground)]">{t('common.loading')}</p>
                 ) : sendToMyDeviceDevices.length === 0 ? (
                   <p className="text-sm text-[var(--color-muted-foreground)] italic">
-                    No other devices found on this relay. Make sure Device B has registered with the relay.
+                    {t('peers.noOtherDevices')}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-1">
@@ -621,7 +621,7 @@ export default function WorkspacePeersDialog({
                   onClick={() => setSendToMyDeviceStep('choice')}
                   className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
                 >
-                  Back
+                  {t('common.back')}
                 </button>
               )}
               <button
@@ -633,7 +633,7 @@ export default function WorkspacePeersDialog({
                 }}
                 className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-secondary)]"
               >
-                {sendToMyDeviceSuccess ? 'Close' : 'Cancel'}
+                {sendToMyDeviceSuccess ? t('common.close') : t('common.cancel')}
               </button>
             </div>
           </div>

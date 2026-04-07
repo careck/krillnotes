@@ -11,11 +11,18 @@ interface ContactBookDialogProps {
   onClose: () => void;
 }
 
-const TRUST_BADGE: Record<string, { label: string; class: string }> = {
-  Tofu:             { label: 'TOFU',     class: 'bg-gray-500/20 text-gray-400' },
-  CodeVerified:     { label: 'Code',     class: 'bg-blue-500/20 text-blue-400' },
-  Vouched:          { label: 'Vouched',  class: 'bg-purple-500/20 text-purple-400' },
-  VerifiedInPerson: { label: 'Verified', class: 'bg-green-500/20 text-green-400' },
+const TRUST_BADGE_CLASS: Record<string, string> = {
+  Tofu:             'bg-gray-500/20 text-gray-400',
+  CodeVerified:     'bg-blue-500/20 text-blue-400',
+  Vouched:          'bg-purple-500/20 text-purple-400',
+  VerifiedInPerson: 'bg-green-500/20 text-green-400',
+};
+
+const TRUST_BADGE_KEY: Record<string, string> = {
+  Tofu:             'contacts.trustLevels.tofu',
+  CodeVerified:     'contacts.trustLevels.codeVerified',
+  Vouched:          'contacts.trustLevels.vouched',
+  VerifiedInPerson: 'contacts.trustLevels.verifiedInPerson',
 };
 
 export default function ContactBookDialog({ identityUuid, identityName, onClose }: ContactBookDialogProps) {
@@ -121,7 +128,8 @@ export default function ContactBookDialog({ identityUuid, identityName, onClose 
             </p>
           )}
           {filtered.map(contact => {
-            const badge = TRUST_BADGE[contact.trustLevel] ?? TRUST_BADGE.Tofu;
+            const badgeClass = TRUST_BADGE_CLASS[contact.trustLevel] ?? TRUST_BADGE_CLASS.Tofu;
+            const badgeKey = TRUST_BADGE_KEY[contact.trustLevel] ?? TRUST_BADGE_KEY.Tofu;
             const displayName = contact.localName ?? contact.declaredName;
             return (
               <button
@@ -133,8 +141,8 @@ export default function ContactBookDialog({ identityUuid, identityName, onClose 
                   <p className="text-sm font-medium truncate">{displayName}</p>
                   <p className="text-xs font-mono text-[var(--color-muted-foreground)] truncate">{contact.fingerprint}</p>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.class}`}>
-                  {badge.label}
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass}`}>
+                  {t(badgeKey)}
                 </span>
               </button>
             );
