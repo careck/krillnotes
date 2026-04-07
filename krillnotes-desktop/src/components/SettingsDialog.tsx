@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { AppSettings } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import ManageThemesDialog from './ManageThemesDialog';
@@ -80,6 +81,9 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
           sharingIndicatorMode,
         },
       });
+      if (homeDir) {
+        await invoke('set_home_dir_path', { path: homeDir });
+      }
       if (undoLimit !== undefined) {
         await invoke('set_undo_limit', { limit: undoLimit });
       }
@@ -128,9 +132,23 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
               <label className="block text-sm font-medium mb-2">
                 {t('settings.homeFolder')}
               </label>
-              <p className="text-sm bg-secondary border border-secondary rounded px-3 py-2 text-muted-foreground select-all">
-                {homeDir || '...'}
-              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={homeDir}
+                  className="flex-1 text-sm bg-background border border-input rounded px-3 py-2 select-all"
+                />
+                <button
+                  onClick={async () => {
+                    const selected = await open({ directory: true, defaultPath: homeDir || undefined });
+                    if (selected && typeof selected === 'string') setHomeDir(selected);
+                  }}
+                  className="px-3 py-2 text-sm border border-input rounded hover:bg-secondary"
+                >
+                  {t('common.browse')}
+                </button>
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {t('settings.homeFolderHint')}
               </p>
