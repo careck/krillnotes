@@ -34,7 +34,6 @@ export function useDialogState() {
   const [showExportPasswordDialog, setShowExportPasswordDialog] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
-  const [showCreateFirstIdentity, setShowCreateFirstIdentity] = useState(false);
   const [showIdentityManager, setShowIdentityManager] = useState(false);
   const [showSwarmOpen, setShowSwarmOpen] = useState(false);
   const [swarmFilePath, setSwarmFilePath] = useState<string | null>(null);
@@ -86,7 +85,6 @@ export function useDialogState() {
     showExportPasswordDialog, setShowExportPasswordDialog,
     exportPassword, setExportPassword,
     exportPasswordConfirm, setExportPasswordConfirm,
-    showCreateFirstIdentity, setShowCreateFirstIdentity,
     showIdentityManager, setShowIdentityManager,
     showSwarmOpen, setShowSwarmOpen,
     swarmFilePath, setSwarmFilePath,

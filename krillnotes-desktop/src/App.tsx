@@ -15,7 +15,6 @@ import NewWorkspaceDialog from './components/NewWorkspaceDialog';
 import WorkspaceManagerDialog from './components/WorkspaceManagerDialog';
 import SettingsDialog from './components/SettingsDialog';
 import type { AppSettings, WorkspaceInfo as WorkspaceInfoType } from './types';
-import CreateIdentityDialog from './components/CreateIdentityDialog';
 import IdentityManagerDialog from './components/IdentityManagerDialog';
 import SwarmOpenDialog from './components/SwarmOpenDialog';
 import WorkspacePeersDialog from './components/WorkspacePeersDialog';
@@ -53,7 +52,6 @@ function App() {
     showExportPasswordDialog, setShowExportPasswordDialog,
     exportPassword, setExportPassword,
     exportPasswordConfirm, setExportPasswordConfirm,
-    showCreateFirstIdentity, setShowCreateFirstIdentity,
     showIdentityManager, setShowIdentityManager,
     showSwarmOpen, setShowSwarmOpen,
     swarmFilePath, setSwarmFilePath,
@@ -179,7 +177,7 @@ function App() {
 
   const { workspace, unlockedIdentityUuid, refreshUnlockedIdentity, openSwarmFile } =
     useWorkspaceLifecycle({
-      setShowCreateFirstIdentity,
+      setShowIdentityManager,
       setShowSwarmOpen,
       showSwarmOpen,
       proceedWithImport,
@@ -431,12 +429,6 @@ function App() {
           </div>
         </div>
       )}
-      <CreateIdentityDialog
-        isOpen={showCreateFirstIdentity}
-        isFirstLaunch={true}
-        onCreated={() => setShowCreateFirstIdentity(false)}
-        onCancel={() => setShowCreateFirstIdentity(false)}
-      />
       <IdentityManagerDialog
         isOpen={showIdentityManager}
         onClose={() => { setShowIdentityManager(false); refreshUnlockedIdentity(); }}
