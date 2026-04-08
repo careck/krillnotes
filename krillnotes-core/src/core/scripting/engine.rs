@@ -151,8 +151,8 @@ impl ScriptRegistry {
         engine.register_fn("schema", move |name: String, def: rhai::Map| -> std::result::Result<Dynamic, Box<EvalAltResult>> {
             // Gate: schema() can only be called from schema-category scripts.
             let cat = schema_cat_arc.lock().unwrap();
-            if cat.as_deref() == Some("presentation") {
-                return Err("schema() can only be called from schema-category scripts, not presentation/library scripts".into());
+            if cat.as_deref() == Some("library") {
+                return Err("schema() can only be called from schema-category scripts, not library scripts".into());
             }
             drop(cat);
 

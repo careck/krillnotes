@@ -304,10 +304,16 @@ impl Storage {
         )?;
         if !category_exists {
             conn.execute(
-                "ALTER TABLE user_scripts ADD COLUMN category TEXT NOT NULL DEFAULT 'presentation'",
+                "ALTER TABLE user_scripts ADD COLUMN category TEXT NOT NULL DEFAULT 'library'",
                 [],
             )?;
         }
+
+        // Migration: rename category "presentation" → "library" for consistency with UI.
+        conn.execute(
+            "UPDATE user_scripts SET category = 'library' WHERE category = 'presentation'",
+            [],
+        )?;
 
         // Migration: add schema_version column to notes if absent.
         let schema_version_exists: bool = conn.query_row(

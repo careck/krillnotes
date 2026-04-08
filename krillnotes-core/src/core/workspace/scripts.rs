@@ -28,7 +28,7 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
-                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "library".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -52,7 +52,7 @@ impl Workspace {
                         enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                         created_at: row.get(6)?,
                         modified_at: row.get(7)?,
-                        category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
+                        category: row.get::<_, String>(8).unwrap_or_else(|_| "library".to_string()),
                     })
                 },
             )
@@ -65,11 +65,11 @@ impl Workspace {
     /// compilation fails. On failure nothing is written to the database.
     pub fn create_user_script(&mut self, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
         // Auto-detect category: if the source calls schema(), it's a schema script.
-        let category = if source_code.contains("schema(") { "schema" } else { "presentation" };
+        let category = if source_code.contains("schema(") { "schema" } else { "library" };
         self.create_user_script_with_category(source_code, category)
     }
 
-    /// Creates a user script with an explicit category ("schema" or "presentation").
+    /// Creates a user script with an explicit category ("schema" or "library").
     pub fn create_user_script_with_category(
         &mut self,
         source_code: &str,
@@ -199,7 +199,7 @@ impl Workspace {
         let existing_category = self
             .get_user_script(script_id)
             .map(|s| s.category)
-            .unwrap_or_else(|_| "presentation".to_string());
+            .unwrap_or_else(|_| "library".to_string());
         self.script_registry.set_loading_category(Some(existing_category));
         if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
             let _ = self.reload_scripts(); // restore registry; ignore restoration errors
@@ -513,13 +513,13 @@ impl Workspace {
         Ok(self.load_scripts_two_phase(&scripts))
     }
 
-    /// Two-phase script loading: presentation/library first, then schema, then resolve bindings.
+    /// Two-phase script loading: library first, then schema, then resolve bindings.
     fn load_scripts_two_phase(&mut self, scripts: &[UserScript]) -> Vec<ScriptError> {
         let mut errors = Vec::new();
 
-        // Phase A: load presentation/library scripts first
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
-            self.script_registry.set_loading_category(Some("presentation".to_string()));
+        // Phase A: load library scripts first
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+            self.script_registry.set_loading_category(Some("library".to_string()));
             if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
                 errors.push(ScriptError {
                     script_name: script.name.clone(),

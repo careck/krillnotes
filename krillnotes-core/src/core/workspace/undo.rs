@@ -543,7 +543,7 @@ impl Workspace {
                      VALUES (?,?,?,?,?,?,?,?,?)",
                     rusqlite::params![
                         script_id, name, description, source_code,
-                        load_order, enabled, now, now, "presentation",
+                        load_order, enabled, now, now, "library",
                     ],
                 )?;
                 self.reload_scripts()?;

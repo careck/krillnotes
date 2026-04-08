@@ -139,7 +139,7 @@ pub struct ScriptRegistry {
     current_loading_ast: Arc<Mutex<Option<AST>>>,
     current_loading_script_name: Arc<Mutex<Option<String>>>,
     current_loading_category: Arc<Mutex<Option<String>>>,
-    /// Source code of all successfully loaded library/presentation scripts.
+    /// Source code of all successfully loaded library scripts.
     /// Schema scripts are compiled together with this library source so they can call library
     /// helpers at both load time and at runtime (the merged AST is stored in every hook entry).
     library_sources: Arc<Mutex<Vec<String>>>,
@@ -216,7 +216,7 @@ impl ScriptRegistry {
             .eval_ast::<()>(&ast)
             .map_err(|e| KrillnotesError::Scripting(e.to_string()));
 
-        // Accumulate successful library/presentation scripts so later schema scripts can use them.
+        // Accumulate successful library scripts so later schema scripts can use them.
         if result.is_ok() && !is_schema {
             self.library_sources.lock().unwrap().push(script.to_string());
         }

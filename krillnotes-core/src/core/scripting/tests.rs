@@ -5,7 +5,7 @@
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/00_text_note.rhai"
-        )), "Text Note Actions").expect("TextNote presentation script should load");
+        )), "Text Note Actions").expect("TextNote library script should load");
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/00_text_note.schema.rhai"
@@ -634,15 +634,15 @@
         assert!(types.is_empty(), "clear_all should remove all schemas");
     }
 
-    /// Regression: library scripts (presentation category) define functions that schema scripts
+    /// Regression: library scripts (library category) define functions that schema scripts
     /// should be able to call.  Before the fix, function definitions from a separately-eval'd
     /// library AST were not visible when the schema AST was compiled and executed.
     #[test]
     fn test_schema_script_can_call_library_script_functions() {
         let mut registry = ScriptRegistry::new().unwrap();
 
-        // Load a library/presentation script that defines a helper function.
-        registry.set_loading_category(Some("presentation".to_string()));
+        // Load a library script that defines a helper function.
+        registry.set_loading_category(Some("library".to_string()));
         registry.load_script(r#"
             fn format_greeting(name) {
                 "Hello, " + name
@@ -683,7 +683,7 @@
     fn test_clear_all_resets_library_sources() {
         let mut registry = ScriptRegistry::new().unwrap();
 
-        registry.set_loading_category(Some("presentation".to_string()));
+        registry.set_loading_category(Some("library".to_string()));
         registry.load_script("fn lib_fn() { 42 }", "lib").unwrap();
 
         registry.clear_all();
@@ -1016,7 +1016,7 @@
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../example-scripts/book-collection/book-collection.rhai"
-        )), "Book Collection Views").expect("Book presentation script should load");
+        )), "Book Collection Views").expect("Book library script should load");
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../example-scripts/book-collection/book-collection.schema.rhai"

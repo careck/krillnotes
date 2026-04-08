@@ -187,16 +187,16 @@
     #[test]
     fn test_round_trip_preserves_script_category() {
         // Regression test: imported scripts must retain their original category.
-        // Previously all scripts were hardcoded to "presentation" on import, which
+        // Previously all scripts were hardcoded to "library" on import, which
         // caused schema() scripts to fail with "can only be called from schema-category scripts".
         let temp_src = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp_src.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
 
         let schema_src = "// @name: My Schema\n// @description: A schema script\nschema(\"MyType\", #{ version: 1, fields: [] });";
-        let lib_src = "// @name: My Library\n// @description: A presentation script\nfn my_helper() { \"hello\" }";
+        let lib_src = "// @name: My Library\n// @description: A library script\nfn my_helper() { \"hello\" }";
 
         ws.create_user_script_with_category(schema_src, "schema").unwrap();
-        ws.create_user_script_with_category(lib_src, "presentation").unwrap();
+        ws.create_user_script_with_category(lib_src, "library").unwrap();
 
         let mut buf = Vec::new();
         export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
@@ -211,7 +211,7 @@
         let lib_script = scripts.iter().find(|s| s.name == "My Library").unwrap();
 
         assert_eq!(schema_script.category, "schema", "schema script category must survive export/import round-trip");
-        assert_eq!(lib_script.category, "presentation", "presentation script category must survive export/import round-trip");
+        assert_eq!(lib_script.category, "library", "library script category must survive export/import round-trip");
     }
 
     #[test]
