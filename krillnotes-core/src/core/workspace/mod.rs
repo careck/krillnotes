@@ -184,7 +184,7 @@ impl Workspace {
             for (load_order, starter) in starters.iter().enumerate() {
                 let fm = user_script::parse_front_matter(&starter.source_code);
                 let id = Uuid::new_v4().to_string();
-                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "presentation" };
+                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "library" };
                 tx.execute(
                     "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -210,15 +210,15 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
-                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "library".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
             results
         };
-        // Two-phase loading: presentation first, then schema, then resolve.
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
-            script_registry.set_loading_category(Some("presentation".to_string()));
+        // Two-phase loading: library first, then schema, then resolve.
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+            script_registry.set_loading_category(Some("library".to_string()));
             if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
                 log::warn!("Failed to load starter script '{}': {}", script.name, e);
             }
@@ -407,7 +407,7 @@ impl Workspace {
             for (load_order, starter) in starters.iter().enumerate() {
                 let fm = user_script::parse_front_matter(&starter.source_code);
                 let id = Uuid::new_v4().to_string();
-                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "presentation" };
+                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "library" };
                 tx.execute(
                     "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -433,15 +433,15 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
-                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "library".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
             results
         };
-        // Two-phase loading: presentation first, then schema, then resolve.
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
-            script_registry.set_loading_category(Some("presentation".to_string()));
+        // Two-phase loading: library first, then schema, then resolve.
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+            script_registry.set_loading_category(Some("library".to_string()));
             if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
                 log::warn!("Failed to load starter script '{}': {}", script.name, e);
             }
@@ -619,7 +619,7 @@ impl Workspace {
             for (load_order, starter) in starters.iter().enumerate() {
                 let fm = user_script::parse_front_matter(&starter.source_code);
                 let id = Uuid::new_v4().to_string();
-                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "presentation" };
+                let category = if starter.filename.ends_with(".schema.rhai") { "schema" } else { "library" };
                 tx.execute(
                     "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -644,14 +644,14 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
-                    category: row.get::<_, String>(8).unwrap_or_else(|_| "presentation".to_string()),
+                    category: row.get::<_, String>(8).unwrap_or_else(|_| "library".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
             results
         };
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
-            script_registry.set_loading_category(Some("presentation".to_string()));
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+            script_registry.set_loading_category(Some("library".to_string()));
             let _ = script_registry.load_script(&script.source_code, &script.name);
         }
         for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
@@ -989,10 +989,10 @@ impl Workspace {
             permission_gate,
         };
 
-        // Two-phase script loading: presentation first, then schema, then resolve.
+        // Two-phase script loading: library first, then schema, then resolve.
         let scripts = ws.list_user_scripts()?;
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "presentation") {
-            ws.script_registry.set_loading_category(Some("presentation".to_string()));
+        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+            ws.script_registry.set_loading_category(Some("library".to_string()));
             if let Err(e) = ws.script_registry.load_script(&script.source_code, &script.name) {
                 log::warn!("Failed to load script '{}': {}", script.name, e);
             }

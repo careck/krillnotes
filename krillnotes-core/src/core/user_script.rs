@@ -20,7 +20,7 @@ pub struct UserScript {
     pub enabled: bool,
     pub created_at: i64,
     pub modified_at: i64,
-    pub category: String, // "schema" or "presentation"
+    pub category: String, // "schema" or "library"
 }
 
 /// Parsed front-matter metadata from a script's leading comments.
