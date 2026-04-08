@@ -7,6 +7,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useTranslation } from "react-i18next";
 import type { PeerInfo, GenerateDeltasResult } from "../types";
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function CreateDeltaDialog({ onClose }: Props) {
+  const { t } = useTranslation();
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [dirPath, setDirPath] = useState<string>("");
@@ -74,33 +76,33 @@ export function CreateDeltaDialog({ onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-[480px] max-h-[80vh] flex flex-col p-6 gap-4">
-        <h2 className="text-lg font-semibold">Create delta Swarm</h2>
+        <h2 className="text-lg font-semibold">{t('delta.createTitle')}</h2>
 
         {/* Directory picker */}
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-zinc-500">Save to directory</label>
+          <label className="text-sm text-zinc-500">{t('delta.saveToDir')}</label>
           <div className="flex gap-2">
             <input
               type="text"
               readOnly
               value={dirPath}
-              placeholder="Choose a directory…"
+              placeholder={t('delta.chooseDirPlaceholder')}
               className="flex-1 border rounded px-2 py-1 text-sm bg-zinc-50 dark:bg-zinc-800"
             />
             <button
               onClick={handleBrowse}
               className="px-3 py-1 text-sm border rounded hover:bg-zinc-100 dark:hover:bg-zinc-700"
             >
-              Browse…
+              {t('common.browse')}
             </button>
           </div>
         </div>
 
         {/* Peer list */}
         <div className="flex flex-col gap-1 overflow-y-auto max-h-48">
-          <label className="text-sm text-zinc-500">Generate delta for</label>
+          <label className="text-sm text-zinc-500">{t('delta.generateFor')}</label>
           {peers.length === 0 && !error && (
-            <p className="text-sm text-zinc-400 italic">Loading peers…</p>
+            <p className="text-sm text-zinc-400 italic">{t('delta.loadingPeers')}</p>
           )}
           {peers.map((p) => {
             const syncable = p.lastSync !== undefined;
@@ -119,7 +121,7 @@ export function CreateDeltaDialog({ onClose }: Props) {
                 <span className="flex-1 text-sm font-medium">{p.displayName}</span>
                 <span className="text-xs text-zinc-400">{p.fingerprint}</span>
                 {!syncable && (
-                  <span className="text-xs text-orange-400 ml-1">— never synced</span>
+                  <span className="text-xs text-orange-400 ml-1">{t('delta.neverSynced')}</span>
                 )}
                 {result?.succeeded.includes(p.peerDeviceId) && (
                   <span className="text-xs text-green-500">✓</span>
@@ -138,7 +140,7 @@ export function CreateDeltaDialog({ onClose }: Props) {
 
         {allDone && result.failed.length === 0 && (
           <p className="text-sm text-green-600">
-            ✓ {result.filesWritten.length} file(s) written to {dirPath}
+            ✓ {t('delta.filesWritten', { count: result.filesWritten.length, dir: dirPath })}
           </p>
         )}
 
@@ -148,7 +150,7 @@ export function CreateDeltaDialog({ onClose }: Props) {
             onClick={onClose}
             className="px-4 py-1.5 text-sm border rounded hover:bg-zinc-100 dark:hover:bg-zinc-700"
           >
-            {allDone ? "Close" : "Cancel"}
+            {allDone ? t('common.close') : t('common.cancel')}
           </button>
           {!allDone && (
             <button
@@ -157,7 +159,7 @@ export function CreateDeltaDialog({ onClose }: Props) {
               className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded
                          hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? "Generating…" : "Generate"}
+              {loading ? t('delta.generating') : t('delta.generate')}
             </button>
           )}
         </div>

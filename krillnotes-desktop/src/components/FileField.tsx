@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Paperclip, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { AttachmentMeta, FieldValue } from '../types';
 
 interface FileFieldProps {
@@ -42,6 +43,7 @@ function mimeToExtension(mime: string): string {
 export function FileField({
   attachmentId, allowedTypes, isEditing, noteId, onValueChange,
 }: FileFieldProps) {
+  const { t } = useTranslation();
   const [meta, setMeta] = useState<AttachmentMeta | null>(null);
   const [thumbSrc, setThumbSrc] = useState<string | null>(null);
 
@@ -92,7 +94,7 @@ export function FileField({
       // A future orphan sweep can clean these up.
       onValueChange({ File: newMeta.id });
     } catch (err) {
-      alert(`Failed to attach file: ${String(err)}`);
+      alert(t('attachments.failedAttachFile', { error: String(err) }));
     }
   }
 
@@ -129,7 +131,7 @@ export function FileField({
             type="button"
             onClick={handleClear}
             className="text-muted-foreground hover:text-destructive ml-1"
-            title="Remove file"
+            title={t('attachments.removeFile')}
           >
             <X className="w-3 h-3" />
           </button>
@@ -140,7 +142,7 @@ export function FileField({
         onClick={handlePick}
         className="text-xs underline text-muted-foreground hover:text-foreground"
       >
-        {meta ? 'Replace…' : 'Choose file…'}
+        {meta ? t('attachments.replaceFile') : t('attachments.chooseFile')}
       </button>
     </div>
   );

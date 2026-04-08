@@ -22,11 +22,11 @@ interface Props {
 type Step = "configure" | "success";
 type Channel = "relay" | "file";
 
-const EXPIRY_OPTIONS = [
-  { label: "No expiry", value: null },
-  { label: "7 days", value: 7 },
-  { label: "30 days", value: 30 },
-  { label: "Custom", value: -1 },
+const EXPIRY_OPTIONS: { key: string; value: number | null }[] = [
+  { key: "invite.noExpiry", value: null },
+  { key: "invite.expiryDays7", value: 7 },
+  { key: "invite.expiryDays30", value: 30 },
+  { key: "invite.expiryCustom", value: -1 },
 ];
 
 export default function InviteWorkflow({
@@ -37,7 +37,7 @@ export default function InviteWorkflow({
   onCreated,
   onClose,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [step, setStep] = useState<Step>("configure");
   const [role, setRole] = useState<"owner" | "writer" | "reader">("writer");
   const [expiryDays, setExpiryDays] = useState<number | null>(30);
@@ -131,7 +131,7 @@ export default function InviteWorkflow({
   function formatExpiryLabel(invite: InviteInfo): string {
     if (!invite.expiresAt) return t("invite.noExpiry", "No expiry");
     const d = new Date(invite.expiresAt);
-    return d.toLocaleDateString();
+    return d.toLocaleDateString(i18n.language);
   }
 
   // ── Success step ──────────────────────────────────────────────────────────
@@ -295,7 +295,7 @@ export default function InviteWorkflow({
           >
             {EXPIRY_OPTIONS.map((opt) => (
               <option key={String(opt.value)} value={String(opt.value)}>
-                {opt.label}
+                {t(opt.key)}
               </option>
             ))}
           </select>

@@ -37,7 +37,7 @@ export function NoteLinkEditor({ value, targetSchema, onChange }: Props) {
     }
     invoke<{ id: string; title: string }>('get_note', { noteId: value })
       .then(n => setDisplayTitle(n.title))
-      .catch(() => setDisplayTitle('(deleted)'));
+      .catch(() => setDisplayTitle(t('fields.deleted')));
   }, [value]);
 
   function handleInput(e: React.ChangeEvent<HTMLInputElement>) {

@@ -71,7 +71,7 @@ export default function HoverTooltip({
       } catch {
         const span = document.createElement('span');
         span.className = 'kn-image-error';
-        span.textContent = 'Image not found';
+        span.textContent = t('fields.imageNotFound');
         img.replaceWith(span);
       }
     });

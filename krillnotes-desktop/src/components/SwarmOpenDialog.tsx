@@ -175,7 +175,7 @@ export default function SwarmOpenDialog({
         identityUuid: uuid,
       });
       const result = JSON.parse(resultJson);
-      setSuccess(`Applied ${result.operationsApplied} operation(s).`);
+      setSuccess(t('swarm.appliedOps', { count: result.operationsApplied }));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setProcessing(false); }
@@ -297,10 +297,10 @@ export default function SwarmOpenDialog({
 
     if (fileInfo.mode === 'delta') return (
       <div className="space-y-3">
-        <h3 className="font-medium">Delta from {fileInfo.senderDisplayName}</h3>
+        <h3 className="font-medium">{t('swarm.deltaFrom')} {fileInfo.senderDisplayName}</h3>
         <div className="text-sm space-y-1">
-          <p><span className="text-muted-foreground">Workspace: </span>{fileInfo.localWorkspaceName ?? fileInfo.workspaceName}</p>
-          <p className="text-muted-foreground text-xs">Sender fingerprint:</p>
+          <p><span className="text-muted-foreground">{t('swarm.workspaceLabel')} </span>{fileInfo.localWorkspaceName ?? fileInfo.workspaceName}</p>
+          <p className="text-muted-foreground text-xs">{t('swarm.senderFingerprint')}</p>
           <FingerprintBadge fp={fileInfo.senderFingerprint} />
         </div>
         <button
@@ -308,7 +308,7 @@ export default function SwarmOpenDialog({
           onClick={() => handleApplyDelta()}
           disabled={processing}
         >
-          {processing ? '…' : 'Apply Delta'}
+          {processing ? '…' : t('swarm.applyDelta')}
         </button>
       </div>
     );

@@ -25,8 +25,8 @@ const OPERATION_TYPES = [
   'DeleteUserScript',
 ] as const;
 
-function formatTimestamp(wallMs: number): string {
-  return new Date(wallMs).toLocaleString();
+function formatTimestamp(wallMs: number, locale?: string): string {
+  return new Date(wallMs).toLocaleString(locale);
 }
 
 function formatKey(key: string): string {
@@ -97,6 +97,7 @@ function OperationDetailPanel({
   resolvedAuthor: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const opType = detail['type'] as string | undefined;
 
   const metaEntries = Object.entries(detail).filter(([k]) => METADATA_KEYS.has(k));
@@ -106,7 +107,7 @@ function OperationDetailPanel({
     <div className="w-[380px] border-l border-border flex flex-col overflow-hidden shrink-0">
       {/* Panel header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20 shrink-0">
-        <span className="text-sm font-semibold font-mono">{opType ?? 'Operation'}</span>
+        <span className="text-sm font-semibold font-mono">{opType ?? t('log.operation')}</span>
         <button
           onClick={onClose}
           className="text-muted-foreground hover:text-foreground rounded p-0.5"
@@ -119,7 +120,7 @@ function OperationDetailPanel({
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4 text-sm">
         {/* Metadata section */}
         <section>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Metadata</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">{t('log.metadata')}</p>
           <dl className="space-y-1.5">
             {metaEntries.map(([k, v]) => (
               k === 'type' ? null : (
@@ -135,7 +136,7 @@ function OperationDetailPanel({
         {/* Operation-specific data */}
         {dataEntries.length > 0 && (
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Data</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">{t('log.data')}</p>
             <dl className="space-y-2">
               {dataEntries.map(([k, v]) => (
                 <div key={k}>
@@ -159,7 +160,7 @@ function OperationDetailPanel({
 }
 
 function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [operations, setOperations] = useState<OperationSummary[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [sinceDate, setSinceDate] = useState('');
@@ -327,7 +328,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
                       }`}
                     >
                       <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                        {formatTimestamp(op.timestampWallMs)}
+                        {formatTimestamp(op.timestampWallMs, i18n.language)}
                       </td>
                       <td className="px-4 py-2 truncate max-w-[200px]" title={op.targetName}>
                         {op.targetName || <span className="text-muted-foreground italic">&mdash;</span>}
