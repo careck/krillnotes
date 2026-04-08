@@ -65,10 +65,12 @@ export function useSchema(
   // it can chain to get_views_for_type), leaving views=[] on first load.
   useEffect(() => {
     schemaLoadedRef.current = false;
+    // Clear cached view HTML synchronously so Effect 4 (render_view) can
+    // re-populate it without a later async setViewHtml({}) wiping the result.
+    setViewHtml({});
     if (!selectedNote) {
       setSchemaInfo(emptySchemaInfo);
       setViews([]);
-      setViewHtml({});
       setActiveTab('fields');
       return;
     }
@@ -82,7 +84,6 @@ export function useSchema(
         invoke<ViewInfo[]>('get_views_for_type', { schemaName: selectedNote.schema })
           .then(v => {
             setViews(v);
-            setViewHtml({});
             // Default tab: first displayFirst view, or first view, or "fields"
             const sorted = [...v].sort((a, b) =>
               (b.displayFirst ? 1 : 0) - (a.displayFirst ? 1 : 0)
