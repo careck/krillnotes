@@ -1087,6 +1087,27 @@ mod tests {
         assert_eq!(rhai_stars(7, 5), "★★★★★");
     }
 
+    // ── field_value_to_dynamic number→INT promotion ────────────────────────
+
+    #[test]
+    fn test_whole_numbers_become_int() {
+        use super::super::schema::field_value_to_dynamic;
+        use crate::FieldValue;
+
+        // Whole f64 → INT
+        let d = field_value_to_dynamic(&FieldValue::Number(5.0));
+        assert!(d.is_int(), "5.0 should become INT, got {:?}", d.type_name());
+        assert_eq!(d.cast::<rhai::INT>(), 5);
+
+        // Fractional f64 → FLOAT
+        let d = field_value_to_dynamic(&FieldValue::Number(3.14));
+        assert!(d.is_float(), "3.14 should stay FLOAT");
+
+        // Zero → INT
+        let d = field_value_to_dynamic(&FieldValue::Number(0.0));
+        assert!(d.is_int(), "0.0 should become INT");
+    }
+
     // ── resolve_attachment_source tests ──────────────────────────────────────
 
     fn make_meta(id: &str, filename: &str) -> AttachmentMeta {
