@@ -33,6 +33,15 @@ export function searchNotes(notes: Note[], query: string): SearchResult[] {
   const trimmed = query.trim().toLowerCase();
   if (trimmed === '') return [];
 
+  // Tag filter: "tag:animals" → exact match against note.tags
+  if (trimmed.startsWith('tag:')) {
+    const tagName = trimmed.slice(4);
+    if (tagName === '') return [];
+    return notes
+      .filter(note => note.tags.some(t => t.toLowerCase() === tagName))
+      .map(note => ({ note, matchField: 'tag', matchValue: tagName }));
+  }
+
   const results: SearchResult[] = [];
 
   for (const note of notes) {
