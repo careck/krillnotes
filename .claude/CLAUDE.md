@@ -87,6 +87,12 @@ Krillnotes/
 ### TypeScript / React
 - React 19 + Tailwind v4 + i18next (7 languages) + CodeMirror for script editor
 - All Tauri IPC via `@tauri-apps/api` `invoke()`
+- **i18n is mandatory** — NEVER use hardcoded English strings in JSX. Every user-facing string must use `t('section.key')` from `useTranslation()`. When adding new UI text:
+  1. Add the English key to `krillnotes-desktop/src/i18n/locales/en.json`
+  2. Add translated keys to ALL 6 other locale files (de, es, fr, ja, ko, zh)
+  3. Use `t('section.key')` in the component, with `{{ interpolation }}` for dynamic values
+  4. For date/number formatting, pass `i18n.language` to `toLocaleDateString()`/`toLocaleString()`
+  5. All 7 locale files must have identical key structures — no missing keys
 
 ## Context Management (MANDATORY)
 
