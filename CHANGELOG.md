@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Script category renamed "presentation" → "library"** — The internal DB/Rust category value now matches the frontend UI label. Includes a DB migration to update existing rows automatically (PR #130).
+
 ## [0.9.2] — 2026-03-31
 
 ### Fixed
