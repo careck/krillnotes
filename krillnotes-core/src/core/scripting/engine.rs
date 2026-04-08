@@ -452,8 +452,6 @@ impl ScriptRegistry {
         });
         engine.register_fn("stars",        display_helpers::rhai_stars_default);
         engine.register_fn("stars",        display_helpers::rhai_stars);
-        engine.register_fn("stars",        display_helpers::rhai_stars_float_default);
-        engine.register_fn("stars",        display_helpers::rhai_stars_float);
 
         // ── Date helpers ──────────────────────────────────────────────────────
         engine.register_fn("today", || Local::now().format("%Y-%m-%d").to_string());

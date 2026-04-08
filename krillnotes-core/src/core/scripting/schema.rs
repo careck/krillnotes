@@ -1045,7 +1045,13 @@ fn extract_note_update(
 pub(crate) fn field_value_to_dynamic(fv: &FieldValue) -> Dynamic {
     match fv {
         FieldValue::Text(s) => Dynamic::from(s.clone()),
-        FieldValue::Number(n) => Dynamic::from(*n),
+        FieldValue::Number(n) => {
+            if n.fract() == 0.0 && *n >= i64::MIN as f64 && *n <= i64::MAX as f64 {
+                Dynamic::from(*n as rhai::INT)
+            } else {
+                Dynamic::from(*n)
+            }
+        }
         FieldValue::Boolean(b) => Dynamic::from(*b),
         FieldValue::Date(None) => Dynamic::UNIT,
         FieldValue::Date(Some(d)) => Dynamic::from(d.format("%Y-%m-%d").to_string()),

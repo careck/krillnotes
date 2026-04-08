@@ -383,16 +383,6 @@ pub fn rhai_stars_default(value: rhai::INT) -> String {
     rhai_stars(value, 5)
 }
 
-/// Two-argument overload accepting `FLOAT` (rating fields are stored as `f64`).
-pub fn rhai_stars_float(value: rhai::FLOAT, max: rhai::FLOAT) -> String {
-    rhai_stars(value as rhai::INT, max as rhai::INT)
-}
-
-/// One-argument `FLOAT` overload: defaults `max` to `5`.
-pub fn rhai_stars_float_default(value: rhai::FLOAT) -> String {
-    rhai_stars(value as rhai::INT, 5)
-}
-
 /// Renders a horizontal rule.
 ///
 /// ```rhai
@@ -1097,13 +1087,25 @@ mod tests {
         assert_eq!(rhai_stars(7, 5), "★★★★★");
     }
 
+    // ── field_value_to_dynamic number→INT promotion ────────────────────────
+
     #[test]
-    fn test_stars_float_delegates_to_int() {
-        assert_eq!(rhai_stars_float(3.0, 5.0), "★★★☆☆");
-        assert_eq!(rhai_stars_float_default(4.0), "★★★★☆");
-        assert_eq!(rhai_stars_float(0.0, 5.0), "—");
-        // Fractional values truncate toward zero
-        assert_eq!(rhai_stars_float_default(2.7), "★★☆☆☆");
+    fn test_whole_numbers_become_int() {
+        use super::super::schema::field_value_to_dynamic;
+        use crate::FieldValue;
+
+        // Whole f64 → INT
+        let d = field_value_to_dynamic(&FieldValue::Number(5.0));
+        assert!(d.is_int(), "5.0 should become INT, got {:?}", d.type_name());
+        assert_eq!(d.cast::<rhai::INT>(), 5);
+
+        // Fractional f64 → FLOAT
+        let d = field_value_to_dynamic(&FieldValue::Number(3.14));
+        assert!(d.is_float(), "3.14 should stay FLOAT");
+
+        // Zero → INT
+        let d = field_value_to_dynamic(&FieldValue::Number(0.0));
+        assert!(d.is_int(), "0.0 should become INT");
     }
 
     // ── resolve_attachment_source tests ──────────────────────────────────────
