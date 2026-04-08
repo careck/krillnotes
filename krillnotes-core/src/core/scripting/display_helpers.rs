@@ -383,6 +383,16 @@ pub fn rhai_stars_default(value: rhai::INT) -> String {
     rhai_stars(value, 5)
 }
 
+/// Two-argument overload accepting `FLOAT` (rating fields are stored as `f64`).
+pub fn rhai_stars_float(value: rhai::FLOAT, max: rhai::FLOAT) -> String {
+    rhai_stars(value as rhai::INT, max as rhai::INT)
+}
+
+/// One-argument `FLOAT` overload: defaults `max` to `5`.
+pub fn rhai_stars_float_default(value: rhai::FLOAT) -> String {
+    rhai_stars(value as rhai::INT, 5)
+}
+
 /// Renders a horizontal rule.
 ///
 /// ```rhai
@@ -1085,6 +1095,15 @@ mod tests {
     fn test_stars_value_exceeds_max_clamps_to_max() {
         // value > max: all filled stars up to max
         assert_eq!(rhai_stars(7, 5), "★★★★★");
+    }
+
+    #[test]
+    fn test_stars_float_delegates_to_int() {
+        assert_eq!(rhai_stars_float(3.0, 5.0), "★★★☆☆");
+        assert_eq!(rhai_stars_float_default(4.0), "★★★★☆");
+        assert_eq!(rhai_stars_float(0.0, 5.0), "—");
+        // Fractional values truncate toward zero
+        assert_eq!(rhai_stars_float_default(2.7), "★★☆☆☆");
     }
 
     // ── resolve_attachment_source tests ──────────────────────────────────────
