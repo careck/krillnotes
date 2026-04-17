@@ -110,9 +110,14 @@ export function useSchema(
       });
   }, [selectedNote?.id]);
 
-  // Effect 4: Render view HTML when the active tab changes
+  // Effect 4: Render view HTML when the active tab changes.
+  // Guard: only call render_view when activeTab matches one of the loaded views
+  // for the current note. This prevents stale tab names from firing after a
+  // note switch (Effect 1 resets activeTab, but Effect 4 can fire first in the
+  // same render cycle with the old value).
   useEffect(() => {
-    if (activeTab !== 'fields' && selectedNote && !isEditing) {
+    if (activeTab !== 'fields' && selectedNote && !isEditing
+        && views.some(v => v.label === activeTab)) {
       invoke<string>('render_view', {
         noteId: selectedNote.id,
         viewLabel: activeTab,
@@ -122,7 +127,7 @@ export function useSchema(
         console.error('Failed to render view:', err);
       });
     }
-  }, [activeTab, selectedNote?.id, isEditing]);
+  }, [activeTab, selectedNote?.id, isEditing, views]);
 
   return {
     schemaInfo,
