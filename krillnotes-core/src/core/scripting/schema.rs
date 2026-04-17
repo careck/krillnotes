@@ -139,6 +139,9 @@ pub struct Schema {
     /// When `true`, notes of this schema cannot have any children.
     /// Defaults to `false`.
     pub is_leaf: bool,
+    /// When `true`, a checkbox is shown next to notes of this schema in the tree.
+    /// Defaults to `false`.
+    pub show_checkbox: bool,
     /// When `true`, the note-level attachments panel is shown for this schema.
     /// Defaults to `false` (opt-in).
     pub allow_attachments: bool,
@@ -485,7 +488,12 @@ impl Schema {
             .and_then(|v| v.clone().try_cast::<bool>())
             .unwrap_or(false);
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_schemas, allowed_children_schemas, allow_attachments, attachment_types, field_groups, ast: None, version, migrations, is_leaf })
+        let show_checkbox = def
+            .get("show_checkbox")
+            .and_then(|v| v.clone().try_cast::<bool>())
+            .unwrap_or(false);
+
+        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_schemas, allowed_children_schemas, allow_attachments, attachment_types, field_groups, ast: None, version, migrations, is_leaf, show_checkbox })
     }
 }
 

@@ -63,6 +63,7 @@ fn pending_note_to_dynamic(pending: &crate::core::save_transaction::PendingNote)
     note_map.insert("title".into(),     Dynamic::from(pending.effective_title().to_string()));
     note_map.insert("fields".into(),    Dynamic::from(fields_map));
     note_map.insert("tags".into(),      Dynamic::from(rhai::Array::new()));
+    note_map.insert("is_checked".into(), Dynamic::from(false));
     Dynamic::from_map(note_map)
 }
 
@@ -394,6 +395,7 @@ impl ScriptRegistry {
             .map(|t| Dynamic::from(t.clone()))
             .collect();
         note_map.insert("tags".into(), Dynamic::from(tags_array));
+        note_map.insert("is_checked".into(), Dynamic::from(note.is_checked));
         note_map
     }
 
