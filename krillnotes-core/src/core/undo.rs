@@ -39,6 +39,8 @@ pub enum RetractInverse {
         old_title: String,
         old_fields: BTreeMap<String, FieldValue>,
         old_tags: Vec<String>,
+        #[serde(default)]
+        old_is_checked: bool,
     },
 
     /// Inverse of `MoveNote` — return note to its previous position.

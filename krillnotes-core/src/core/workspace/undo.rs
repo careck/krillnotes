@@ -345,6 +345,7 @@ impl Workspace {
                     old_title: current.title,
                     old_fields: current.fields,
                     old_tags: current.tags,
+                    old_is_checked: current.is_checked,
                 })
             }
             RetractInverse::PositionRestore { note_id, .. } => {
@@ -495,16 +496,16 @@ impl Workspace {
                 Ok(root_id)
             }
 
-            RetractInverse::NoteRestore { note_id, old_title, old_fields, old_tags } => {
-                // Restore title + fields + tags atomically.
+            RetractInverse::NoteRestore { note_id, old_title, old_fields, old_tags, old_is_checked } => {
+                // Restore title + fields + tags + is_checked atomically.
                 let fields_json = serde_json::to_string(old_fields)
                     .map_err(KrillnotesError::Json)?;
                 let now = chrono::Utc::now().timestamp();
                 let conn = self.storage.connection_mut();
                 let tx = conn.transaction()?;
                 tx.execute(
-                    "UPDATE notes SET title=?, fields_json=?, modified_at=? WHERE id=?",
-                    rusqlite::params![old_title, fields_json, now, note_id],
+                    "UPDATE notes SET title=?, fields_json=?, modified_at=?, is_checked=? WHERE id=?",
+                    rusqlite::params![old_title, fields_json, now, old_is_checked, note_id],
                 )?;
                 tx.execute("DELETE FROM note_tags WHERE note_id=?", [note_id])?;
                 for tag in old_tags {
