@@ -644,10 +644,8 @@
         let workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
         let scripts = workspace.list_user_scripts().unwrap();
         assert!(!scripts.is_empty(), "New workspace should have starter scripts");
-        // Verify starter scripts include both presentation and schema scripts
         let names: Vec<&str> = scripts.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"Text Note"), "Should have Text Note schema");
-        assert!(names.contains(&"Text Note Actions"), "Should have Text Note Actions");
     }
 
     #[test]

@@ -4,10 +4,6 @@
     fn load_text_note(registry: &mut ScriptRegistry) {
         registry.load_script(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/system_scripts/00_text_note.rhai"
-        )), "Text Note Actions").expect("TextNote library script should load");
-        registry.load_script(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
             "/src/system_scripts/00_text_note.schema.rhai"
         )), "Text Note").expect("TextNote schema script should load");
         registry.resolve_bindings();
