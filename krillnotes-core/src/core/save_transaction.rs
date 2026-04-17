@@ -35,12 +35,17 @@ pub struct PendingNote {
     pub pending_fields: BTreeMap<String, FieldValue>,
     pub original_title: String,
     pub pending_title: Option<String>,
+    pub pending_checked: Option<bool>,
 }
 
 impl PendingNote {
     /// Returns the current effective title (pending or original).
     pub fn effective_title(&self) -> &str {
         self.pending_title.as_deref().unwrap_or(&self.original_title)
+    }
+
+    pub fn effective_checked(&self) -> Option<bool> {
+        self.pending_checked
     }
 
     /// Returns the current effective fields (original merged with pending).
@@ -90,6 +95,7 @@ impl SaveTransaction {
             pending_fields: BTreeMap::new(),
             original_title: title,
             pending_title: None,
+            pending_checked: None,
         });
         tx
     }
@@ -114,6 +120,7 @@ impl SaveTransaction {
             pending_fields: BTreeMap::new(),
             original_title: title,
             pending_title: None,
+            pending_checked: None,
         });
     }
 
@@ -135,6 +142,7 @@ impl SaveTransaction {
             pending_fields: fields,
             original_title: title,
             pending_title: None,
+            pending_checked: None,
         });
     }
 
@@ -159,6 +167,18 @@ impl SaveTransaction {
         let pending = self.pending_notes.get_mut(note_id)
             .ok_or_else(|| format!("Note '{}' is not in this transaction", note_id))?;
         pending.pending_title = Some(title);
+        Ok(())
+    }
+
+    /// Queues a checked-state write.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `note_id` is not in this transaction.
+    pub fn set_checked(&mut self, note_id: &str, checked: bool) -> Result<(), String> {
+        let pending = self.pending_notes.get_mut(note_id)
+            .ok_or_else(|| format!("Note '{}' is not in this transaction", note_id))?;
+        pending.pending_checked = Some(checked);
         Ok(())
     }
 
@@ -309,6 +329,16 @@ mod tests {
         let pn = tx.pending_notes.get("c1").unwrap();
         assert!(pn.is_new);
         assert_eq!(pn.parent_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn test_set_checked_updates_pending() {
+        let mut tx = SaveTransaction::for_existing_note(
+            "n1".to_string(), "T".to_string(), "T".to_string(), BTreeMap::new(),
+        );
+        assert_eq!(tx.pending_notes.get("n1").unwrap().effective_checked(), None);
+        tx.set_checked("n1", true).unwrap();
+        assert_eq!(tx.pending_notes.get("n1").unwrap().effective_checked(), Some(true));
     }
 
     #[test]

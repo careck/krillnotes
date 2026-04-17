@@ -291,8 +291,8 @@ impl Workspace {
             let now = chrono::Utc::now().timestamp();
 
             // Pre-advance HLC for each pending note before borrowing self.storage.
-            // Creates need one timestamp; updates need one for title + one per field.
-            let timestamps: Vec<(HlcTimestamp, Vec<HlcTimestamp>)> = pending_notes.iter()
+            // Creates need one timestamp; updates need one for title + one per field + optional checked.
+            let timestamps: Vec<(HlcTimestamp, Vec<HlcTimestamp>, Option<HlcTimestamp>)> = pending_notes.iter()
                 .map(|p| {
                     let main_ts = self.advance_hlc();
                     let field_tss: Vec<HlcTimestamp> = if p.is_new {
@@ -300,14 +300,19 @@ impl Workspace {
                     } else {
                         p.effective_fields().keys().map(|_| self.advance_hlc()).collect()
                     };
-                    (main_ts, field_tss)
+                    let checked_ts = if !p.is_new && p.effective_checked().is_some() {
+                        Some(self.advance_hlc())
+                    } else {
+                        None
+                    };
+                    (main_ts, field_tss, checked_ts)
                 })
                 .collect();
             let signing_key = self.signing_key.clone();
 
             let tx_db = self.storage.connection_mut().transaction()?;
 
-            for (pending, (main_ts, field_tss)) in pending_notes.iter().zip(timestamps.iter()) {
+            for (pending, (main_ts, field_tss, checked_ts_opt)) in pending_notes.iter().zip(timestamps.iter()) {
                 if pending.is_new {
                     // ── INSERT new note ──────────────────────────────────────────
                     let parent_id = pending.parent_id.as_deref().unwrap_or("");
@@ -325,13 +330,14 @@ impl Workspace {
                     tx_db.execute(
                         "INSERT INTO notes (id, title, schema, parent_id, position, \
                                             created_at, modified_at, created_by, modified_by, \
-                                            fields_json, is_expanded, schema_version) \
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                            fields_json, is_expanded, schema_version, is_checked) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                         rusqlite::params![
                             pending.note_id, effective_title, pending.schema,
                             parent_id, position, now, now,
                             self.current_identity_pubkey.clone(), self.current_identity_pubkey.clone(), fields_json, true,
                             schema_ver,
+                            pending.effective_checked().unwrap_or(false),
                         ],
                     )?;
 
@@ -394,6 +400,25 @@ impl Workspace {
                         };
                         Self::sign_op_with(&signing_key, &mut field_op);
                         Self::log_op(&self.operation_log, &tx_db, &field_op)?;
+                    }
+
+                    if let (Some(checked), Some(checked_ts)) = (pending.effective_checked(), checked_ts_opt) {
+                        tx_db.execute(
+                            "UPDATE notes SET is_checked = ?1 WHERE id = ?2",
+                            rusqlite::params![checked, pending.note_id],
+                        )?;
+                        Self::save_hlc(checked_ts, &tx_db)?;
+                        let mut checked_op = Operation::SetChecked {
+                            operation_id: Uuid::new_v4().to_string(),
+                            timestamp: *checked_ts,
+                            device_id: self.device_id.clone(),
+                            note_id: pending.note_id.clone(),
+                            checked,
+                            modified_by: String::new(),
+                            signature: String::new(),
+                        };
+                        Self::sign_op_with(&signing_key, &mut checked_op);
+                        Self::log_op(&self.operation_log, &tx_db, &checked_op)?;
                     }
                 }
             }
