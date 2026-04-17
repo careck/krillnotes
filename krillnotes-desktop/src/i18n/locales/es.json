@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "Contraer",
     "expand": "Expandir",
-    "sharedSubtree": "Subárbol compartido"
+    "sharedSubtree": "Subárbol compartido",
+    "checkNote": "Marcar como completado",
+    "uncheckNote": "Marcar como incompleto"
   },
   "log": {
     "title": "Registro de operaciones",

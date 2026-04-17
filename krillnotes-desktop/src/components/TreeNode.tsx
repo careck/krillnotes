@@ -25,6 +25,7 @@ interface TreeNodeProps {
   onMoveNote: (noteId: string, newParentId: string | null, newPosition: number) => void;
   onHoverStart: (noteId: string, anchorY: number) => void;
   onHoverEnd: () => void;
+  onToggleChecked: (noteId: string, checked: boolean) => void;
   effectiveRoles?: Record<string, string>;
   shareAnchorIds?: Set<string>;
   showSharingIndicators?: boolean;
@@ -33,7 +34,7 @@ interface TreeNodeProps {
 function TreeNode({
   node, selectedNoteId, level, onSelect, onToggleExpand, onContextMenu,
   notes, schemas, draggedNoteId, setDraggedNoteId, dropIndicator, setDropIndicator, dragDescendants, onMoveNote,
-  onHoverStart, onHoverEnd, effectiveRoles, shareAnchorIds, showSharingIndicators,
+  onHoverStart, onHoverEnd, onToggleChecked, effectiveRoles, shareAnchorIds, showSharingIndicators,
 }: TreeNodeProps) {
   const { t } = useTranslation();
   const hasChildren = node.children.length > 0;
@@ -258,7 +259,20 @@ function TreeNode({
         {showSharingIndicators && isShareAnchor && (role === 'owner' || role === 'root_owner') && (
           <span className="text-[10px] mr-1 flex-shrink-0 text-zinc-400" title={t('tree.sharedSubtree', 'Shared subtree')}>👥</span>
         )}
-        <span className={`text-sm truncate flex-1 min-w-0 ${isGhost ? 'text-zinc-400 italic' : ''}`}>{node.note.title}</span>
+        {schemas[node.note.schema]?.showCheckbox && (
+          <input
+            type="checkbox"
+            checked={node.note.isChecked}
+            onChange={(e) => {
+              e.stopPropagation();
+              onToggleChecked(node.note.id, e.target.checked);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="mr-1.5 h-3.5 w-3.5 rounded border-muted-foreground/50 accent-primary flex-shrink-0"
+            aria-label={node.note.isChecked ? t('tree.uncheckNote') : t('tree.checkNote')}
+          />
+        )}
+        <span className={`text-sm truncate flex-1 min-w-0 ${isGhost ? 'text-zinc-400 italic' : ''} ${node.note.isChecked && schemas[node.note.schema]?.showCheckbox ? 'line-through text-muted-foreground' : ''}`}>{node.note.title}</span>
         {hasHoverContent && <span className="ml-1 text-xs text-muted-foreground/40 select-none">›</span>}
       </div>
 
@@ -287,6 +301,7 @@ function TreeNode({
               onMoveNote={onMoveNote}
               onHoverStart={onHoverStart}
               onHoverEnd={onHoverEnd}
+              onToggleChecked={onToggleChecked}
               effectiveRoles={effectiveRoles}
               shareAnchorIds={shareAnchorIds}
               showSharingIndicators={showSharingIndicators}

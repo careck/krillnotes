@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "折叠",
     "expand": "展开",
-    "sharedSubtree": "共享子树"
+    "sharedSubtree": "共享子树",
+    "checkNote": "标记为完成",
+    "uncheckNote": "标记为未完成"
   },
   "log": {
     "title": "操作日志",

@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "折りたたむ",
     "expand": "展開する",
-    "sharedSubtree": "共有サブツリー"
+    "sharedSubtree": "共有サブツリー",
+    "checkNote": "完了にする",
+    "uncheckNote": "未完了にする"
   },
   "log": {
     "title": "操作ログ",

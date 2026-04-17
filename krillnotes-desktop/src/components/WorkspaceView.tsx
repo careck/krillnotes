@@ -307,6 +307,15 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
   // creating a circular dependency between the two hooks.
   closePendingUndoGroupRef.current = closePendingUndoGroup;
 
+  const handleToggleChecked = useCallback(async (noteId: string, checked: boolean) => {
+    try {
+      const updated = await invoke<Note>('set_note_checked', { noteId, checked });
+      setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
+    } catch (err) {
+      console.error('Failed to toggle checked:', err);
+    }
+  }, []);
+
   const copyNote = useCallback((noteId: string) => {
     setCopiedNoteId(noteId);
     invoke('set_paste_menu_enabled', { enabled: true }).catch(console.error);
@@ -714,6 +723,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
             selectedNoteId={selectedNoteId}
             onSelect={handleSelectNote}
             onToggleExpand={handleToggleExpand}
+            onToggleChecked={handleToggleChecked}
             onContextMenu={handleContextMenu}
             onBackgroundContextMenu={handleBackgroundContextMenu}
             onKeyDown={handleTreeKeyDown}

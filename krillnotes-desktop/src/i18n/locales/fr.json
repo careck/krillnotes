@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "Réduire",
     "expand": "Développer",
-    "sharedSubtree": "Sous-arbre partagé"
+    "sharedSubtree": "Sous-arbre partagé",
+    "checkNote": "Marquer comme terminé",
+    "uncheckNote": "Marquer comme non terminé"
   },
   "log": {
     "title": "Journal des opérations",
