@@ -226,3 +226,4 @@ cd krillnotes-desktop && npm update && npm run tauri build
 - Always start each implementation in a new worktree
 - Always commit and push a pull request to github
 - Always update `CHANGELOG.md` with the changes you made after the PR has been merged
+- Use terse, functional language to preserve context tokens!
