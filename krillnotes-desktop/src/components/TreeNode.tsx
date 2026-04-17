@@ -260,17 +260,21 @@ function TreeNode({
           <span className="text-[10px] mr-1 flex-shrink-0 text-zinc-400" title={t('tree.sharedSubtree', 'Shared subtree')}>👥</span>
         )}
         {schemas[node.note.schema]?.showCheckbox && (
-          <input
-            type="checkbox"
-            checked={node.note.isChecked}
-            onChange={(e) => {
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
               e.stopPropagation();
-              onToggleChecked(node.note.id, e.target.checked);
+              onToggleChecked(node.note.id, !node.note.isChecked);
             }}
-            onClick={(e) => e.stopPropagation()}
-            className="mr-1.5 h-3.5 w-3.5 rounded border-muted-foreground/50 accent-primary flex-shrink-0"
+            onMouseDown={(e) => e.stopPropagation()}
+            className="mr-1.5 h-3.5 w-3.5 rounded border border-muted-foreground/50 flex-shrink-0 flex items-center justify-center text-[10px] leading-none bg-background hover:border-foreground/70"
             aria-label={node.note.isChecked ? t('tree.uncheckNote') : t('tree.checkNote')}
-          />
+            aria-checked={node.note.isChecked}
+            role="checkbox"
+          >
+            {node.note.isChecked && <span className="text-primary">✓</span>}
+          </button>
         )}
         <span className={`text-sm truncate flex-1 min-w-0 ${isGhost ? 'text-zinc-400 italic' : ''} ${node.note.isChecked && schemas[node.note.schema]?.showCheckbox ? 'line-through text-muted-foreground' : ''}`}>{node.note.title}</span>
         {hasHoverContent && <span className="ml-1 text-xs text-muted-foreground/40 select-none">›</span>}
