@@ -61,7 +61,7 @@
             id: "n1".to_string(), schema: "Folder".to_string(),
             title: "F".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
+            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: std::collections::HashMap::new(),
@@ -215,7 +215,7 @@
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
         let defaults = schema.default_fields();
         assert_eq!(defaults.len(), 2);
@@ -263,7 +263,7 @@
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("birthday"), Some(FieldValue::Date(None))));
@@ -291,7 +291,7 @@
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("email_addr"), Some(FieldValue::Email(s)) if s.is_empty()));
@@ -1060,7 +1060,7 @@
         let note = Note {
             id: "n1".into(), title: "Test".into(), schema: "Memo".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
 
         let html = registry.render_default_view(&note, &Default::default(), &[]);
@@ -1109,7 +1109,7 @@
             created_by: String::new(),
             modified_by: String::new(),
             fields: BTreeMap::new(),
-            is_expanded: false, tags: vec![], schema_version: 1,
+            is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
 
         let context = QueryContext {
@@ -1409,7 +1409,7 @@
             id: "n1".to_string(), schema: "BoomView".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            fields: BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
+            fields: BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: HashMap::new(),
@@ -1472,7 +1472,7 @@
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            is_expanded: false, tags: vec![], schema_version: 1,
+            is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -1499,7 +1499,7 @@
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            is_expanded: false, tags: vec![], schema_version: 1,
+            is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -1521,7 +1521,7 @@
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            is_expanded: false, tags: vec![], schema_version: 1,
+            is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -1548,7 +1548,7 @@
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            is_expanded: false, tags: vec![], schema_version: 1,
+            is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(),
@@ -1570,7 +1570,7 @@
             schema: node_type.into(), parent_id: None,
             fields: Default::default(), position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
-            is_expanded: false, tags: vec![], schema_version: 1,
+            is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         }
     }
 
@@ -1739,7 +1739,7 @@
             title: "T".to_string(), parent_id: None, position: 0.0,
             created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false,
-            tags: vec!["rust".to_string(), "notes".to_string()], schema_version: 1,
+            tags: vec!["rust".to_string(), "notes".to_string()], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: std::collections::HashMap::new(),
@@ -1883,7 +1883,7 @@
             allowed_parent_schemas: vec![],
             allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
         let defaults = schema.default_fields();
         assert!(matches!(defaults.get("linked_note"), Some(FieldValue::NoteLink(None))));
@@ -1938,7 +1938,7 @@
             id: "id1".into(), title: "Test Note".into(), schema: "HoverRun".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(),
-            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1,
+            fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
             notes_by_id: Default::default(), children_by_id: Default::default(),
@@ -2034,7 +2034,7 @@
             id: "n1".to_string(), schema: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
-            created_by: String::new(), modified_by: String::new(), is_expanded: false,
+            created_by: String::new(), modified_by: String::new(), is_expanded: false, is_checked: false,
         };
 
         let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
@@ -2065,7 +2065,7 @@
             id: "n2".to_string(), schema: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
             created_at: 0, modified_at: 0, position: 0.0,
-            created_by: String::new(), modified_by: String::new(), is_expanded: false,
+            created_by: String::new(), modified_by: String::new(), is_expanded: false, is_checked: false,
         };
 
         let html = registry.run_on_view_hook(&note, make_empty_ctx()).unwrap().unwrap();
