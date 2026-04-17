@@ -442,6 +442,19 @@ impl Storage {
             )?;
         }
 
+        // Migration: add is_checked column to notes if absent.
+        let is_checked_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='is_checked'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !is_checked_exists {
+            conn.execute(
+                "ALTER TABLE notes ADD COLUMN is_checked INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

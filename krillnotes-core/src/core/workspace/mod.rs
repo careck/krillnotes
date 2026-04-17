@@ -275,12 +275,13 @@ impl Workspace {
             fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
+            is_checked: false,
         };
 
         let tx = storage.connection_mut().transaction()?;
         tx.execute(
-            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 root.id,
                 root.title,
@@ -294,6 +295,7 @@ impl Workspace {
                 serde_json::to_string(&root.fields)?,
                 true,
                 root.schema_version,
+                root.is_checked,
             ],
         )?;
         tx.commit()?;
@@ -498,12 +500,13 @@ impl Workspace {
             fields: script_registry.get_schema("TextNote")?.default_fields(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
+            is_checked: false,
         };
 
         let tx = storage.connection_mut().transaction()?;
         tx.execute(
-            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 root.id,
                 root.title,
@@ -517,6 +520,7 @@ impl Workspace {
                 serde_json::to_string(&root.fields)?,
                 true,
                 root.schema_version,
+                root.is_checked,
             ],
         )?;
         tx.commit()?;
@@ -1458,7 +1462,7 @@ fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<
 ///
 /// `position` is stored as REAL in the DB (to support fractional positions for future
 /// CRDT ordering) but the Rust API still uses `i32`; we read it as `f64` and truncate.
-type NoteRow = (String, String, String, Option<String>, f64, i64, i64, String, String, String, i64, u32, Option<String>);
+type NoteRow = (String, String, String, Option<String>, f64, i64, i64, String, String, String, i64, u32, bool, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
@@ -1478,13 +1482,14 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
         row.get::<_, String>(9)?,           // fields_json
         row.get::<_, i64>(10)?,             // is_expanded
         row.get::<_, u32>(11)?,             // schema_version
-        row.get::<_, Option<String>>(12)?,  // tags_csv
+        row.get::<_, bool>(12)?,            // is_checked
+        row.get::<_, Option<String>>(13)?,  // tags_csv
     ))
 }
 
-/// Converts a raw 13-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
+/// Converts a raw 14-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
 fn note_from_row_tuple(
-    (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, schema_version, tags_csv): NoteRow,
+    (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, schema_version, is_checked, tags_csv): NoteRow,
 ) -> Result<Note> {
     let mut tags: Vec<String> = tags_csv
         .unwrap_or_default()
@@ -1507,6 +1512,7 @@ fn note_from_row_tuple(
         is_expanded: is_expanded_int == 1,
         tags,
         schema_version,
+        is_checked,
     })
 }
 

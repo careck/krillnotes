@@ -20,7 +20,7 @@ impl Workspace {
         let row = self.connection().query_row(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -118,6 +118,7 @@ impl Workspace {
             is_expanded: true,
             tags: vec![],
             schema_version: schema.version,
+            is_checked: false,
         };
 
         // Authorize before opening the transaction.
@@ -152,8 +153,8 @@ impl Workspace {
 
         // Insert note
         tx.execute(
-            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 note.id,
                 note.title,
@@ -167,6 +168,7 @@ impl Workspace {
                 serde_json::to_string(&note.fields)?,
                 true,
                 note.schema_version,
+                note.is_checked,
             ],
         )?;
 
@@ -459,6 +461,7 @@ impl Workspace {
             fields: schema.default_fields(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
+            is_checked: false,
         };
 
         // Authorize before opening the transaction.
@@ -482,8 +485,8 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
-            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 new_note.id,
                 new_note.title,
@@ -497,6 +500,7 @@ impl Workspace {
                 serde_json::to_string(&new_note.fields)?,
                 true,
                 new_note.schema_version,
+                new_note.is_checked,
             ],
         )?;
 
@@ -662,7 +666,7 @@ impl Workspace {
         let sql = format!(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt2.tag, ',') AS tags_csv
              FROM notes n
              JOIN note_tags nt ON nt.note_id = n.id AND nt.tag IN ({placeholders})
@@ -818,7 +822,7 @@ impl Workspace {
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -1167,7 +1171,7 @@ impl Workspace {
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -1924,7 +1928,7 @@ impl Workspace {
             )
             SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                    n.created_at, n.modified_at, n.created_by, n.modified_by,
-                   n.fields_json, n.is_expanded, n.schema_version,
+                   n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
             FROM notes n
             JOIN subtree s ON n.id = s.id

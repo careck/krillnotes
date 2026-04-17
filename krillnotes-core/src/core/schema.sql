@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS notes (
     fields_json TEXT NOT NULL DEFAULT '{}',
     is_expanded INTEGER DEFAULT 1,
     schema_version INTEGER NOT NULL DEFAULT 1,
+    is_checked INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (parent_id) REFERENCES notes(id) ON DELETE CASCADE
 );
 
