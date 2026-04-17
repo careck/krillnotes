@@ -78,6 +78,7 @@ pub struct SchemaInfo {
     pub has_hover: bool,
     pub field_groups: Vec<FieldGroupInfo>,
     pub is_leaf: bool,
+    pub show_checkbox: bool,
 }
 
 pub(crate) fn schema_to_info(schema: &crate::Schema, has_views: bool, has_hover: bool) -> SchemaInfo {
@@ -99,6 +100,7 @@ pub(crate) fn schema_to_info(schema: &crate::Schema, has_views: bool, has_hover:
             has_visible_closure: g.visible.is_some(),
         }).collect(),
         is_leaf: schema.is_leaf,
+        show_checkbox: schema.show_checkbox,
     }
 }
 
