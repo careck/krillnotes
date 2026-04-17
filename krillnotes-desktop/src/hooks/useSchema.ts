@@ -67,9 +67,10 @@ export function useSchema(
   // it can chain to get_views_for_type), leaving views=[] on first load.
   useEffect(() => {
     schemaLoadedRef.current = false;
-    // Clear cached view HTML synchronously so Effect 4 (render_view) can
-    // re-populate it without a later async setViewHtml({}) wiping the result.
+    // Clear cached view HTML and reset active tab synchronously so Effect 4
+    // (render_view) won't fire with a stale view label for the new note type.
     setViewHtml({});
+    setActiveTab('fields');
     if (!selectedNote) {
       setSchemaInfo(emptySchemaInfo);
       setViews([]);
