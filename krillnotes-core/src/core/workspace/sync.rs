@@ -247,8 +247,8 @@ impl Workspace {
                 tx.execute(
                     "INSERT OR IGNORE INTO notes \
                      (id, title, schema, parent_id, position, created_at, modified_at, \
-                      created_by, modified_by, fields_json, is_expanded, schema_version) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)",
+                      created_by, modified_by, fields_json, is_expanded, schema_version, is_checked) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0)",
                     rusqlite::params![
                         note_id, title, schema, parent_id, position,
                         now_ms, now_ms, created_by, created_by, fields_json,
@@ -310,6 +310,14 @@ impl Workspace {
                         rusqlite::params![note_id, tag],
                     )?;
                 }
+            }
+
+            Operation::SetChecked { note_id, checked, .. } => {
+                let now_ms = ts.wall_ms as i64;
+                tx.execute(
+                    "UPDATE notes SET is_checked = ?1, modified_at = ?2 WHERE id = ?3",
+                    rusqlite::params![checked, now_ms, note_id],
+                )?;
             }
 
             Operation::CreateUserScript {
@@ -475,6 +483,7 @@ impl Workspace {
             Operation::AddAttachment { .. } => "AddAttachment",
             Operation::RemoveAttachment { .. } => "RemoveAttachment",
             Operation::RegisterDevice { .. } => "RegisterDevice",
+            Operation::SetChecked { .. } => "SetChecked",
         }
     }
 

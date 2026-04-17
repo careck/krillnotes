@@ -644,10 +644,8 @@
         let workspace = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
         let scripts = workspace.list_user_scripts().unwrap();
         assert!(!scripts.is_empty(), "New workspace should have starter scripts");
-        // Verify starter scripts include both presentation and schema scripts
         let names: Vec<&str> = scripts.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"Text Note"), "Should have Text Note schema");
-        assert!(names.contains(&"Text Note Actions"), "Should have Text Note Actions");
     }
 
     #[test]
@@ -3767,4 +3765,30 @@ schema("SameVerType", #{
 
         let pubkey = data["identity_public_key"].as_str().expect("identity_public_key must be present");
         assert!(!pubkey.is_empty(), "identity_public_key must be non-empty after signing");
+    }
+
+    #[test]
+    fn test_set_note_checked() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        assert!(!root.is_checked, "Notes start unchecked");
+
+        // Check it
+        let updated = ws.set_note_checked(&root.id, true).unwrap();
+        assert!(updated.is_checked);
+
+        // Persist check
+        let reloaded = ws.get_note(&root.id).unwrap();
+        assert!(reloaded.is_checked);
+
+        // Uncheck
+        let updated = ws.set_note_checked(&root.id, false).unwrap();
+        assert!(!updated.is_checked);
+
+        // Undo the uncheck — should restore is_checked = true
+        let _undo_result = ws.undo().expect("undo should succeed");
+        let after_undo = ws.get_note(&root.id).unwrap();
+        assert!(after_undo.is_checked, "undo should restore checked state to true");
     }

@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "Einklappen",
     "expand": "Ausklappen",
-    "sharedSubtree": "Geteilter Teilbaum"
+    "sharedSubtree": "Geteilter Teilbaum",
+    "checkNote": "Als erledigt markieren",
+    "uncheckNote": "Als unerledigt markieren"
   },
   "log": {
     "title": "Vorgangsprotokoll",

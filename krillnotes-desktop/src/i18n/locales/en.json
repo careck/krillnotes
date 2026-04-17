@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "Collapse",
     "expand": "Expand",
-    "sharedSubtree": "Shared subtree"
+    "sharedSubtree": "Shared subtree",
+    "checkNote": "Mark as complete",
+    "uncheckNote": "Mark as incomplete"
   },
   "log": {
     "title": "Operations Log",

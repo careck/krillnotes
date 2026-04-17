@@ -289,6 +289,7 @@ pub fn run() {
             list_notes,
             get_node_types,
             toggle_note_expansion,
+            set_note_checked,
             set_selected_note,
             create_note_with_type,
             get_schema_fields,

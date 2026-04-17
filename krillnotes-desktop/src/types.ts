@@ -28,6 +28,7 @@ export interface Note {
   isExpanded: boolean;
   tags: string[];
   schemaVersion: number;
+  isChecked: boolean;
 }
 
 export interface TreeNode {
@@ -87,6 +88,7 @@ export interface SchemaInfo {
   allowedParentSchemas: string[];
   allowedChildrenSchemas: string[];
   isLeaf: boolean;
+  showCheckbox: boolean;
   hasViews: boolean;
   hasHover: boolean;
   allowAttachments: boolean;

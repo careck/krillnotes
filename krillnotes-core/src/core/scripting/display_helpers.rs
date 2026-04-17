@@ -874,7 +874,7 @@ mod tests {
         let note = Note {
             id: "id1".into(), title: "Test".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
@@ -887,7 +887,7 @@ mod tests {
             children_sort: "none".into(),
             allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -906,7 +906,7 @@ mod tests {
         let note = Note {
             id: "id2".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
@@ -919,7 +919,7 @@ mod tests {
             children_sort: "none".into(),
             allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -938,7 +938,7 @@ mod tests {
         let note = Note {
             id: "id3".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
@@ -951,7 +951,7 @@ mod tests {
             children_sort: "none".into(),
             allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -973,7 +973,7 @@ mod tests {
         let note = Note {
             id: "sec1".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
@@ -986,7 +986,7 @@ mod tests {
             children_sort: "none".into(),
             allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -1032,7 +1032,7 @@ mod tests {
         let note = Note {
             id: "id4".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
@@ -1045,7 +1045,7 @@ mod tests {
             children_sort: "none".into(),
             allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -1390,7 +1390,7 @@ mod tests {
         let note = Note {
             id: "id-embed".into(), title: "T".into(), schema: "T".into(),
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1,
+            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
@@ -1402,7 +1402,7 @@ mod tests {
             title_can_view: true, title_can_edit: true,
             children_sort: "none".into(),
             allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
-            allow_attachments: false, attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false,
+            allow_attachments: false, attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);

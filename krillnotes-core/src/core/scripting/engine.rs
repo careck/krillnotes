@@ -553,6 +553,15 @@ impl ScriptRegistry {
             }
         );
 
+        engine.register_fn("set_checked",
+            |note_id: String, checked: bool|
+            -> std::result::Result<Dynamic, Box<EvalAltResult>>
+            {
+                with_save_tx(|tx| tx.set_checked(&note_id, checked))?;
+                Ok(Dynamic::UNIT)
+            }
+        );
+
         // reject(message) — note-level soft error
         engine.register_fn("reject",
             |message: String| -> std::result::Result<Dynamic, Box<EvalAltResult>> {

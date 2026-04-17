@@ -94,6 +94,10 @@ pub struct Note {
     /// Schema version this note was created/migrated with.
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
+    /// Whether this note's checkbox is ticked. Only meaningful when the
+    /// schema sets `show_checkbox: true`; ignored otherwise.
+    #[serde(default)]
+    pub is_checked: bool,
 }
 
 fn default_schema_version() -> u32 { 1 }
@@ -117,6 +121,7 @@ mod tests {
             fields: BTreeMap::new(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
+            is_checked: false,
         };
 
         assert_eq!(note.title, "Test Note");
@@ -248,6 +253,7 @@ mod tests {
             parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
             created_by: String::new(), modified_by: String::new(),
             fields: BTreeMap::new(), is_expanded: true, tags: vec![], schema_version: 1,
+            is_checked: false,
         };
         let json = serde_json::to_string(&note).unwrap();
         assert!(json.contains(r#""schema":"TextNote""#), "must use new key");

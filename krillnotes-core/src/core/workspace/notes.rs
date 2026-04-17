@@ -20,7 +20,7 @@ impl Workspace {
         let row = self.connection().query_row(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -118,6 +118,7 @@ impl Workspace {
             is_expanded: true,
             tags: vec![],
             schema_version: schema.version,
+            is_checked: false,
         };
 
         // Authorize before opening the transaction.
@@ -152,8 +153,8 @@ impl Workspace {
 
         // Insert note
         tx.execute(
-            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 note.id,
                 note.title,
@@ -167,6 +168,7 @@ impl Workspace {
                 serde_json::to_string(&note.fields)?,
                 true,
                 note.schema_version,
+                note.is_checked,
             ],
         )?;
 
@@ -459,6 +461,7 @@ impl Workspace {
             fields: schema.default_fields(),
             is_expanded: true,
             tags: vec![], schema_version: 1,
+            is_checked: false,
         };
 
         // Authorize before opening the transaction.
@@ -482,8 +485,8 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
 
         tx.execute(
-            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 new_note.id,
                 new_note.title,
@@ -497,6 +500,7 @@ impl Workspace {
                 serde_json::to_string(&new_note.fields)?,
                 true,
                 new_note.schema_version,
+                new_note.is_checked,
             ],
         )?;
 
@@ -662,7 +666,7 @@ impl Workspace {
         let sql = format!(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt2.tag, ',') AS tags_csv
              FROM notes n
              JOIN note_tags nt ON nt.note_id = n.id AND nt.tag IN ({placeholders})
@@ -818,7 +822,7 @@ impl Workspace {
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -866,6 +870,65 @@ impl Workspace {
 
         tx.commit()?;
         Ok(())
+    }
+
+    /// Sets the `is_checked` state of a note and logs a [`Operation::SetChecked`].
+    pub fn set_note_checked(&mut self, note_id: &str, checked: bool) -> Result<Note> {
+        let old_note = self.get_note(note_id)?;
+
+        let auth_op = Operation::SetChecked {
+            operation_id: String::new(),
+            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            checked,
+            modified_by: self.current_identity_pubkey.clone(),
+            signature: String::new(),
+        };
+        self.authorize(&auth_op)?;
+
+        let ts = self.advance_hlc();
+        let signing_key = self.signing_key.clone();
+        let now = ts.wall_ms as i64;
+
+        let tx = self.storage.connection_mut().transaction()?;
+        tx.execute(
+            "UPDATE notes SET is_checked = ?1, modified_at = ?2, modified_by = ?3 WHERE id = ?4",
+            rusqlite::params![checked, now, self.current_identity_pubkey, note_id],
+        )?;
+        if tx.changes() == 0 {
+            return Err(KrillnotesError::NoteNotFound(note_id.to_string()));
+        }
+
+        Self::save_hlc(&ts, &tx)?;
+        let op_id = Uuid::new_v4().to_string();
+        let mut op = Operation::SetChecked {
+            operation_id: op_id.clone(),
+            timestamp: ts,
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            checked,
+            modified_by: String::new(),
+            signature: String::new(),
+        };
+        Self::sign_op_with(&signing_key, &mut op);
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+        tx.commit()?;
+
+        self.push_undo(UndoEntry {
+            retracted_ids: vec![op_id],
+            inverse: RetractInverse::NoteRestore {
+                note_id: note_id.to_string(),
+                old_title: old_note.title,
+                old_fields: old_note.fields,
+                old_tags: old_note.tags,
+                old_is_checked: old_note.is_checked,
+            },
+            propagate: true,
+        });
+
+        self.get_note(note_id)
     }
 
     /// Persists the selected note ID to `workspace_meta`.
@@ -1167,7 +1230,7 @@ impl Workspace {
         let mut stmt = self.connection().prepare(
             "SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                     n.created_at, n.modified_at, n.created_by, n.modified_by,
-                    n.fields_json, n.is_expanded, n.schema_version,
+                    n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                     GROUP_CONCAT(nt.tag, ',') AS tags_csv
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -1831,6 +1894,7 @@ impl Workspace {
                 old_title: old_note.title,
                 old_fields: old_note.fields,
                 old_tags: old_note.tags,
+                old_is_checked: old_note.is_checked,
             },
             propagate: false,
         });
@@ -1924,7 +1988,7 @@ impl Workspace {
             )
             SELECT n.id, n.title, n.schema, n.parent_id, n.position,
                    n.created_at, n.modified_at, n.created_by, n.modified_by,
-                   n.fields_json, n.is_expanded, n.schema_version,
+                   n.fields_json, n.is_expanded, n.schema_version, n.is_checked,
                    GROUP_CONCAT(nt.tag, ',') AS tags_csv
             FROM notes n
             JOIN subtree s ON n.id = s.id

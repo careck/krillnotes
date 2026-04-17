@@ -366,6 +366,23 @@ pub enum Operation {
         /// Ed25519 signature over the canonical JSON payload (base64).
         signature: String,
     },
+    /// The checked state of a note was toggled.
+    SetChecked {
+        /// Stable UUID for this operation.
+        operation_id: String,
+        /// HLC timestamp when the operation was created.
+        timestamp: HlcTimestamp,
+        /// ID of the device that performed this operation.
+        device_id: String,
+        /// ID of the note whose checked state changed.
+        note_id: String,
+        /// New checked state.
+        checked: bool,
+        /// Public key (base64) of the identity that modified this note.
+        modified_by: String,
+        /// Ed25519 signature over the canonical JSON payload (base64).
+        signature: String,
+    },
 }
 
 impl Operation {
@@ -391,7 +408,8 @@ impl Operation {
             | Self::TransferRootOwnership { operation_id, .. }
             | Self::AddAttachment { operation_id, .. }
             | Self::RemoveAttachment { operation_id, .. }
-            | Self::RegisterDevice { operation_id, .. } => operation_id,
+            | Self::RegisterDevice { operation_id, .. }
+            | Self::SetChecked { operation_id, .. } => operation_id,
         }
     }
 
@@ -417,7 +435,8 @@ impl Operation {
             | Self::TransferRootOwnership { timestamp, .. }
             | Self::AddAttachment { timestamp, .. }
             | Self::RemoveAttachment { timestamp, .. }
-            | Self::RegisterDevice { timestamp, .. } => *timestamp,
+            | Self::RegisterDevice { timestamp, .. }
+            | Self::SetChecked { timestamp, .. } => *timestamp,
         }
     }
 
@@ -443,7 +462,8 @@ impl Operation {
             | Self::TransferRootOwnership { device_id, .. }
             | Self::AddAttachment { device_id, .. }
             | Self::RemoveAttachment { device_id, .. }
-            | Self::RegisterDevice { device_id, .. } => device_id,
+            | Self::RegisterDevice { device_id, .. }
+            | Self::SetChecked { device_id, .. } => device_id,
         }
     }
 
@@ -472,6 +492,7 @@ impl Operation {
             Self::AddAttachment { added_by, .. } => added_by,
             Self::RemoveAttachment { removed_by, .. } => removed_by,
             Self::RegisterDevice { identity_public_key, .. } => identity_public_key,
+            Self::SetChecked { modified_by, .. } => modified_by,
         }
     }
 
@@ -498,6 +519,7 @@ impl Operation {
             Self::AddAttachment { added_by, .. } => *added_by = key,
             Self::RemoveAttachment { removed_by, .. } => *removed_by = key,
             Self::RegisterDevice { identity_public_key, .. } => *identity_public_key = key,
+            Self::SetChecked { modified_by, .. } => *modified_by = key,
         }
     }
 
@@ -520,7 +542,8 @@ impl Operation {
             | Self::TransferRootOwnership { signature, .. }
             | Self::AddAttachment { signature, .. }
             | Self::RemoveAttachment { signature, .. }
-            | Self::RegisterDevice { signature, .. } => *signature = sig,
+            | Self::RegisterDevice { signature, .. }
+            | Self::SetChecked { signature, .. } => *signature = sig,
             Self::RetractOperation { .. } => {}
         }
     }
@@ -544,7 +567,8 @@ impl Operation {
             | Self::TransferRootOwnership { signature, .. }
             | Self::AddAttachment { signature, .. }
             | Self::RemoveAttachment { signature, .. }
-            | Self::RegisterDevice { signature, .. } => signature,
+            | Self::RegisterDevice { signature, .. }
+            | Self::SetChecked { signature, .. } => signature,
             Self::RetractOperation { .. } => "",
         }
     }

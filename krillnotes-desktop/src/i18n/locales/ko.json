@@ -258,7 +258,9 @@
   "tree": {
     "collapse": "접기",
     "expand": "펼치기",
-    "sharedSubtree": "공유된 하위 트리"
+    "sharedSubtree": "공유된 하위 트리",
+    "checkNote": "완료로 표시",
+    "uncheckNote": "미완료로 표시"
   },
   "log": {
     "title": "작업 로그",

@@ -77,6 +77,24 @@ pub fn toggle_note_expansion(
         .map_err(|e| { log::error!("toggle_note_expansion failed: {e}"); e.to_string() })
 }
 
+/// Sets the `is_checked` state of a note and returns the updated note.
+#[tauri::command]
+pub fn set_note_checked(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+    checked: bool,
+) -> std::result::Result<crate::Note, String> {
+    let label = window.label();
+    let mut workspaces = state.workspaces.lock()
+        .expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label)
+        .ok_or("No workspace open")?;
+
+    workspace.set_note_checked(&note_id, checked)
+        .map_err(|e| { log::error!("set_note_checked failed: {e}"); e.to_string() })
+}
+
 /// Persists the selected note ID for the calling window's workspace.
 #[tauri::command]
 pub fn set_selected_note(
