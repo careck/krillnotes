@@ -17,7 +17,7 @@ schema("TodoItem", #{
     ]
 });
 
-register_view("TodoItem", "Details", #{ display_first: true }, |note| {
+register_view("TodoItem", "Content", #{ display_first: true }, |note| {
     let body = note.fields["body"] ?? "";
     if note.is_checked {
         text("✓ Done")
