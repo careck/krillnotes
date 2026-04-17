@@ -54,6 +54,13 @@ export function useSchema(
   // schema is already available, rather than waiting for a .then() that already ran.
   const schemaLoadedRef = useRef(false);
 
+  // Tracks which note ID the current `views` array belongs to. Set to null at
+  // the top of Effect 1 (synchronously) and restored after the async view fetch.
+  // Effect 4 checks this to avoid calling render_view with stale views/tab from
+  // a previous note — React effects fire in the same cycle, so state updates
+  // from Effect 1 aren't visible to Effect 4 yet.
+  const viewsForNoteRef = useRef<string | null>(null);
+
   // Stable ref so the schema effect can call the callback without listing it as a
   // dependency (which would re-run the fetch on every render).
   const onSchemaLoadedRef = useRef(onSchemaLoaded);
@@ -67,17 +74,18 @@ export function useSchema(
   // it can chain to get_views_for_type), leaving views=[] on first load.
   useEffect(() => {
     schemaLoadedRef.current = false;
-    // Clear cached view HTML and reset active tab synchronously so Effect 4
-    // (render_view) won't fire with a stale view label for the new note type.
+    // Invalidate immediately so Effect 4 (same render cycle) won't call
+    // render_view with stale views/tab from the previous note.
+    viewsForNoteRef.current = null;
     setViewHtml({});
     setActiveTab('fields');
     if (!selectedNote) {
       setSchemaInfo(emptySchemaInfo);
       setViews([]);
-      setActiveTab('fields');
       return;
     }
 
+    const noteId = selectedNote.id;
     invoke<SchemaInfo>('get_schema_fields', { schema: selectedNote.schema })
       .then(info => {
         setSchemaInfo(info);
@@ -87,6 +95,7 @@ export function useSchema(
         invoke<ViewInfo[]>('get_views_for_type', { schemaName: selectedNote.schema })
           .then(v => {
             setViews(v);
+            viewsForNoteRef.current = noteId;
             // Default tab: first displayFirst view, or first view, or "fields"
             const sorted = [...v].sort((a, b) =>
               (b.displayFirst ? 1 : 0) - (a.displayFirst ? 1 : 0)
@@ -111,13 +120,12 @@ export function useSchema(
   }, [selectedNote?.id]);
 
   // Effect 4: Render view HTML when the active tab changes.
-  // Guard: only call render_view when activeTab matches one of the loaded views
-  // for the current note. This prevents stale tab names from firing after a
-  // note switch (Effect 1 resets activeTab, but Effect 4 can fire first in the
-  // same render cycle with the old value).
+  // Guard: viewsForNoteRef is set to null synchronously at the top of Effect 1
+  // and only restored after the async view fetch completes for the new note.
+  // This prevents render_view calls with stale views/tab during the transition.
   useEffect(() => {
     if (activeTab !== 'fields' && selectedNote && !isEditing
-        && views.some(v => v.label === activeTab)) {
+        && viewsForNoteRef.current === selectedNote.id) {
       invoke<string>('render_view', {
         noteId: selectedNote.id,
         viewLabel: activeTab,
