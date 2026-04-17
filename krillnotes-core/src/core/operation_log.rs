@@ -236,6 +236,7 @@ impl OperationLog {
             Operation::AddAttachment { .. } => "AddAttachment",
             Operation::RemoveAttachment { .. } => "RemoveAttachment",
             Operation::RegisterDevice { .. } => "RegisterDevice",
+            Operation::SetChecked { .. } => "SetChecked",
         }
     }
 
