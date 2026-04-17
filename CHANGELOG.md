@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Note checkbox support** — Schemas can set `show_checkbox: true` to render an interactive checkbox in the tree view. Checked notes display with a strikethrough title. The `is_checked` state is a first-class field on the `Note` struct (like `title`), tracked by a dedicated `SetChecked` CRDT operation with full sync, export/import, and undo support. Rhai scripts can read `note.is_checked` in views/hooks and write via `set_checked(note_id, checked)` in `on_save` hooks (PR #134).
+- **Built-in TodoItem schema** — A new system script (`TodoItem`) with `show_checkbox: true` and `is_leaf: true`, ideal for checklists and task lists.
+
+### Fixed
+- **Stale view tab on note switch** — Switching between note types with different view names no longer produces `render_view` errors. The view rendering effect now uses a ref-based guard to prevent firing with stale state from the previous note.
+
 ### Changed
 - **Script category renamed "presentation" → "library"** — The internal DB/Rust category value now matches the frontend UI label. Includes a DB migration to update existing rows automatically (PR #130).
 

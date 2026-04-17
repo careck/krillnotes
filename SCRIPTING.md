@@ -110,6 +110,7 @@ schema("TypeName", #{
     allowed_parent_schemas:   ["Folder"],    // default: [] (any parent allowed)
     allowed_children_schemas: ["Item"],      // default: [] (any child allowed)
     is_leaf:                  false,         // default: false — true blocks all child notes
+    show_checkbox:            false,         // default: false — true shows checkbox in tree
 
     // --- required ---
     fields: [
@@ -280,6 +281,28 @@ allowed_children_schemas: ["Contact"],
 > **Validation order:** `allowed_parent_schemas` and `allowed_children_schemas` are always checked
 > **before** any hook runs. If validation fails the operation is aborted and no hook fires.
 
+### `show_checkbox: true`
+
+When set, notes of this schema display an interactive checkbox in the tree view
+before the title. Checking a note strikes through the title text. The checked
+state is stored as `is_checked` on the note (a global field like `title`, not
+in the `fields` map).
+
+Scripts can read `note.is_checked` in views and hooks. In `on_save` hooks, call
+`set_checked(note_id, checked)` to toggle it programmatically (e.g. auto-check
+when a date field is in the past).
+
+```rhai
+schema("TodoItem", #{
+    version: 1,
+    show_checkbox: true,
+    is_leaf: true,
+    fields: [
+        #{ name: "body", type: "textarea", required: false },
+    ]
+});
+```
+
 ### `is_leaf: true`
 
 When set, notes of this schema cannot have any children. All attempts to add,
@@ -332,6 +355,7 @@ schema("TypeName", #{
 |---|---|
 | `set_field(note_id, field_name, value)` | Queues a field write. Runs the field's `validate` closure immediately (hard error on failure). Read-your-writes: `note.fields` is updated in place. |
 | `set_title(note_id, title)` | Queues a title write. Updates `note.title` in place. |
+| `set_checked(note_id, checked)` | Queues a checked-state write. `checked` is a bool. Logs a `SetChecked` operation for sync. |
 | `reject(message)` | Records a note-level error. Does **not** abort immediately — use `commit()` to trigger the abort. |
 | `reject(field_name, message)` | Records a field-pinned error shown below the named field. |
 | `commit()` | Runs required-field checks on all visible fields. If any `reject()` calls were made, aborts the save and surfaces all errors. Otherwise applies all queued writes atomically. **Always call `commit()` at the end of `on_save`.** |
@@ -348,6 +372,7 @@ The hook receives the note as a map for **field reading only**. All writes must 
 | `note.schema` | String | — |
 | `note.title` | String | Updated by `set_title()` (read-your-writes) |
 | `note.fields` | Map | Updated by `set_field()` (read-your-writes) |
+| `note.is_checked` | bool | Updated by `set_checked()` |
 | `note.tags` | Array of strings | Read-only |
 
 ### Example — derived title
