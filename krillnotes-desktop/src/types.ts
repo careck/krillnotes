@@ -170,6 +170,7 @@ export interface AppSettings {
   language?: string;
   sharingIndicatorMode?: string;
   undoHistoryLimit?: number;
+  syncOnClose?: string;
 }
 
 export interface WorkspaceEntry {
