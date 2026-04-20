@@ -28,6 +28,8 @@ import { useMenuEvents } from './hooks/useMenuEvents';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle';
 import { useDialogState } from './hooks/useDialogState';
 import { useGlobalSnapshotPolling } from './hooks/useIdentityPolling';
+import { useSyncOnClose } from './hooks/useSyncOnClose';
+import SyncOnCloseDialog from './components/SyncOnCloseDialog';
 
 function App() {
   const { t } = useTranslation();
@@ -193,6 +195,13 @@ function App() {
     setShowWorkspacePeers, setShowCreateDeltaDialog,
     statusSetter, proceedWithImport, openSwarmFile,
   });
+
+  const {
+    syncOnCloseState,
+    handleSyncAndClose,
+    handleCloseWithoutSync,
+    handleCancel,
+  } = useSyncOnClose();
 
   return (
     <ThemeProvider>
@@ -460,6 +469,15 @@ function App() {
       )}
       {showCreateDeltaDialog && (
         <CreateDeltaDialog onClose={() => setShowCreateDeltaDialog(false)} />
+      )}
+      {syncOnCloseState.phase !== 'idle' && (
+        <SyncOnCloseDialog
+          mode={syncOnCloseState.phase === 'asking' ? 'ask' : 'syncing'}
+          syncError={syncOnCloseState.phase === 'syncing' ? syncOnCloseState.error : null}
+          onSyncAndClose={handleSyncAndClose}
+          onCloseWithoutSync={handleCloseWithoutSync}
+          onCancel={handleCancel}
+        />
       )}
     </div>
     </ThemeProvider>
