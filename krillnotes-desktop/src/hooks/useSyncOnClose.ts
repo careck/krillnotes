@@ -12,6 +12,7 @@ export function useSyncOnClose() {
   const [state, setState] = useState<SyncOnCloseState>({ phase: 'idle' });
   const stateRef = useRef(state);
   stateRef.current = state;
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
     const unlisten = listen('krillnotes://close-requested', async () => {
@@ -33,12 +34,13 @@ export function useSyncOnClose() {
         }
 
         if (mode === 'always') {
+          cancelledRef.current = false;
           setState({ phase: 'syncing', error: null });
           try {
             await invoke('poll_sync');
-            await invoke('close_window');
+            if (!cancelledRef.current) await invoke('close_window');
           } catch (err) {
-            setState({ phase: 'syncing', error: String(err) });
+            if (!cancelledRef.current) setState({ phase: 'syncing', error: String(err) });
           }
           return;
         }
@@ -54,12 +56,13 @@ export function useSyncOnClose() {
   }, []);
 
   const handleSyncAndClose = useCallback(async () => {
+    cancelledRef.current = false;
     setState({ phase: 'syncing', error: null });
     try {
       await invoke('poll_sync');
-      await invoke('close_window');
+      if (!cancelledRef.current) await invoke('close_window');
     } catch (err) {
-      setState({ phase: 'syncing', error: String(err) });
+      if (!cancelledRef.current) setState({ phase: 'syncing', error: String(err) });
     }
   }, []);
 
@@ -69,6 +72,7 @@ export function useSyncOnClose() {
   }, []);
 
   const handleCancel = useCallback(() => {
+    cancelledRef.current = true;
     setState({ phase: 'idle' });
   }, []);
 
