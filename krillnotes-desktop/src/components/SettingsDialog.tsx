@@ -31,6 +31,7 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'appearance'>('general');
   const [undoLimit, setUndoLimit] = useState<number | undefined>(undefined);
   const [sharingIndicatorMode, setSharingIndicatorMode] = useState<'off' | 'auto' | 'on'>('auto');
+  const [syncOnClose, setSyncOnClose] = useState('ask');
 
   useEffect(() => {
     if (isOpen) {
@@ -41,6 +42,7 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
           setOriginalLanguage(s.language ?? 'en');
           setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on');
           setUndoLimit(s.undoHistoryLimit ?? 50);
+          setSyncOnClose(s.syncOnClose ?? 'ask');
           setError('');
         })
         .catch(err => setError(t('settings.failedLoad', { error: String(err) })));
@@ -80,6 +82,7 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
           language,
           sharingIndicatorMode,
           undoHistoryLimit: undoLimit ?? 50,
+          syncOnClose,
         },
       });
       if (homeDir) {
@@ -171,6 +174,21 @@ function SettingsDialog({ isOpen, onClose, onSaved }: SettingsDialogProps) {
               <p className="text-xs text-muted-foreground">
                 {t('settings.undoHistoryLimitHint')}
               </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                {t('settings.syncOnClose')}
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-secondary rounded bg-background text-foreground"
+                value={syncOnClose}
+                onChange={e => setSyncOnClose(e.target.value)}
+              >
+                <option value="always">{t('settings.syncOnCloseAlways')}</option>
+                <option value="ask">{t('settings.syncOnCloseAsk')}</option>
+                <option value="never">{t('settings.syncOnCloseNever')}</option>
+              </select>
             </div>
 
           </>
