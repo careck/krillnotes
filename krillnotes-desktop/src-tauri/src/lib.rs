@@ -353,6 +353,7 @@ pub fn run() {
             consume_pending_swarm_file,
             get_settings,
             update_settings,
+            close_window,
             get_home_dir_path,
             set_home_dir_path,
             list_themes,

@@ -1213,6 +1213,16 @@ pub fn is_workspace_owner(
     Ok(workspace.is_owner())
 }
 
+#[tauri::command]
+pub fn close_window(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let label = window.label().to_string();
+    state.closing_windows.lock().expect("Mutex poisoned").insert(label);
+    window.destroy().map_err(|e| format!("Failed to close window: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
