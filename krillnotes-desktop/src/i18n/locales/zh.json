@@ -60,7 +60,11 @@
     "sharingIndicators": "共享指示器",
     "sharingIndicatorsOff": "关闭",
     "sharingIndicatorsAuto": "自动",
-    "sharingIndicatorsOn": "开启"
+    "sharingIndicatorsOn": "开启",
+    "syncOnClose": "关闭时同步",
+    "syncOnCloseAlways": "始终同步",
+    "syncOnCloseAsk": "关闭前询问",
+    "syncOnCloseNever": "从不同步"
   },
   "themes": {
     "manage": "管理主题",
@@ -743,5 +747,14 @@
     "filesWritten": "已写入 {{count}} 个文件到 {{dir}}",
     "generating": "生成中…",
     "generate": "生成"
+  },
+  "syncOnClose": {
+    "message": "此工作区有未同步的更改。关闭前是否与对等方同步？",
+    "syncAndClose": "同步并关闭",
+    "closeWithoutSync": "不同步直接关闭",
+    "cancel": "取消",
+    "syncing": "同步中\u2026",
+    "errorTitle": "同步失败",
+    "closeAnyway": "仍然关闭"
   }
 }
