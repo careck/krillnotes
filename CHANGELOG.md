@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Note checkbox support** — Schemas can set `show_checkbox: true` to render an interactive checkbox in the tree view. Checked notes display with a strikethrough title. The `is_checked` state is a first-class field on the `Note` struct (like `title`), tracked by a dedicated `SetChecked` CRDT operation with full sync, export/import, and undo support. Rhai scripts can read `note.is_checked` in views/hooks and write via `set_checked(note_id, checked)` in `on_save` hooks (PR #134).
 - **Built-in TodoItem schema** — A new system script (`TodoItem`) with `show_checkbox: true` and `is_leaf: true`, ideal for checklists and task lists.
 
+### Improved
+- **Wider script & theme editors** — The script and theme editor dialogs now expand to 90% of the window width when editing, instead of being fixed at 700px. The list view retains its compact size.
+
 ### Fixed
 - **Pending sync false positives** — `has_pending_ops_for_any_peer()` now excludes operations authored by the peer and operations received from the peer (echo prevention), matching the filters used by `generate_delta()`. Previously, ops received from a peer were counted as "pending", causing the sync indicator and sync-on-close dialog to trigger when there was nothing to send (PR #135).
 - **Stale view tab on note switch** — Switching between note types with different view names no longer produces `render_view` errors. The view rendering effect now uses a ref-based guard to prevent firing with stale state from the previous note.
