@@ -33,7 +33,7 @@ import { useSyncOnClose } from './hooks/useSyncOnClose';
 import SyncOnCloseDialog from './components/SyncOnCloseDialog';
 
 function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const {
     status,
@@ -69,14 +69,19 @@ function App() {
   useGlobalSnapshotPolling();
 
   const [sharingIndicatorMode, setSharingIndicatorMode] = useState<'off' | 'auto' | 'on'>('auto');
-  const refreshSharingIndicatorMode = () => {
+  const refreshSettings = () => {
     invoke<AppSettings>('get_settings')
-      .then(s => setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on'))
+      .then(s => {
+        setSharingIndicatorMode((s.sharingIndicatorMode ?? 'auto') as 'off' | 'auto' | 'on');
+        if (s.language && s.language !== i18n.language) {
+          i18n.changeLanguage(s.language);
+        }
+      })
       .catch(() => {});
   };
-  useEffect(refreshSharingIndicatorMode, []);
+  useEffect(refreshSettings, []);
   useEffect(() => {
-    const p = getCurrentWebviewWindow().listen('settings-changed', refreshSharingIndicatorMode);
+    const p = getCurrentWebviewWindow().listen('settings-changed', refreshSettings);
     return () => { p.then(u => u()); };
   }, []);
 
@@ -229,7 +234,7 @@ function App() {
       <SettingsDialog
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-        onSaved={refreshSharingIndicatorMode}
+        onSaved={refreshSettings}
       />
 
       {/* Export password dialog */}
