@@ -348,8 +348,9 @@ body {
 .kn-hover-tooltip {
   position: fixed;
   z-index: 200;
-  max-width: 280px;
+  max-width: min(420px, 50vw);
   min-width: 160px;
+  width: max-content;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--color-secondary);
@@ -411,7 +412,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
 }
 
 /* ── Media embed cards ─────────────────────────────────────────────────────── */
