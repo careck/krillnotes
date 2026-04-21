@@ -12,6 +12,16 @@ export interface ImportState {
   zipPath: string;
   noteCount: number;
   scriptCount: number;
+  metadata?: {
+    authorName?: string;
+    authorOrg?: string;
+    homepageUrl?: string;
+    description?: string;
+    license?: string;
+    licenseUrl?: string;
+    language?: string;
+    tags?: string[];
+  };
 }
 
 export function useDialogState() {

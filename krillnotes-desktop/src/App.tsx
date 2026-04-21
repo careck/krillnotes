@@ -151,9 +151,21 @@ function App() {
 
   const proceedWithImport = async (zipPath: string, password: string | null) => {
     try {
-      const result = await invoke<{ appVersion: string; noteCount: number; scriptCount: number }>(
-        'peek_import_cmd', { zipPath, password }
-      );
+      const result = await invoke<{
+        appVersion: string;
+        noteCount: number;
+        scriptCount: number;
+        metadata?: {
+          authorName?: string;
+          authorOrg?: string;
+          homepageUrl?: string;
+          description?: string;
+          license?: string;
+          licenseUrl?: string;
+          language?: string;
+          tags?: string[];
+        };
+      }>('peek_import_cmd', { zipPath, password });
 
       const currentVersion = await invoke<string>('get_app_version');
       if (result.appVersion > currentVersion) {
@@ -171,6 +183,7 @@ function App() {
         zipPath,
         noteCount: result.noteCount,
         scriptCount: result.scriptCount,
+        metadata: result.metadata,
       });
     } catch (error) {
       const errStr = `${error}`;
@@ -384,6 +397,43 @@ function App() {
             <p className="text-sm text-muted-foreground mb-4">
               {t('workspace.importingProgress', { noteCount: importState.noteCount, scriptCount: importState.scriptCount })}
             </p>
+            {importState.metadata && (importState.metadata.description || importState.metadata.authorName || importState.metadata.license || (importState.metadata.tags && importState.metadata.tags.length > 0)) && (
+              <details className="border border-secondary rounded-md mb-4">
+                <summary className="px-3 py-2 text-sm font-medium cursor-pointer select-none hover:bg-secondary/50">
+                  {t('workspace.propertiesTitle')}
+                </summary>
+                <div className="px-3 pb-3 pt-1 space-y-1">
+                  {importState.metadata.description && (
+                    <p className="text-sm text-muted-foreground">{importState.metadata.description}</p>
+                  )}
+                  {importState.metadata.authorName && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('dialogs.import.by')} {importState.metadata.authorName}
+                      {importState.metadata.authorOrg && ` (${importState.metadata.authorOrg})`}
+                    </p>
+                  )}
+                  {importState.metadata.homepageUrl && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('dialogs.import.homepage')}: {importState.metadata.homepageUrl}
+                    </p>
+                  )}
+                  {importState.metadata.license && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('dialogs.import.license')}: {importState.metadata.license}
+                    </p>
+                  )}
+                  {importState.metadata.tags && importState.metadata.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {importState.metadata.tags.map((tag) => (
+                        <span key={tag} className="text-xs bg-secondary px-2 py-0.5 rounded-full">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">
                 {t('workspace.nameLabel')}
