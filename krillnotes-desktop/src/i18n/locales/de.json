@@ -190,7 +190,10 @@
       "title": "Arbeitsbereich importieren",
       "importedPlaceholder": "importierter-arbeitsbereich",
       "versionMismatch": "Dieser Export wurde mit Krillnotes v{{version}} erstellt, aber du verwendest v{{currentVersion}}. Einige Daten werden möglicherweise nicht korrekt importiert.\n\nTrotzdem importieren?",
-      "versionMismatchTitle": "Versionskonflikt"
+      "versionMismatchTitle": "Versionskonflikt",
+      "by": "Von",
+      "homepage": "Homepage",
+      "license": "Lizenz"
     },
     "export": {
       "title": "Arbeitsbereich exportieren"

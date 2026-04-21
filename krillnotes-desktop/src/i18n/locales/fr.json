@@ -190,7 +190,10 @@
       "title": "Importer un espace de travail",
       "importedPlaceholder": "espace-de-travail-importe",
       "versionMismatch": "Cet export a été créé avec Krillnotes v{{version}}, mais vous utilisez v{{currentVersion}}. Certaines données pourraient ne pas s'importer correctement.\n\nImporter quand même ?",
-      "versionMismatchTitle": "Incompatibilité de version"
+      "versionMismatchTitle": "Incompatibilité de version",
+      "by": "Par",
+      "homepage": "Page d'accueil",
+      "license": "Licence"
     },
     "export": {
       "title": "Exporter l'espace de travail"

@@ -190,7 +190,10 @@
       "title": "ワークスペースをインポート",
       "importedPlaceholder": "imported-workspace",
       "versionMismatch": "このエクスポートはKrillnotes v{{version}}で作成されましたが、現在はv{{currentVersion}}を使用しています。一部のデータが正しくインポートされない場合があります。\n\nそれでもインポートしますか？",
-      "versionMismatchTitle": "バージョンの不一致"
+      "versionMismatchTitle": "バージョンの不一致",
+      "by": "作成者",
+      "homepage": "ホームページ",
+      "license": "ライセンス"
     },
     "export": {
       "title": "ワークスペースをエクスポート"

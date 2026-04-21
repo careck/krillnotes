@@ -190,7 +190,10 @@
       "title": "导入工作区",
       "importedPlaceholder": "imported-workspace",
       "versionMismatch": "此导出文件由 Krillnotes v{{version}} 创建，但您正在运行 v{{currentVersion}}。某些数据可能无法正确导入。\n\n仍要导入吗？",
-      "versionMismatchTitle": "版本不匹配"
+      "versionMismatchTitle": "版本不匹配",
+      "by": "作者",
+      "homepage": "主页",
+      "license": "许可证"
     },
     "export": {
       "title": "导出工作区"

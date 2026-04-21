@@ -190,7 +190,10 @@
       "title": "Import Workspace",
       "importedPlaceholder": "imported-workspace",
       "versionMismatch": "This export was created with Krillnotes v{{version}}, but you are running v{{currentVersion}}. Some data may not import correctly.\n\nImport anyway?",
-      "versionMismatchTitle": "Version Mismatch"
+      "versionMismatchTitle": "Version Mismatch",
+      "by": "By",
+      "homepage": "Homepage",
+      "license": "License"
     },
     "export": {
       "title": "Export Workspace"
