@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { AppSettings } from '../types';
 
 type SyncOnCloseState =
@@ -15,7 +15,7 @@ export function useSyncOnClose() {
   const cancelledRef = useRef(false);
 
   useEffect(() => {
-    const unlisten = listen('krillnotes://close-requested', async () => {
+    const unlisten = getCurrentWebviewWindow().listen('krillnotes://close-requested', async () => {
       if (stateRef.current.phase !== 'idle') return;
 
       try {
