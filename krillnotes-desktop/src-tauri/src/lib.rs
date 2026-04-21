@@ -213,7 +213,7 @@ pub fn run() {
                     } else {
                         // Intercept: hold the window open and notify the frontend.
                         api.prevent_close();
-                        let _ = window.emit("krillnotes://close-requested", ());
+                        let _ = window.emit_to(window.label(), "krillnotes://close-requested", ());
                     }
                 }
                 // Remove workspace state when a window is destroyed so the same
