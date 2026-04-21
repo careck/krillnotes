@@ -882,6 +882,8 @@ pub fn update_settings(
         }
     }
 
+    let _ = app.emit("settings-changed", ());
+
     Ok(())
 }
 

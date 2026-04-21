@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { save, confirm } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
 import WorkspaceView from './components/WorkspaceView';
 import EmptyState from './components/EmptyState';
@@ -74,6 +75,10 @@ function App() {
       .catch(() => {});
   };
   useEffect(refreshSharingIndicatorMode, []);
+  useEffect(() => {
+    const p = getCurrentWebviewWindow().listen('settings-changed', refreshSharingIndicatorMode);
+    return () => { p.then(u => u()); };
+  }, []);
 
   const handleImportConfirm = async () => {
     if (!importState) return;
