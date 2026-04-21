@@ -5,7 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 // @name: Book Collection Views
-// @description: Views and sort actions for the Library note type.
+// @description: Views, hover previews, and sort actions for Book and Library.
 
 register_view("Library", "Collection", #{ display_first: true }, |note| {
     let books = get_children(note.id);
@@ -72,6 +72,28 @@ register_view("Library", "Collection", #{ display_first: true }, |note| {
     }
 
     stack(sections)
+});
+
+register_hover("Library", |note| {
+    let books = get_children(note.id);
+    let reading = books.filter(|b| (b.fields["status"] ?? "") == "Reading").len();
+    let read    = books.filter(|b| (b.fields["status"] ?? "") == "Read").len();
+    let parts = [field("Books", books.len().to_string())];
+    if reading > 0 { parts += [field("Reading", reading.to_string())]; }
+    if read > 0    { parts += [field("Read",    read.to_string())]; }
+    stack(parts)
+});
+
+register_hover("Book", |note| {
+    let author = note.fields["author"] ?? "";
+    let status = note.fields["status"] ?? "";
+    let rating = note.fields["rating"] ?? 0;
+    let parts = [];
+    if author != "" { parts += [field("Author", author)]; }
+    if status != "" { parts += [field("Status", status)]; }
+    if rating > 0   { parts += [field("Rating", stars(rating))]; }
+    if parts.len() == 0 { return text(note.title); }
+    stack(parts)
 });
 
 register_menu("Sort by Title (A→Z)", ["Library"], |note| {
