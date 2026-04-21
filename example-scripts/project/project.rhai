@@ -5,7 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 // @name: Project Views
-// @description: Views for Project: overdue tasks and active tasks.
+// @description: Views and hover previews for Project and Task.
 
 register_view("Project", "Overdue Tasks", #{}, |note| {
     let now = today();
@@ -73,4 +73,27 @@ register_view("Project", "Active Tasks", #{}, |note| {
         "Active (" + active.len() + ")",
         table(["Task", "Status", "Priority", "Due Date", "Assignee"], rows)
     )
+});
+
+register_hover("Project", |note| {
+    let health = note.fields["health"] ?? "";
+    let kids   = get_children(note.id);
+    let tasks  = kids.filter(|c| c.schema == "Task");
+    let done   = tasks.filter(|t| t.fields["status"] == "DONE").len();
+    let parts = [];
+    if health != "" { parts += [field("Health", health)]; }
+    parts += [field("Tasks", done.to_string() + "/" + tasks.len().to_string() + " done")];
+    stack(parts)
+});
+
+register_hover("Task", |note| {
+    let status   = note.fields["status"]         ?? "";
+    let priority = note.fields["priority_label"] ?? "";
+    let due      = note.fields["due_date"]       ?? "";
+    let parts = [];
+    if status != ""   { parts += [field("Status",   status)]; }
+    if priority != "" { parts += [field("Priority", priority)]; }
+    if due != ""      { parts += [field("Due",      due)]; }
+    if parts.len() == 0 { return text(note.title); }
+    stack(parts)
 });

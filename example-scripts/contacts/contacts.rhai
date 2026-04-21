@@ -5,7 +5,7 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 // @name: Contacts View
-// @description: Custom view for the ContactsFolder showing a contacts table.
+// @description: Views and hover previews for ContactsFolder and Contact.
 
 register_view("ContactsFolder", "Contacts", #{ display_first: true }, |note| {
     let contacts = get_children(note.id);
@@ -28,4 +28,21 @@ register_view("ContactsFolder", "Contacts", #{ display_first: true }, |note| {
     } else {
         stack([contacts_section, section("Notes", text(notes_val))])
     }
+});
+
+register_hover("ContactsFolder", |note| {
+    let kids = get_children(note.id);
+    field("Contacts", kids.len().to_string())
+});
+
+register_hover("Contact", |note| {
+    let email  = note.fields["email"]  ?? "";
+    let phone  = note.fields["phone"]  ?? "";
+    let mobile = note.fields["mobile"] ?? "";
+    let parts = [];
+    if email  != "" { parts += [field("Email",  email)]; }
+    if phone  != "" { parts += [field("Phone",  phone)]; }
+    if mobile != "" { parts += [field("Mobile", mobile)]; }
+    if parts.len() == 0 { return text("No contact details"); }
+    stack(parts)
 });
