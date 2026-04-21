@@ -583,3 +583,62 @@
         assert!(meta.author_name.is_none());
         assert!(meta.tags.is_empty());
     }
+
+    #[test]
+    fn test_peek_import_includes_workspace_metadata() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(
+            temp.path(), "", "test-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+            test_gate(), None,
+        ).unwrap();
+
+        let meta = WorkspaceMetadata {
+            version: 1,
+            author_name: Some("Alice".to_string()),
+            author_org: Some("Acme".to_string()),
+            homepage_url: None,
+            description: Some("A test workspace".to_string()),
+            license: Some("MIT".to_string()),
+            license_url: None,
+            language: Some("en".to_string()),
+            tags: vec!["test".to_string(), "demo".to_string()],
+        };
+        ws.set_workspace_metadata(&meta).unwrap();
+
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        let result = peek_import(Cursor::new(&buf), None).unwrap();
+        let peeked = result.metadata.expect("metadata should be present");
+        assert_eq!(peeked.author_name.as_deref(), Some("Alice"));
+        assert_eq!(peeked.author_org.as_deref(), Some("Acme"));
+        assert_eq!(peeked.description.as_deref(), Some("A test workspace"));
+        assert_eq!(peeked.license.as_deref(), Some("MIT"));
+        assert_eq!(peeked.language.as_deref(), Some("en"));
+        assert_eq!(peeked.tags, vec!["test".to_string(), "demo".to_string()]);
+    }
+
+    #[test]
+    fn test_peek_import_returns_none_metadata_for_old_archives() {
+        let mut buf = Vec::new();
+        {
+            let cursor = Cursor::new(&mut buf);
+            let mut zip = zip::ZipWriter::new(cursor);
+            let options = zip::write::SimpleFileOptions::default();
+
+            // Use camelCase keys to match ExportNotes serde rename_all = "camelCase"
+            let notes = serde_json::json!({
+                "version": 1,
+                "appVersion": "0.0.0",
+                "notes": []
+            });
+            zip.start_file("notes.json", options).unwrap();
+            zip.write_all(serde_json::to_string(&notes).unwrap().as_bytes()).unwrap();
+            zip.finish().unwrap();
+            // Intentionally no workspace.json — simulates an old archive
+        }
+
+        let result = peek_import(Cursor::new(&buf), None).unwrap();
+        assert!(result.metadata.is_none(), "old archives without workspace.json should return None metadata");
+    }
