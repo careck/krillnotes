@@ -39,6 +39,10 @@ pub struct AppSettings {
     /// Maximum number of actions that can be undone (1–500). Applied to all workspaces.
     #[serde(default = "default_undo_history_limit")]
     pub undo_history_limit: usize,
+    /// Controls behaviour when closing a workspace that has unsynced operations.
+    /// "ask" = prompt the user, "always" = sync automatically, "never" = close without syncing.
+    #[serde(default = "default_sync_on_close")]
+    pub sync_on_close: String,
 }
 
 impl Default for AppSettings {
@@ -50,6 +54,7 @@ impl Default for AppSettings {
             language: default_language(),
             sharing_indicator_mode: default_sharing_indicator_mode(),
             undo_history_limit: default_undo_history_limit(),
+            sync_on_close: default_sync_on_close(),
         }
     }
 }
@@ -123,6 +128,7 @@ fn default_dark_theme() -> String { "dark".to_string() }
 fn default_language() -> String { "en".to_string() }
 fn default_sharing_indicator_mode() -> String { "auto".to_string() }
 fn default_undo_history_limit() -> usize { 50 }
+fn default_sync_on_close() -> String { "ask".to_string() }
 
 /// Returns the path to the settings JSON file: `{home_dir}/settings.json`.
 pub fn settings_file_path() -> PathBuf {

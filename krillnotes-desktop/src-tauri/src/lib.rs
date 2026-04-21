@@ -26,7 +26,7 @@ pub use krillnotes_core::*;
 
 use uuid::Uuid;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
@@ -83,6 +83,10 @@ pub struct AppState {
     /// ready to receive a pushed event. Cleared on first read by
     /// `consume_pending_file_open`. `None` when no file is pending.
     pub pending_file_open: Arc<Mutex<Option<PathBuf>>>,
+    /// Window labels that have been approved for closing by the frontend.
+    /// When a label is in this set, the next `CloseRequested` event for
+    /// that window is allowed through without interception.
+    pub closing_windows: Arc<Mutex<HashSet<String>>>,
 }
 
 /// Maps raw menu event IDs to the user-facing message strings emitted to the frontend.
@@ -196,11 +200,22 @@ pub fn run() {
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
             pending_file_open: Arc::new(Mutex::new(None)),
+            closing_windows: Arc::new(Mutex::new(HashSet::new())),
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();
             let state = window.state::<AppState>();
             match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let mut closing = state.closing_windows.lock().expect("Mutex poisoned");
+                    if closing.remove(&label) {
+                        // Frontend approved this close — let it proceed.
+                    } else {
+                        // Intercept: hold the window open and notify the frontend.
+                        api.prevent_close();
+                        let _ = window.emit_to(window.label(), "krillnotes://close-requested", ());
+                    }
+                }
                 // Remove workspace state when a window is destroyed so the same
                 // file can be reopened after its window has been closed.
                 tauri::WindowEvent::Destroyed => {
@@ -338,6 +353,7 @@ pub fn run() {
             consume_pending_swarm_file,
             get_settings,
             update_settings,
+            close_window,
             get_home_dir_path,
             set_home_dir_path,
             list_themes,

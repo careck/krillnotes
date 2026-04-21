@@ -60,7 +60,11 @@
     "sharingIndicators": "共有インジケーター",
     "sharingIndicatorsOff": "オフ",
     "sharingIndicatorsAuto": "自動",
-    "sharingIndicatorsOn": "オン"
+    "sharingIndicatorsOn": "オン",
+    "syncOnClose": "閉じる時に同期",
+    "syncOnCloseAlways": "常に同期",
+    "syncOnCloseAsk": "閉じる前に確認",
+    "syncOnCloseNever": "同期しない"
   },
   "themes": {
     "manage": "テーマを管理",
@@ -743,5 +747,14 @@
     "filesWritten": "{{count}} 件のファイルを {{dir}} に書き込みました",
     "generating": "生成中…",
     "generate": "生成"
+  },
+  "syncOnClose": {
+    "message": "このワークスペースには同期されていない変更があります。閉じる前にピアと同期しますか？",
+    "syncAndClose": "同期して閉じる",
+    "closeWithoutSync": "同期せずに閉じる",
+    "cancel": "キャンセル",
+    "syncing": "同期中\u2026",
+    "errorTitle": "同期に失敗しました",
+    "closeAnyway": "そのまま閉じる"
   }
 }

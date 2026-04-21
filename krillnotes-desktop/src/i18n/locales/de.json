@@ -60,7 +60,11 @@
     "sharingIndicators": "Freigabe-Indikatoren",
     "sharingIndicatorsOff": "Aus",
     "sharingIndicatorsAuto": "Automatisch",
-    "sharingIndicatorsOn": "An"
+    "sharingIndicatorsOn": "An",
+    "syncOnClose": "Synchronisierung beim Schlie\u00dfen",
+    "syncOnCloseAlways": "Immer synchronisieren",
+    "syncOnCloseAsk": "Vor dem Schlie\u00dfen fragen",
+    "syncOnCloseNever": "Nie synchronisieren"
   },
   "themes": {
     "manage": "Designs verwalten",
@@ -743,5 +747,14 @@
     "filesWritten": "{{count}} Datei(en) geschrieben nach {{dir}}",
     "generating": "Wird generiert…",
     "generate": "Generieren"
+  },
+  "syncOnClose": {
+    "message": "Dieser Arbeitsbereich hat nicht synchronisierte \u00c4nderungen. Vor dem Schlie\u00dfen mit Peers synchronisieren?",
+    "syncAndClose": "Synchronisieren & Schlie\u00dfen",
+    "closeWithoutSync": "Ohne Synchronisierung schlie\u00dfen",
+    "cancel": "Abbrechen",
+    "syncing": "Synchronisiere\u2026",
+    "errorTitle": "Synchronisierung fehlgeschlagen",
+    "closeAnyway": "Trotzdem schlie\u00dfen"
   }
 }

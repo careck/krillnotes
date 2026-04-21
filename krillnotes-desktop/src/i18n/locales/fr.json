@@ -60,7 +60,11 @@
     "sharingIndicators": "Indicateurs de partage",
     "sharingIndicatorsOff": "Désactivé",
     "sharingIndicatorsAuto": "Auto",
-    "sharingIndicatorsOn": "Activé"
+    "sharingIndicatorsOn": "Activé",
+    "syncOnClose": "Synchroniser à la fermeture",
+    "syncOnCloseAlways": "Toujours synchroniser",
+    "syncOnCloseAsk": "Demander avant de fermer",
+    "syncOnCloseNever": "Ne jamais synchroniser"
   },
   "themes": {
     "manage": "Gérer les thèmes",
@@ -743,5 +747,14 @@
     "filesWritten": "{{count}} fichier(s) écrit(s) dans {{dir}}",
     "generating": "Génération…",
     "generate": "Générer"
+  },
+  "syncOnClose": {
+    "message": "Cet espace de travail contient des modifications non synchronis\u00e9es. Synchroniser avec les pairs avant de fermer ?",
+    "syncAndClose": "Synchroniser et fermer",
+    "closeWithoutSync": "Fermer sans synchroniser",
+    "cancel": "Annuler",
+    "syncing": "Synchronisation\u2026",
+    "errorTitle": "\u00c9chec de la synchronisation",
+    "closeAnyway": "Fermer quand m\u00eame"
   }
 }

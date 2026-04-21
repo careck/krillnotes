@@ -60,7 +60,11 @@
     "sharingIndicators": "Sharing indicators",
     "sharingIndicatorsOff": "Off",
     "sharingIndicatorsAuto": "Auto",
-    "sharingIndicatorsOn": "On"
+    "sharingIndicatorsOn": "On",
+    "syncOnClose": "Sync on Close",
+    "syncOnCloseAlways": "Always sync",
+    "syncOnCloseAsk": "Ask before closing",
+    "syncOnCloseNever": "Never sync"
   },
   "themes": {
     "manage": "Manage Themes",
@@ -743,5 +747,14 @@
     "filesWritten": "{{count}} file(s) written to {{dir}}",
     "generating": "Generating…",
     "generate": "Generate"
+  },
+  "syncOnClose": {
+    "message": "This workspace has unsynchronized changes. Sync with peers before closing?",
+    "syncAndClose": "Sync & Close",
+    "closeWithoutSync": "Close Without Syncing",
+    "cancel": "Cancel",
+    "syncing": "Syncing\u2026",
+    "errorTitle": "Sync failed",
+    "closeAnyway": "Close Anyway"
   }
 }
