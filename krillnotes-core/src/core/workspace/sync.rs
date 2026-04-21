@@ -795,12 +795,21 @@ impl Workspace {
         let peers = self.get_active_sync_peers()?;
         let conn = self.storage.connection();
         for peer in &peers {
+            let dev = &peer.peer_device_id;
             if peer.last_sent_op.is_none() {
-                // Peer hasn't received a snapshot yet — work is needed.
-                return Ok(true);
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM operations \
+                     WHERE device_id != ?1 \
+                     AND (received_from_peer IS NULL OR received_from_peer != ?2)",
+                    rusqlite::params![dev, dev],
+                    |row| row.get(0),
+                ).unwrap_or(0);
+                if count > 0 {
+                    return Ok(true);
+                }
+                continue;
             }
             if let Some(ref op_id) = peer.last_sent_op {
-                // Check if any ops exist after the watermark using HLC comparison.
                 let hlc = conn.query_row(
                     "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
                      FROM operations WHERE operation_id = ?1",
@@ -812,8 +821,10 @@ impl Workspace {
                         "SELECT COUNT(*) FROM operations WHERE \
                          (timestamp_wall_ms > ?1 \
                           OR (timestamp_wall_ms = ?1 AND timestamp_counter > ?2) \
-                          OR (timestamp_wall_ms = ?1 AND timestamp_counter = ?2 AND timestamp_node_id > ?3))",
-                        rusqlite::params![wall_ms, counter, node_id],
+                          OR (timestamp_wall_ms = ?1 AND timestamp_counter = ?2 AND timestamp_node_id > ?3)) \
+                         AND device_id != ?4 \
+                         AND (received_from_peer IS NULL OR received_from_peer != ?5)",
+                        rusqlite::params![wall_ms, counter, node_id, dev, dev],
                         |row| row.get(0),
                     ).unwrap_or(0);
                     if count > 0 {
