@@ -293,7 +293,7 @@ function ScriptManagerDialog({ isOpen, onClose, onScriptsChanged }: ScriptManage
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border border-border rounded-lg w-[700px] h-[80vh] flex flex-col">
+      <div className={`bg-background border border-border rounded-lg h-[80vh] flex flex-col transition-[width] duration-200 ${view === 'list' ? 'w-[700px]' : 'w-[90vw]'}`}>
         {view === 'list' ? (
           <>
             {/* List View Header */}
