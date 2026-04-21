@@ -88,6 +88,8 @@ pub struct ImportResult {
     pub app_version: String,
     pub note_count: usize,
     pub script_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<WorkspaceMetadata>,
 }
 
 /// Errors specific to export/import operations.
@@ -332,10 +334,15 @@ pub fn peek_import<R: Read + Seek>(reader: R, password: Option<&str>) -> Result<
         None => 0,
     };
 
+    let metadata: Option<WorkspaceMetadata> =
+        try_read_entry(&mut archive, "workspace.json", password)
+            .and_then(|cursor| serde_json::from_reader(cursor).ok());
+
     Ok(ImportResult {
         app_version: export_notes.app_version,
         note_count: export_notes.notes.len(),
         script_count,
+        metadata,
     })
 }
 
@@ -537,9 +544,9 @@ pub fn import_workspace<R: Read + Seek>(
     }
 
     // Restore workspace metadata if the archive contained it.
-    if let Some(meta) = workspace_metadata {
+    if let Some(ref meta) = workspace_metadata {
         workspace
-            .set_workspace_metadata(&meta)
+            .set_workspace_metadata(meta)
             .map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
@@ -547,6 +554,7 @@ pub fn import_workspace<R: Read + Seek>(
         app_version: export_notes.app_version,
         note_count: export_notes.notes.len(),
         script_count,
+        metadata: workspace_metadata,
     })
 }
 
