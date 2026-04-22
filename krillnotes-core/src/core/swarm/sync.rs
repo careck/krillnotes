@@ -155,13 +155,13 @@ pub fn generate_delta(
 
 /// Apply a received delta `.swarm` bundle to the local workspace.
 ///
-/// Decrypts, verifies bundle signature, applies each operation in order.
+/// Decrypts, verifies bundle signature, verifies each operation's signature
+/// against its author key, applies each operation in order.
 /// Auto-registers unknown operation authors as TOFU contacts.
 ///
 /// Returns an `ApplyResult` summarising what was applied / skipped.
 ///
 /// **A13 stub:** RBAC and conflict resolution are not enforced.
-/// Individual per-operation signatures are not verified.
 pub fn apply_delta(
     bundle_bytes: &[u8],
     workspace: &mut Workspace,
@@ -182,8 +182,29 @@ pub fn apply_delta(
         });
     }
 
-    // 1. Decrypt and verify bundle-level signature.
-    let parsed = parse_delta_bundle(bundle_bytes, recipient_key)?;
+    // 1. Decrypt and verify bundle-level + per-operation signatures.
+    let parsed = match parse_delta_bundle(bundle_bytes, recipient_key) {
+        Ok(p) => p,
+        Err(e) => {
+            if e.to_string().contains("operation signature")
+                || e.to_string().contains("signature verification failed")
+            {
+                if let Ok(header) = crate::core::swarm::header::read_header(bundle_bytes) {
+                    let event_type = if e.to_string().contains("operation signature") {
+                        "signature_invalid"
+                    } else {
+                        "sidecar_mismatch"
+                    };
+                    let _ = workspace.log_sync_event(
+                        &header.source_identity,
+                        event_type,
+                        Some(&e.to_string()),
+                    );
+                }
+            }
+            return Err(e);
+        }
+    };
 
     // 1b. Authoritative protocol check — the encrypted protocol cannot be
     // tampered with (unlike the cleartext header).
