@@ -123,7 +123,231 @@ pub struct Workspace {
     permission_gate: Box<dyn crate::core::permission::PermissionGate>,
 }
 
+/// Configuration for workspace creation, capturing the variable parts
+/// across the four constructor variants.
+pub(crate) struct WorkspaceConfig {
+    /// If `Some`, use this as the workspace UUID (snapshot restore).
+    /// If `None`, generate a fresh UUID.
+    pub workspace_id: Option<String>,
+    /// Whether to insert a default root note named after the workspace folder.
+    pub insert_root_note: bool,
+    /// Whether to seed the built-in starter scripts (TextNote, etc.).
+    /// Set to `false` for snapshot restoration where the caller imports
+    /// its own scripts via `reload_all_scripts()`.
+    pub seed_starter_scripts: bool,
+}
+
 impl Workspace {
+    fn init_core<P: AsRef<Path>>(
+        config: WorkspaceConfig,
+        path: P,
+        password: &str,
+        identity_uuid: &str,
+        signing_key: ed25519_dalek::SigningKey,
+        permission_gate: Box<dyn crate::core::permission::PermissionGate>,
+        identity_dir: Option<&Path>,
+    ) -> Result<Self> {
+        let mut storage = Storage::create(&path, password)?;
+        let mut script_registry = ScriptRegistry::new()?;
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+
+        let device_id = if let Some(dir) = identity_dir {
+            let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
+            format!("{identity_uuid}:{device_uuid}")
+        } else {
+            identity_uuid.to_string()
+        };
+
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["device_id", &device_id],
+        )?;
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["identity_uuid", identity_uuid],
+        )?;
+
+        let workspace_root = path.as_ref()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
+
+        let workspace_id = config.workspace_id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        storage.connection().execute(
+            "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["workspace_id", &workspace_id],
+        )?;
+
+        let attachment_key = if !password.is_empty() {
+            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+        } else {
+            None
+        };
+
+        let now = chrono::Utc::now().timestamp();
+        if config.seed_starter_scripts {
+            let starters = ScriptRegistry::starter_scripts();
+            let tx = storage.connection_mut().transaction()?;
+            for (load_order, starter) in starters.iter().enumerate() {
+                let fm = user_script::parse_front_matter(&starter.source_code);
+                let id = Uuid::new_v4().to_string();
+                let category = if starter.filename.ends_with(".schema.rhai") {
+                    "schema"
+                } else {
+                    "library"
+                };
+                tx.execute(
+                    "INSERT INTO user_scripts (id, name, description, source_code, load_order, enabled, created_at, modified_at, category)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rusqlite::params![
+                        id, fm.name, fm.description, &starter.source_code,
+                        load_order as i32, true, now, now, category
+                    ],
+                )?;
+            }
+            tx.commit()?;
+        }
+
+        {
+            let mut stmt = storage.connection().prepare(
+                "SELECT id, name, description, source_code, load_order, enabled, created_at, modified_at, category
+                 FROM user_scripts ORDER BY load_order ASC, created_at ASC",
+            )?;
+            let scripts: Vec<UserScript> = stmt
+                .query_map([], |row| {
+                    Ok(UserScript {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        description: row.get(2)?,
+                        source_code: row.get(3)?,
+                        load_order: row.get(4)?,
+                        enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
+                        created_at: row.get(6)?,
+                        modified_at: row.get(7)?,
+                        category: row.get::<_, String>(8)
+                            .unwrap_or_else(|_| "library".to_string()),
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+                script_registry.set_loading_category(Some("library".to_string()));
+                if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
+                    log::warn!("Failed to load starter script '{}': {}", script.name, e);
+                }
+            }
+            for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
+                script_registry.set_loading_category(Some("schema".to_string()));
+                if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
+                    log::warn!("Failed to load starter script '{}': {}", script.name, e);
+                }
+            }
+            script_registry.resolve_bindings();
+        }
+
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
+
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            rusqlite::params!["owner_pubkey", &identity_pubkey_b64],
+        )?;
+
+        if config.insert_root_note {
+            let filename = {
+                let parent_name = path.as_ref()
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|s| s.to_str());
+                let db_stem = path.as_ref()
+                    .file_stem()
+                    .and_then(|s| s.to_str());
+                match parent_name {
+                    Some(name) if !name.is_empty() && name != "." => name,
+                    _ => db_stem.unwrap_or("Untitled"),
+                }
+            };
+            let title = humanize(filename);
+
+            let root = Note {
+                id: Uuid::new_v4().to_string(),
+                title,
+                schema: "TextNote".to_string(),
+                parent_id: None,
+                position: 0.0,
+                created_at: now,
+                modified_at: now,
+                created_by: identity_pubkey_b64.clone(),
+                modified_by: identity_pubkey_b64.clone(),
+                fields: script_registry.get_schema("TextNote")?.default_fields(),
+                is_expanded: true,
+                tags: vec![],
+                schema_version: 1,
+                is_checked: false,
+            };
+
+            let tx = storage.connection_mut().transaction()?;
+            tx.execute(
+                "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version, is_checked)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rusqlite::params![
+                    root.id, root.title, root.schema, root.parent_id,
+                    root.position, root.created_at, root.modified_at,
+                    root.created_by, root.modified_by,
+                    serde_json::to_string(&root.fields)?,
+                    true, root.schema_version, root.is_checked,
+                ],
+            )?;
+            tx.commit()?;
+        }
+
+        storage.connection().execute(
+            "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
+            ["undo_limit", "50"],
+        )?;
+        let undo_limit: usize = 50;
+
+        let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
+        let node_id = crate::core::hlc::node_id_from_device(
+            &uuid::Uuid::parse_str(device_uuid_str)
+                .unwrap_or_else(|_| uuid::Uuid::new_v4()),
+        );
+        let hlc = HlcClock::new(node_id);
+
+        permission_gate.ensure_schema(storage.connection())?;
+
+        let mut workspace = Self {
+            storage,
+            script_registry,
+            operation_log,
+            device_id,
+            identity_uuid: identity_uuid.to_string(),
+            current_identity_pubkey: identity_pubkey_b64.clone(),
+            workspace_root,
+            workspace_id,
+            owner_pubkey: identity_pubkey_b64,
+            attachment_key,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            undo_limit,
+            script_undo_stack: Vec::new(),
+            script_redo_stack: Vec::new(),
+            undo_group_buffer: None,
+            inside_undo: false,
+            hlc,
+            signing_key,
+            pending_migration_results: Vec::new(),
+            permission_gate,
+        };
+        workspace.emit_register_device_if_needed()?;
+        let _ = workspace.write_info_json();
+        Ok(workspace)
+    }
+
     /// Creates a new workspace database at `path`, initialises the schema, and inserts
     /// a root note named after the file (e.g. `"My Notes"` for `my-notes.krillnotes`).
     ///
