@@ -179,7 +179,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
   // (inviter needs polling to discover accept bundles even before peers exist).
   useEffect(() => {
     Promise.all([
-      invoke<any[]>("list_workspace_peers").catch(() => []),
+      invoke<any[]>("list_workspace_peers").catch(e => { console.warn('list_workspace_peers failed:', e); return []; }),
       invoke<boolean>("has_relay_credentials").catch(() => false),
     ]).then(([peers, hasCreds]) => {
       setHasPeers((peers as any[]).length > 0);
@@ -750,7 +750,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
             showSharingIndicators={
               sharingIndicatorMode === 'on' ? true :
               sharingIndicatorMode === 'off' ? false :
-              hasPeers
+              hasPeers || shareAnchorIds.size > 0
             }
           />
         </div>
