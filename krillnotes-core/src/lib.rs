@@ -44,6 +44,7 @@ pub use core::{
     workspace::{
         AddPosition, NoteSearchResult, Workspace,
         permissions::{CascadeImpactRow, EffectiveRoleInfo, InheritedGrant, PermissionGrantRow},
+        sync_events::SyncEventRecord,
     },
 };
 

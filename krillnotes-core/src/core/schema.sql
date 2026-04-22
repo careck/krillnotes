@@ -109,3 +109,12 @@ CREATE TABLE IF NOT EXISTS sync_peers (
 -- HLC covering index for delta generation and operations_since queries
 CREATE INDEX IF NOT EXISTS idx_operations_hlc
     ON operations(timestamp_wall_ms, timestamp_counter, timestamp_node_id);
+
+-- Sync security audit log — records signature failures and other anomalies.
+CREATE TABLE IF NOT EXISTS sync_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,
+    peer_pubkey TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    detail TEXT
+);

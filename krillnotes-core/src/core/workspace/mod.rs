@@ -1054,6 +1054,7 @@ mod hooks;
 mod scripts;
 mod attachments;
 mod sync;
+pub mod sync_events;
 pub mod permissions;
 
 // ── Free functions shared across domain sub-modules ─────────────────
