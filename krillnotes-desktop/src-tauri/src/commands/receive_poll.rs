@@ -261,7 +261,6 @@ pub async fn poll_receive_workspace(
         }
 
         let mut downloaded_deltas: Vec<DownloadedDelta> = Vec::new();
-        let mut parse_failures: Vec<(String, String)> = Vec::new(); // (sender_pubkey, error)
 
         // ── Relay channel ────────────────────────────────────────────────────
         // Build an optional relay client (None if no relay accounts).
@@ -455,9 +454,6 @@ pub async fn poll_receive_workspace(
                     }
                     Err(e) => {
                         log::warn!("poll_receive_workspace: parse relay delta {} failed: {e}", bundle_meta.bundle_id);
-                        if let Ok(hdr) = read_header(&bundle_bytes) {
-                            parse_failures.push((hdr.source_identity.clone(), e.to_string()));
-                        }
                         // Don't acknowledge — retry on next poll.
                     }
                 }
@@ -520,9 +516,6 @@ pub async fn poll_receive_workspace(
                     }
                     Err(e) => {
                         log::warn!("poll_receive_workspace: parse folder delta {} failed: {e}", bundle_ref.id);
-                        if let Ok(hdr) = read_header(&bundle_ref.data) {
-                            parse_failures.push((hdr.source_identity.clone(), e.to_string()));
-                        }
                         // Don't delete — retry on next poll.
                     }
                 }
@@ -583,18 +576,6 @@ pub async fn poll_receive_workspace(
                 return Ok(poll_result);
             }
         };
-
-        // Log collected parse failures to sync_events now that workspace is available.
-        for (sender_pubkey, error) in &parse_failures {
-            let event_type = if error.contains("operation signature") {
-                "signature_invalid"
-            } else if error.contains("signature verification failed") {
-                "sidecar_mismatch"
-            } else {
-                "bundle_rejected"
-            };
-            let _ = workspace.log_sync_event(sender_pubkey, event_type, Some(error));
-        }
 
         // Apply operations with TOFU.
         let mut sender_applied: HashMap<String, usize> = HashMap::new();

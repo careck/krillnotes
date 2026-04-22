@@ -27,18 +27,16 @@ mod integration_tests {
 
     fn make_key() -> SigningKey { SigningKey::generate(&mut OsRng) }
 
-    fn dummy_op(id: &str, note_id: &str, key: &SigningKey) -> Operation {
-        let mut op = Operation::UpdateNote {
+    fn dummy_op(id: &str, note_id: &str) -> Operation {
+        Operation::UpdateNote {
             operation_id: id.to_string(),
             timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 0 },
             device_id: "dev-alice".to_string(),
             note_id: note_id.to_string(),
             title: "Alice's edit".to_string(),
-            modified_by: String::new(),
-            signature: String::new(),
-        };
-        op.sign(key);
-        op
+            modified_by: "pk_alice".to_string(),
+            signature: "sig".to_string(),
+        }
     }
 
     /// Full T2 handshake: unknown peer invitation → snapshot → delta exchange.
@@ -114,7 +112,7 @@ mod integration_tests {
         assert_eq!(parsed_snapshot.workspace_json, workspace_state);
 
         // === Step 7: Alice sends delta to Bob ===
-        let alice_ops = vec![dummy_op("op-1", "note-abc", &alice_key), dummy_op("op-2", "note-abc", &alice_key)];
+        let alice_ops = vec![dummy_op("op-1", "note-abc"), dummy_op("op-2", "note-abc")];
         let delta_bundle = create_delta_bundle(DeltaParams {
             protocol: "test".to_string(),
             workspace_id: "ws-alpha".to_string(),

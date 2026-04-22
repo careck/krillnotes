@@ -279,15 +279,6 @@ impl SyncEngine {
                             }
                             Err(e) => {
                                 log::error!(target: "krillnotes::sync", "parse_delta_bundle failed for peer {}: {e}", header.source_device_id);
-                                if e.to_string().contains("operation signature")
-                                    || e.to_string().contains("signature verification failed")
-                                {
-                                    let _ = workspace.log_sync_event(
-                                        &header.source_identity,
-                                        "signature_invalid",
-                                        Some(&e.to_string()),
-                                    );
-                                }
                                 // Do NOT acknowledge — retry on next poll
                                 events.push(SyncEvent::IngestError {
                                     workspace_id: workspace_id.clone(),

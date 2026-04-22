@@ -151,7 +151,7 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
 
 /// Parse and decrypt a delta.swarm bundle.
 ///
-/// Each operation's signature is verified against its own `author_key()`.
+/// **STUB:** individual operation signatures are NOT verified yet — WP-C adds that.
 /// **STUB:** RBAC is NOT enforced — WP-B adds that.
 /// Operations are returned as-is for the caller to apply.
 pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<ParsedDelta> {
@@ -224,36 +224,6 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
 
     let operations: Vec<Operation> = serde_json::from_slice(&ops_json)?;
 
-    // Verify per-operation signatures against each op's claimed author key.
-    for op in &operations {
-        let author_b64 = op.author_key();
-        if author_b64.is_empty() {
-            continue; // RetractOperation has no author — local-only, will be skipped later
-        }
-        let author_vk_bytes = BASE64.decode(author_b64)
-            .map_err(|e| KrillnotesError::Swarm(format!(
-                "operation signature invalid: op {} has bad author_key: {e}",
-                op.operation_id()
-            )))?;
-        let author_vk_arr: [u8; 32] = author_vk_bytes.try_into()
-            .map_err(|_| KrillnotesError::Swarm(format!(
-                "operation signature invalid: op {} author_key wrong length",
-                op.operation_id()
-            )))?;
-        let author_vk = VerifyingKey::from_bytes(&author_vk_arr)
-            .map_err(|e| KrillnotesError::Swarm(format!(
-                "operation signature invalid: op {} bad verifying key: {e}",
-                op.operation_id()
-            )))?;
-        if !op.verify(&author_vk) {
-            return Err(KrillnotesError::Swarm(format!(
-                "operation signature invalid: op {} failed verification against author {}",
-                op.operation_id(),
-                &author_b64[..author_b64.len().min(8)],
-            )));
-        }
-    }
-
     // Decrypt sidecar blobs from the already-read ciphertext.
     let mut attachment_blobs = Vec::new();
     for (att_id, ct) in &sidecar_entries {
@@ -284,25 +254,23 @@ mod tests {
 
     fn make_key() -> SigningKey { SigningKey::generate(&mut OsRng) }
 
-    fn dummy_op(id: &str, key: &SigningKey) -> Operation {
-        let mut op = Operation::UpdateNote {
+    fn dummy_op(id: &str) -> Operation {
+        Operation::UpdateNote {
             operation_id: id.to_string(),
             timestamp: HlcTimestamp { wall_ms: 1, counter: 0, node_id: 0 },
             device_id: "dev-1".to_string(),
             note_id: "note-1".to_string(),
             title: "Updated".to_string(),
-            modified_by: String::new(),
-            signature: String::new(),
-        };
-        op.sign(key);
-        op
+            modified_by: "pk".to_string(),
+            signature: "sig".to_string(),
+        }
     }
 
     #[test]
     fn test_delta_roundtrip() {
         let sender_key = make_key();
         let recipient_key = make_key();
-        let ops = vec![dummy_op("op-1", &sender_key), dummy_op("op-2", &sender_key)];
+        let ops = vec![dummy_op("op-1"), dummy_op("op-2")];
 
         let bundle = create_delta_bundle(DeltaParams {
             protocol: "test".to_string(),
@@ -528,89 +496,5 @@ mod tests {
 
         assert_eq!(parsed.operations.len(), 1);
         assert!(parsed.attachment_blobs.is_empty());
-    }
-
-    #[test]
-    fn test_tampered_operation_rejected() {
-        let sender_key = make_key();
-        let recipient_key = make_key();
-
-        // Create a properly signed op, then tamper with the title after signing.
-        let mut op = Operation::UpdateNote {
-            operation_id: "op-tampered".to_string(),
-            timestamp: HlcTimestamp { wall_ms: 1, counter: 0, node_id: 0 },
-            device_id: "dev-1".to_string(),
-            note_id: "note-1".to_string(),
-            title: "Original".to_string(),
-            modified_by: String::new(),
-            signature: String::new(),
-        };
-        op.sign(&sender_key);
-
-        // Tamper: change the title field after signing.
-        if let Operation::UpdateNote { ref mut title, .. } = op {
-            *title = "Tampered".to_string();
-        }
-
-        let bundle = create_delta_bundle(DeltaParams {
-            protocol: "test".to_string(),
-            workspace_id: "ws-1".to_string(),
-            workspace_name: "Test".to_string(),
-            source_device_id: "dev-1".to_string(),
-            source_display_name: "Alice".to_string(),
-            since_operation_id: "op-0".to_string(),
-            operations: vec![op],
-            sender_key: &sender_key,
-            recipient_keys: vec![&recipient_key.verifying_key()],
-            recipient_peer_ids: vec!["dev-2".to_string()],
-            recipient_identity_id: "pk-dev-2".to_string(),
-            owner_pubkey: "owner-pk".to_string(),
-            ack_operation_id: None,
-            attachment_blobs: vec![],
-        }).unwrap();
-
-        let result = parse_delta_bundle(&bundle, &recipient_key);
-        match result {
-            Ok(_) => panic!("tampered operation must be rejected"),
-            Err(e) => {
-                let err = e.to_string();
-                assert!(
-                    err.contains("operation signature invalid"),
-                    "expected 'operation signature invalid', got: {err}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_valid_signed_operations_accepted() {
-        let sender_key = make_key();
-        let recipient_key = make_key();
-        let ops = vec![
-            dummy_op("op-valid-1", &sender_key),
-            dummy_op("op-valid-2", &sender_key),
-        ];
-
-        let bundle = create_delta_bundle(DeltaParams {
-            protocol: "test".to_string(),
-            workspace_id: "ws-1".to_string(),
-            workspace_name: "Test".to_string(),
-            source_device_id: "dev-1".to_string(),
-            source_display_name: "Alice".to_string(),
-            since_operation_id: "op-0".to_string(),
-            operations: ops,
-            sender_key: &sender_key,
-            recipient_keys: vec![&recipient_key.verifying_key()],
-            recipient_peer_ids: vec!["dev-2".to_string()],
-            recipient_identity_id: "pk-dev-2".to_string(),
-            owner_pubkey: "owner-pk".to_string(),
-            ack_operation_id: None,
-            attachment_blobs: vec![],
-        }).unwrap();
-
-        let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
-        assert_eq!(parsed.operations.len(), 2);
-        assert_eq!(parsed.operations[0].operation_id(), "op-valid-1");
-        assert_eq!(parsed.operations[1].operation_id(), "op-valid-2");
     }
 }
