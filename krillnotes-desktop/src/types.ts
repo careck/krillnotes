@@ -399,3 +399,11 @@ export interface CascadeImpactRow {
   grant: PermissionGrantRow;
   reason: string;
 }
+
+export interface SyncEventRecord {
+  id: number;
+  timestamp: number;
+  peerPubkey: string;
+  eventType: string;
+  detail: string | null;
+}

@@ -287,7 +287,18 @@
     "failedPurge": "清除操作失败：{{error}}",
     "metadata": "元数据",
     "data": "数据",
-    "operation": "操作"
+    "operation": "操作",
+    "operationsTab": "操作",
+    "syncEventsTab": "同步事件",
+    "syncNoEvents": "没有记录的同步事件。",
+    "syncPeer": "对等节点",
+    "syncEventType": "事件",
+    "syncDetail": "详情",
+    "syncCount_one": "{{count}} 个事件",
+    "syncCount_other": "{{count}} 个事件",
+    "syncBundleRejected": "包已拒绝",
+    "syncSignatureInvalid": "签名无效",
+    "syncSidecarMismatch": "附件不匹配"
   },
   "empty": {
     "getStarted": "使用文件 > 新建工作区 或 文件 > 打开工作区 开始使用"

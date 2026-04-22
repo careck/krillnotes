@@ -466,6 +466,17 @@ impl Storage {
             )?;
         }
 
+        // Migration: create sync_events table for persistent audit trail.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sync_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER NOT NULL,
+                peer_pubkey TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                detail TEXT
+            )"
+        )?;
+
         Ok(())
     }
 

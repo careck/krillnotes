@@ -287,7 +287,18 @@
     "failedPurge": "Failed to purge operations: {{error}}",
     "metadata": "Metadata",
     "data": "Data",
-    "operation": "Operation"
+    "operation": "Operation",
+    "operationsTab": "Operations",
+    "syncEventsTab": "Sync Events",
+    "syncNoEvents": "No sync events recorded.",
+    "syncPeer": "Peer",
+    "syncEventType": "Event",
+    "syncDetail": "Detail",
+    "syncCount_one": "{{count}} event",
+    "syncCount_other": "{{count}} events",
+    "syncBundleRejected": "Bundle Rejected",
+    "syncSignatureInvalid": "Signature Invalid",
+    "syncSidecarMismatch": "Sidecar Mismatch"
   },
   "empty": {
     "getStarted": "Use File > New Workspace or File > Open Workspace to get started"

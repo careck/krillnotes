@@ -287,7 +287,18 @@
     "failedPurge": "Échec de la purge des opérations : {{error}}",
     "metadata": "Métadonnées",
     "data": "Données",
-    "operation": "Opération"
+    "operation": "Opération",
+    "operationsTab": "Opérations",
+    "syncEventsTab": "Événements de synchronisation",
+    "syncNoEvents": "Aucun événement de synchronisation enregistré.",
+    "syncPeer": "Pair",
+    "syncEventType": "Événement",
+    "syncDetail": "Détail",
+    "syncCount_one": "{{count}} événement",
+    "syncCount_other": "{{count}} événements",
+    "syncBundleRejected": "Paquet rejeté",
+    "syncSignatureInvalid": "Signature invalide",
+    "syncSidecarMismatch": "Décalage de sidecar"
   },
   "empty": {
     "getStarted": "Utilisez Fichier > Nouvel espace de travail ou Fichier > Ouvrir un espace de travail pour commencer"

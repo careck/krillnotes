@@ -287,7 +287,18 @@
     "failedPurge": "Bereinigung fehlgeschlagen: {{error}}",
     "metadata": "Metadaten",
     "data": "Daten",
-    "operation": "Vorgang"
+    "operation": "Vorgang",
+    "operationsTab": "Operationen",
+    "syncEventsTab": "Sync-Ereignisse",
+    "syncNoEvents": "Keine Sync-Ereignisse aufgezeichnet.",
+    "syncPeer": "Peer",
+    "syncEventType": "Ereignis",
+    "syncDetail": "Detail",
+    "syncCount_one": "{{count}} Ereignis",
+    "syncCount_other": "{{count}} Ereignisse",
+    "syncBundleRejected": "Paket abgelehnt",
+    "syncSignatureInvalid": "Signatur ungültig",
+    "syncSidecarMismatch": "Sidecar-Abweichung"
   },
   "empty": {
     "getStarted": "Verwende Datei > Neuer Arbeitsbereich oder Datei > Arbeitsbereich öffnen, um zu beginnen"

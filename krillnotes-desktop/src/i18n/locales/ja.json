@@ -287,7 +287,18 @@
     "failedPurge": "操作の削除に失敗しました: {{error}}",
     "metadata": "メタデータ",
     "data": "データ",
-    "operation": "操作"
+    "operation": "操作",
+    "operationsTab": "操作",
+    "syncEventsTab": "同期イベント",
+    "syncNoEvents": "同期イベントは記録されていません。",
+    "syncPeer": "ピア",
+    "syncEventType": "イベント",
+    "syncDetail": "詳細",
+    "syncCount_one": "{{count}} 件のイベント",
+    "syncCount_other": "{{count}} 件のイベント",
+    "syncBundleRejected": "バンドル拒否",
+    "syncSignatureInvalid": "署名無効",
+    "syncSidecarMismatch": "サイドカー不一致"
   },
   "empty": {
     "getStarted": "ファイル > 新しいワークスペース または ファイル > ワークスペースを開く から始めてください"

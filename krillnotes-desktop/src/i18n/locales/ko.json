@@ -287,7 +287,18 @@
     "failedPurge": "작업 삭제에 실패했습니다: {{error}}",
     "metadata": "메타데이터",
     "data": "데이터",
-    "operation": "작업"
+    "operation": "작업",
+    "operationsTab": "작업",
+    "syncEventsTab": "동기화 이벤트",
+    "syncNoEvents": "기록된 동기화 이벤트가 없습니다.",
+    "syncPeer": "피어",
+    "syncEventType": "이벤트",
+    "syncDetail": "세부 정보",
+    "syncCount_one": "{{count}}개 이벤트",
+    "syncCount_other": "{{count}}개 이벤트",
+    "syncBundleRejected": "번들 거부됨",
+    "syncSignatureInvalid": "서명 무효",
+    "syncSidecarMismatch": "사이드카 불일치"
   },
   "empty": {
     "getStarted": "파일 > 새 작업 공간 또는 파일 > 작업 공간 열기를 사용하여 시작하세요"

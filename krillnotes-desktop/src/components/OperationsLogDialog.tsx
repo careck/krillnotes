@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ListFilter, Trash2, X } from 'lucide-react';
-import type { OperationSummary } from '../types';
+import type { OperationSummary, SyncEventRecord } from '../types';
 import { useTranslation } from 'react-i18next';
 
 interface OperationsLogDialogProps {
@@ -161,7 +161,10 @@ function OperationDetailPanel({
 
 function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
   const { t, i18n } = useTranslation();
+  const [activeTab, setActiveTab] = useState<'operations' | 'syncEvents'>('operations');
   const [operations, setOperations] = useState<OperationSummary[]>([]);
+  const [syncEvents, setSyncEvents] = useState<SyncEventRecord[]>([]);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [sinceDate, setSinceDate] = useState('');
   const [untilDate, setUntilDate] = useState('');
@@ -191,8 +194,22 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
     }
   }, [typeFilter, sinceDate, untilDate]);
 
+  const fetchSyncEvents = useCallback(async () => {
+    try {
+      setSyncError(null);
+      const events = await invoke<SyncEventRecord[]>('list_sync_events', {
+        limit: 200,
+        offset: 0,
+      });
+      setSyncEvents(events);
+    } catch (err) {
+      setSyncError(String(err));
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
+      setActiveTab('operations');
       setTypeFilter('');
       setSinceDate('');
       setUntilDate('');
@@ -200,14 +217,17 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
       setError('');
       setSelectedOpId(null);
       setOpDetail(null);
+      setSyncEvents([]);
+      setSyncError(null);
     }
   }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
       loadOperations();
+      fetchSyncEvents();
     }
-  }, [isOpen, loadOperations]);
+  }, [isOpen, loadOperations, fetchSyncEvents]);
 
   const handleSelectOp = async (opId: string) => {
     if (selectedOpId === opId) {
@@ -261,87 +281,175 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
           </button>
         </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30 shrink-0">
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="bg-background border border-input rounded px-2 py-1 text-sm"
+        {/* Tab bar */}
+        <div className="flex items-center gap-1 px-4 pt-2 border-b border-border shrink-0">
+          <button
+            onClick={() => setActiveTab('operations')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t border border-b-0 ${
+              activeTab === 'operations'
+                ? 'bg-background border-border text-foreground'
+                : 'bg-transparent border-transparent text-muted-foreground hover:text-foreground'
+            }`}
           >
-            <option value="">{t('log.allTypes')}</option>
-            {OPERATION_TYPES.map((opType) => (
-              <option key={opType} value={opType}>{opType}</option>
-            ))}
-          </select>
-
-          <label className="text-sm text-muted-foreground">{t('log.from')}</label>
-          <input
-            type="date"
-            value={sinceDate}
-            onChange={(e) => setSinceDate(e.target.value)}
-            className="bg-background border border-input rounded px-2 py-1 text-sm"
-          />
-
-          <label className="text-sm text-muted-foreground">{t('log.to')}</label>
-          <input
-            type="date"
-            value={untilDate}
-            onChange={(e) => setUntilDate(e.target.value)}
-            className="bg-background border border-input rounded px-2 py-1 text-sm"
-          />
+            {t('log.operationsTab')}
+          </button>
+          <button
+            onClick={() => setActiveTab('syncEvents')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t border border-b-0 ${
+              activeTab === 'syncEvents'
+                ? 'bg-background border-border text-foreground'
+                : 'bg-transparent border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t('log.syncEventsTab')}
+          </button>
         </div>
 
-        {/* Error */}
-        {error && (
+        {/* Filters (operations tab only) */}
+        {activeTab === 'operations' && (
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30 shrink-0">
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="bg-background border border-input rounded px-2 py-1 text-sm"
+            >
+              <option value="">{t('log.allTypes')}</option>
+              {OPERATION_TYPES.map((opType) => (
+                <option key={opType} value={opType}>{opType}</option>
+              ))}
+            </select>
+
+            <label className="text-sm text-muted-foreground">{t('log.from')}</label>
+            <input
+              type="date"
+              value={sinceDate}
+              onChange={(e) => setSinceDate(e.target.value)}
+              className="bg-background border border-input rounded px-2 py-1 text-sm"
+            />
+
+            <label className="text-sm text-muted-foreground">{t('log.to')}</label>
+            <input
+              type="date"
+              value={untilDate}
+              onChange={(e) => setUntilDate(e.target.value)}
+              className="bg-background border border-input rounded px-2 py-1 text-sm"
+            />
+          </div>
+        )}
+
+        {/* Error (operations tab) */}
+        {activeTab === 'operations' && error && (
           <div className="px-4 py-2 text-sm text-red-600 bg-red-50 border-b border-border shrink-0">
             {error}
           </div>
         )}
 
-        {/* Content area: list + optional detail panel side by side */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Operations list */}
+        {/* Content area */}
+        {activeTab === 'operations' ? (
+          <div className="flex flex-1 overflow-hidden">
+            {/* Operations list */}
+            <div className="flex-1 overflow-y-auto">
+              {operations.length === 0 ? (
+                <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                  {t('log.noOperations')}
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/30 sticky top-0">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.author')}</th>
+                      <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operations.map((op) => (
+                      <tr
+                        key={op.operationId}
+                        onClick={() => handleSelectOp(op.operationId)}
+                        className={`border-b border-border/50 cursor-pointer ${
+                          selectedOpId === op.operationId
+                            ? 'bg-primary/10 hover:bg-primary/15'
+                            : 'hover:bg-muted/20'
+                        }`}
+                      >
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                          {formatTimestamp(op.timestampWallMs, i18n.language)}
+                        </td>
+                        <td className="px-4 py-2 truncate max-w-[200px]" title={op.targetName}>
+                          {op.targetName || <span className="text-muted-foreground italic">&mdash;</span>}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <span className="text-xs font-mono text-muted-foreground">
+                            {op.authorKey || '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <span className="inline-block bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs font-mono">
+                            {op.operationType}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Detail panel */}
+            {opDetail && (
+              <OperationDetailPanel
+                detail={opDetail}
+                resolvedAuthor={operations.find((op) => op.operationId === selectedOpId)?.authorKey ?? ''}
+                onClose={() => { setSelectedOpId(null); setOpDetail(null); }}
+              />
+            )}
+          </div>
+        ) : (
           <div className="flex-1 overflow-y-auto">
-            {operations.length === 0 ? (
+            {syncError && (
+              <div className="px-4 py-2 text-sm text-red-600 bg-red-50 border-b border-border">
+                {syncError}
+              </div>
+            )}
+            {syncEvents.length === 0 ? (
               <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-                {t('log.noOperations')}
+                {t('log.syncNoEvents')}
               </div>
             ) : (
               <table className="w-full text-sm">
                 <thead className="bg-muted/30 sticky top-0">
                   <tr>
                     <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.author')}</th>
-                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.syncPeer')}</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.syncEventType')}</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.syncDetail')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {operations.map((op) => (
-                    <tr
-                      key={op.operationId}
-                      onClick={() => handleSelectOp(op.operationId)}
-                      className={`border-b border-border/50 cursor-pointer ${
-                        selectedOpId === op.operationId
-                          ? 'bg-primary/10 hover:bg-primary/15'
-                          : 'hover:bg-muted/20'
-                      }`}
-                    >
+                  {syncEvents.map((evt) => (
+                    <tr key={evt.id} className="border-b border-border/50 hover:bg-muted/20">
                       <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                        {formatTimestamp(op.timestampWallMs, i18n.language)}
+                        {new Date(evt.timestamp * 1000).toLocaleString(i18n.language)}
                       </td>
-                      <td className="px-4 py-2 truncate max-w-[200px]" title={op.targetName}>
-                        {op.targetName || <span className="text-muted-foreground italic">&mdash;</span>}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap">
+                      <td className="px-4 py-2">
                         <span className="text-xs font-mono text-muted-foreground">
-                          {op.authorKey || '—'}
+                          {evt.peerPubkey.length > 12
+                            ? `${evt.peerPubkey.slice(0, 8)}…${evt.peerPubkey.slice(-4)}`
+                            : evt.peerPubkey}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right">
-                        <span className="inline-block bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs font-mono">
-                          {op.operationType}
+                      <td className="px-4 py-2">
+                        <span className="inline-block bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded px-2 py-0.5 text-xs font-mono">
+                          {evt.eventType === 'bundle_rejected' && t('log.syncBundleRejected')}
+                          {evt.eventType === 'signature_invalid' && t('log.syncSignatureInvalid')}
+                          {evt.eventType === 'sidecar_mismatch' && t('log.syncSidecarMismatch')}
+                          {!['bundle_rejected', 'signature_invalid', 'sidecar_mismatch'].includes(evt.eventType) && evt.eventType}
                         </span>
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground truncate max-w-[300px]" title={evt.detail ?? undefined}>
+                        {evt.detail ?? '—'}
                       </td>
                     </tr>
                   ))}
@@ -349,47 +457,42 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
               </table>
             )}
           </div>
-
-          {/* Detail panel */}
-          {opDetail && (
-            <OperationDetailPanel
-              detail={opDetail}
-              resolvedAuthor={operations.find((op) => op.operationId === selectedOpId)?.authorKey ?? ''}
-              onClose={() => { setSelectedOpId(null); setOpDetail(null); }}
-            />
-          )}
-        </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0">
           <span className="text-sm text-muted-foreground">
-            {t('log.count', { count: operations.length })}
+            {activeTab === 'operations'
+              ? t('log.count', { count: operations.length })
+              : t('log.syncCount', { count: syncEvents.length })}
           </span>
           <div className="flex items-center gap-2">
-            {confirmPurge ? (
-              <>
-                <span className="text-sm text-red-600">{t('log.deleteAll')}</span>
+            {activeTab === 'operations' && (
+              confirmPurge ? (
+                <>
+                  <span className="text-sm text-red-600">{t('log.deleteAll')}</span>
+                  <button
+                    onClick={handlePurge}
+                    className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                  >
+                    {t('common.confirm')}
+                  </button>
+                  <button
+                    onClick={() => setConfirmPurge(false)}
+                    className="bg-muted text-foreground px-3 py-1 rounded text-sm hover:bg-muted/80"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                </>
+              ) : (
                 <button
-                  onClick={handlePurge}
-                  className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                  onClick={() => setConfirmPurge(true)}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-red-600 px-3 py-1 rounded border border-border hover:border-red-300"
                 >
-                  {t('common.confirm')}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {t('log.purgeAll')}
                 </button>
-                <button
-                  onClick={() => setConfirmPurge(false)}
-                  className="bg-muted text-foreground px-3 py-1 rounded text-sm hover:bg-muted/80"
-                >
-                  {t('common.cancel')}
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setConfirmPurge(true)}
-                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-red-600 px-3 py-1 rounded border border-border hover:border-red-300"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                {t('log.purgeAll')}
-              </button>
+              )
             )}
           </div>
         </div>

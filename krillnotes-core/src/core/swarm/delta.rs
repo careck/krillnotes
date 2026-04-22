@@ -104,16 +104,29 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
     header.validate()?;
 
     let header_bytes = serde_json::to_vec(&header)?;
-    // NOTE: attachment sidecar ciphertext is NOT included in the manifest.
-    // AES-GCM provides per-blob integrity (tampered blobs fail to decrypt), but
-    // an attacker can silently remove sidecars from the bundle without the
-    // signature check detecting it. A future hardening pass should add sidecar
-    // hashes to the manifest.
-    // TODO: include attachment sidecar hashes in manifest for full bundle integrity.
-    let files: Vec<(&str, &[u8])> = vec![
+
+    // Encrypt attachment sidecars before signing so their ciphertext is in the manifest.
+    let encrypted_sidecars: Vec<(String, Vec<u8>)> = params
+        .attachment_blobs
+        .iter()
+        .map(|(att_id, plaintext)| {
+            let ct = encrypt_blob(&sym_key, plaintext)?;
+            Ok((att_id.clone(), ct))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Build manifest over header + payload + all sidecar ciphertexts.
+    let mut files: Vec<(&str, &[u8])> = vec![
         ("header.json", &header_bytes),
         ("payload.enc", &ciphertext),
     ];
+    let sidecar_names: Vec<String> = encrypted_sidecars
+        .iter()
+        .map(|(id, _)| format!("attachments/{id}.enc"))
+        .collect();
+    for (i, (_, ct)) in encrypted_sidecars.iter().enumerate() {
+        files.push((&sidecar_names[i], ct));
+    }
     let sig = sign_manifest(&files, params.sender_key);
 
     let mut buf = Vec::new();
@@ -127,11 +140,9 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         zip.write_all(&ciphertext)?;
         zip.start_file("signature.bin", opts)?;
         zip.write_all(&sig)?;
-        // Write encrypted attachment sidecar files.
-        for (att_id, plaintext) in &params.attachment_blobs {
-            let ct = encrypt_blob(&sym_key, plaintext)?;
+        for (att_id, ct) in &encrypted_sidecars {
             zip.start_file(format!("attachments/{att_id}.enc"), opts)?;
-            zip.write_all(&ct)?;
+            zip.write_all(ct)?;
         }
         zip.finish()?;
     }
@@ -152,20 +163,44 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
     let ciphertext = read_zip_file(&mut zip, "payload.enc")?;
     let sig_bytes = read_zip_file(&mut zip, "signature.bin")?;
 
+    // Read sidecar ciphertext BEFORE verification so we can include it in the manifest.
+    let mut sidecar_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i)
+            .map_err(|e| KrillnotesError::Swarm(format!("zip index {i}: {e}")))?;
+        let name = file.name().to_string();
+        if let Some(att_id) = name
+            .strip_prefix("attachments/")
+            .and_then(|n| n.strip_suffix(".enc"))
+        {
+            let mut ct = Vec::new();
+            file.read_to_end(&mut ct)
+                .map_err(|e| KrillnotesError::Swarm(format!("read att {att_id}: {e}")))?;
+            sidecar_entries.push((att_id.to_string(), ct));
+        }
+    }
+
     let header: SwarmHeader = serde_json::from_slice(&header_bytes)?;
     header.validate()?;
 
-    // Verify bundle signature.
+    // Verify bundle signature (includes sidecar ciphertext in manifest).
     let vk_bytes = BASE64.decode(&header.source_identity)
         .map_err(|e| KrillnotesError::Swarm(format!("bad source_identity: {e}")))?;
     let vk_arr: [u8; 32] = vk_bytes.try_into()
         .map_err(|_| KrillnotesError::Swarm("source_identity wrong length".to_string()))?;
     let vk = VerifyingKey::from_bytes(&vk_arr)
         .map_err(|e| KrillnotesError::Swarm(format!("invalid sender key: {e}")))?;
-    let files: Vec<(&str, &[u8])> = vec![
+    let mut files: Vec<(&str, &[u8])> = vec![
         ("header.json", &header_bytes),
         ("payload.enc", &ciphertext),
     ];
+    let sidecar_names: Vec<String> = sidecar_entries
+        .iter()
+        .map(|(id, _)| format!("attachments/{id}.enc"))
+        .collect();
+    for (i, (_, ct)) in sidecar_entries.iter().enumerate() {
+        files.push((&sidecar_names[i], ct));
+    }
     verify_manifest(&files, &sig_bytes, &vk)?;
 
     // Decrypt.
@@ -189,22 +224,11 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
 
     let operations: Vec<Operation> = serde_json::from_slice(&ops_json)?;
 
-    // Decrypt attachment sidecar files.
+    // Decrypt sidecar blobs from the already-read ciphertext.
     let mut attachment_blobs = Vec::new();
-    for i in 0..zip.len() {
-        let mut file = zip.by_index(i)
-            .map_err(|e| KrillnotesError::Swarm(format!("zip index {i}: {e}")))?;
-        let name = file.name().to_string();
-        if let Some(att_id) = name
-            .strip_prefix("attachments/")
-            .and_then(|n| n.strip_suffix(".enc"))
-        {
-            let mut ct = Vec::new();
-            file.read_to_end(&mut ct)
-                .map_err(|e| KrillnotesError::Swarm(format!("read att {att_id}: {e}")))?;
-            let pt = decrypt_blob(&sym_key, &ct)?;
-            attachment_blobs.push((att_id.to_string(), pt));
-        }
+    for (att_id, ct) in &sidecar_entries {
+        let pt = decrypt_blob(&sym_key, ct)?;
+        attachment_blobs.push((att_id.clone(), pt));
     }
 
     Ok(ParsedDelta {
@@ -347,6 +371,87 @@ mod tests {
         assert_eq!(parsed.attachment_blobs.len(), 1);
         assert_eq!(parsed.attachment_blobs[0].0, "att-uuid-1");
         assert_eq!(parsed.attachment_blobs[0].1, blob_data);
+    }
+
+    /// Rebuild a ZIP without any attachments/*.enc entries.
+    fn strip_sidecar_from_bundle(bundle: &[u8]) -> Vec<u8> {
+        let cursor = Cursor::new(bundle);
+        let mut zip_in = ZipArchive::new(cursor).unwrap();
+        let mut buf = Vec::new();
+        {
+            let cursor_out = Cursor::new(&mut buf);
+            let mut zip_out = ZipWriter::new(cursor_out);
+            let opts = SimpleFileOptions::default();
+            for i in 0..zip_in.len() {
+                let mut file = zip_in.by_index(i).unwrap();
+                let name = file.name().to_string();
+                if name.starts_with("attachments/") {
+                    continue; // strip sidecar
+                }
+                let mut data = Vec::new();
+                file.read_to_end(&mut data).unwrap();
+                zip_out.start_file(&name, opts).unwrap();
+                zip_out.write_all(&data).unwrap();
+            }
+            zip_out.finish().unwrap();
+        }
+        buf
+    }
+
+    #[test]
+    fn test_stripped_sidecar_fails_verification() {
+        let sender_key = make_key();
+        let recipient_key = make_key();
+        let recipient_vk = recipient_key.verifying_key();
+
+        let mut op = Operation::AddAttachment {
+            operation_id: "op-att-strip-1".to_string(),
+            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            device_id: "dev-1".to_string(),
+            attachment_id: "att-strip-1".to_string(),
+            note_id: "note-1".to_string(),
+            filename: "photo.jpg".to_string(),
+            mime_type: Some("image/jpeg".to_string()),
+            size_bytes: 5,
+            hash_sha256: "fakehash".to_string(),
+            added_by: String::new(),
+            signature: String::new(),
+        };
+        op.sign(&sender_key);
+
+        let blob_data = b"HELLO".to_vec();
+        let bundle = create_delta_bundle(DeltaParams {
+            protocol: "krillnotes/1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            workspace_name: "Test".to_string(),
+            source_device_id: "dev-1".to_string(),
+            source_display_name: "Alice".to_string(),
+            since_operation_id: String::new(),
+            operations: vec![op],
+            sender_key: &sender_key,
+            recipient_keys: vec![&recipient_vk],
+            recipient_peer_ids: vec!["peer-1".to_string()],
+            recipient_identity_id: "recip-id".to_string(),
+            owner_pubkey: "owner-key".to_string(),
+            ack_operation_id: None,
+            attachment_blobs: vec![("att-strip-1".to_string(), blob_data)],
+        }).unwrap();
+
+        // Tamper: strip the sidecar from the bundle
+        let tampered = strip_sidecar_from_bundle(&bundle);
+
+        // Parsing should fail because the manifest hash no longer matches
+        let result = parse_delta_bundle(&tampered, &recipient_key);
+        match result {
+            Ok(_) => panic!("expected error when sidecar stripped, but parse succeeded"),
+            Err(e) => {
+                let err_msg = e.to_string();
+                assert!(
+                    err_msg.contains("signature verification failed"),
+                    "expected 'signature verification failed', got: {err_msg}"
+                );
+            }
+        }
     }
 
     #[test]
