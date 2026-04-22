@@ -15,6 +15,10 @@ impl ScriptRegistry {
     /// starter scripts for seeding a new workspace.
     pub fn new() -> Result<Self> {
         let mut engine = Engine::new();
+        engine.set_max_operations(200_000);
+        engine.set_max_call_levels(64);
+        engine.set_max_string_size(1_000_000);
+        engine.set_max_array_size(100_000);
         let schema_registry = schema::SchemaRegistry::new();
         let current_loading_ast: Arc<Mutex<Option<AST>>> = Arc::new(Mutex::new(None));
         let current_loading_script_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));

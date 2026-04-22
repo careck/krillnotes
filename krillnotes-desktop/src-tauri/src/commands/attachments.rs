@@ -201,7 +201,10 @@ pub async fn open_attachment(
 
     let tmp_dir = std::env::temp_dir().join("krillnotes-attachments");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
-    let tmp_path = tmp_dir.join(&filename);
+    let safe_name = std::path::Path::new(&filename)
+        .file_name()
+        .ok_or("Invalid attachment filename")?;
+    let tmp_path = tmp_dir.join(safe_name);
     std::fs::write(&tmp_path, &bytes).map_err(|e| e.to_string())?;
 
     window

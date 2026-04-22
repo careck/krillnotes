@@ -653,7 +653,11 @@ impl IdentityManager {
         // Restore encrypted relay account files from the export.
         let relays_dir = identity_dir.join("relays");
         for relay in &file.relays {
-            std::fs::write(relays_dir.join(&relay.filename), &relay.contents)?;
+            let safe_name = match std::path::Path::new(&relay.filename).file_name() {
+                Some(name) => name,
+                None => continue,
+            };
+            std::fs::write(relays_dir.join(safe_name), &relay.contents)?;
         }
 
         // Update folder cache
