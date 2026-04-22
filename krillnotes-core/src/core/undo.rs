@@ -14,6 +14,10 @@ use crate::{AttachmentMeta, FieldValue, Note};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+fn default_script_category() -> String {
+    "library".to_string()
+}
+
 /// The inverse data needed to reverse one or more workspace mutations.
 ///
 /// Applied by [`crate::Workspace::undo`] to restore previous state.
@@ -61,6 +65,8 @@ pub enum RetractInverse {
         source_code: String,
         load_order: i32,
         enabled: bool,
+        #[serde(default = "default_script_category")]
+        category: String,
     },
 
     /// Inverse of `DeleteAttachment` — restores a soft-deleted attachment.

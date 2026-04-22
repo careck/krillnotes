@@ -23,6 +23,9 @@ use std::hash::{Hash, Hasher};
 pub fn get_device_id() -> Result<String> {
     match mac_address::get_mac_address() {
         Ok(Some(mac)) => {
+            // DefaultHasher is not guaranteed stable across Rust versions, but this
+            // derivation is battle-tested for multi-device sync.  Do NOT change
+            // without extensive cross-device migration testing.
             let mut hasher = DefaultHasher::new();
             mac.bytes().hash(&mut hasher);
             let hash = hasher.finish();

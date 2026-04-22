@@ -1772,6 +1772,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
             license_url: None,
             language: Some("en".to_string()),
             tags: vec!["productivity".to_string()],
+            owner_pubkey: None,
         };
         ws.set_workspace_metadata(&meta).unwrap();
 
@@ -3807,4 +3808,79 @@ schema("SameVerType", #{
         let _undo_result = ws.undo().expect("undo should succeed");
         let after_undo = ws.get_note(&root.id).unwrap();
         assert!(after_undo.is_checked, "undo should restore checked state to true");
+    }
+
+    // ── Batch 2: Data Integrity Fix Tests ──────────────────────────────
+
+    #[test]
+    fn test_c5_delete_note_logs_operation_atomically() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+
+        ws.delete_note_recursive(&child_id).unwrap();
+
+        let ops = ws.list_operations(Some("DeleteNote"), None, None).unwrap();
+        assert!(!ops.is_empty(), "DeleteNote operation must be logged after recursive delete");
+    }
+
+    #[test]
+    fn test_m4_undo_delete_schema_script_restores_category() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.krillnotes");
+        let mut ws = Workspace::create(&path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
+
+        let src = "// @name: MySchema\n// @description: test schema\nschema(\"MySchema\", #{ version: 1, fields: [] });";
+        let (script, _) = ws.create_user_script(src).unwrap();
+        assert_eq!(script.category, "schema");
+        ws.script_undo_stack.clear();
+
+        ws.delete_user_script(&script.id).unwrap();
+        assert!(ws.can_script_undo());
+
+        ws.script_undo().unwrap();
+
+        let restored = ws.get_user_script(&script.id).unwrap();
+        assert_eq!(restored.category, "schema", "restored script must retain original category, not default to 'library'");
+    }
+
+    #[test]
+    fn test_m5_purge_retains_more_than_100_ops() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        // Generate 120 operations (each title update = 1 op).
+        for i in 0..120 {
+            ws.update_note_title(&root.id, format!("Title {i}")).unwrap();
+        }
+
+        // Old limit (100) would purge ops down to 100; new limit (1000) keeps all.
+        // The workspace starts with a CreateNote op, so total should be 1 + 120 = 121.
+        let ops = ws.list_operations(None, None, None).unwrap();
+        assert!(
+            ops.len() > 100,
+            "purge limit should be higher than 100, but only {} ops remain",
+            ops.len()
+        );
+    }
+
+    #[test]
+    fn test_m6_set_note_checked_stores_seconds_timestamp() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
+
+        let root = ws.list_all_notes().unwrap()[0].clone();
+        ws.set_note_checked(&root.id, true).unwrap();
+
+        let note = ws.get_note(&root.id).unwrap();
+        // A seconds-range timestamp (10 digits) is < 10_000_000_000.
+        // A milliseconds-range timestamp (13 digits) is > 1_000_000_000_000.
+        assert!(
+            note.modified_at < 10_000_000_000,
+            "modified_at should be seconds, not milliseconds: got {}",
+            note.modified_at
+        );
     }

@@ -263,6 +263,7 @@ impl Workspace {
                 source_code: old_script.source_code,
                 load_order: old_script.load_order,
                 enabled: old_script.enabled,
+                category: old_script.category,
             },
             propagate: true,
         });
@@ -325,6 +326,7 @@ impl Workspace {
                 source_code: old_script.source_code,
                 load_order: old_script.load_order,
                 enabled: old_script.enabled,
+                category: old_script.category,
             },
             propagate: true,
         });

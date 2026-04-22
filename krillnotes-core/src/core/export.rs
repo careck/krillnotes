@@ -79,6 +79,8 @@ pub struct WorkspaceMetadata {
     /// Workspace-level taxonomy tags for gallery discovery (distinct from per-note tags).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_pubkey: Option<String>,
 }
 
 /// Result returned after reading an export archive's metadata.
@@ -257,6 +259,7 @@ pub fn export_workspace<W: Write + Seek>(
         .get_workspace_metadata()
         .map_err(|e| ExportError::Database(e.to_string()))?;
     ws_meta.version = 1;
+    ws_meta.owner_pubkey = Some(workspace.owner_pubkey().to_string());
     zip.start_file("workspace.json", options)?;
     serde_json::to_writer_pretty(&mut zip, &ws_meta)?;
 
@@ -548,6 +551,15 @@ pub fn import_workspace<R: Read + Seek>(
         workspace
             .set_workspace_metadata(meta)
             .map_err(|e| ExportError::Database(e.to_string()))?;
+    }
+
+    // Restore the original owner_pubkey from the archive, overriding the
+    // importer's key that Workspace::open() inserted.
+    if let Some(ref meta) = workspace_metadata {
+        if let Some(ref original_owner) = meta.owner_pubkey {
+            workspace.set_owner_pubkey(original_owner)
+                .map_err(|e| ExportError::Database(e.to_string()))?;
+        }
     }
 
     Ok(ImportResult {

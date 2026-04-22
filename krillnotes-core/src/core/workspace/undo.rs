@@ -368,6 +368,7 @@ impl Workspace {
                         source_code: current.source_code,
                         load_order: current.load_order,
                         enabled: current.enabled,
+                        category: current.category,
                     })
                 } else {
                     // Script already absent — redo entry is a no-op placeholder.
@@ -378,6 +379,7 @@ impl Workspace {
                         source_code: String::new(),
                         load_order: 0,
                         enabled: false,
+                        category: "library".to_string(),
                     })
                 }
             }
@@ -394,6 +396,7 @@ impl Workspace {
                         source_code: current.source_code,
                         load_order: current.load_order,
                         enabled: current.enabled,
+                        category: current.category,
                     })
                 } else {
                     Ok(RetractInverse::DeleteScript { script_id: script_id.clone() })
@@ -534,7 +537,7 @@ impl Workspace {
 
             RetractInverse::ScriptRestore {
                 script_id, name, description,
-                source_code, load_order, enabled,
+                source_code, load_order, enabled, category,
             } => {
                 let now = chrono::Utc::now().timestamp();
                 self.storage.connection().execute(
@@ -544,7 +547,7 @@ impl Workspace {
                      VALUES (?,?,?,?,?,?,?,?,?)",
                     rusqlite::params![
                         script_id, name, description, source_code,
-                        load_order, enabled, now, now, "library",
+                        load_order, enabled, now, now, category,
                     ],
                 )?;
                 self.reload_scripts()?;
