@@ -2278,3 +2278,49 @@
             Some(&FieldValue::Number(5.0)),
         );
     }
+
+    // ── C4: Rhai engine limits ─────────────────────────────────────────
+
+    #[test]
+    fn infinite_loop_script_returns_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let result = registry.load_script(
+            r#"
+            schema("Looper", #{
+                version: 1,
+                fields: [],
+                on_save: |note| { loop {} }
+            });
+            "#,
+            "loop-test",
+        );
+        // Schema registration itself succeeds (the loop is in a closure)
+        assert!(result.is_ok());
+        registry.resolve_bindings();
+
+        let fields = BTreeMap::new();
+        let result = registry.run_on_save_hook("Looper", "n1", "Looper", "Test", &fields);
+        assert!(result.is_err(), "Infinite loop should hit operation limit");
+    }
+
+    #[test]
+    fn deeply_recursive_script_returns_error() {
+        let mut registry = ScriptRegistry::new().unwrap();
+        let result = registry.load_script(
+            r#"
+            fn recurse(n) { recurse(n + 1) }
+            schema("Recurser", #{
+                version: 1,
+                fields: [],
+                on_save: |note| { recurse(0); commit(); }
+            });
+            "#,
+            "recurse-test",
+        );
+        assert!(result.is_ok());
+        registry.resolve_bindings();
+
+        let fields = BTreeMap::new();
+        let result = registry.run_on_save_hook("Recurser", "n1", "Recurser", "Test", &fields);
+        assert!(result.is_err(), "Deep recursion should hit call level limit");
+    }

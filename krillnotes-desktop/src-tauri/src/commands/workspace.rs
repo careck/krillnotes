@@ -1236,10 +1236,8 @@ mod tests {
 
     #[test]
     fn read_file_content_impl_errors_on_missing_rhai_file() {
-        // Use a path with allowed extension but nonexistent file
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("__missing__.rhai");
-        // Do NOT create the file — it should not exist
         let result = super::read_file_content_impl(path.to_str().unwrap());
         assert!(result.is_err());
     }
