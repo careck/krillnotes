@@ -442,6 +442,7 @@ pub fn run() {
             fetch_relay_invite_response,
             sync::reset_peer_watermark,
             sync::has_pending_sync_ops,
+            sync::list_sync_events,
             list_accepted_invites,
             save_accepted_invite,
             update_accepted_invite_status,

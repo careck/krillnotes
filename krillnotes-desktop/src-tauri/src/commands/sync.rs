@@ -895,3 +895,20 @@ pub fn has_pending_sync_ops(
         .ok_or("No workspace open for this window")?;
     ws.has_pending_ops_for_any_peer().map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn list_sync_events(
+    window: Window,
+    state: State<'_, AppState>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<krillnotes_core::SyncEventRecord>, String> {
+    let label = window.label().to_string();
+    let workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
+    let workspace = workspaces
+        .get(&label)
+        .ok_or_else(|| format!("No workspace for window {label}"))?;
+    workspace
+        .list_sync_events(limit, offset)
+        .map_err(|e| e.to_string())
+}
