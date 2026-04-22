@@ -26,7 +26,7 @@ use crate::Result;
 /// A relay account stored per-identity.
 ///
 /// Stored at `<relays_dir>/<relay_account_id>.json` (encrypted).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayAccount {
     pub relay_account_id: Uuid,
@@ -36,6 +36,28 @@ pub struct RelayAccount {
     pub session_token: String,
     pub session_expires_at: DateTime<Utc>,
     pub device_public_key: String,
+}
+
+impl std::fmt::Debug for RelayAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelayAccount")
+            .field("relay_account_id", &self.relay_account_id)
+            .field("relay_url", &self.relay_url)
+            .field("email", &self.email)
+            .field("password", &"[REDACTED]")
+            .field("session_token", &"[REDACTED]")
+            .field("session_expires_at", &self.session_expires_at)
+            .field("device_public_key", &self.device_public_key)
+            .finish()
+    }
+}
+
+impl Drop for RelayAccount {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.password.zeroize();
+        self.session_token.zeroize();
+    }
 }
 
 /// On-disk format for an encrypted relay account file.
@@ -242,8 +264,9 @@ impl RelayAccountManager {
 
 impl Drop for RelayAccountManager {
     fn drop(&mut self) {
+        use zeroize::Zeroize;
         if let Some(key) = self.encryption_key.as_mut() {
-            key.fill(0);
+            key.zeroize();
         }
     }
 }
@@ -444,6 +467,30 @@ mod tests {
         assert_eq!(loaded.password, "s3cret-password");
         assert_eq!(loaded.session_token, "tok_persist");
         assert_eq!(loaded.device_public_key, "pubkey123");
+    }
+
+    #[test]
+    fn test_debug_redacts_password_and_token() {
+        let account = RelayAccount {
+            relay_account_id: Uuid::new_v4(),
+            relay_url: "https://relay.example.com".to_string(),
+            email: "test@test.com".to_string(),
+            password: "super-secret-password".to_string(),
+            session_token: "secret-token-value".to_string(),
+            session_expires_at: Utc::now(),
+            device_public_key: "pk-123".to_string(),
+        };
+        let debug_output = format!("{:?}", account);
+        assert!(
+            !debug_output.contains("super-secret-password"),
+            "Debug output must not contain password"
+        );
+        assert!(
+            !debug_output.contains("secret-token-value"),
+            "Debug output must not contain session_token"
+        );
+        assert!(debug_output.contains("[REDACTED]"));
+        assert!(debug_output.contains("relay.example.com"));
     }
 
     #[test]
