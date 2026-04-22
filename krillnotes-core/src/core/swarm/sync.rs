@@ -1095,4 +1095,117 @@ mod tests {
             "Bob's .enc file must be deleted after remove sync"
         );
     }
+
+    /// A bundle carrying a tampered (post-sign) operation must be rejected by
+    /// `apply_delta` AND must produce a `signature_invalid` entry in Bob's
+    /// sync_events audit log.
+    #[test]
+    fn test_apply_delta_rejects_tampered_ops_and_logs_sync_event() {
+        use crate::core::hlc::HlcTimestamp;
+        use crate::core::operation::Operation;
+        use crate::core::swarm::delta::{create_delta_bundle, DeltaParams};
+
+        let alice_key = make_key();
+        let bob_key = make_key();
+        let alice_pubkey_b64 = b64(&alice_key);
+        let bob_pubkey_b64 = b64(&bob_key);
+
+        // ── Alice's workspace ─────────────────────────────────────────────────
+        let alice_temp = tempfile::NamedTempFile::new().unwrap();
+        let mut alice_ws = crate::core::workspace::Workspace::create(
+            alice_temp.path(),
+            "",
+            "alice-id",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            test_gate(),
+            None,
+        )
+        .unwrap();
+        let snap_op = alice_ws
+            .get_latest_operation_id()
+            .unwrap()
+            .unwrap_or_default();
+        alice_ws
+            .upsert_sync_peer("dev-bob", &bob_pubkey_b64, Some(&snap_op), None)
+            .unwrap();
+
+        // ── Build a signed operation, then tamper with its title ──────────────
+        let mut op = Operation::UpdateNote {
+            operation_id: "tamper-op-1".to_string(),
+            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 0 },
+            device_id: "dev-alice".to_string(),
+            note_id: "note-1".to_string(),
+            title: "Original Title".to_string(),
+            modified_by: String::new(),
+            signature: String::new(),
+        };
+        op.sign(&alice_key);
+
+        // Tamper: mutate the title via JSON round-trip so the signature no
+        // longer matches the serialised payload.
+        // `Operation` uses `#[serde(tag = "type")]` (internally tagged), so the
+        // JSON is a flat object like `{"type":"UpdateNote","title":"..."}`.
+        let mut op_json: serde_json::Value = serde_json::to_value(&op).unwrap();
+        op_json["title"] = serde_json::Value::String("TAMPERED Title".to_string());
+        let tampered_op: Operation = serde_json::from_value(op_json).unwrap();
+
+        // ── Build a bundle addressed to Bob using Alice's workspace_id ────────
+        let alice_ws_id = alice_ws.workspace_id().to_string();
+        let bundle_bytes = create_delta_bundle(DeltaParams {
+            protocol: "test".to_string(),
+            workspace_id: alice_ws_id,
+            workspace_name: "Test".to_string(),
+            source_device_id: "dev-alice".to_string(),
+            source_display_name: "Alice".to_string(),
+            since_operation_id: String::new(),
+            operations: vec![tampered_op],
+            sender_key: &alice_key,
+            recipient_keys: vec![&bob_key.verifying_key()],
+            recipient_peer_ids: vec!["dev-bob".to_string()],
+            recipient_identity_id: bob_pubkey_b64.clone(),
+            owner_pubkey: alice_pubkey_b64.clone(),
+            ack_operation_id: None,
+            attachment_blobs: vec![],
+        })
+        .unwrap();
+
+        // ── Bob opens the same database (workspace_id matches) ────────────────
+        let mut bob_ws = crate::core::workspace::Workspace::open(
+            alice_temp.path(),
+            "",
+            "bob-id",
+            SigningKey::from_bytes(&bob_key.to_bytes()),
+            test_gate(),
+            None,
+        )
+        .unwrap();
+
+        let bob_cm_dir = tempfile::tempdir().unwrap();
+        let mut bob_cm = crate::core::contact::ContactManager::for_identity(
+            bob_cm_dir.path().to_path_buf(),
+            [30u8; 32],
+        )
+        .unwrap();
+
+        // ── apply_delta must fail ─────────────────────────────────────────────
+        let result = super::apply_delta(&bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm);
+        assert!(result.is_err(), "tampered op must cause apply_delta to fail");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("operation signature invalid"),
+            "unexpected error: {err_msg}"
+        );
+
+        // ── A signature_invalid sync_event must have been logged ──────────────
+        let events = bob_ws.list_sync_events(10, 0).unwrap();
+        assert!(
+            !events.is_empty(),
+            "at least one sync_event must be logged after tampered bundle"
+        );
+        assert!(
+            events.iter().any(|e| e.event_type == "signature_invalid"),
+            "expected a signature_invalid event, found: {:?}",
+            events
+        );
+    }
 }
