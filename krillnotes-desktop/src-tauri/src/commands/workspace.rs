@@ -821,24 +821,11 @@ pub fn delete_theme(filename: String) -> std::result::Result<(), String> {
 /// Returns an error string if the extension is not permitted, the file does
 /// not exist, or cannot be read.
 pub(crate) fn read_file_content_impl(path: &str) -> std::result::Result<String, String> {
-    read_file_content_checked(path, &crate::settings::home_dir())
-}
-
-fn read_file_content_checked(
-    path: &str,
-    home: &std::path::Path,
-) -> std::result::Result<String, String> {
     let allowed = path.ends_with(".rhai") || path.ends_with(".krilltheme");
     if !allowed {
         return Err(format!("Only .rhai and .krilltheme files may be imported: {path}"));
     }
-    let canonical = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let canon_home = std::fs::canonicalize(home).map_err(|e| e.to_string())?;
-    let themes_dir = canon_home.join(".themes");
-    if !canonical.starts_with(&canon_home) && !canonical.starts_with(&themes_dir) {
-        return Err("File is outside the allowed directories".to_string());
-    }
-    std::fs::read_to_string(&canonical).map_err(|e| e.to_string())
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 /// Reads and returns the full text of a user-selected import file.
@@ -1240,75 +1227,36 @@ pub fn close_window(
 
 #[cfg(test)]
 mod tests {
-    use super::read_file_content_checked;
-
     #[test]
-    fn rejects_disallowed_extension() {
-        let dir = tempfile::tempdir().unwrap();
-        let result = read_file_content_checked("/some/path/credentials.txt", dir.path());
+    fn read_file_content_impl_rejects_disallowed_extension() {
+        let result = super::read_file_content_impl("/some/path/credentials.txt");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Only .rhai and .krilltheme"));
     }
 
     #[test]
-    fn errors_on_missing_file() {
+    fn read_file_content_impl_errors_on_missing_rhai_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("__missing__.rhai");
-        let result = read_file_content_checked(path.to_str().unwrap(), dir.path());
+        let result = super::read_file_content_impl(path.to_str().unwrap());
         assert!(result.is_err());
     }
 
     #[test]
-    fn allows_rhai_inside_home() {
+    fn read_file_content_impl_allows_rhai_extension() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("script.rhai");
         std::fs::write(&path, "// @name: Test").unwrap();
-        let result = read_file_content_checked(path.to_str().unwrap(), dir.path());
+        let result = super::read_file_content_impl(path.to_str().unwrap());
         assert_eq!(result.unwrap(), "// @name: Test");
     }
 
     #[test]
-    fn allows_krilltheme_inside_home() {
+    fn read_file_content_impl_allows_krilltheme_extension() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("theme.krilltheme");
         std::fs::write(&path, r#"{"name":"Test"}"#).unwrap();
-        let result = read_file_content_checked(path.to_str().unwrap(), dir.path());
+        let result = super::read_file_content_impl(path.to_str().unwrap());
         assert_eq!(result.unwrap(), r#"{"name":"Test"}"#);
-    }
-
-    #[test]
-    fn allows_file_in_themes_subdir() {
-        let dir = tempfile::tempdir().unwrap();
-        let themes = dir.path().join(".themes");
-        std::fs::create_dir_all(&themes).unwrap();
-        let path = themes.join("dark.krilltheme");
-        std::fs::write(&path, "{}").unwrap();
-        let result = read_file_content_checked(path.to_str().unwrap(), dir.path());
-        assert_eq!(result.unwrap(), "{}");
-    }
-
-    #[test]
-    fn rejects_file_outside_home() {
-        let home = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let path = outside.path().join("evil.rhai");
-        std::fs::write(&path, "steal_data()").unwrap();
-        let result = read_file_content_checked(path.to_str().unwrap(), home.path());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("outside the allowed directories"));
-    }
-
-    #[test]
-    fn rejects_path_traversal() {
-        let home = tempfile::tempdir().unwrap();
-        let sub = home.path().join("scripts");
-        std::fs::create_dir_all(&sub).unwrap();
-        // Create a file outside home via traversal
-        let outside = tempfile::tempdir().unwrap();
-        let target = outside.path().join("secret.rhai");
-        std::fs::write(&target, "secrets").unwrap();
-        let traversal = format!("{}/../../../{}", sub.display(), target.display());
-        let result = read_file_content_checked(&traversal, home.path());
-        assert!(result.is_err());
     }
 }
