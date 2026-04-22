@@ -1112,7 +1112,7 @@ mod tests {
 
         // ── Alice's workspace ─────────────────────────────────────────────────
         let alice_temp = tempfile::NamedTempFile::new().unwrap();
-        let mut alice_ws = crate::core::workspace::Workspace::create(
+        let alice_ws = crate::core::workspace::Workspace::create(
             alice_temp.path(),
             "",
             "alice-id",
