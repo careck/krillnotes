@@ -2930,6 +2930,22 @@ schema("SameVerType", #{
     }
 
     #[test]
+    fn test_create_empty_with_id_skips_starter_scripts() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("notes.db");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+        let ws = Workspace::create_empty_with_id(
+            &db_path, "", "test-id", key, "skip-scripts-uuid", test_gate(), None,
+        )
+        .unwrap();
+        let count: i64 = ws
+            .connection()
+            .query_row("SELECT COUNT(*) FROM user_scripts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "create_empty_with_id should not seed starter scripts");
+    }
+
+    #[test]
     fn test_import_snapshot_json_round_trip() {
         let src_temp = NamedTempFile::new().unwrap();
         let mut src = Workspace::create(
