@@ -105,8 +105,7 @@ fn test_migration_adds_is_expanded_column() {
     // a workspace created before this column was added.
     {
         let conn = Connection::open(temp.path()).unwrap();
-        let hex_key = hex::encode("testpass".as_bytes());
-        conn.execute_batch(&format!("PRAGMA key = \"x'{hex_key}'\";")).unwrap();
+        conn.execute_batch("PRAGMA key = 'testpass';").unwrap();
         conn.execute(
             "CREATE TABLE notes (
                 id TEXT PRIMARY KEY,
@@ -233,8 +232,7 @@ fn test_migration_creates_user_scripts_table() {
     // a workspace created before this table was added.
     {
         let conn = Connection::open(temp.path()).unwrap();
-        let hex_key = hex::encode("testpass".as_bytes());
-        conn.execute_batch(&format!("PRAGMA key = \"x'{hex_key}'\";")).unwrap();
+        conn.execute_batch("PRAGMA key = 'testpass';").unwrap();
         conn.execute(
             "CREATE TABLE notes (
                 id TEXT PRIMARY KEY,

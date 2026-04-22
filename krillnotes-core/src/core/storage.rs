@@ -7,7 +7,6 @@
 //! SQLite connection management and schema migration for Krillnotes workspaces.
 
 use crate::Result;
-use hex;
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -34,8 +33,8 @@ impl Storage {
     pub fn create<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
         if !password.is_empty() {
-            let hex_key = hex::encode(password.as_bytes());
-            conn.execute_batch(&format!("PRAGMA key = \"x'{hex_key}'\";\n"))?;
+            let escaped = password.replace('\'', "''");
+            conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
         }
         conn.execute_batch(include_str!("schema.sql"))?;
         Ok(Self { conn })
@@ -59,8 +58,8 @@ impl Storage {
     pub fn open<P: AsRef<Path>>(path: P, password: &str) -> Result<Self> {
         let conn = Connection::open(path.as_ref())?;
         if !password.is_empty() {
-            let hex_key = hex::encode(password.as_bytes());
-            conn.execute_batch(&format!("PRAGMA key = \"x'{hex_key}'\";\n"))?;
+            let escaped = password.replace('\'', "''");
+            conn.execute_batch(&format!("PRAGMA key = '{escaped}';\n"))?;
         }
 
         // Attempt to read the schema. With a wrong password, SQLCipher returns
