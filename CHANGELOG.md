@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Import metadata preview** — When importing a `.krillnotes` archive, the import dialog now shows a collapsible "Workspace Properties" section displaying the author, description, license, homepage, and tags embedded in the archive — matching the same display shown in the invite acceptance workflow (PR #137).
 - **Sync on close** — When closing a workspace with unsynchronized changes, the app prompts to sync with relay/folder peers before closing. A new "Sync on Close" setting in Settings → General offers three modes: Always sync, Ask before closing (default), Never sync. Includes a spinner overlay during sync and error recovery if sync fails (PR #135).
 - **Note checkbox support** — Schemas can set `show_checkbox: true` to render an interactive checkbox in the tree view. Checked notes display with a strikethrough title. The `is_checked` state is a first-class field on the `Note` struct (like `title`), tracked by a dedicated `SetChecked` CRDT operation with full sync, export/import, and undo support. Rhai scripts can read `note.is_checked` in views/hooks and write via `set_checked(note_id, checked)` in `on_save` hooks (PR #134).
 - **Built-in TodoItem schema** — A new system script (`TodoItem`) with `show_checkbox: true` and `is_leaf: true`, ideal for checklists and task lists.
