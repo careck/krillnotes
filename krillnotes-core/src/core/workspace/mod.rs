@@ -1054,7 +1054,8 @@ mod hooks;
 mod scripts;
 mod attachments;
 mod sync;
-pub mod sync_events;
+mod sync_events;
+pub use sync_events::SyncEventRecord;
 pub mod permissions;
 
 // ── Free functions shared across domain sub-modules ─────────────────

@@ -42,9 +42,8 @@ pub use core::{
     received_response::{ReceivedResponse, ReceivedResponseManager, ReceivedResponseStatus},
     swarm::sync::ApplyResult,
     workspace::{
-        AddPosition, NoteSearchResult, Workspace,
+        AddPosition, NoteSearchResult, SyncEventRecord, Workspace,
         permissions::{CascadeImpactRow, EffectiveRoleInfo, InheritedGrant, PermissionGrantRow},
-        sync_events::SyncEventRecord,
     },
 };
 
