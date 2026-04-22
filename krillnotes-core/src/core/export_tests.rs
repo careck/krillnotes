@@ -478,6 +478,7 @@
             license_url: Some("https://mit-license.org".to_string()),
             language: Some("en".to_string()),
             tags: vec!["notes".to_string(), "template".to_string()],
+            owner_pubkey: None,
         };
         ws.set_workspace_metadata(&meta).unwrap();
 
@@ -603,6 +604,7 @@
             license_url: None,
             language: Some("en".to_string()),
             tags: vec!["test".to_string(), "demo".to_string()],
+            owner_pubkey: None,
         };
         ws.set_workspace_metadata(&meta).unwrap();
 
@@ -641,4 +643,37 @@
 
         let result = peek_import(Cursor::new(&buf), None).unwrap();
         assert!(result.metadata.is_none(), "old archives without workspace.json should return None metadata");
+    }
+
+    #[test]
+    fn test_m7_import_preserves_original_owner_pubkey() {
+        // Create original workspace with key A
+        let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+        let pubkey_a = {
+            use base64::Engine as _;
+            let vk = ed25519_dalek::VerifyingKey::from(&key_a);
+            base64::engine::general_purpose::STANDARD.encode(vk.as_bytes())
+        };
+        let temp_src = NamedTempFile::new().unwrap();
+        let ws = Workspace::create(temp_src.path(), "", "identity-a", key_a.clone(), test_gate(), None).unwrap();
+        assert_eq!(ws.owner_pubkey(), pubkey_a);
+
+        // Export
+        let mut buf = Vec::new();
+        export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+        // Import with a DIFFERENT key (key B)
+        let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+        let pubkey_b = {
+            use base64::Engine as _;
+            let vk = ed25519_dalek::VerifyingKey::from(&key_b);
+            base64::engine::general_purpose::STANDARD.encode(vk.as_bytes())
+        };
+        let temp_dst = NamedTempFile::new().unwrap();
+        import_workspace(Cursor::new(&buf), temp_dst.path(), None, "", "identity-b", key_b.clone()).unwrap();
+
+        // Re-open and verify that owner is still key A, NOT key B
+        let imported_ws = Workspace::open(temp_dst.path(), "", "identity-b", key_b, test_gate(), None).unwrap();
+        assert_eq!(imported_ws.owner_pubkey(), pubkey_a, "imported workspace must preserve original owner, not importer");
+        assert_ne!(imported_ws.owner_pubkey(), pubkey_b);
     }

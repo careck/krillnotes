@@ -149,7 +149,8 @@ impl Workspace {
     ) -> Result<Self> {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+        let purge_limit = Self::read_purge_limit_from_meta(storage.connection());
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: purge_limit });
 
         let device_id = if let Some(dir) = identity_dir {
             let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
@@ -458,7 +459,8 @@ impl Workspace {
     pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, mut permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+        let purge_limit = Self::read_purge_limit_from_meta(storage.connection());
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: purge_limit });
 
         // Read metadata from database
         let mut device_id: String = storage.connection()
@@ -1030,6 +1032,18 @@ impl Workspace {
         Ok(())
     }
 
+    const DEFAULT_PURGE_LIMIT: usize = 1000;
+
+    fn read_purge_limit_from_meta(conn: &rusqlite::Connection) -> usize {
+        conn.query_row(
+            "SELECT value FROM workspace_meta WHERE key = 'purge_limit'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(Self::DEFAULT_PURGE_LIMIT)
+    }
 }
 
 // ── Domain sub-modules (split from this file for readability) ──────

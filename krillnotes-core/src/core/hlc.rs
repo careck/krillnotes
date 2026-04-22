@@ -113,7 +113,7 @@ pub fn node_id_from_device(device_id: &Uuid) -> u32 {
 fn wall_clock_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64
 }
 

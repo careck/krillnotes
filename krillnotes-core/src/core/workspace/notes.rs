@@ -887,9 +887,9 @@ impl Workspace {
         };
         self.authorize(&auth_op)?;
 
+        let now = chrono::Utc::now().timestamp();
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
-        let now = ts.wall_ms as i64;
 
         let tx = self.storage.connection_mut().transaction()?;
         tx.execute(
@@ -1297,6 +1297,9 @@ impl Workspace {
             self.clear_links_to(id)?;
         }
 
+        let ts = self.advance_hlc();
+        let signing_key = self.signing_key.clone();
+
         let tx = self.storage.connection_mut().transaction()?;
 
         // Clean up any permission grants anchored on deleted notes.
@@ -1315,29 +1318,20 @@ impl Workspace {
         );
 
         let result = Self::delete_recursive_in_tx(&tx, note_id)?;
-        tx.commit()?;
 
-        // Log a DeleteNote operation for the root of the deleted subtree.
-        // Uses a separate transaction since the deletion tx was already committed.
-        // Advance HLC and capture signing key before the second transaction borrows self.storage.
-        let ts = self.advance_hlc();
-        let signing_key = self.signing_key.clone();
-        {
-            let tx = self.storage.connection_mut().transaction()?;
-            Self::save_hlc(&ts, &tx)?;
-            let mut op = Operation::DeleteNote {
-                operation_id: op_id.clone(),
-                timestamp: ts,
-                device_id: self.device_id.clone(),
-                note_id: note_id.to_string(),
-                deleted_by: String::new(),
-                signature: String::new(),
-            };
-            Self::sign_op_with(&signing_key, &mut op);
-            Self::log_op(&self.operation_log, &tx, &op)?;
-            Self::purge_ops_if_needed(&self.operation_log, &tx)?;
-            tx.commit()?;
-        }
+        Self::save_hlc(&ts, &tx)?;
+        let mut op = Operation::DeleteNote {
+            operation_id: op_id.clone(),
+            timestamp: ts,
+            device_id: self.device_id.clone(),
+            note_id: note_id.to_string(),
+            deleted_by: String::new(),
+            signature: String::new(),
+        };
+        Self::sign_op_with(&signing_key, &mut op);
+        Self::log_op(&self.operation_log, &tx, &op)?;
+        Self::purge_ops_if_needed(&self.operation_log, &tx)?;
+        tx.commit()?;
 
         self.push_undo(UndoEntry {
             retracted_ids: vec![op_id],

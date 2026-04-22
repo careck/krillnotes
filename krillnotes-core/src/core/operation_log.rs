@@ -14,6 +14,7 @@ use rusqlite::Transaction;
 const SECONDS_PER_DAY: i64 = 86_400;
 
 /// Controls which old operations are removed from the log.
+#[derive(Debug, PartialEq)]
 pub enum PurgeStrategy {
     /// Retain only the most recent `keep_last` operations.
     ///
@@ -49,6 +50,10 @@ impl OperationLog {
     /// Creates a new `OperationLog` with the given purge strategy.
     pub fn new(strategy: PurgeStrategy) -> Self {
         Self { strategy }
+    }
+
+    pub fn purge_strategy(&self) -> &PurgeStrategy {
+        &self.strategy
     }
 
     /// Serialises `op` and appends it to the `operations` table within `tx`.

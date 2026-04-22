@@ -99,6 +99,17 @@ impl Storage {
     }
 
     fn run_migrations(conn: &Connection) -> Result<()> {
+        conn.execute_batch("BEGIN IMMEDIATE;")?;
+        let result = Self::run_migrations_inner(conn);
+        if result.is_ok() {
+            conn.execute_batch("COMMIT;")?;
+        } else {
+            let _ = conn.execute_batch("ROLLBACK;");
+        }
+        result
+    }
+
+    fn run_migrations_inner(conn: &Connection) -> Result<()> {
         // Migration: add is_expanded column if absent.
         let column_exists: bool = conn.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='is_expanded'",
