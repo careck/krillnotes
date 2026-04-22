@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sync on close** — When closing a workspace with unsynchronized changes, the app prompts to sync with relay/folder peers before closing. A new "Sync on Close" setting in Settings → General offers three modes: Always sync, Ask before closing (default), Never sync. Includes a spinner overlay during sync and error recovery if sync fails (PR #135).
 - **Note checkbox support** — Schemas can set `show_checkbox: true` to render an interactive checkbox in the tree view. Checked notes display with a strikethrough title. The `is_checked` state is a first-class field on the `Note` struct (like `title`), tracked by a dedicated `SetChecked` CRDT operation with full sync, export/import, and undo support. Rhai scripts can read `note.is_checked` in views/hooks and write via `set_checked(note_id, checked)` in `on_save` hooks (PR #134).
 - **Built-in TodoItem schema** — A new system script (`TodoItem`) with `show_checkbox: true` and `is_leaf: true`, ideal for checklists and task lists.
+- **Sync events audit trail** — New `sync_events` database table logs sync security failures (bundle rejections, signature failures, sidecar mismatches) with peer identity and detail. A new "Sync Events" tab in the Operations Log dialog displays the audit trail. Includes `list_sync_events` Tauri command and i18n across all 7 locales (PR #149).
 
 ### Improved
 - **Wider script & theme editors** — The script and theme editor dialogs now expand to 90% of the window width when editing, instead of being fixed at 700px. The list view retains its compact size.
@@ -19,6 +20,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Pending sync false positives** — `has_pending_ops_for_any_peer()` now excludes operations authored by the peer and operations received from the peer (echo prevention), matching the filters used by `generate_delta()`. Previously, ops received from a peer were counted as "pending", causing the sync indicator and sync-on-close dialog to trigger when there was nothing to send (PR #135).
 - **Stale view tab on note switch** — Switching between note types with different view names no longer produces `render_view` errors. The view rendering effect now uses a ref-based guard to prevent firing with stale state from the previous note.
+
+### Security
+- **Sidecar hashes in bundle manifest** — Attachment sidecar ciphertext is now included in the BLAKE3 manifest hash before Ed25519 signing. Sidecars stripped from a bundle in transit now invalidate the bundle signature (PR #149).
+- **Relay password zeroized on drop** — `RelayAccount.password` and `session_token` are zeroized from memory when the struct is dropped via the `zeroize` crate. `Debug` output redacts both fields as `[REDACTED]` (PR #149).
+- **Rhai engine resource limits** — Script execution capped at 200K operations, 64 call levels, 1M string size, and 100K array size to prevent infinite loops from hanging the app (PR #148).
+- **Path traversal fixes** — `.swarmid` relay filename and attachment temp filename sanitized with `Path::file_name()` to prevent directory traversal (PR #148).
+- **SQLCipher key encoding** — PRAGMA key switched from string interpolation to hex-encoded form, eliminating fragile single-quote escaping (PR #148).
+- **`read_file_content` path confinement** — File reads confined to Krillnotes home directory and `.themes/` subdirectory (PR #148).
+- **Note titles removed from production logs** — `ghost_ops` WARN-level log lines that leaked note content removed (PR #148).
+- **Atomic note deletion** — `delete_note_recursive` now runs deletion and operation log entry in a single transaction, preventing sync history loss on crash (PR #147).
+- **Transactional migrations** — `run_migrations` wrapped in `BEGIN IMMEDIATE` / `COMMIT` to prevent partial migration on crash (PR #147).
+- **HLC panic guard** — `wall_clock_ms()` uses `.unwrap_or_default()` instead of `.unwrap()` to avoid panic on pre-epoch system clock (PR #147).
+
+### Data integrity
+- **Script undo restores original category** — `ScriptRestore` undo variant now captures and restores the original `category` field instead of hardcoding `"library"` (PR #147).
+- **Op purge limit increased** — Default purge limit raised from 100 → 1000, configurable via `workspace_meta` key `purge_limit` (PR #147).
+- **Checkbox timestamp fix** — `set_note_checked` now stores `modified_at` in seconds (matching all other write paths) instead of HLC milliseconds (PR #147).
+- **Import preserves owner** — `import_workspace` now preserves the original `owner_pubkey` from the archive instead of overwriting it with the importer's key (PR #147).
 
 ### Changed
 - **Script category renamed "presentation" → "library"** — The internal DB/Rust category value now matches the frontend UI label. Includes a DB migration to update existing rows automatically (PR #130).
