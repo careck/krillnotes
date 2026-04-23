@@ -6,6 +6,7 @@
     "close": "Close",
     "delete": "Delete",
     "deleting": "Deleting…",
+    "dismiss": "Dismiss",
     "loading": "Loading…",
     "edit": "Edit",
     "view": "View",
@@ -161,7 +162,9 @@
     "failedCheckChildren": "Failed to check children: {{error}}",
     "failedDelete": "Failed to delete: {{error}}",
     "undoTooltip": "Undo (Cmd+Z)",
-    "redoTooltip": "Redo (Cmd+Shift+Z)"
+    "redoTooltip": "Redo (Cmd+Shift+Z)",
+    "schemaMigrated_one": "\"{{schemaName}}\" schema updated — {{count}} note migrated to version {{version}}",
+    "schemaMigrated_other": "\"{{schemaName}}\" schema updated — {{count}} notes migrated to version {{version}}"
   },
   "dialogs": {
     "password": {
@@ -253,7 +256,9 @@
     "starRating_other": "{{count}} stars",
     "unknownFieldType": "Unknown field type",
     "imageNotFound": "Image not found",
-    "deleted": "(deleted)"
+    "deleted": "(deleted)",
+    "hiddenDataExists": "(hidden — data exists)",
+    "openOnInstagram": "Open on Instagram ↗"
   },
   "tags": {
     "addPlaceholder": "Add tag…",

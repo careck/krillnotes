@@ -46,6 +46,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   // isEditing is kept in InfoPanel (not in useNoteForm) to break the circular dependency:
   // useSchema needs isEditing, and useNoteForm needs schemaInfo from useSchema.
   const [isEditing, setIsEditing] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const viewHtmlRef = useRef<HTMLDivElement>(null);
   const pendingEditModeRef = useRef(false);
@@ -142,7 +143,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         } catch {
           const span = document.createElement('span');
           span.className = 'kn-image-error';
-          span.textContent = 'Image not found';
+          span.textContent = t('fields.imageNotFound');
           img.replaceWith(span);
         }
       })
@@ -179,7 +180,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
         card.className = 'kn-media-card kn-media-card--instagram';
         const label = document.createElement('span');
         label.className = 'kn-media-card-label';
-        label.textContent = 'Open on Instagram ↗';
+        label.textContent = t('fields.openOnInstagram');
         card.appendChild(label);
       } else {
         return; // unknown type — leave sentinel in place
@@ -372,7 +373,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               : 'text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('fields')}
           >
-            {t('info_panel.fields', 'Fields')}
+            {t('notes.fields')}
           </button>
         </div>
       )}
@@ -385,6 +386,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
             ref={viewHtmlRef}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(activeViewHtml, { ADD_ATTR: ['data-note-id', 'data-kn-attach-id', 'data-kn-width', 'data-kn-download-id', 'data-kn-embed-type', 'data-kn-embed-id', 'data-kn-embed-url'], ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i }) }}
             onClick={(e) => {
+              setDownloadError(null);
               const target = e.target as Element;
 
               const downloadLink = target.closest('[data-kn-download-id]');
@@ -403,7 +405,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                     a.click();
                     setTimeout(() => URL.revokeObjectURL(url), 100);
                   })
-                  .catch(err => alert(String(err)));
+                  .catch(err => setDownloadError(String(err)));
                 return;
               }
 
@@ -422,6 +424,10 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
               }
             }}
           />
+        )}
+
+        {downloadError && (
+          <p className="text-xs text-red-500 px-1 py-1">{downloadError}</p>
         )}
 
         {/* Tag pills — shown only in view mode */}
@@ -520,7 +526,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                   >
                     <ChevronRight size={14} className={`transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
                     {group.name}
-                    {!isVisible && <span className="text-xs text-muted-foreground ml-2 font-normal">(hidden — data exists)</span>}
+                    {!isVisible && <span className="text-xs text-muted-foreground ml-2 font-normal">{t('fields.hiddenDataExists')}</span>}
                   </button>
                   {!isCollapsed && (
                     <div className="px-4 pb-2 pt-1">
@@ -830,5 +836,12 @@ export default memo(InfoPanel, (prev, next) =>
   prev.requestEditMode === next.requestEditMode &&
   prev.backNoteTitle === next.backNoteTitle &&
   prev.refreshSignal === next.refreshSignal &&
-  prev.effectiveRole === next.effectiveRole,
+  prev.effectiveRole === next.effectiveRole &&
+  prev.onDeleteRequest === next.onDeleteRequest &&
+  prev.onEditDone === next.onEditDone &&
+  prev.onLinkNavigate === next.onLinkNavigate &&
+  prev.onBack === next.onBack &&
+  prev.onShareSubtree === next.onShareSubtree &&
+  prev.onRoleChange === next.onRoleChange &&
+  prev.onRevokeGrant === next.onRevokeGrant,
 );

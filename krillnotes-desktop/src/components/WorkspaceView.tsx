@@ -28,7 +28,7 @@ import WorkspacePropertiesDialog from './WorkspacePropertiesDialog';
 import InviteWorkflow from './InviteWorkflow';
 import { ShareDialog } from './ShareDialog';
 import { CascadePreviewDialog } from './CascadePreviewDialog';
-import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo, CascadeImpactRow, SyncEvent } from '../types';
+import type { Note, TreeNode, WorkspaceInfo, DeleteResult, SchemaInfo, DropIndicator, SchemaMigratedEvent, ReceivedResponseInfo, CascadeImpactRow, SyncEvent, PeerInfo } from '../types';
 import { DeleteStrategy } from '../types';
 import { buildTree, getDescendantIds } from '../utils/tree';
 import { getAvailableTypes, type NotePosition } from '../utils/noteTypes';
@@ -70,6 +70,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
   const [pendingDeleteChildCount, setPendingDeleteChildCount] = useState(0);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Incremented to signal InfoPanel to enter edit mode
   const [requestEditMode, setRequestEditMode] = useState(0);
@@ -179,12 +180,12 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
   // (inviter needs polling to discover accept bundles even before peers exist).
   useEffect(() => {
     Promise.all([
-      invoke<any[]>("list_workspace_peers").catch(e => { console.warn('list_workspace_peers failed:', e); return []; }),
+      invoke<PeerInfo[]>("list_workspace_peers").catch(e => { console.warn('list_workspace_peers failed:', e); return [] as PeerInfo[]; }),
       invoke<boolean>("has_relay_credentials").catch(() => false),
     ]).then(([peers, hasCreds]) => {
-      setHasPeers((peers as any[]).length > 0);
+      setHasPeers(peers.length > 0);
       setHasRelayPeers(
-        (peers as any[]).some((p: any) => p.channelType !== "manual") || (hasCreds as boolean)
+        peers.some(p => p.channelType !== "manual") || hasCreds
       );
     });
   }, []);
@@ -286,6 +287,9 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
       setIsRootOwner(true);
     }
   };
+
+  const loadPermissionStateRef = useRef(loadPermissionState);
+  loadPermissionStateRef.current = loadPermissionState;
 
   // Tree state — selection, expansion, keyboard navigation, link navigation.
   // Placed after loadNotes because the hook receives loadNotes as a parameter and
@@ -560,20 +564,21 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
 
   // --- Delete handlers (lifted from InfoPanel) ---
 
-  const handleDeleteRequest = async (noteId: string) => {
+  const handleDeleteRequest = useCallback(async (noteId: string) => {
     try {
       const count = await invoke<number>('count_children', { noteId });
       setPendingDeleteChildCount(count);
       setPendingDeleteId(noteId);
       setShowDeleteDialog(true);
     } catch (err) {
-      alert(t('workspace.failedCheckChildren', { error: String(err) }));
+      setDeleteError(t('workspace.failedCheckChildren', { error: String(err) }));
     }
-  };
+  }, [t]);
 
   const handleDeleteConfirm = async (strategy: DeleteStrategy) => {
     if (!pendingDeleteId || isDeleting) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       await invoke<DeleteResult>('delete_note', {
         noteId: pendingDeleteId,
@@ -584,7 +589,7 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
       setIsDeleting(false);
       await handleNoteUpdated();
     } catch (err) {
-      alert(t('workspace.failedDelete', { error: String(err) }));
+      setDeleteError(t('workspace.failedDelete', { error: String(err) }));
       setShowDeleteDialog(false);
       setPendingDeleteId(null);
       setIsDeleting(false);
@@ -597,23 +602,21 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
     setIsDeleting(false);
   };
 
-  const handleEditDone = () => {
+  const handleEditDone = useCallback(() => {
     closePendingUndoGroup();
     requestAnimationFrame(() => {
-      // targets the TreeView container div which carries tabIndex={0}
       treePanelRef.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
     });
-  };
+  }, [closePendingUndoGroup]);
 
   // --- Share/cascade handlers ---
 
-  const handleShareSubtree = (noteId: string) => {
+  const handleShareSubtree = useCallback((noteId: string) => {
     const note = notes.find(n => n.id === noteId);
     setShareScope({ noteId, noteTitle: note?.title ?? noteId });
-  };
+  }, [notes]);
 
-  const handleRoleChange = async (noteId: string, userId: string, newRole: string, oldRole: string) => {
-    // Check for cascade impact first
+  const handleRoleChange = useCallback(async (noteId: string, userId: string, newRole: string, oldRole: string) => {
     try {
       const impacts = await invoke<CascadeImpactRow[]>('preview_cascade', {
         noteId, userId, newRole,
@@ -630,17 +633,16 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
       }
     } catch { /* no cascade needed */ }
 
-    // No cascade impact — apply directly
     try {
       await invoke('set_permission', { noteId, userId, role: newRole });
-      loadPermissionState();
+      loadPermissionStateRef.current();
       setPermissionRefreshSignal(prev => prev + 1);
     } catch (e) {
       console.error('Failed to change role:', e);
     }
-  };
+  }, [notes]);
 
-  const handleRevokeGrant = async (noteId: string, userId: string) => {
+  const handleRevokeGrant = useCallback(async (noteId: string, userId: string) => {
     try {
       const impacts = await invoke<CascadeImpactRow[]>('preview_cascade', {
         noteId, userId, newRole: 'none',
@@ -659,12 +661,12 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
 
     try {
       await invoke('revoke_permission', { noteId, userId });
-      loadPermissionState();
+      loadPermissionStateRef.current();
       setPermissionRefreshSignal(prev => prev + 1);
     } catch (e) {
       console.error('Failed to revoke:', e);
     }
-  };
+  }, [notes]);
 
   const handleCascadeConfirm = async (revokeGrants: Array<{ noteId: string; userId: string }>) => {
     if (!cascadeState) return;
@@ -873,6 +875,13 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
         />
       )}
 
+      {deleteError && (
+        <div className="fixed bottom-4 left-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50 flex items-center gap-2">
+          <span>{deleteError}</span>
+          <button onClick={() => setDeleteError(null)} className="ml-2 underline text-xs">{t('common.dismiss')}</button>
+        </div>
+      )}
+
       {/* Script Manager Dialog */}
       <ScriptManagerDialog
         isOpen={showScriptManager}
@@ -939,9 +948,9 @@ function WorkspaceView({ workspaceInfo, onOpenWorkspacePeers, sharingIndicatorMo
       {/* Schema migration toasts */}
       {migrationToasts.length > 0 && (
         <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
-          {migrationToasts.map((t, i) => (
+          {migrationToasts.map((toast, i) => (
             <div key={i} className="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
-              <strong>"{t.schemaName}" schema updated</strong> — {t.notesMigrated} note{t.notesMigrated !== 1 ? 's' : ''} migrated to version {t.toVersion}
+              {t('workspace.schemaMigrated', { schemaName: toast.schemaName, count: toast.notesMigrated, version: toast.toVersion })}
             </div>
           ))}
         </div>

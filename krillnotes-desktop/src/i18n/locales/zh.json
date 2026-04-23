@@ -6,6 +6,7 @@
     "close": "关闭",
     "delete": "删除",
     "deleting": "删除中…",
+    "dismiss": "关闭",
     "loading": "加载中…",
     "edit": "编辑",
     "view": "查看",
@@ -161,7 +162,9 @@
     "failedCheckChildren": "检查子项失败：{{error}}",
     "failedDelete": "删除失败：{{error}}",
     "undoTooltip": "撤销 (Cmd+Z)",
-    "redoTooltip": "重做 (Cmd+Shift+Z)"
+    "redoTooltip": "重做 (Cmd+Shift+Z)",
+    "schemaMigrated_one": "模式 \"{{schemaName}}\" 已更新 — {{count}} 个笔记已迁移到版本 {{version}}",
+    "schemaMigrated_other": "模式 \"{{schemaName}}\" 已更新 — {{count}} 个笔记已迁移到版本 {{version}}"
   },
   "dialogs": {
     "password": {
@@ -253,7 +256,9 @@
     "starRating_other": "{{count}} 星",
     "unknownFieldType": "未知字段类型",
     "imageNotFound": "图片未找到",
-    "deleted": "（已删除）"
+    "deleted": "（已删除）",
+    "hiddenDataExists": "(已隐藏 — 数据存在)",
+    "openOnInstagram": "在 Instagram 上打开 ↗"
   },
   "tags": {
     "addPlaceholder": "添加标签…",

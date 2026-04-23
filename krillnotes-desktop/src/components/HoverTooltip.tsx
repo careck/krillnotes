@@ -55,26 +55,28 @@ export default function HoverTooltip({
     const container = tooltipRef.current;
     if (!visible || !container || !hoverHtml) return;
     const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img[data-kn-attach-id]'));
-    imgs.forEach(async (img) => {
-      const attachmentId = img.getAttribute('data-kn-attach-id')!;
-      const widthAttr = img.getAttribute('data-kn-width');
-      try {
-        const result = await invoke<{ data: string; mime_type: string | null }>('get_attachment_data', { attachmentId });
-        const mime = result.mime_type ?? 'image/png';
-        img.src = `data:${mime};base64,${result.data}`;
-        if (widthAttr && parseInt(widthAttr, 10) > 0) {
-          img.style.maxWidth = `${widthAttr}px`;
-          img.style.height = 'auto';
+    Promise.all(
+      imgs.map(async (img) => {
+        const attachmentId = img.getAttribute('data-kn-attach-id')!;
+        const widthAttr = img.getAttribute('data-kn-width');
+        try {
+          const result = await invoke<{ data: string; mime_type: string | null }>('get_attachment_data', { attachmentId });
+          const mime = result.mime_type ?? 'image/png';
+          img.src = `data:${mime};base64,${result.data}`;
+          if (widthAttr && parseInt(widthAttr, 10) > 0) {
+            img.style.maxWidth = `${widthAttr}px`;
+            img.style.height = 'auto';
+          }
+          img.removeAttribute('data-kn-attach-id');
+          img.removeAttribute('data-kn-width');
+        } catch {
+          const span = document.createElement('span');
+          span.className = 'kn-image-error';
+          span.textContent = t('fields.imageNotFound');
+          img.replaceWith(span);
         }
-        img.removeAttribute('data-kn-attach-id');
-        img.removeAttribute('data-kn-width');
-      } catch {
-        const span = document.createElement('span');
-        span.className = 'kn-image-error';
-        span.textContent = t('fields.imageNotFound');
-        img.replaceWith(span);
-      }
-    });
+      })
+    ).catch(err => console.error('Tooltip image hydration error:', err));
   }, [visible, hoverHtml]);
 
   if (!visible) return null;

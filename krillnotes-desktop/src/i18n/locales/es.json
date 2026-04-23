@@ -6,6 +6,7 @@
     "close": "Cerrar",
     "delete": "Eliminar",
     "deleting": "Eliminando…",
+    "dismiss": "Descartar",
     "loading": "Cargando…",
     "edit": "Editar",
     "view": "Ver",
@@ -161,7 +162,9 @@
     "failedCheckChildren": "Error al comprobar los elementos hijos: {{error}}",
     "failedDelete": "Error al eliminar: {{error}}",
     "undoTooltip": "Deshacer (Cmd+Z)",
-    "redoTooltip": "Rehacer (Cmd+Mayús+Z)"
+    "redoTooltip": "Rehacer (Cmd+Mayús+Z)",
+    "schemaMigrated_one": "Esquema \"{{schemaName}}\" actualizado — {{count}} nota migrada a versión {{version}}",
+    "schemaMigrated_other": "Esquema \"{{schemaName}}\" actualizado — {{count}} notas migradas a versión {{version}}"
   },
   "dialogs": {
     "password": {
@@ -253,7 +256,9 @@
     "starRating_other": "{{count}} estrellas",
     "unknownFieldType": "Tipo de campo desconocido",
     "imageNotFound": "Imagen no encontrada",
-    "deleted": "(eliminado)"
+    "deleted": "(eliminado)",
+    "hiddenDataExists": "(oculto — existen datos)",
+    "openOnInstagram": "Abrir en Instagram ↗"
   },
   "tags": {
     "addPlaceholder": "Añadir etiqueta…",
