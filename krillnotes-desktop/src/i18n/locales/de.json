@@ -6,6 +6,7 @@
     "close": "Schließen",
     "delete": "Löschen",
     "deleting": "Wird gelöscht…",
+    "dismiss": "Schließen",
     "loading": "Wird geladen…",
     "edit": "Bearbeiten",
     "view": "Ansehen",
@@ -161,7 +162,9 @@
     "failedCheckChildren": "Unterelemente konnten nicht geprüft werden: {{error}}",
     "failedDelete": "Löschen fehlgeschlagen: {{error}}",
     "undoTooltip": "Rückgängig (Cmd+Z)",
-    "redoTooltip": "Wiederholen (Cmd+Umschalt+Z)"
+    "redoTooltip": "Wiederholen (Cmd+Umschalt+Z)",
+    "schemaMigrated_one": "Schema \"{{schemaName}}\" aktualisiert — {{count}} Notiz auf Version {{version}} migriert",
+    "schemaMigrated_other": "Schema \"{{schemaName}}\" aktualisiert — {{count}} Notizen auf Version {{version}} migriert"
   },
   "dialogs": {
     "password": {
@@ -253,7 +256,9 @@
     "starRating_other": "{{count}} Sterne",
     "unknownFieldType": "Unbekannter Feldtyp",
     "imageNotFound": "Bild nicht gefunden",
-    "deleted": "(gelöscht)"
+    "deleted": "(gelöscht)",
+    "hiddenDataExists": "(ausgeblendet — Daten vorhanden)",
+    "openOnInstagram": "Auf Instagram öffnen ↗"
   },
   "tags": {
     "addPlaceholder": "Tag hinzufügen…",

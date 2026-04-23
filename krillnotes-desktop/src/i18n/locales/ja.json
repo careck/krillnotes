@@ -6,6 +6,7 @@
     "close": "閉じる",
     "delete": "削除",
     "deleting": "削除中…",
+    "dismiss": "閉じる",
     "loading": "読み込み中…",
     "edit": "編集",
     "view": "表示",
@@ -161,7 +162,9 @@
     "failedCheckChildren": "子要素の確認に失敗しました: {{error}}",
     "failedDelete": "削除に失敗しました: {{error}}",
     "undoTooltip": "元に戻す (Cmd+Z)",
-    "redoTooltip": "やり直す (Cmd+Shift+Z)"
+    "redoTooltip": "やり直す (Cmd+Shift+Z)",
+    "schemaMigrated_one": "スキーマ「{{schemaName}}」更新 — {{count}}件のノートをバージョン{{version}}に移行しました",
+    "schemaMigrated_other": "スキーマ「{{schemaName}}」更新 — {{count}}件のノートをバージョン{{version}}に移行しました"
   },
   "dialogs": {
     "password": {
@@ -253,7 +256,9 @@
     "starRating_other": "{{count}} 星",
     "unknownFieldType": "不明なフィールドの種類",
     "imageNotFound": "画像が見つかりません",
-    "deleted": "（削除済み）"
+    "deleted": "（削除済み）",
+    "hiddenDataExists": "(非表示 — データあり)",
+    "openOnInstagram": "Instagramで開く ↗"
   },
   "tags": {
     "addPlaceholder": "タグを追加…",

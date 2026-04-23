@@ -46,6 +46,7 @@ export function FileField({
   const { t } = useTranslation();
   const [meta, setMeta] = useState<AttachmentMeta | null>(null);
   const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!attachmentId || !noteId) { setMeta(null); setThumbSrc(null); return; }
@@ -65,6 +66,7 @@ export function FileField({
   }, [attachmentId, noteId]);
 
   async function handlePick() {
+    setFileError(null);
     // Build extension filters from allowedTypes MIME list.
     // e.g. ["image/png", "image/jpeg"] → extensions: ["png", "jpeg"]
     const filters = allowedTypes.length > 0
@@ -94,7 +96,7 @@ export function FileField({
       // A future orphan sweep can clean these up.
       onValueChange({ File: newMeta.id });
     } catch (err) {
-      alert(t('attachments.failedAttachFile', { error: String(err) }));
+      setFileError(t('attachments.failedAttachFile', { error: String(err) }));
     }
   }
 
@@ -144,6 +146,9 @@ export function FileField({
       >
         {meta ? t('attachments.replaceFile') : t('attachments.chooseFile')}
       </button>
+      {fileError && (
+        <p className="text-xs text-red-500 mt-1">{fileError}</p>
+      )}
     </div>
   );
 }

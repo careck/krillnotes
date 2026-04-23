@@ -206,7 +206,7 @@ export function useNoteForm(
       // Clear cached HTML so the render_view effect re-fetches.
       setViewHtml({});
     } catch (err) {
-      alert(t('notes.saveFailed', { error: String(err) }));
+      setNoteErrors([t('notes.saveFailed', { error: String(err) })]);
     }
   }, [selectedNote, editedTitle, editedFields, editedTags, previousTab,
       setActiveTab, setPreviousTab, setIsEditing, setIsDirty, setViewHtml,
