@@ -153,6 +153,7 @@
     "propertiesSaveFailed": "Failed to save workspace properties: {{error}}",
     "exportSuccess": "Workspace exported successfully",
     "exportFailed": "Export failed: {{error}}",
+    "exportOwnerOnly": "Only the workspace owner can export",
     "importSuccess": "Imported {{noteCount}} notes and {{scriptCount}} scripts",
     "importFailed": "Import failed: {{error}}",
     "importingProgress": "Importing {{noteCount}} notes and {{scriptCount}} scripts.",
@@ -331,7 +332,8 @@
     "openingWorkspace": "Opening…",
     "duplicateNameRequired": "Please enter a name for the duplicate workspace.",
     "duplicatePasswordMismatch": "New passwords do not match.",
-    "duplicateCopyPrefix": "Copy of {{name}}"
+    "duplicateCopyPrefix": "Copy of {{name}}",
+    "duplicateOwnerOnly": "Only the workspace owner can duplicate"
   },
   "menu": {
     "file": "File",

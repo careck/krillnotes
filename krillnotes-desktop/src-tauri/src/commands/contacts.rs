@@ -162,7 +162,7 @@ pub fn list_workspace_peers(
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let folder = paths.get(&window_label).ok_or("Workspace path not found")?.clone();
         drop(paths);
-        let (ws_uuid_opt, _, _, _) = crate::read_info_json_full(&folder);
+        let (ws_uuid_opt, _, _, _, _) = crate::read_info_json_full(&folder);
         // Guard: workspace must have a UUID in info.json to be valid
         ws_uuid_opt.ok_or("Workspace UUID missing from info.json")?;
         let mgr = state.identity_manager.lock().expect("Mutex poisoned");

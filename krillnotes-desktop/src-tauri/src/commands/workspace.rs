@@ -502,7 +502,7 @@ pub async fn open_workspace(
             let db_path = folder.join("notes.db");
 
             // Read workspace_id from info.json
-            let (ws_uuid_opt, _, _, _) = read_info_json_full(&folder);
+            let (ws_uuid_opt, _, _, _, _) = read_info_json_full(&folder);
             // Guard: workspace must have a UUID to be bound; frontend checks for "IDENTITY_REQUIRED"
             ws_uuid_opt.ok_or_else(|| "IDENTITY_REQUIRED".to_string())?;
 
@@ -636,6 +636,10 @@ pub fn export_workspace_cmd(
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(label).ok_or("No workspace open")?;
+
+    if !workspace.is_owner() {
+        return Err("NOT_OWNER".to_string());
+    }
 
     let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
     krillnotes_core::export_workspace(workspace, file, password.as_deref()).map_err(|e| { log::error!("export_workspace failed: {e}"); e.to_string() })
@@ -913,6 +917,9 @@ pub struct WorkspaceEntry {
     identity_uuid: Option<String>,
     /// Display name of the bound identity, if any and if its file is readable.
     identity_name: Option<String>,
+    /// Whether the bound identity is the workspace owner. `None` for legacy
+    /// workspaces that haven't been opened since the field was added to info.json.
+    is_owner: Option<bool>,
 }
 
 /// Returns the total size in bytes of all files under `dir` (recursive).
@@ -932,22 +939,23 @@ fn dir_size_bytes(dir: &Path) -> u64 {
 }
 
 /// Reads `info.json` from `workspace_dir` and returns all stored fields.
-/// Returns `(None, None, None, None)` if the file is missing or malformed.
-pub fn read_info_json_full(workspace_dir: &Path) -> (Option<String>, Option<i64>, Option<usize>, Option<usize>) {
+/// Returns `(None, None, None, None, None)` if the file is missing or malformed.
+pub fn read_info_json_full(workspace_dir: &Path) -> (Option<String>, Option<i64>, Option<usize>, Option<usize>, Option<bool>) {
     let path = workspace_dir.join("info.json");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(_) => return (None, None, None, None),
+        Err(_) => return (None, None, None, None, None),
     };
     let v: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(_) => return (None, None, None, None),
+        Err(_) => return (None, None, None, None, None),
     };
     let workspace_id = v["workspace_id"].as_str().map(|s| s.to_string());
     let created_at = v["created_at"].as_i64();
     let note_count = v["note_count"].as_u64().map(|n| n as usize);
     let attachment_count = v["attachment_count"].as_u64().map(|n| n as usize);
-    (workspace_id, created_at, note_count, attachment_count)
+    let is_owner = v["is_owner"].as_bool();
+    (workspace_id, created_at, note_count, attachment_count, is_owner)
 }
 
 /// Lists all workspace folders (subdirectories containing `notes.db`) in the
@@ -1009,7 +1017,7 @@ pub fn list_workspace_files(
                     .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
                     .unwrap_or(0);
                 let size_bytes = dir_size_bytes(&folder);
-                let (workspace_id, created_at, note_count, attachment_count) =
+                let (workspace_id, created_at, note_count, attachment_count, is_owner) =
                     read_info_json_full(&folder);
 
                 entries.push(WorkspaceEntry {
@@ -1024,6 +1032,7 @@ pub fn list_workspace_files(
                     workspace_uuid: workspace_id,
                     identity_uuid: Some(identity_ref.uuid.to_string()),
                     identity_name: Some(identity_ref.display_name.clone()),
+                    is_owner,
                 });
             }
         }
@@ -1077,6 +1086,11 @@ pub fn duplicate_workspace(
         return Err("Source workspace is currently open. Close it before duplicating.".to_string());
     }
 
+    let (_, _, _, _, is_owner) = read_info_json_full(&source_folder);
+    if is_owner == Some(false) {
+        return Err("NOT_OWNER".to_string());
+    }
+
     let dest_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let dest_folder = {
         let mgr = state.identity_manager.lock().expect("Mutex poisoned");
@@ -1093,7 +1107,7 @@ pub fn duplicate_workspace(
     // Decrypt the source DB password via identity.
     // Lock ordering: identity_manager then unlocked_identities, never both held simultaneously.
     let source_password = {
-        let (ws_uuid_opt, _, _, _) = read_info_json_full(&source_folder);
+        let (ws_uuid_opt, _, _, _, _) = read_info_json_full(&source_folder);
         // Guard: source workspace must have a UUID in info.json
         ws_uuid_opt.ok_or_else(|| "Source workspace has no UUID in info.json".to_string())?;
 

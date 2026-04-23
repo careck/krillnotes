@@ -185,6 +185,7 @@ export interface WorkspaceEntry {
   workspaceUuid: string | null;
   identityUuid: string | null;
   identityName: string | null;
+  isOwner?: boolean | null;
 }
 
 export interface WorkspaceMetadata {

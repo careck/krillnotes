@@ -434,8 +434,8 @@ function WorkspaceManagerDialog({ isOpen, onClose, onNewWorkspace }: WorkspaceMa
               </button>
               <button
                 onClick={handleDuplicateBegin}
-                disabled={!selected || isIdentityLocked}
-                title={isIdentityLocked ? t('workspaceManager.unlockToDelete', 'Unlock identity to delete') : undefined}
+                disabled={!selected || isIdentityLocked || selected?.isOwner === false}
+                title={selected?.isOwner === false ? t('workspaceManager.duplicateOwnerOnly') : isIdentityLocked ? t('workspaceManager.unlockToDelete', 'Unlock identity to delete') : undefined}
                 className="px-3 py-1.5 border border-secondary rounded hover:bg-secondary disabled:opacity-50 text-sm"
               >
                 {t('workspaceManager.duplicate')}
