@@ -255,6 +255,7 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
             .insert("macos".to_string(), (result.paste_as_child, result.paste_as_sibling));
         state.workspace_menu_items.lock().expect("Mutex poisoned")
             .insert("macos".to_string(), result.workspace_items);
+        *state.export_menu_item.lock().expect("Mutex poisoned") = Some(result.export_item);
 
         // Re-enable workspace items if any workspace is currently open.
         let any_open = !state.workspace_paths.lock().expect("Mutex poisoned").is_empty();
@@ -266,6 +267,15 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
                 for item in items {
                     let _ = item.set_enabled(true);
                 }
+            }
+            // Toggle export based on focused workspace's ownership.
+            let focused = state.focused_window.lock().expect("Mutex poisoned").clone();
+            let is_owner = focused.and_then(|l| {
+                state.workspaces.lock().expect("Mutex poisoned")
+                    .get(&l).map(|ws| ws.is_owner())
+            }).unwrap_or(false);
+            if let Some(item) = state.export_menu_item.lock().expect("Mutex poisoned").as_ref() {
+                let _ = item.set_enabled(is_owner);
             }
         }
     }
@@ -290,6 +300,9 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
                     item.set_enabled(true)
                         .map_err(|e| format!("Failed to enable menu item: {e}"))?;
                 }
+                let is_owner = state.workspaces.lock().expect("Mutex poisoned")
+                    .get(&label).map(|ws| ws.is_owner()).unwrap_or(false);
+                let _ = result.export_item.set_enabled(is_owner);
             }
 
             window

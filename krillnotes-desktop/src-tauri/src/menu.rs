@@ -15,6 +15,9 @@ pub struct MenuResult<R: Runtime> {
     pub paste_as_child: MenuItem<R>,
     pub paste_as_sibling: MenuItem<R>,
     pub workspace_items: Vec<MenuItem<R>>,
+    /// Separate handle for the export item so it can be toggled independently
+    /// based on workspace ownership (non-owners cannot export).
+    pub export_item: MenuItem<R>,
 }
 
 struct EditMenuResult<R: Runtime> {
@@ -27,6 +30,7 @@ struct EditMenuResult<R: Runtime> {
 struct FileMenuResult<R: Runtime> {
     submenu: Submenu<R>,
     workspace_items: Vec<MenuItem<R>>,
+    export_item: MenuItem<R>,
 }
 
 struct WorkspaceMenuResult<R: Runtime> {
@@ -61,6 +65,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Men
             paste_as_child: edit_result.paste_as_child,
             paste_as_sibling: edit_result.paste_as_sibling,
             workspace_items,
+            export_item: file_result.export_item,
         });
     }
 
@@ -75,6 +80,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Men
             paste_as_child: edit_result.paste_as_child,
             paste_as_sibling: edit_result.paste_as_sibling,
             workspace_items,
+            export_item: file_result.export_item,
         });
     }
 }
@@ -169,7 +175,8 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     let submenu = builder.build()?;
     Ok(FileMenuResult {
         submenu,
-        workspace_items: vec![export_item, sync_now_item],
+        workspace_items: vec![sync_now_item],
+        export_item,
     })
 }
 
