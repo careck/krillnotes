@@ -782,6 +782,7 @@ pub fn render_default_view(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::timestamp::UnixSecs;
     use rhai::Map;
 
     fn make_note_map(id: &str, title: &str) -> Map {
@@ -873,7 +874,7 @@ mod tests {
 
         let note = Note {
             id: "id1".into(), title: "Test".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
@@ -905,7 +906,7 @@ mod tests {
 
         let note = Note {
             id: "id2".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
@@ -937,7 +938,7 @@ mod tests {
 
         let note = Note {
             id: "id3".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
@@ -972,7 +973,7 @@ mod tests {
 
         let note = Note {
             id: "sec1".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
@@ -1031,7 +1032,7 @@ mod tests {
 
         let note = Note {
             id: "id4".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {
@@ -1119,7 +1120,7 @@ mod tests {
             size_bytes: 100,
             hash_sha256: "abc".to_string(),
             salt: "00".repeat(32),
-            created_at: 0,
+            created_at: UnixSecs::ZERO,
         }
     }
 
@@ -1389,7 +1390,7 @@ mod tests {
         );
         let note = Note {
             id: "id-embed".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let schema = Schema {

@@ -243,7 +243,7 @@ impl Workspace {
                 created_by, fields, ..
             } => {
                 let fields_json = serde_json::to_string(fields)?;
-                let ts_secs = (ts.wall_ms / 1000) as i64;
+                let ts_secs = ts.to_unix_secs();
                 tx.execute(
                     "INSERT OR IGNORE INTO notes \
                      (id, title, schema, parent_id, position, created_at, modified_at, \
@@ -257,7 +257,7 @@ impl Workspace {
             }
 
             Operation::UpdateNote { note_id, title, .. } => {
-                let ts_secs = (ts.wall_ms / 1000) as i64;
+                let ts_secs = ts.to_unix_secs();
                 tx.execute(
                     "UPDATE notes SET title = ?1, modified_at = ?2 WHERE id = ?3",
                     rusqlite::params![title, ts_secs, note_id],
@@ -277,7 +277,7 @@ impl Workspace {
                         serde_json::from_str(&json).unwrap_or_default();
                     map.insert(field.clone(), value.clone());
                     let new_json = serde_json::to_string(&map)?;
-                    let ts_secs = (ts.wall_ms / 1000) as i64;
+                    let ts_secs = ts.to_unix_secs();
                     tx.execute(
                         "UPDATE notes SET fields_json = ?1, modified_at = ?2, modified_by = ?3 WHERE id = ?4",
                         rusqlite::params![new_json, ts_secs, modified_by, note_id],
@@ -313,7 +313,7 @@ impl Workspace {
             }
 
             Operation::SetChecked { note_id, checked, .. } => {
-                let ts_secs = (ts.wall_ms / 1000) as i64;
+                let ts_secs = ts.to_unix_secs();
                 tx.execute(
                     "UPDATE notes SET is_checked = ?1, modified_at = ?2 WHERE id = ?3",
                     rusqlite::params![checked, ts_secs, note_id],
@@ -324,7 +324,7 @@ impl Workspace {
                 created_by, script_id, name, description, source_code, load_order, enabled, ..
             } => {
                 if created_by == &self.owner_pubkey {
-                    let ts_secs = (ts.wall_ms / 1000) as i64;
+                    let ts_secs = ts.to_unix_secs();
                     tx.execute(
                         "INSERT OR IGNORE INTO user_scripts \
                          (id, name, description, source_code, load_order, enabled, \
@@ -343,7 +343,7 @@ impl Workspace {
                 modified_by, script_id, name, description, source_code, load_order, enabled, ..
             } => {
                 if modified_by == &self.owner_pubkey {
-                    let ts_secs = (ts.wall_ms / 1000) as i64;
+                    let ts_secs = ts.to_unix_secs();
                     tx.execute(
                         "UPDATE user_scripts SET name = ?1, description = ?2, source_code = ?3, \
                          load_order = ?4, enabled = ?5, modified_at = ?6 WHERE id = ?7",

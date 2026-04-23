@@ -18,7 +18,7 @@ use crate::core::user_script;
 use crate::{
     DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
     Operation, OperationLog, PurgeStrategy, QueryContext, Result, RetractInverse, SaveResult,
-    ScriptError, ScriptRegistry, Storage, UndoResult, UserScript,
+    ScriptError, ScriptRegistry, Storage, UndoResult, UnixSecs, UserScript,
 };
 use rhai::Dynamic;
 use rusqlite::{Connection, OptionalExtension};
@@ -187,7 +187,7 @@ impl Workspace {
             None
         };
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         if config.seed_starter_scripts {
             let starters = ScriptRegistry::starter_scripts();
             let tx = storage.connection_mut().transaction()?;
@@ -720,7 +720,7 @@ impl Workspace {
                 [],
                 |row| row.get(0),
             )
-            .unwrap_or_else(|_| chrono::Utc::now().timestamp());
+            .unwrap_or_else(|_| UnixSecs::now().as_i64());
 
         let info = serde_json::json!({
             "workspace_id": self.workspace_id,
@@ -1089,7 +1089,7 @@ fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<
 ///
 /// `position` is stored as REAL in the DB (to support fractional positions for future
 /// CRDT ordering) but the Rust API still uses `i32`; we read it as `f64` and truncate.
-type NoteRow = (String, String, String, Option<String>, f64, i64, i64, String, String, String, i64, u32, bool, Option<String>);
+type NoteRow = (String, String, String, Option<String>, f64, UnixSecs, UnixSecs, String, String, String, i64, u32, bool, Option<String>);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
@@ -1102,8 +1102,8 @@ fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
         row.get::<_, String>(2)?,           // schema
         row.get::<_, Option<String>>(3)?,   // parent_id
         row.get::<_, f64>(4)?,              // position
-        row.get::<_, i64>(5)?,              // created_at
-        row.get::<_, i64>(6)?,              // modified_at
+        row.get::<_, UnixSecs>(5)?,         // created_at
+        row.get::<_, UnixSecs>(6)?,         // modified_at
         row.get::<_, String>(7).unwrap_or_default(),  // created_by
         row.get::<_, String>(8).unwrap_or_default(),  // modified_by
         row.get::<_, String>(9)?,           // fields_json

@@ -45,7 +45,7 @@ impl Workspace {
         };
 
         let id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
 
         let (encrypted_bytes, file_salt) =
             encrypt_attachment(data, self.attachment_key.as_ref())?;
@@ -132,7 +132,7 @@ impl Workspace {
             h.update(data);
             format!("{:x}", h.finalize())
         };
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let (encrypted_bytes, file_salt) = encrypt_attachment(data, self.attachment_key.as_ref())?;
         let enc_path = self.workspace_root.join("attachments").join(format!("{id}.enc"));
         std::fs::write(&enc_path, &encrypted_bytes)?;

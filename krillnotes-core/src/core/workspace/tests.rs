@@ -3920,7 +3920,7 @@ schema("SameVerType", #{
         // A seconds-range timestamp (10 digits) is < 10_000_000_000.
         // A milliseconds-range timestamp (13 digits) is > 1_000_000_000_000.
         assert!(
-            note.modified_at < 10_000_000_000,
+            note.modified_at < UnixSecs::from_secs(10_000_000_000),
             "modified_at should be seconds, not milliseconds: got {}",
             note.modified_at
         );

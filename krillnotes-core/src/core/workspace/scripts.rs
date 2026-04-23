@@ -102,7 +102,7 @@ impl Workspace {
             ));
         }
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let id = Uuid::new_v4().to_string();
 
         // Pre-validation
@@ -209,7 +209,7 @@ impl Workspace {
         // Capture old script state BEFORE the update for undo.
         let old_script = self.get_user_script(script_id)?;
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         // Advance HLC and capture signing key before the transaction borrows self.storage.
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();

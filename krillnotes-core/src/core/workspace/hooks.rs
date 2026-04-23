@@ -288,7 +288,7 @@ impl Workspace {
         let pending_notes: Vec<_> = existing_updates.into_iter().chain(ordered_creates).collect();
 
         if !pending_notes.is_empty() {
-            let now = chrono::Utc::now().timestamp();
+            let now = UnixSecs::now();
 
             // Pre-advance HLC for each pending note before borrowing self.storage.
             // Creates need one timestamp; updates need one for title + one per field + optional checked.
