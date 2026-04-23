@@ -153,6 +153,7 @@
     "propertiesSaveFailed": "Arbeitsbereich-Eigenschaften konnten nicht gespeichert werden: {{error}}",
     "exportSuccess": "Arbeitsbereich erfolgreich exportiert",
     "exportFailed": "Export fehlgeschlagen: {{error}}",
+    "exportOwnerOnly": "Nur der Eigentümer des Arbeitsbereichs kann exportieren",
     "importSuccess": "{{noteCount}} Notizen und {{scriptCount}} Skripte importiert",
     "importFailed": "Import fehlgeschlagen: {{error}}",
     "importingProgress": "Importiere {{noteCount}} Notizen und {{scriptCount}} Skripte.",
@@ -331,7 +332,8 @@
     "openingWorkspace": "Wird geöffnet…",
     "duplicateNameRequired": "Bitte gib einen Namen für den duplizierten Arbeitsbereich ein.",
     "duplicatePasswordMismatch": "Die neuen Passwörter stimmen nicht überein.",
-    "duplicateCopyPrefix": "Kopie von {{name}}"
+    "duplicateCopyPrefix": "Kopie von {{name}}",
+    "duplicateOwnerOnly": "Nur der Eigentümer des Arbeitsbereichs kann duplizieren"
   },
   "menu": {
     "file": "Datei",

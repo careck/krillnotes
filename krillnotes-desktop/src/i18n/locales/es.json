@@ -153,6 +153,7 @@
     "propertiesSaveFailed": "Error al guardar las propiedades: {{error}}",
     "exportSuccess": "Espacio de trabajo exportado correctamente",
     "exportFailed": "Error en la exportación: {{error}}",
+    "exportOwnerOnly": "Solo el propietario del espacio de trabajo puede exportar",
     "importSuccess": "{{noteCount}} notas y {{scriptCount}} scripts importados",
     "importFailed": "Error en la importación: {{error}}",
     "importingProgress": "Importando {{noteCount}} notas y {{scriptCount}} scripts.",
@@ -331,7 +332,8 @@
     "openingWorkspace": "Abriendo…",
     "duplicateNameRequired": "Introduce un nombre para el espacio de trabajo duplicado.",
     "duplicatePasswordMismatch": "Las nuevas contraseñas no coinciden.",
-    "duplicateCopyPrefix": "Copia de {{name}}"
+    "duplicateCopyPrefix": "Copia de {{name}}",
+    "duplicateOwnerOnly": "Solo el propietario del espacio de trabajo puede duplicar"
   },
   "menu": {
     "file": "Archivo",

@@ -727,6 +727,7 @@ impl Workspace {
             "created_at": created_at,
             "note_count": note_count,
             "attachment_count": attachment_count,
+            "is_owner": self.is_owner(),
         });
 
         let path = self.workspace_root().join("info.json");

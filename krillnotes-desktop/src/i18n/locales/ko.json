@@ -153,6 +153,7 @@
     "propertiesSaveFailed": "작업 공간 속성을 저장하지 못했습니다: {{error}}",
     "exportSuccess": "작업 공간을 성공적으로 내보냈습니다",
     "exportFailed": "내보내기에 실패했습니다: {{error}}",
+    "exportOwnerOnly": "작업 공간 소유자만 내보내기를 할 수 있습니다",
     "importSuccess": "{{noteCount}}개의 노트와 {{scriptCount}}개의 스크립트를 가져왔습니다",
     "importFailed": "가져오기에 실패했습니다: {{error}}",
     "importingProgress": "{{noteCount}}개의 노트와 {{scriptCount}}개의 스크립트를 가져오는 중.",
@@ -331,7 +332,8 @@
     "openingWorkspace": "여는 중…",
     "duplicateNameRequired": "복제할 작업 공간의 이름을 입력하세요.",
     "duplicatePasswordMismatch": "새 비밀번호가 일치하지 않습니다.",
-    "duplicateCopyPrefix": "{{name}}의 사본"
+    "duplicateCopyPrefix": "{{name}}의 사본",
+    "duplicateOwnerOnly": "작업 공간 소유자만 복제할 수 있습니다"
   },
   "menu": {
     "file": "파일",

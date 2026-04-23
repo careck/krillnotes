@@ -68,6 +68,7 @@ function App() {
   // Global snapshot polling for all unlocked identities (no workspace needed).
   useGlobalSnapshotPolling();
 
+  const [isRootOwner, setIsRootOwner] = useState(false);
   const [sharingIndicatorMode, setSharingIndicatorMode] = useState<'off' | 'auto' | 'on'>('auto');
   const refreshSettings = () => {
     invoke<AppSettings>('get_settings')
@@ -211,12 +212,17 @@ function App() {
       setSwarmFilePath,
     });
 
+  useEffect(() => {
+    if (!workspace) { setIsRootOwner(false); return; }
+    invoke<boolean>('is_root_owner').then(setIsRootOwner).catch(() => setIsRootOwner(false));
+  }, [workspace]);
 
   useMenuEvents(workspace, {
     setShowNewWorkspace, setShowOpenWorkspace, setShowSettings,
     setShowExportPasswordDialog, setShowIdentityManager,
     setShowWorkspacePeers, setShowCreateDeltaDialog,
     statusSetter, proceedWithImport, openSwarmFile,
+    isRootOwner, exportOwnerOnlyMsg: t('workspace.exportOwnerOnly'),
   });
 
   const {

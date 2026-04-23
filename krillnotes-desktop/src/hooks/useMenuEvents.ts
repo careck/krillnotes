@@ -20,6 +20,8 @@ export interface MenuEventCallbacks {
   statusSetter: (msg: string, isError?: boolean) => void;
   proceedWithImport: (zipPath: string, password: string | null) => Promise<void>;
   openSwarmFile: (path: string) => void;
+  isRootOwner: boolean;
+  exportOwnerOnlyMsg: string;
 }
 
 function createMenuHandlers(callbacks: MenuEventCallbacks) {
@@ -34,6 +36,8 @@ function createMenuHandlers(callbacks: MenuEventCallbacks) {
     statusSetter,
     proceedWithImport,
     openSwarmFile,
+    isRootOwner,
+    exportOwnerOnlyMsg,
   } = callbacks;
 
   return {
@@ -47,6 +51,10 @@ function createMenuHandlers(callbacks: MenuEventCallbacks) {
     },
 
     'File > Export Workspace clicked': () => {
+      if (!isRootOwner) {
+        statusSetter(exportOwnerOnlyMsg, true);
+        return;
+      }
       setShowExportPasswordDialog(true);
     },
 

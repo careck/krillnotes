@@ -153,6 +153,7 @@
     "propertiesSaveFailed": "ワークスペースのプロパティの保存に失敗しました: {{error}}",
     "exportSuccess": "ワークスペースを正常にエクスポートしました",
     "exportFailed": "エクスポートに失敗しました: {{error}}",
+    "exportOwnerOnly": "ワークスペースのオーナーのみがエクスポートできます",
     "importSuccess": "{{noteCount}} 件のノートと {{scriptCount}} 件のスクリプトをインポートしました",
     "importFailed": "インポートに失敗しました: {{error}}",
     "importingProgress": "{{noteCount}} 件のノートと {{scriptCount}} 件のスクリプトをインポート中。",
@@ -331,7 +332,8 @@
     "openingWorkspace": "開いています…",
     "duplicateNameRequired": "複製先のワークスペース名を入力してください。",
     "duplicatePasswordMismatch": "新しいパスワードが一致しません。",
-    "duplicateCopyPrefix": "{{name}} のコピー"
+    "duplicateCopyPrefix": "{{name}} のコピー",
+    "duplicateOwnerOnly": "ワークスペースのオーナーのみが複製できます"
   },
   "menu": {
     "file": "ファイル",

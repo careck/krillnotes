@@ -79,10 +79,15 @@ pub struct AppState {
     /// language changes, but items are enabled at build time so the stored handles are
     /// never read back to toggle enabled state.
     pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<tauri::menu::MenuItem<tauri::Wry>>>>>,
-    /// File path that arrived via OS file-open before the frontend JS was
-    /// ready to receive a pushed event. Cleared on first read by
-    /// `consume_pending_file_open`. `None` when no file is pending.
-    pub pending_file_open: Arc<Mutex<Option<PathBuf>>>,
+    /// Handle to the "Export Workspace" menu item, toggled based on ownership.
+    /// On macOS: stored once at setup. On Windows: stored per-window at open time.
+    pub export_menu_item: Arc<Mutex<Option<tauri::menu::MenuItem<tauri::Wry>>>>,
+    /// `.krillnotes` file path that arrived via OS file-open before the
+    /// frontend was ready. Cleared on first read by `consume_pending_file_open`.
+    pub pending_krillnotes_open: Arc<Mutex<Option<PathBuf>>>,
+    /// `.swarm` file path that arrived via OS file-open before the frontend
+    /// was ready. Cleared on first read by `consume_pending_swarm_file`.
+    pub pending_swarm_open: Arc<Mutex<Option<PathBuf>>>,
     /// Window labels that have been approved for closing by the frontend.
     /// When a label is in this set, the next `CloseRequested` event for
     /// that window is allowed through without interception.
@@ -199,7 +204,9 @@ pub fn run() {
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
-            pending_file_open: Arc::new(Mutex::new(None)),
+            export_menu_item: Arc::new(Mutex::new(None)),
+            pending_krillnotes_open: Arc::new(Mutex::new(None)),
+            pending_swarm_open: Arc::new(Mutex::new(None)),
             closing_windows: Arc::new(Mutex::new(HashSet::new())),
         })
         .on_window_event(|window, event| {
@@ -244,13 +251,27 @@ pub fn run() {
                                     let _ = item.set_enabled(false);
                                 }
                             }
+                            if let Some(item) = state.export_menu_item.lock().expect("Mutex poisoned").as_ref() {
+                                let _ = item.set_enabled(false);
+                            }
                         }
                     }
                 }
                 // Track which window is currently active so that menu events
                 // can be routed to the correct window (see handle_menu_event).
                 tauri::WindowEvent::Focused(true) => {
-                    *state.focused_window.lock().expect("Mutex poisoned") = Some(label);
+                    *state.focused_window.lock().expect("Mutex poisoned") = Some(label.clone());
+
+                    // On macOS, update the shared export menu item based on
+                    // whether the focused workspace is owned by the current identity.
+                    #[cfg(target_os = "macos")]
+                    {
+                        let is_owner = state.workspaces.lock().expect("Mutex poisoned")
+                            .get(&label).map(|ws| ws.is_owner()).unwrap_or(false);
+                        if let Some(item) = state.export_menu_item.lock().expect("Mutex poisoned").as_ref() {
+                            let _ = item.set_enabled(is_owner);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -271,6 +292,7 @@ pub fn run() {
                     .insert("macos".to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
                 state.workspace_menu_items.lock().expect("Mutex poisoned")
                     .insert("macos".to_string(), menu_result.workspace_items);
+                *state.export_menu_item.lock().expect("Mutex poisoned") = Some(menu_result.export_item);
             }
 
             // Ensure home directory exists
