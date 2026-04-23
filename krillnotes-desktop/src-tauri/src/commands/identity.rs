@@ -383,9 +383,13 @@ pub fn lock_identity(
 
     use tauri::Manager;
     for label in &labels_to_close {
+        state.closing_windows.lock().expect("Mutex poisoned").insert(label.clone());
         if let Some(win) = app.get_webview_window(label) {
-            let _ = win.close();
+            let _ = win.destroy();
         }
+        state.workspaces.lock().expect("Mutex poisoned").remove(label);
+        state.workspace_paths.lock().expect("Mutex poisoned").remove(label);
+        state.workspace_identities.lock().expect("Mutex poisoned").remove(label);
     }
 
     // Wipe identity from memory.

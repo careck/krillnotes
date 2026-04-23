@@ -79,10 +79,12 @@ pub struct AppState {
     /// language changes, but items are enabled at build time so the stored handles are
     /// never read back to toggle enabled state.
     pub workspace_menu_items: Arc<Mutex<HashMap<String, Vec<tauri::menu::MenuItem<tauri::Wry>>>>>,
-    /// File path that arrived via OS file-open before the frontend JS was
-    /// ready to receive a pushed event. Cleared on first read by
-    /// `consume_pending_file_open`. `None` when no file is pending.
-    pub pending_file_open: Arc<Mutex<Option<PathBuf>>>,
+    /// `.krillnotes` file path that arrived via OS file-open before the
+    /// frontend was ready. Cleared on first read by `consume_pending_file_open`.
+    pub pending_krillnotes_open: Arc<Mutex<Option<PathBuf>>>,
+    /// `.swarm` file path that arrived via OS file-open before the frontend
+    /// was ready. Cleared on first read by `consume_pending_swarm_file`.
+    pub pending_swarm_open: Arc<Mutex<Option<PathBuf>>>,
     /// Window labels that have been approved for closing by the frontend.
     /// When a label is in this set, the next `CloseRequested` event for
     /// that window is allowed through without interception.
@@ -199,7 +201,8 @@ pub fn run() {
             unlocked_identities: Arc::new(Mutex::new(HashMap::new())),
             paste_menu_items: Arc::new(Mutex::new(HashMap::new())),
             workspace_menu_items: Arc::new(Mutex::new(HashMap::new())),
-            pending_file_open: Arc::new(Mutex::new(None)),
+            pending_krillnotes_open: Arc::new(Mutex::new(None)),
+            pending_swarm_open: Arc::new(Mutex::new(None)),
             closing_windows: Arc::new(Mutex::new(HashSet::new())),
         })
         .on_window_event(|window, event| {

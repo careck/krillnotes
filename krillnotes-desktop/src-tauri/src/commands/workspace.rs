@@ -103,13 +103,13 @@ pub fn handle_file_opened(app: &AppHandle, state: &AppState, path: PathBuf) {
 
 /// Handles opening a `.krillnotes` file from the OS.
 ///
-/// Stores the path in [`AppState::pending_file_open`] for the cold-start
+/// Stores the path in [`AppState::pending_krillnotes_open`] for the cold-start
 /// case (frontend not yet ready), then either emits a `"file-opened"` event
 /// to the existing `"main"` window or creates a new one that will poll
 /// `consume_pending_file_open` on mount.
 fn handle_krillnotes_open(app: &AppHandle, state: &AppState, path: PathBuf) {
     {
-        let mut pending = state.pending_file_open.lock().expect("Mutex poisoned");
+        let mut pending = state.pending_krillnotes_open.lock().expect("Mutex poisoned");
         *pending = Some(path.clone());
     }
 
@@ -126,13 +126,13 @@ fn handle_krillnotes_open(app: &AppHandle, state: &AppState, path: PathBuf) {
 
 /// Handles opening a `.swarm` file from the OS.
 ///
-/// Stores the path in [`AppState::pending_file_open`] for the cold-start
+/// Stores the path in [`AppState::pending_swarm_open`] for the cold-start
 /// case (frontend not yet ready), then emits a `"swarm-file-opened"` event
 /// to the focused window.
 fn handle_swarm_open(app: &AppHandle, state: &AppState, path: PathBuf) {
     // Store path for cold-start retrieval.
     {
-        let mut pending = state.pending_file_open.lock().expect("Mutex poisoned");
+        let mut pending = state.pending_swarm_open.lock().expect("Mutex poisoned");
         *pending = Some(path.clone());
     }
     // Emit to the focused window first; fall back to any open window.
@@ -768,7 +768,7 @@ pub fn get_app_version() -> String {
 #[tauri::command]
 pub fn consume_pending_file_open(state: State<'_, AppState>) -> Option<String> {
     state
-        .pending_file_open
+        .pending_krillnotes_open
         .lock()
         .expect("Mutex poisoned")
         .take()
@@ -782,12 +782,11 @@ pub fn consume_pending_file_open(state: State<'_, AppState>) -> Option<String> {
 #[tauri::command]
 pub fn consume_pending_swarm_file(state: State<'_, AppState>) -> Option<String> {
     state
-        .pending_file_open
+        .pending_swarm_open
         .lock()
         .expect("Mutex poisoned")
         .take()
-        .map(|p| p.to_string_lossy().to_string())
-        .filter(|p| p.ends_with(".swarm"))
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 // ── Theme commands ────────────────────────────────────────────────
@@ -1073,6 +1072,11 @@ pub fn duplicate_workspace(
     identity_uuid: String,
     new_name: String,
 ) -> std::result::Result<(), String> {
+    let source_folder = PathBuf::from(&source_path);
+    if find_window_for_path(&state, &source_folder).is_some() {
+        return Err("Source workspace is currently open. Close it before duplicating.".to_string());
+    }
+
     let dest_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let dest_folder = {
         let mgr = state.identity_manager.lock().expect("Mutex poisoned");
@@ -1084,8 +1088,6 @@ pub fn duplicate_workspace(
     if dest_folder.exists() {
         return Err(format!("A workspace named '{new_name}' already exists."));
     }
-
-    let source_folder = PathBuf::from(&source_path);
     let source_db = source_folder.join("notes.db");
 
     // Decrypt the source DB password via identity.
