@@ -3868,6 +3868,47 @@ schema("SameVerType", #{
     }
 
     #[test]
+    fn test_apply_incoming_create_note_stores_seconds_timestamp() {
+        use crate::core::hlc::HlcTimestamp;
+
+        let temp = NamedTempFile::new().unwrap();
+        let mut ws = Workspace::create(
+            temp.path(), "", "test-identity",
+            ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+            test_gate(), None,
+        ).unwrap();
+
+        let known_wall_ms: u64 = 1_714_000_000_000; // 2024-04-25 in milliseconds
+        let expected_secs = (known_wall_ms / 1000) as i64;
+
+        let op = Operation::CreateNote {
+            operation_id: "sync-test-op-1".to_string(),
+            timestamp: HlcTimestamp { wall_ms: known_wall_ms, counter: 0, node_id: 99 },
+            device_id: "remote-device".to_string(),
+            note_id: "synced-note-1".to_string(),
+            parent_id: None,
+            position: 0.0,
+            schema: "TextNote".to_string(),
+            title: "Synced Note".to_string(),
+            fields: BTreeMap::new(),
+            created_by: "remote-pubkey".to_string(),
+            signature: String::new(),
+        };
+
+        ws.apply_incoming_operation(op, "remote-peer", &[]).unwrap();
+
+        let row: (i64, i64) = ws.connection().query_row(
+            "SELECT created_at, modified_at FROM notes WHERE id = 'synced-note-1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+
+        assert_eq!(row.0, expected_secs, "created_at should be seconds ({}), not milliseconds ({})", expected_secs, known_wall_ms);
+        assert_eq!(row.1, expected_secs, "modified_at should be seconds ({}), not milliseconds ({})", expected_secs, known_wall_ms);
+        assert!(row.0 < 10_000_000_000, "created_at looks like milliseconds: {}", row.0);
+    }
+
+    #[test]
     fn test_m6_set_note_checked_stores_seconds_timestamp() {
         let temp = NamedTempFile::new().unwrap();
         let mut ws = Workspace::create(temp.path(), "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();

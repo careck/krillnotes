@@ -243,7 +243,7 @@ impl Workspace {
                 created_by, fields, ..
             } => {
                 let fields_json = serde_json::to_string(fields)?;
-                let now_ms = ts.wall_ms as i64;
+                let ts_secs = (ts.wall_ms / 1000) as i64;
                 tx.execute(
                     "INSERT OR IGNORE INTO notes \
                      (id, title, schema, parent_id, position, created_at, modified_at, \
@@ -251,16 +251,16 @@ impl Workspace {
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0)",
                     rusqlite::params![
                         note_id, title, schema, parent_id, position,
-                        now_ms, now_ms, created_by, created_by, fields_json,
+                        ts_secs, ts_secs, created_by, created_by, fields_json,
                     ],
                 )?;
             }
 
             Operation::UpdateNote { note_id, title, .. } => {
-                let now_ms = ts.wall_ms as i64;
+                let ts_secs = (ts.wall_ms / 1000) as i64;
                 tx.execute(
                     "UPDATE notes SET title = ?1, modified_at = ?2 WHERE id = ?3",
-                    rusqlite::params![title, now_ms, note_id],
+                    rusqlite::params![title, ts_secs, note_id],
                 )?;
             }
 
@@ -277,10 +277,10 @@ impl Workspace {
                         serde_json::from_str(&json).unwrap_or_default();
                     map.insert(field.clone(), value.clone());
                     let new_json = serde_json::to_string(&map)?;
-                    let now_ms = ts.wall_ms as i64;
+                    let ts_secs = (ts.wall_ms / 1000) as i64;
                     tx.execute(
                         "UPDATE notes SET fields_json = ?1, modified_at = ?2, modified_by = ?3 WHERE id = ?4",
-                        rusqlite::params![new_json, now_ms, modified_by, note_id],
+                        rusqlite::params![new_json, ts_secs, modified_by, note_id],
                     )?;
                 }
             }
@@ -313,10 +313,10 @@ impl Workspace {
             }
 
             Operation::SetChecked { note_id, checked, .. } => {
-                let now_ms = ts.wall_ms as i64;
+                let ts_secs = (ts.wall_ms / 1000) as i64;
                 tx.execute(
                     "UPDATE notes SET is_checked = ?1, modified_at = ?2 WHERE id = ?3",
-                    rusqlite::params![checked, now_ms, note_id],
+                    rusqlite::params![checked, ts_secs, note_id],
                 )?;
             }
 
@@ -324,7 +324,7 @@ impl Workspace {
                 created_by, script_id, name, description, source_code, load_order, enabled, ..
             } => {
                 if created_by == &self.owner_pubkey {
-                    let now_ms = ts.wall_ms as i64;
+                    let ts_secs = (ts.wall_ms / 1000) as i64;
                     tx.execute(
                         "INSERT OR IGNORE INTO user_scripts \
                          (id, name, description, source_code, load_order, enabled, \
@@ -332,7 +332,7 @@ impl Workspace {
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user')",
                         rusqlite::params![
                             script_id, name, description, source_code,
-                            load_order, *enabled as i32, now_ms, now_ms,
+                            load_order, *enabled as i32, ts_secs, ts_secs,
                         ],
                     )?;
                     scripts_changed = true;
@@ -343,13 +343,13 @@ impl Workspace {
                 modified_by, script_id, name, description, source_code, load_order, enabled, ..
             } => {
                 if modified_by == &self.owner_pubkey {
-                    let now_ms = ts.wall_ms as i64;
+                    let ts_secs = (ts.wall_ms / 1000) as i64;
                     tx.execute(
                         "UPDATE user_scripts SET name = ?1, description = ?2, source_code = ?3, \
                          load_order = ?4, enabled = ?5, modified_at = ?6 WHERE id = ?7",
                         rusqlite::params![
                             name, description, source_code,
-                            load_order, *enabled as i32, now_ms, script_id,
+                            load_order, *enabled as i32, ts_secs, script_id,
                         ],
                     )?;
                     scripts_changed = true;
