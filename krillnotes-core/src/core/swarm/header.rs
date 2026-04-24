@@ -119,12 +119,28 @@ fn require_field<T>(val: Option<&T>, name: &str, mode: &str) -> Result<()> {
 
 /// Read the `SwarmHeader` from a `.swarm` zip archive without decrypting
 /// the payload.  Used by receive-only polling to dispatch on bundle mode.
+///
+/// Returns an error if the archive is an invite or response bundle
+/// (these have distinct file structures and should be handled by their
+/// own import paths).
 pub fn read_header(data: &[u8]) -> Result<SwarmHeader> {
     use std::io::Cursor;
     let cursor = Cursor::new(data);
     let mut zip = zip::ZipArchive::new(cursor).map_err(|e| {
         KrillnotesError::Swarm(format!("invalid .swarm zip archive: {e}"))
     })?;
+
+    if zip.by_name("invite.json").is_ok() {
+        return Err(KrillnotesError::Swarm(
+            "bundle contains invite.json — use the invite import path".into(),
+        ));
+    }
+    if zip.by_name("response.json").is_ok() {
+        return Err(KrillnotesError::Swarm(
+            "bundle contains response.json — use the response import path".into(),
+        ));
+    }
+
     let mut header_file = zip.by_name("header.json").map_err(|e| {
         KrillnotesError::Swarm(format!("missing header.json in .swarm bundle: {e}"))
     })?;
@@ -272,5 +288,37 @@ mod tests {
         let json = serde_json::to_string(&h).unwrap();
         let back: SwarmHeader = serde_json::from_str(&json).unwrap();
         assert!(back.owner_pubkey.is_none());
+    }
+
+    #[test]
+    fn test_read_header_rejects_invite_bundle() {
+        use std::io::Write;
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("invite.json", options).unwrap();
+            zip.write_all(b"{}").unwrap();
+            zip.finish().unwrap();
+        }
+        let err = read_header(&buf).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("invite"), "expected invite error, got: {msg}");
+    }
+
+    #[test]
+    fn test_read_header_rejects_response_bundle() {
+        use std::io::Write;
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("response.json", options).unwrap();
+            zip.write_all(b"{}").unwrap();
+            zip.finish().unwrap();
+        }
+        let err = read_header(&buf).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("response"), "expected response error, got: {msg}");
     }
 }

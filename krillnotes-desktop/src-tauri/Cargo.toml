@@ -45,6 +45,5 @@ rand = "0.8"
 tempfile = "3"
 uuid = { workspace = true }
 chrono = { workspace = true }
-zip = { version = "8", default-features = false }
 
 [dev-dependencies]
