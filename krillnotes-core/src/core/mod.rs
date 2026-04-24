@@ -30,6 +30,7 @@ pub mod scripting;
 pub mod swarm;
 pub mod storage;
 pub mod sync;
+pub mod timestamp;
 pub mod user_script;
 pub mod undo;
 pub mod workspace;

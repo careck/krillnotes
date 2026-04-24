@@ -1,4 +1,5 @@
     use super::*;
+    use crate::core::timestamp::UnixSecs;
 
     /// Helper: loads the bundled TextNote starter script into a registry.
     fn load_text_note(registry: &mut ScriptRegistry) {
@@ -60,7 +61,7 @@
         let note = Note {
             id: "n1".to_string(), schema: "Folder".to_string(),
             title: "F".to_string(), parent_id: None, position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
@@ -1059,7 +1060,7 @@
         fields.insert("body".into(), FieldValue::Text("**important**".into()));
         let note = Note {
             id: "n1".into(), title: "Test".into(), schema: "Memo".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
 
@@ -1104,8 +1105,8 @@
             title: "Test".to_string(),
             parent_id: None,
             position: 0.0,
-            created_at: 0,
-            modified_at: 0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
             created_by: String::new(),
             modified_by: String::new(),
             fields: BTreeMap::new(),
@@ -1408,7 +1409,7 @@
         let note = Note {
             id: "n1".to_string(), schema: "BoomView".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             fields: BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
@@ -1471,7 +1472,7 @@
             id: "n1".into(), title: "Hello".into(),
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
@@ -1498,7 +1499,7 @@
             id: "p1".into(), title: "Parent".into(),
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
@@ -1520,7 +1521,7 @@
             id: "n1".into(), title: "T".into(),
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
@@ -1547,7 +1548,7 @@
             id: "n1".into(), title: "T".into(),
             schema: "TextNote".into(), parent_id: None,
             fields: std::collections::BTreeMap::new(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
         let ctx = QueryContext {
@@ -1569,7 +1570,7 @@
             id: id.into(), title: "Test".into(),
             schema: node_type.into(), parent_id: None,
             fields: Default::default(), position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         }
     }
@@ -1737,7 +1738,7 @@
         let note = Note {
             id: "n1".to_string(), schema: "Tagged".to_string(),
             title: "T".to_string(), parent_id: None, position: 0.0,
-            created_at: 0, modified_at: 0, created_by: String::new(), modified_by: String::new(),
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false,
             tags: vec!["rust".to_string(), "notes".to_string()], schema_version: 1, is_checked: false,
         };
@@ -1936,7 +1937,7 @@
         registry.resolve_bindings();
         let note = crate::Note {
             id: "id1".into(), title: "Test Note".into(), schema: "HoverRun".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(),
             fields: std::collections::BTreeMap::new(), is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
         };
@@ -2002,7 +2003,7 @@
                 size_bytes: 100,
                 hash_sha256: "abc".to_string(),
                 salt: "00".repeat(32),
-                created_at: 0,
+                created_at: UnixSecs::ZERO,
             }],
         );
 
@@ -2033,7 +2034,7 @@
         let note = Note {
             id: "n1".to_string(), schema: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
-            created_at: 0, modified_at: 0, position: 0.0,
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, position: 0.0,
             created_by: String::new(), modified_by: String::new(), is_expanded: false, is_checked: false,
         };
 
@@ -2064,7 +2065,7 @@
         let note = Note {
             id: "n2".to_string(), schema: "PhotoNote".to_string(),
             title: "T".to_string(), parent_id: None, fields, tags: vec![], schema_version: 1,
-            created_at: 0, modified_at: 0, position: 0.0,
+            created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO, position: 0.0,
             created_by: String::new(), modified_by: String::new(), is_expanded: false, is_checked: false,
         };
 
