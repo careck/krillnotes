@@ -225,9 +225,8 @@ pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut OsRng) }
+    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
 
     #[test]
     fn test_snapshot_encrypt_decrypt_roundtrip() {

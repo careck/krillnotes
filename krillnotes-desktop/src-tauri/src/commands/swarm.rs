@@ -82,33 +82,6 @@ pub enum SwarmFileInfo {
     },
 }
 
-/// Read and deserialise just the header.json from a .swarm zip bundle.
-fn peek_swarm_header(data: &[u8]) -> std::result::Result<krillnotes_core::core::swarm::header::SwarmHeader, String> {
-    use std::io::{Cursor, Read};
-    use zip::ZipArchive;
-    let cursor = Cursor::new(data);
-    let mut zip = ZipArchive::new(cursor)
-        .map_err(|e| format!("Cannot open bundle: {e}"))?;
-
-    // Detect Phase C invite/response files before trying to read header.json
-    if zip.by_name("invite.json").is_ok() {
-        return Err("This is a Phase C invite file. Use the 'Import Invite' button to open it.".to_string());
-    }
-    if zip.by_name("response.json").is_ok() {
-        return Err("This is a Phase C response file. Use the 'Import Response' button to open it.".to_string());
-    }
-
-    let header_bytes = {
-        let mut file = zip.by_name("header.json")
-            .map_err(|_| "bundle missing 'header.json'".to_string())?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).map_err(|e| format!("Cannot read header: {e}"))?;
-        buf
-    };
-    serde_json::from_slice(&header_bytes)
-        .map_err(|e| format!("Invalid header: {e}"))
-}
-
 /// Peek at a .swarm file and return its type + display metadata.
 #[tauri::command]
 pub fn open_swarm_file_cmd(
@@ -117,7 +90,17 @@ pub fn open_swarm_file_cmd(
 ) -> std::result::Result<SwarmFileInfo, String> {
     use krillnotes_core::core::swarm::header::SwarmMode;
     let data = std::fs::read(&path).map_err(|e| { log::error!("open_swarm_file failed: {e}"); format!("Cannot read file: {e}") })?;
-    let header = peek_swarm_header(&data)?;
+    let header = krillnotes_core::core::swarm::header::read_header(&data)
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("invite.json") {
+                "This is a Phase C invite file. Use the 'Import Invite' button to open it.".to_string()
+            } else if msg.contains("response.json") {
+                "This is a Phase C response file. Use the 'Import Response' button to open it.".to_string()
+            } else {
+                msg
+            }
+        })?;
 
     let fingerprint = krillnotes_core::core::contact::generate_fingerprint(&header.source_identity)
         .map_err(|e| e.to_string())?;
@@ -425,7 +408,7 @@ pub async fn apply_swarm_snapshot(
     // 3. Generate a fresh DB encryption password (never leaves this device).
     let workspace_password: String = {
         let mut bytes = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::STANDARD.encode(bytes)
     };
 

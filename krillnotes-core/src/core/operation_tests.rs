@@ -139,9 +139,9 @@ fn test_operation_serialization() {
 #[test]
 fn test_sign_and_verify() {
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
+    
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
 
     let mut op = Operation::UpdateField {
@@ -174,9 +174,9 @@ fn test_sign_and_verify() {
 #[test]
 fn test_create_note_sign_and_verify_multi_field() {
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
+    
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
 
     // Build a CreateNote with multiple fields — order must be deterministic.
@@ -257,9 +257,9 @@ fn test_set_tags_variant() {
 #[test]
 fn test_add_attachment_sign_and_verify() {
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
+    
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
 
     let mut op = Operation::AddAttachment {
@@ -291,9 +291,9 @@ fn test_add_attachment_sign_and_verify() {
 #[test]
 fn test_remove_attachment_sign_and_verify() {
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
+    
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
 
     let mut op = Operation::RemoveAttachment {

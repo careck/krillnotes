@@ -122,7 +122,7 @@ impl RelayAccountManager {
         let cipher = Aes256Gcm::new(key);
 
         let mut nonce_bytes = [0u8; 12];
-        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let plaintext = serde_json::to_vec(account)?;

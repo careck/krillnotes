@@ -54,11 +54,10 @@ pub fn verify_manifest(
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
     #[test]
     fn test_sign_and_verify_manifest() {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut rand_core::OsRng);
         let verifying_key = signing_key.verifying_key();
         let files: Vec<(&str, &[u8])> = vec![
             ("header.json", b"{}"),
@@ -70,7 +69,7 @@ mod tests {
 
     #[test]
     fn test_tampered_content_fails_verify() {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut rand_core::OsRng);
         let verifying_key = signing_key.verifying_key();
         let files: Vec<(&str, &[u8])> = vec![("header.json", b"{}")];
         let signature = sign_manifest(&files, &signing_key);

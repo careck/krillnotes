@@ -21,7 +21,7 @@
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
+use rand_core::OsRng;
 use tempfile::NamedTempFile;
 
 use krillnotes_core::{

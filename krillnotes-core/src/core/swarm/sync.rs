@@ -311,7 +311,6 @@ pub fn apply_delta(
 mod tests {
     use base64::Engine;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
     use crate::core::permission::{AllowAllGate, PermissionGate};
 
@@ -320,7 +319,7 @@ mod tests {
     }
 
     fn make_key() -> SigningKey {
-        SigningKey::generate(&mut OsRng)
+        SigningKey::generate(&mut rand_core::OsRng)
     }
 
     fn b64(key: &SigningKey) -> String {

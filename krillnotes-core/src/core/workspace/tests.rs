@@ -1872,7 +1872,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let mut ws = Workspace::create(&db_path, "", "test-identity", ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]), test_gate(), None).unwrap();
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
-        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let key = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
         let data = b"test file content";
         let meta = ws.attach_file(&root_id, "test.txt", Some("text/plain"), data, Some(&key)).unwrap();
 
@@ -1898,7 +1898,7 @@ register_menu("Add Item", ["TAFolder"], |note| {
         let meta = ws.attach_file(&root_id, "test.txt", Some("text/plain"), data, None).unwrap();
         assert!(!ws.can_undo(), "attach_file without signing key must not push undo");
 
-        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let key = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
         ws.delete_attachment(&meta.id, Some(&key)).unwrap();
 
         // Verify: op was logged with the correct type.
@@ -3639,7 +3639,7 @@ schema("SameVerType", #{
         let root_id = ws.list_all_notes().unwrap()[0].id.clone();
 
         // Attach with a signing key so the op is logged and undo is pushed.
-        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let key = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
         let data = b"undo attachment data";
         let meta = ws.attach_file(&root_id, "undo_test.txt", Some("text/plain"), data, Some(&key)).unwrap();
 
@@ -3692,7 +3692,7 @@ schema("SameVerType", #{
         assert!(enc_path.exists(), ".enc must exist before delete");
 
         // Delete WITH a signing key so the delete op is logged and undo is pushed.
-        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let key = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
         ws.delete_attachment(&meta.id, Some(&key)).unwrap();
 
         // After delete: .enc gone, .enc.trash present, DB row removed.

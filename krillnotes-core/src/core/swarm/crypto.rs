@@ -57,7 +57,7 @@ pub(crate) fn ed25519_sk_to_x25519(key: &SigningKey) -> StaticSecret {
 fn aes_encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let mut nonce_bytes = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ct = cipher
         .encrypt(nonce, plaintext)
@@ -118,7 +118,7 @@ pub fn encrypt_for_recipients_with_key(
 ) -> Result<(Vec<u8>, [u8; 32], Vec<RecipientEntry>)> {
     // 1. Generate random AES-256-GCM payload key.
     let mut aes_key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut aes_key);
+    rand::rng().fill_bytes(&mut aes_key);
 
     // 2. Encrypt the payload.
     let ciphertext = aes_encrypt(&aes_key, plaintext)?;
@@ -127,7 +127,7 @@ pub fn encrypt_for_recipients_with_key(
     let mut entries = Vec::with_capacity(recipients.len());
     for (i, &vk) in recipients.iter().enumerate() {
         let recipient_x25519 = ed25519_pub_to_x25519(vk);
-        let ephemeral = EphemeralSecret::random_from_rng(rand::thread_rng());
+        let ephemeral = EphemeralSecret::random_from_rng(rand_core::OsRng);
         let ephemeral_pub = X25519PublicKey::from(&ephemeral);
         let shared = ephemeral.diffie_hellman(&recipient_x25519);
         let wrap_key = hkdf_derive(shared.as_bytes(), b"krillnotes-swarm-key-wrap");
@@ -194,7 +194,7 @@ pub fn decrypt_payload_with_key(
 pub fn encrypt_blob(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let mut nonce_bytes = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ct = cipher
         .encrypt(nonce, plaintext)
@@ -223,10 +223,9 @@ pub fn decrypt_blob(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
     fn make_key() -> SigningKey {
-        SigningKey::generate(&mut OsRng)
+        SigningKey::generate(&mut rand_core::OsRng)
     }
 
     #[test]

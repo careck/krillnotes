@@ -87,7 +87,7 @@ pub fn create_invite_bundle(params: InviteParams<'_>) -> Result<Vec<u8>> {
 
     // Generate 32-byte pairing token.
     let mut token_bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut token_bytes);
+    rand::rng().fill_bytes(&mut token_bytes);
     let pairing_token = BASE64.encode(token_bytes);
 
     let header = SwarmHeader {
@@ -348,9 +348,8 @@ pub(crate) fn read_zip_file<R: Read + std::io::Seek>(
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut OsRng) }
+    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
 
     #[test]
     fn test_invite_roundtrip() {
