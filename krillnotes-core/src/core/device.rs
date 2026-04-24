@@ -52,7 +52,10 @@ mod tests {
         match (id1, id2) {
             (Ok(id1), Ok(id2)) => {
                 assert_eq!(id1, id2, "Device ID should be stable");
-                assert!(id1.starts_with("device-"), "Device ID should have correct format");
+                assert!(
+                    id1.starts_with("device-"),
+                    "Device ID should have correct format"
+                );
             }
             (Err(_), Err(_)) => {
                 // Both failed — acceptable in environments without network interfaces.

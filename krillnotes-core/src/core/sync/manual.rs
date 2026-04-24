@@ -18,5 +18,5 @@
 /// Returns `None` here; the host app resolves the download directory
 /// platform-specifically (Tauri's path API on desktop).
 pub fn default_outbox_dir() -> Option<std::path::PathBuf> {
-    None  // Host app resolves download dir platform-specifically
+    None // Host app resolves download dir platform-specifically
 }

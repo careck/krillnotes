@@ -168,7 +168,9 @@ pub fn decrypt_payload_with_key(
 ) -> Result<(Vec<u8>, [u8; 32])> {
     let blob = &entry.encrypted_key;
     if blob.len() < 32 {
-        return Err(KrillnotesError::Swarm("recipient blob too short".to_string()));
+        return Err(KrillnotesError::Swarm(
+            "recipient blob too short".to_string(),
+        ));
     }
     let (ephemeral_pub_bytes, wrapped) = blob.split_at(32);
     let ephemeral_pub = X25519PublicKey::from(
@@ -248,11 +250,8 @@ mod tests {
         let k2 = make_key();
         let plaintext = b"shared payload";
 
-        let (ciphertext, entries): (Vec<u8>, Vec<RecipientEntry>) = encrypt_for_recipients(
-            plaintext,
-            &[&k1.verifying_key(), &k2.verifying_key()],
-        )
-        .unwrap();
+        let (ciphertext, entries): (Vec<u8>, Vec<RecipientEntry>) =
+            encrypt_for_recipients(plaintext, &[&k1.verifying_key(), &k2.verifying_key()]).unwrap();
         assert_eq!(entries.len(), 2);
 
         let r1 = decrypt_payload(&ciphertext, &entries[0], &k1).unwrap();
@@ -305,10 +304,11 @@ mod tests {
         let recip = make_key();
         let vk = recip.verifying_key();
         let payload = b"test payload";
-        let (ct, sym_key, entries) =
-            encrypt_for_recipients_with_key(payload, &[&vk]).unwrap();
+        let (ct, sym_key, entries) = encrypt_for_recipients_with_key(payload, &[&vk]).unwrap();
         assert_eq!(sym_key.len(), 32);
-        let pt = decrypt_payload_with_key(&ct, &entries[0], &recip).unwrap().0;
+        let pt = decrypt_payload_with_key(&ct, &entries[0], &recip)
+            .unwrap()
+            .0;
         assert_eq!(pt, payload);
     }
 
@@ -316,8 +316,7 @@ mod tests {
     fn test_decrypt_payload_with_key_returns_same_key() {
         let recip = make_key();
         let vk = recip.verifying_key();
-        let (ct, sym_key, entries) =
-            encrypt_for_recipients_with_key(b"data", &[&vk]).unwrap();
+        let (ct, sym_key, entries) = encrypt_for_recipients_with_key(b"data", &[&vk]).unwrap();
         let (_, returned_key) = decrypt_payload_with_key(&ct, &entries[0], &recip).unwrap();
         assert_eq!(returned_key, sym_key);
     }

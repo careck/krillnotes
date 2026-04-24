@@ -132,9 +132,12 @@ pub fn slugify_script_name(name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    if slug.is_empty() { "script".to_string() } else { slug }
+    if slug.is_empty() {
+        "script".to_string()
+    } else {
+        slug
+    }
 }
-
 
 /// Opens a named entry and reads all its bytes, decrypting with `password` if provided.
 /// Returns `ExportError::InvalidPassword` if the password is wrong (detected via MAC verification).
@@ -208,8 +211,7 @@ pub fn export_workspace<W: Write + Seek>(
         Some(pwd) => SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .with_aes_encryption(AesMode::Aes256, pwd),
-        None => SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated),
+        None => SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
     };
 
     // Write notes.json
@@ -304,7 +306,10 @@ pub fn export_workspace<W: Write + Seek>(
 /// is wrong. Returns [`ExportError::InvalidFormat`] if the format version is not
 /// `1` or `notes.json` is missing. Returns other `ExportError` variants for I/O,
 /// zip, or JSON failures.
-pub fn peek_import<R: Read + Seek>(reader: R, password: Option<&str>) -> Result<ImportResult, ExportError> {
+pub fn peek_import<R: Read + Seek>(
+    reader: R,
+    password: Option<&str>,
+) -> Result<ImportResult, ExportError> {
     let mut archive = ZipArchive::new(reader)?;
 
     // Detect encryption before trying to read data.
@@ -417,7 +422,10 @@ pub fn import_workspace<R: Read + Seek>(
             })?;
             let mut source = String::new();
             rhai_cursor.read_to_string(&mut source)?;
-            let category = entry.category.clone().unwrap_or_else(|| "schema".to_string());
+            let category = entry
+                .category
+                .clone()
+                .unwrap_or_else(|| "schema".to_string());
             script_sources.push((source, entry.load_order, entry.enabled, category));
         }
     }
@@ -485,7 +493,8 @@ pub fn import_workspace<R: Read + Seek>(
                 .map_err(|e| ExportError::Database(e.to_string()))?;
             }
         }
-        tx.commit().map_err(|e| ExportError::Database(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
     // Bulk-insert scripts in a transaction
@@ -506,7 +515,8 @@ pub fn import_workspace<R: Read + Seek>(
             )
             .map_err(|e| ExportError::Database(e.to_string()))?;
         }
-        tx.commit().map_err(|e| ExportError::Database(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
     // Read workspace metadata before dropping storage (archive must still be alive).
@@ -518,8 +528,15 @@ pub fn import_workspace<R: Read + Seek>(
     drop(storage);
 
     // Rebuild the note_links index from the imported fields_json data.
-    let mut workspace = Workspace::open(db_path, workspace_password, identity_uuid, signing_key, Box::new(crate::core::permission::AllowAllGate::new("krillnotes/1")), None)
-        .map_err(|e| ExportError::Database(e.to_string()))?;
+    let mut workspace = Workspace::open(
+        db_path,
+        workspace_password,
+        identity_uuid,
+        signing_key,
+        Box::new(crate::core::permission::AllowAllGate::new("krillnotes/1")),
+        None,
+    )
+    .map_err(|e| ExportError::Database(e.to_string()))?;
     workspace
         .rebuild_note_links_index()
         .map_err(|e| ExportError::Database(e.to_string()))?;
@@ -558,7 +575,8 @@ pub fn import_workspace<R: Read + Seek>(
     // importer's key that Workspace::open() inserted.
     if let Some(ref meta) = workspace_metadata {
         if let Some(ref original_owner) = meta.owner_pubkey {
-            workspace.set_owner_pubkey(original_owner)
+            workspace
+                .set_owner_pubkey(original_owner)
                 .map_err(|e| ExportError::Database(e.to_string()))?;
         }
     }

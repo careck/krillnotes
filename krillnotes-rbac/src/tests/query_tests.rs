@@ -122,8 +122,7 @@ fn test_get_effective_role_root_owner() {
     let (conn, _gate) = setup_workspace_with_gate("root_pubkey");
     insert_note(&conn, "note-1", None);
 
-    let info =
-        queries::get_effective_role(&conn, "root_pubkey", "note-1", "root_pubkey").unwrap();
+    let info = queries::get_effective_role(&conn, "root_pubkey", "note-1", "root_pubkey").unwrap();
     assert_eq!(info.role, "root_owner");
     assert!(info.inherited_from.is_none());
     assert!(info.granted_by.is_none());
@@ -134,8 +133,7 @@ fn test_get_effective_role_no_access() {
     let (conn, _gate) = setup_workspace_with_gate("root_pubkey");
     insert_note(&conn, "note-1", None);
 
-    let info =
-        queries::get_effective_role(&conn, "stranger_key", "note-1", "root_pubkey").unwrap();
+    let info = queries::get_effective_role(&conn, "stranger_key", "note-1", "root_pubkey").unwrap();
     assert_eq!(info.role, "none");
 }
 
@@ -204,10 +202,7 @@ fn test_get_all_effective_roles_propagates_down_tree() {
     assert_eq!(roles.get("root").map(|r| r.as_str()), Some("writer"));
     assert_eq!(roles.get("child1").map(|r| r.as_str()), Some("writer"));
     assert_eq!(roles.get("child2").map(|r| r.as_str()), Some("writer"));
-    assert_eq!(
-        roles.get("grandchild").map(|r| r.as_str()),
-        Some("writer")
-    );
+    assert_eq!(roles.get("grandchild").map(|r| r.as_str()), Some("writer"));
 }
 
 #[test]
@@ -239,14 +234,8 @@ fn test_get_all_effective_roles_root_owner_all_owner() {
     insert_note(&conn, "child", Some("root"));
 
     let roles = queries::get_all_effective_roles(&conn, "root_pubkey", "root_pubkey").unwrap();
-    assert_eq!(
-        roles.get("root").map(|r| r.as_str()),
-        Some("root_owner")
-    );
-    assert_eq!(
-        roles.get("child").map(|r| r.as_str()),
-        Some("root_owner")
-    );
+    assert_eq!(roles.get("root").map(|r| r.as_str()), Some("root_owner"));
+    assert_eq!(roles.get("child").map(|r| r.as_str()), Some("root_owner"));
 }
 
 // ── preview_cascade tests ──

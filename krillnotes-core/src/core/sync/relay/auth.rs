@@ -57,9 +57,9 @@ pub fn save_relay_credentials(
     rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_ref())
-        .map_err(|e| KrillnotesError::ContactEncryption(format!("relay credential encryption failed: {e}")))?;
+    let ciphertext = cipher.encrypt(nonce, plaintext.as_ref()).map_err(|e| {
+        KrillnotesError::ContactEncryption(format!("relay credential encryption failed: {e}"))
+    })?;
 
     let envelope = EncryptedRelayFile {
         nonce: BASE64.encode(nonce_bytes),
@@ -112,12 +112,10 @@ pub fn load_relay_credentials(
     let key = Key::<Aes256Gcm>::from_slice(encryption_key);
     let cipher = Aes256Gcm::new(key);
 
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext.as_ref())
-        .map_err(|e| {
-            log::error!(target: "krillnotes::relay", "relay credential decryption failed: {e}");
-            KrillnotesError::ContactEncryption(format!("relay credential decryption failed: {e}"))
-        })?;
+    let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|e| {
+        log::error!(target: "krillnotes::relay", "relay credential decryption failed: {e}");
+        KrillnotesError::ContactEncryption(format!("relay credential decryption failed: {e}"))
+    })?;
 
     let creds: RelayCredentials = serde_json::from_slice(&plaintext)?;
 
@@ -184,12 +182,10 @@ pub fn decrypt_pop_challenge(
 
     // 4. Decrypt using SalsaBox (X25519 + XSalsa20-Poly1305, NaCl-compatible).
     let salsa_box = SalsaBox::new(&server_pk, &client_sk);
-    salsa_box
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| {
-            log::error!(target: "krillnotes::relay", "PoP challenge decryption failed");
-            KrillnotesError::Crypto("PoP challenge decryption failed".to_string())
-        })
+    salsa_box.decrypt(nonce, ciphertext).map_err(|_| {
+        log::error!(target: "krillnotes::relay", "PoP challenge decryption failed");
+        KrillnotesError::Crypto("PoP challenge decryption failed".to_string())
+    })
 }
 
 #[cfg(test)]
@@ -274,7 +270,10 @@ mod pop_tests {
         client_ed25519_vk: &ed25519_dalek::VerifyingKey,
         nonce_plaintext: &[u8],
     ) -> (String, String) {
-        use crypto_box::{aead::{Aead, AeadCore}, PublicKey, SalsaBox, SecretKey};
+        use crypto_box::{
+            aead::{Aead, AeadCore},
+            PublicKey, SalsaBox, SecretKey,
+        };
 
         // 1. Convert client's Ed25519 verifying key to X25519 public key.
         let client_x25519_pk_bytes = ed25519_vk_to_x25519_pk_bytes(client_ed25519_vk);
@@ -309,12 +308,9 @@ mod pop_tests {
         let (encrypted_nonce, server_public_key) =
             simulate_server_challenge(&client_verifying_key, nonce_plaintext);
 
-        let decrypted = decrypt_pop_challenge(
-            &client_signing_key,
-            &encrypted_nonce,
-            &server_public_key,
-        )
-        .unwrap();
+        let decrypted =
+            decrypt_pop_challenge(&client_signing_key, &encrypted_nonce, &server_public_key)
+                .unwrap();
 
         assert_eq!(decrypted, nonce_plaintext);
     }

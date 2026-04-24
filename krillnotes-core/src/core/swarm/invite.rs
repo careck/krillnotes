@@ -120,7 +120,11 @@ pub fn create_invite_bundle(params: InviteParams<'_>) -> Result<Vec<u8>> {
     // SetPermission with placeholder target.
     let set_perm = Operation::SetPermission {
         operation_id: Uuid::new_v4().to_string(),
-        timestamp: HlcTimestamp { wall_ms: Utc::now().timestamp_millis() as u64, counter: 0, node_id: 0 },
+        timestamp: HlcTimestamp {
+            wall_ms: Utc::now().timestamp_millis() as u64,
+            counter: 0,
+            node_id: 0,
+        },
         device_id: params.source_device_id,
         note_id: params.offered_scope,
         user_id: "PLACEHOLDER".to_string(),
@@ -159,8 +163,8 @@ pub fn create_invite_bundle(params: InviteParams<'_>) -> Result<Vec<u8>> {
 /// Parse and verify an invite.swarm bundle.
 pub fn parse_invite_bundle(data: &[u8]) -> Result<ParsedInvite> {
     let cursor = Cursor::new(data);
-    let mut zip = ZipArchive::new(cursor)
-        .map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
+    let mut zip =
+        ZipArchive::new(cursor).map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
 
     let header_bytes = read_zip_file(&mut zip, "header.json")?;
     let payload_bytes = read_zip_file(&mut zip, "payload.json")?;
@@ -170,9 +174,11 @@ pub fn parse_invite_bundle(data: &[u8]) -> Result<ParsedInvite> {
     header.validate()?;
 
     // Verify signature against sender's public key.
-    let vk_bytes = BASE64.decode(&header.source_identity)
+    let vk_bytes = BASE64
+        .decode(&header.source_identity)
         .map_err(|e| KrillnotesError::Swarm(format!("bad source_identity: {e}")))?;
-    let vk_arr: [u8; 32] = vk_bytes.try_into()
+    let vk_arr: [u8; 32] = vk_bytes
+        .try_into()
         .map_err(|_| KrillnotesError::Swarm("source_identity must be 32 bytes".to_string()))?;
     let vk = VerifyingKey::from_bytes(&vk_arr)
         .map_err(|e| KrillnotesError::Swarm(format!("invalid public key: {e}")))?;
@@ -259,7 +265,11 @@ pub fn create_accept_bundle(params: AcceptParams<'_>) -> Result<Vec<u8>> {
 
     let join_op = Operation::JoinWorkspace {
         operation_id: Uuid::new_v4().to_string(),
-        timestamp: HlcTimestamp { wall_ms: Utc::now().timestamp_millis() as u64, counter: 0, node_id: 0 },
+        timestamp: HlcTimestamp {
+            wall_ms: Utc::now().timestamp_millis() as u64,
+            counter: 0,
+            node_id: 0,
+        },
         device_id: params.source_device_id,
         identity_public_key: pubkey_b64,
         declared_name: params.declared_name,
@@ -294,8 +304,8 @@ pub fn create_accept_bundle(params: AcceptParams<'_>) -> Result<Vec<u8>> {
 /// Parse and verify an accept.swarm bundle.
 pub fn parse_accept_bundle(data: &[u8]) -> Result<ParsedAccept> {
     let cursor = Cursor::new(data);
-    let mut zip = ZipArchive::new(cursor)
-        .map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
+    let mut zip =
+        ZipArchive::new(cursor).map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
 
     let header_bytes = read_zip_file(&mut zip, "header.json")?;
     let payload_bytes = read_zip_file(&mut zip, "payload.json")?;
@@ -304,9 +314,11 @@ pub fn parse_accept_bundle(data: &[u8]) -> Result<ParsedAccept> {
     let header: SwarmHeader = serde_json::from_slice(&header_bytes)?;
     header.validate()?;
 
-    let vk_bytes = BASE64.decode(&header.source_identity)
+    let vk_bytes = BASE64
+        .decode(&header.source_identity)
         .map_err(|e| KrillnotesError::Swarm(format!("bad source_identity: {e}")))?;
-    let vk_arr: [u8; 32] = vk_bytes.try_into()
+    let vk_arr: [u8; 32] = vk_bytes
+        .try_into()
         .map_err(|_| KrillnotesError::Swarm("source_identity must be 32 bytes".to_string()))?;
     let vk = VerifyingKey::from_bytes(&vk_arr)
         .map_err(|e| KrillnotesError::Swarm(format!("invalid sender key: {e}")))?;
@@ -337,7 +349,8 @@ pub(crate) fn read_zip_file<R: Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
     name: &str,
 ) -> Result<Vec<u8>> {
-    let mut file = zip.by_name(name)
+    let mut file = zip
+        .by_name(name)
         .map_err(|_| KrillnotesError::Swarm(format!("bundle missing '{name}'")))?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
@@ -349,7 +362,9 @@ mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
+    fn make_key() -> SigningKey {
+        SigningKey::generate(&mut rand_core::OsRng)
+    }
 
     #[test]
     fn test_invite_roundtrip() {
@@ -366,7 +381,8 @@ mod tests {
             inviter_key: &inviter_key,
             owner_pubkey: "owner-pk".to_string(),
             reply_channels: vec![],
-        }).unwrap();
+        })
+        .unwrap();
 
         let parsed = parse_invite_bundle(&bundle).unwrap();
         assert_eq!(parsed.workspace_id, "ws-1");
@@ -389,7 +405,8 @@ mod tests {
             inviter_key: &inviter_key,
             owner_pubkey: "owner-pk".to_string(),
             reply_channels: vec![],
-        }).unwrap();
+        })
+        .unwrap();
 
         let parsed_invite = parse_invite_bundle(&invite).unwrap();
         let acceptor_key = make_key();
@@ -403,7 +420,8 @@ mod tests {
             acceptor_key: &acceptor_key,
             owner_pubkey: parsed_invite.owner_pubkey.clone(),
             channel_preference: ChannelPreference::default(),
-        }).unwrap();
+        })
+        .unwrap();
 
         let parsed_accept = parse_accept_bundle(&accept_bundle).unwrap();
         assert_eq!(parsed_accept.declared_name, "Bob");
@@ -425,7 +443,8 @@ mod tests {
             inviter_key: &inviter_key,
             owner_pubkey: "owner-pk".to_string(),
             reply_channels: vec![],
-        }).unwrap();
+        })
+        .unwrap();
         // Flip a byte in the middle of the bundle
         let len = bundle.len();
         bundle[len / 2] ^= 0xFF;

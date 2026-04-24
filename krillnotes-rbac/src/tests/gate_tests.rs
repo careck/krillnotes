@@ -118,12 +118,7 @@ fn make_set_permission(note_id: &str, user_id: &str, role: &str) -> Operation {
     make_set_permission_by(note_id, user_id, role, ROOT_OWNER)
 }
 
-fn make_set_permission_by(
-    note_id: &str,
-    user_id: &str,
-    role: &str,
-    granted_by: &str,
-) -> Operation {
+fn make_set_permission_by(note_id: &str, user_id: &str, role: &str, granted_by: &str) -> Operation {
     Operation::SetPermission {
         operation_id: uuid::Uuid::new_v4().to_string(),
         timestamp: krillnotes_core::HlcTimestamp {
@@ -205,17 +200,27 @@ fn test_no_grant_denied() {
 fn test_owner_can_create_update_delete() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "owner");
-    assert!(gate.authorize(&conn, BOB, &make_create_note("root_a")).is_ok());
-    assert!(gate.authorize(&conn, BOB, &make_update_field("child_1")).is_ok());
-    assert!(gate.authorize(&conn, BOB, &make_delete_note("child_2")).is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_create_note("root_a"))
+        .is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_update_field("child_1"))
+        .is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_delete_note("child_2"))
+        .is_ok());
 }
 
 #[test]
 fn test_writer_can_create_and_edit() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "writer");
-    assert!(gate.authorize(&conn, BOB, &make_create_note("root_a")).is_ok());
-    assert!(gate.authorize(&conn, BOB, &make_update_field("child_1")).is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_create_note("root_a"))
+        .is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_update_field("child_1"))
+        .is_ok());
 }
 
 #[test]
@@ -223,7 +228,9 @@ fn test_writer_can_delete_own_note() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "writer");
     // child_1 was created_by BOB
-    assert!(gate.authorize(&conn, BOB, &make_delete_note("child_1")).is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_delete_note("child_1"))
+        .is_ok());
 }
 
 #[test]
@@ -231,49 +238,51 @@ fn test_writer_cannot_delete_others_note() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "writer");
     // child_2 was created_by CAROL
-    assert!(gate.authorize(&conn, BOB, &make_delete_note("child_2")).is_err());
+    assert!(gate
+        .authorize(&conn, BOB, &make_delete_note("child_2"))
+        .is_err());
 }
 
 #[test]
 fn test_reader_cannot_create() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "reader");
-    assert!(gate.authorize(&conn, BOB, &make_create_note("root_a")).is_err());
+    assert!(gate
+        .authorize(&conn, BOB, &make_create_note("root_a"))
+        .is_err());
 }
 
 #[test]
 fn test_reader_cannot_update() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "reader");
-    assert!(gate.authorize(&conn, BOB, &make_update_field("child_1")).is_err());
+    assert!(gate
+        .authorize(&conn, BOB, &make_update_field("child_1"))
+        .is_err());
 }
 
 #[test]
 fn test_writer_cannot_set_permission() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "writer");
-    assert!(
-        gate.authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "reader"))
-            .is_err()
-    );
+    assert!(gate
+        .authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "reader"))
+        .is_err());
 }
 
 #[test]
 fn test_owner_can_set_permission_up_to_owner() {
     let (conn, gate) = setup_gate_db();
     grant(&conn, "root_a", BOB, "owner");
-    assert!(
-        gate.authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "owner"))
-            .is_ok()
-    );
-    assert!(
-        gate.authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "writer"))
-            .is_ok()
-    );
-    assert!(
-        gate.authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "reader"))
-            .is_ok()
-    );
+    assert!(gate
+        .authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "owner"))
+        .is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "writer"))
+        .is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_set_permission("root_a", CAROL, "reader"))
+        .is_ok());
 }
 
 #[test]
@@ -356,8 +365,11 @@ fn test_demotion_cascade_partial() {
         rusqlite::params![BOB],
     )
     .unwrap();
-    gate.apply_permission_op(&conn, &make_set_permission_by("root_a", BOB, "writer", ROOT_OWNER))
-        .unwrap();
+    gate.apply_permission_op(
+        &conn,
+        &make_set_permission_by("root_a", BOB, "writer", ROOT_OWNER),
+    )
+    .unwrap();
     gate.cascade_revoke_public(&conn, BOB).unwrap();
 
     // Carol's owner grant exceeds Bob's writer -> invalidated

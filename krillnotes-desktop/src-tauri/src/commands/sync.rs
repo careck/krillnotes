@@ -7,15 +7,15 @@
 //! Tauri commands for relay-based sync operations.
 
 use crate::AppState;
-use std::sync::Arc;
-use tauri::{Emitter, State, Window};
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use uuid::Uuid;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use krillnotes_core::core::sync::relay::{RelayAccount, RelayChannel, RelayClient};
 use krillnotes_core::core::{
     device::get_device_id,
     sync::{FolderChannel, SyncContext, SyncEngine, SyncEvent},
 };
-use krillnotes_core::core::sync::relay::{RelayAccount, RelayChannel, RelayClient};
+use std::sync::Arc;
+use tauri::{Emitter, State, Window};
+use uuid::Uuid;
 
 // ── update_peer_channel ────────────────────────────────────────────────────
 
@@ -39,7 +39,9 @@ pub async fn update_peer_channel(
         .ok_or_else(|| format!("Workspace not found: {workspace_label}"))?;
     ws.update_peer_channel(&peer_device_id, &channel_type, &channel_params)
         .map_err(|e| {
-            log::error!("update_peer_channel(peer={peer_device_id}, type={channel_type}) failed: {e}");
+            log::error!(
+                "update_peer_channel(peer={peer_device_id}, type={channel_type}) failed: {e}"
+            );
             e.to_string()
         })
 }
@@ -60,12 +62,19 @@ pub async fn poll_sync(
 
     // -- Collect context data under brief locks (all guards released before spawn) --
     let identity_uuid = {
-        let m = state.workspace_identities.lock().map_err(|e| e.to_string())?;
-        *m.get(&workspace_label).ok_or("No identity bound to this workspace")?
+        let m = state
+            .workspace_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
+        *m.get(&workspace_label)
+            .ok_or("No identity bound to this workspace")?
     };
 
     let (signing_key, sender_display_name, identity_pubkey) = {
-        let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
+        let m = state
+            .unlocked_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
         let id = m.get(&identity_uuid).ok_or("Identity not unlocked")?;
         let pubkey_b64 = BASE64.encode(id.verifying_key.as_bytes()); // FolderChannel uses Base64
         (id.signing_key.clone(), id.display_name.clone(), pubkey_b64)
@@ -85,7 +94,10 @@ pub async fn poll_sync(
 
     // Load all relay accounts from RelayAccountManager (clone before spawn_blocking)
     let relay_accounts: Vec<RelayAccount> = {
-        let ram = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+        let ram = state
+            .relay_account_managers
+            .lock()
+            .map_err(|e| e.to_string())?;
         if let Some(mgr) = ram.get(&identity_uuid) {
             mgr.list_relay_accounts().unwrap_or_default()
         } else {
@@ -114,7 +126,9 @@ pub async fn poll_sync(
                         continue;
                     }
                     // Try to parse old format with relay_url
-                    if let Ok(params) = serde_json::from_str::<serde_json::Value>(&peer.channel_params) {
+                    if let Ok(params) =
+                        serde_json::from_str::<serde_json::Value>(&peer.channel_params)
+                    {
                         if let Some(url) = params.get("relay_url").and_then(|v| v.as_str()) {
                             // Look up matching relay account by URL
                             let matched = relay_accounts.iter().find(|a| a.relay_url == url);
@@ -128,7 +142,10 @@ pub async fn poll_sync(
                                         "relay",
                                         &new_params.to_string(),
                                     ) {
-                                        log::warn!("Failed to migrate channel_params for peer {}: {e}", peer.peer_device_id);
+                                        log::warn!(
+                                            "Failed to migrate channel_params for peer {}: {e}",
+                                            peer.peer_device_id
+                                        );
                                     } else {
                                         log::info!("Migrated channel_params for peer {} to relay_account_id {}", peer.peer_device_id, acct.relay_account_id);
                                     }
@@ -160,7 +177,10 @@ pub async fn poll_sync(
 
     let events = tokio::task::spawn_blocking(move || -> Result<Vec<SyncEvent>, String> {
         let mut engine = SyncEngine::new();
-        engine.register_channel(Box::new(FolderChannel::new(identity_pubkey, device_id.clone())));
+        engine.register_channel(Box::new(FolderChannel::new(
+            identity_pubkey,
+            device_id.clone(),
+        )));
 
         // NOTE: SyncEngine supports one channel per ChannelType (HashMap keyed by type).
         // Multiple relay accounts would overwrite each other. For now, register only the
@@ -172,11 +192,13 @@ pub async fn poll_sync(
                 let client = RelayClient::new(&acct.relay_url);
                 match client.login(&acct.email, &acct.password, &acct.device_public_key) {
                     Ok(session) => token = session.session_token,
-                    Err(e) => log::warn!("poll_sync: inline auto-login failed for {}: {e}", acct.relay_url),
+                    Err(e) => log::warn!(
+                        "poll_sync: inline auto-login failed for {}: {e}",
+                        acct.relay_url
+                    ),
                 }
             }
-            let relay_client = RelayClient::new(&acct.relay_url)
-                .with_session_token(&token);
+            let relay_client = RelayClient::new(&acct.relay_url).with_session_token(&token);
             engine.register_channel(Box::new(RelayChannel::new(
                 relay_client,
                 workspace_id_str.clone(),
@@ -215,7 +237,9 @@ pub async fn poll_sync(
     })??;
 
     // If any bundles were applied, notify WorkspaceView to reload the note tree.
-    let bundles_applied = events.iter().any(|e| matches!(e, SyncEvent::BundleApplied { .. }));
+    let bundles_applied = events
+        .iter()
+        .any(|e| matches!(e, SyncEvent::BundleApplied { .. }));
     if bundles_applied {
         let _ = window.emit("workspace-updated", ());
     }
@@ -254,7 +278,8 @@ pub async fn share_invite_link(
     // Resolve scope note title from workspace if scope_note_id is provided.
     let scope_note_title = if let Some(ref nid) = scope_note_id {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-        let ws = workspaces.get(window.label())
+        let ws = workspaces
+            .get(window.label())
             .ok_or("No workspace for this window")?;
         Some(ws.get_note(nid).map_err(|e| e.to_string())?.title)
     } else {
@@ -326,31 +351,45 @@ pub async fn share_invite_link(
     let invite_id = record.invite_id;
     let relay_account = {
         let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
-        let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
+        let mgr = ram
+            .get(&uuid)
+            .ok_or("No relay account manager for identity")?;
         let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
         if let Some(ref id) = relay_account_id {
-            accounts.into_iter()
+            accounts
+                .into_iter()
                 .find(|a| a.relay_account_id.to_string() == *id)
                 .ok_or_else(|| format!("Relay account {id} not found"))?
         } else {
-            accounts.into_iter().next().ok_or("No relay account configured")?
+            accounts
+                .into_iter()
+                .next()
+                .ok_or("No relay account configured")?
         }
     };
 
     let relay_url_result = tokio::task::spawn_blocking(move || -> Result<String, String> {
         let mut token = relay_account.session_token.clone();
-        if relay_account.session_expires_at < chrono::Utc::now() && !relay_account.password.is_empty() {
+        if relay_account.session_expires_at < chrono::Utc::now()
+            && !relay_account.password.is_empty()
+        {
             let client = RelayClient::new(&relay_account.relay_url);
-            match client.login(&relay_account.email, &relay_account.password, &relay_account.device_public_key) {
+            match client.login(
+                &relay_account.email,
+                &relay_account.password,
+                &relay_account.device_public_key,
+            ) {
                 Ok(session) => token = session.session_token,
                 Err(e) => log::warn!("share_invite_link: auto-login failed: {e}"),
             }
         }
         let client = RelayClient::new(&relay_account.relay_url).with_session_token(&token);
-        let info = client.create_invite(&payload_b64, &expires_at).map_err(|e| {
-            log::error!("share_invite_link: relay create_invite failed: {e}");
-            e.to_string()
-        })?;
+        let info = client
+            .create_invite(&payload_b64, &expires_at)
+            .map_err(|e| {
+                log::error!("share_invite_link: relay create_invite failed: {e}");
+                e.to_string()
+            })?;
         Ok(info.url)
     })
     .await
@@ -430,9 +469,7 @@ pub async fn create_relay_invite(
     };
 
     // Re-build and re-sign the InviteFile from the stored record.
-    let pubkey_b64 = {
-        BASE64.encode(signing_key.verifying_key().to_bytes())
-    };
+    let pubkey_b64 = { BASE64.encode(signing_key.verifying_key().to_bytes()) };
     let mut file = krillnotes_core::core::invite::InviteFile {
         file_type: "krillnotes-invite-v1".to_string(),
         invite_id: record.invite_id.to_string(),
@@ -474,25 +511,38 @@ pub async fn create_relay_invite(
     // Build relay client with auto-login.
     let relay_account = {
         let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
-        let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
+        let mgr = ram
+            .get(&uuid)
+            .ok_or("No relay account manager for identity")?;
         let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
-        accounts.into_iter().next().ok_or("No relay account configured")?
+        accounts
+            .into_iter()
+            .next()
+            .ok_or("No relay account configured")?
     };
 
     let relay_url_result = tokio::task::spawn_blocking(move || -> Result<String, String> {
         let mut token = relay_account.session_token.clone();
-        if relay_account.session_expires_at < chrono::Utc::now() && !relay_account.password.is_empty() {
+        if relay_account.session_expires_at < chrono::Utc::now()
+            && !relay_account.password.is_empty()
+        {
             let client = RelayClient::new(&relay_account.relay_url);
-            match client.login(&relay_account.email, &relay_account.password, &relay_account.device_public_key) {
+            match client.login(
+                &relay_account.email,
+                &relay_account.password,
+                &relay_account.device_public_key,
+            ) {
                 Ok(session) => token = session.session_token,
                 Err(e) => log::warn!("create_relay_invite: auto-login failed: {e}"),
             }
         }
         let client = RelayClient::new(&relay_account.relay_url).with_session_token(&token);
-        let info = client.create_invite(&payload_b64, &expires_at).map_err(|e| {
-            log::error!("create_relay_invite: relay create_invite failed: {e}");
-            e.to_string()
-        })?;
+        let info = client
+            .create_invite(&payload_b64, &expires_at)
+            .map_err(|e| {
+                log::error!("create_relay_invite: relay create_invite failed: {e}");
+                e.to_string()
+            })?;
         Ok(info.url)
     })
     .await
@@ -521,27 +571,29 @@ pub async fn fetch_relay_invite(
     relay_base_url: Option<String>,
 ) -> Result<crate::commands::invites::FetchedRelayInvite, String> {
     log::debug!("fetch_relay_invite(token={token})");
-    use krillnotes_core::core::invite::InviteManager;
     use krillnotes_core::core::contact::generate_fingerprint;
+    use krillnotes_core::core::invite::InviteManager;
 
     let base_url = relay_base_url.unwrap_or_else(|| "https://swarm.krillnotes.org".to_string());
 
-    let (invite, bytes) = tokio::task::spawn_blocking(move || -> Result<(krillnotes_core::core::invite::InviteFile, Vec<u8>), String> {
-        let client = RelayClient::new(&base_url);
-        let payload = client.fetch_invite(&token).map_err(|e| {
-            log::error!("fetch_relay_invite: relay fetch failed: {e}");
-            e.to_string()
-        })?;
-        let bytes = BASE64.decode(&payload.payload).map_err(|e| {
-            log::error!("fetch_relay_invite: base64 decode failed: {e}");
-            e.to_string()
-        })?;
-        let invite = InviteManager::parse_and_verify_invite_bytes(&bytes).map_err(|e| {
-            log::error!("fetch_relay_invite: parse/verify failed: {e}");
-            e.to_string()
-        })?;
-        Ok((invite, bytes))
-    })
+    let (invite, bytes) = tokio::task::spawn_blocking(
+        move || -> Result<(krillnotes_core::core::invite::InviteFile, Vec<u8>), String> {
+            let client = RelayClient::new(&base_url);
+            let payload = client.fetch_invite(&token).map_err(|e| {
+                log::error!("fetch_relay_invite: relay fetch failed: {e}");
+                e.to_string()
+            })?;
+            let bytes = BASE64.decode(&payload.payload).map_err(|e| {
+                log::error!("fetch_relay_invite: base64 decode failed: {e}");
+                e.to_string()
+            })?;
+            let invite = InviteManager::parse_and_verify_invite_bytes(&bytes).map_err(|e| {
+                log::error!("fetch_relay_invite: parse/verify failed: {e}");
+                e.to_string()
+            })?;
+            Ok((invite, bytes))
+        },
+    )
     .await
     .map_err(|e| e.to_string())??;
 
@@ -557,8 +609,8 @@ pub async fn fetch_relay_invite(
         path.to_string_lossy().to_string()
     };
 
-    let fingerprint = generate_fingerprint(&invite.inviter_public_key)
-        .map_err(|e| e.to_string())?;
+    let fingerprint =
+        generate_fingerprint(&invite.inviter_public_key).map_err(|e| e.to_string())?;
 
     let invite_data = crate::commands::invites::InviteFileData {
         invite_id: invite.invite_id,
@@ -616,9 +668,14 @@ pub async fn send_invite_response_via_relay(
     // Build relay client with auto-login.
     let relay_account = {
         let ram = state.relay_account_managers.lock().expect("Mutex poisoned");
-        let mgr = ram.get(&uuid).ok_or("No relay account manager for identity")?;
+        let mgr = ram
+            .get(&uuid)
+            .ok_or("No relay account manager for identity")?;
         let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
-        accounts.into_iter().next().ok_or("No relay account configured")?
+        accounts
+            .into_iter()
+            .next()
+            .ok_or("No relay account configured")?
     };
 
     let expires_in_days = expires_in_days.unwrap_or(7);
@@ -728,8 +785,8 @@ pub async fn fetch_relay_invite_response(
     relay_base_url: Option<String>,
 ) -> Result<crate::commands::invites::PendingPeer, String> {
     log::debug!("fetch_relay_invite_response(identity={identity_uuid}, token={token})");
-    use krillnotes_core::core::invite::InviteManager;
     use krillnotes_core::core::contact::generate_fingerprint;
+    use krillnotes_core::core::invite::InviteManager;
 
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
@@ -737,28 +794,36 @@ pub async fn fetch_relay_invite_response(
     let base_url_for_lookup = base_url.clone();
 
     // Fetch + parse response from relay (unauthenticated GET).
-    let response = tokio::task::spawn_blocking(move || -> Result<krillnotes_core::core::invite::InviteResponseFile, String> {
-        let client = RelayClient::new(&base_url);
-        let payload = client.fetch_invite(&token).map_err(|e| {
-            log::error!("fetch_relay_invite_response: relay fetch failed: {e}");
-            e.to_string()
-        })?;
-        let bytes = BASE64.decode(&payload.payload).map_err(|e| {
-            log::error!("fetch_relay_invite_response: base64 decode failed: {e}");
-            e.to_string()
-        })?;
-        let response = InviteManager::parse_and_verify_response_bytes(&bytes).map_err(|e| {
-            log::error!("fetch_relay_invite_response: parse/verify failed: {e}");
-            e.to_string()
-        })?;
-        Ok(response)
-    })
+    let response = tokio::task::spawn_blocking(
+        move || -> Result<krillnotes_core::core::invite::InviteResponseFile, String> {
+            let client = RelayClient::new(&base_url);
+            let payload = client.fetch_invite(&token).map_err(|e| {
+                log::error!("fetch_relay_invite_response: relay fetch failed: {e}");
+                e.to_string()
+            })?;
+            let bytes = BASE64.decode(&payload.payload).map_err(|e| {
+                log::error!("fetch_relay_invite_response: base64 decode failed: {e}");
+                e.to_string()
+            })?;
+            let response = InviteManager::parse_and_verify_response_bytes(&bytes).map_err(|e| {
+                log::error!("fetch_relay_invite_response: parse/verify failed: {e}");
+                e.to_string()
+            })?;
+            Ok(response)
+        },
+    )
     .await
     .map_err(|e| e.to_string())??;
 
     // Validate invite is still active and increment use count.
     let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
-    let (invite_workspace_id, invite_workspace_name, invite_scope_note_id, invite_scope_note_title, invite_offered_role) = {
+    let (
+        invite_workspace_id,
+        invite_workspace_name,
+        invite_scope_note_id,
+        invite_scope_note_title,
+        invite_offered_role,
+    ) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         let record = im
@@ -773,12 +838,19 @@ pub async fn fetch_relay_invite_response(
                 return Err("Invite has expired".to_string());
             }
         }
-        im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
-        (record.workspace_id.clone(), record.workspace_name.clone(), record.scope_note_id.clone(), record.scope_note_title.clone(), record.offered_role.clone())
+        im.increment_use_count(invite_uuid)
+            .map_err(|e| e.to_string())?;
+        (
+            record.workspace_id.clone(),
+            record.workspace_name.clone(),
+            record.scope_note_id.clone(),
+            record.scope_note_title.clone(),
+            record.offered_role.clone(),
+        )
     };
 
-    let fingerprint = generate_fingerprint(&response.invitee_public_key)
-        .map_err(|e| e.to_string())?;
+    let fingerprint =
+        generate_fingerprint(&response.invitee_public_key).map_err(|e| e.to_string())?;
 
     let pending_peer = crate::commands::invites::PendingPeer {
         invite_id: response.invite_id,
@@ -802,13 +874,19 @@ pub async fn fetch_relay_invite_response(
 
     // Create a ReceivedResponse record so the polling UI can track this response.
     {
-        let mut rrm = state.received_response_managers.lock().expect("Mutex poisoned");
+        let mut rrm = state
+            .received_response_managers
+            .lock()
+            .expect("Mutex poisoned");
         if let Some(rr_mgr) = rrm.get_mut(&uuid) {
             let existing = rr_mgr
                 .find_by_invite_and_invitee(invite_uuid, &pending_peer.invitee_public_key)
                 .map_err(|e| e.to_string())?;
             let should_create_or_update = existing.is_none()
-                || existing.as_ref().map(|r| r.response_channel.is_empty()).unwrap_or(false);
+                || existing
+                    .as_ref()
+                    .map(|r| r.response_channel.is_empty())
+                    .unwrap_or(false);
 
             if should_create_or_update {
                 let mut rr = krillnotes_core::core::received_response::ReceivedResponse::new(
@@ -846,10 +924,17 @@ pub async fn has_relay_credentials(
     } else {
         log::debug!("has_relay_credentials(window={})", window.label());
         let workspace_label = window.label().to_string();
-        let m = state.workspace_identities.lock().map_err(|e| e.to_string())?;
-        *m.get(&workspace_label).ok_or("No identity bound to this workspace")?
+        let m = state
+            .workspace_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
+        *m.get(&workspace_label)
+            .ok_or("No identity bound to this workspace")?
     };
-    let managers = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+    let managers = state
+        .relay_account_managers
+        .lock()
+        .map_err(|e| e.to_string())?;
     if let Some(mgr) = managers.get(&identity_uuid) {
         let accounts = mgr.list_relay_accounts().map_err(|e| e.to_string())?;
         Ok(!accounts.is_empty())
@@ -870,7 +955,11 @@ pub fn reset_peer_watermark(
     state: State<'_, AppState>,
     peer_device_id: String,
 ) -> Result<(), String> {
-    log::info!("reset_peer_watermark(window={}, peer={})", window.label(), peer_device_id);
+    log::info!(
+        "reset_peer_watermark(window={}, peer={})",
+        window.label(),
+        peer_device_id
+    );
     let workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
     let ws = workspaces
         .get(window.label())
@@ -885,10 +974,7 @@ pub fn reset_peer_watermark(
 ///
 /// Used by the frontend to grey out the "Sync Now" button when nothing is pending.
 #[tauri::command]
-pub fn has_pending_sync_ops(
-    window: Window,
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub fn has_pending_sync_ops(window: Window, state: State<'_, AppState>) -> Result<bool, String> {
     let workspaces = state.workspaces.lock().map_err(|e| e.to_string())?;
     let ws = workspaces
         .get(window.label())

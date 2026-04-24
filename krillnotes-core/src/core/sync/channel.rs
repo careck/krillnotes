@@ -4,8 +4,8 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-use serde::{Deserialize, Serialize};
 use crate::core::error::KrillnotesError;
+use serde::{Deserialize, Serialize};
 
 /// Outcome of a `send_bundle` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +70,11 @@ pub struct BundleRef {
 /// This avoids pushing identity/device context through every trait method.
 pub trait SyncChannel: Send + Sync {
     /// Send a .swarm bundle to a specific peer.
-    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<SendResult, KrillnotesError>;
+    fn send_bundle(
+        &self,
+        peer: &PeerSyncInfo,
+        bundle_bytes: &[u8],
+    ) -> Result<SendResult, KrillnotesError>;
 
     /// Check for and download any pending inbound bundles.
     fn receive_bundles(&self, workspace_id: &str) -> Result<Vec<BundleRef>, KrillnotesError>;

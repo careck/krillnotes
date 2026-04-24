@@ -5,9 +5,9 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
-use tauri::State;
-use std::collections::BTreeMap;
 use serde_json::Value;
+use std::collections::BTreeMap;
+use tauri::State;
 
 /// Returns all notes in the calling window's workspace.
 #[tauri::command]
@@ -16,12 +16,17 @@ pub fn list_notes(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<crate::Note>, String> {
     let label = window.label();
-    state.workspaces.lock()
+    state
+        .workspaces
+        .lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
         .list_all_notes()
-        .map_err(|e| { log::error!("list_notes failed: {e}"); e.to_string() })
+        .map_err(|e| {
+            log::error!("list_notes failed: {e}");
+            e.to_string()
+        })
 }
 
 /// Returns a single note by ID from the calling window's workspace.
@@ -32,12 +37,12 @@ pub fn get_note(
     note_id: String,
 ) -> std::result::Result<crate::Note, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
-    workspace.get_note(&note_id)
-        .map_err(|e| { log::error!("get_note failed: {e}"); e.to_string() })
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.get_note(&note_id).map_err(|e| {
+        log::error!("get_note failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Returns the registered note types for the calling window's workspace.
@@ -47,14 +52,14 @@ pub fn get_node_types(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<String>, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
 
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
 
-    let types = workspace.list_node_types()
-        .map_err(|e| { log::error!("get_node_types failed: {e}"); e.to_string() })?;
+    let types = workspace.list_node_types().map_err(|e| {
+        log::error!("get_node_types failed: {e}");
+        e.to_string()
+    })?;
 
     Ok(types)
 }
@@ -67,14 +72,14 @@ pub fn toggle_note_expansion(
     note_id: String,
 ) -> std::result::Result<(), String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
 
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.toggle_note_expansion(&note_id)
-        .map_err(|e| { log::error!("toggle_note_expansion failed: {e}"); e.to_string() })
+    workspace.toggle_note_expansion(&note_id).map_err(|e| {
+        log::error!("toggle_note_expansion failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Sets the `is_checked` state of a note and returns the updated note.
@@ -86,13 +91,13 @@ pub fn set_note_checked(
     checked: bool,
 ) -> std::result::Result<crate::Note, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.set_note_checked(&note_id, checked)
-        .map_err(|e| { log::error!("set_note_checked failed: {e}"); e.to_string() })
+    workspace.set_note_checked(&note_id, checked).map_err(|e| {
+        log::error!("set_note_checked failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Persists the selected note ID for the calling window's workspace.
@@ -103,14 +108,16 @@ pub fn set_selected_note(
     note_id: Option<String>,
 ) -> std::result::Result<(), String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
 
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.set_selected_note(note_id.as_deref())
-        .map_err(|e| { log::error!("set_selected_note failed: {e}"); e.to_string() })
+    workspace
+        .set_selected_note(note_id.as_deref())
+        .map_err(|e| {
+            log::error!("set_selected_note failed: {e}");
+            e.to_string()
+        })
 }
 
 /// Creates a new note and returns it; uses root insertion when `parent_id` is `None`.
@@ -123,11 +130,9 @@ pub async fn create_note_with_type(
     schema: String,
 ) -> std::result::Result<crate::Note, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
 
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
     // Convert position string to AddPosition enum
     let add_position = match position.as_str() {
@@ -138,17 +143,25 @@ pub async fn create_note_with_type(
 
     // If no parent_id, create root note
     let note_id = if let Some(pid) = parent_id {
-        workspace.create_note(&pid, add_position, &schema)
-            .map_err(|e| { log::error!("create_note_with_type failed: {e}"); e.to_string() })?
+        workspace
+            .create_note(&pid, add_position, &schema)
+            .map_err(|e| {
+                log::error!("create_note_with_type failed: {e}");
+                e.to_string()
+            })?
     } else {
         // Create root note (parent_id = null, position = 0)
-        workspace.create_note_root(&schema)
-            .map_err(|e| { log::error!("create_note_with_type failed: {e}"); e.to_string() })?
+        workspace.create_note_root(&schema).map_err(|e| {
+            log::error!("create_note_with_type failed: {e}");
+            e.to_string()
+        })?
     };
 
     // Fetch and return the created note
-    workspace.get_note(&note_id)
-        .map_err(|e| { log::error!("create_note_with_type get_note failed: {e}"); e.to_string() })
+    workspace.get_note(&note_id).map_err(|e| {
+        log::error!("create_note_with_type get_note failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Updates the title and fields of an existing note, returning the updated note.
@@ -161,13 +174,13 @@ pub fn update_note(
     fields: BTreeMap<String, crate::FieldValue>,
 ) -> std::result::Result<crate::Note, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.update_note(&note_id, title, fields)
-        .map_err(|e| { log::error!("update_note failed: {e}"); e.to_string() })
+    workspace.update_note(&note_id, title, fields).map_err(|e| {
+        log::error!("update_note failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Full save pipeline: runs group visibility, field validation, required checks,
@@ -181,13 +194,15 @@ pub fn save_note(
     fields: BTreeMap<String, crate::FieldValue>,
 ) -> std::result::Result<crate::SaveResult, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.save_note_with_pipeline(&note_id, title, fields)
-        .map_err(|e| { log::error!("save_note failed: {e}"); e.to_string() })
+    workspace
+        .save_note_with_pipeline(&note_id, title, fields)
+        .map_err(|e| {
+            log::error!("save_note failed: {e}");
+            e.to_string()
+        })
 }
 
 /// Searches for notes whose title or text-like field values contain `query`.
@@ -199,12 +214,14 @@ pub fn search_notes(
     target_schema: Option<String>,
 ) -> std::result::Result<Vec<crate::NoteSearchResult>, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
-    workspace.search_notes(&query, target_schema.as_deref())
-        .map_err(|e| { log::error!("search_notes failed: {e}"); e.to_string() })
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace
+        .search_notes(&query, target_schema.as_deref())
+        .map_err(|e| {
+            log::error!("search_notes failed: {e}");
+            e.to_string()
+        })
 }
 
 /// Returns the number of direct children of the note identified by `note_id`.
@@ -215,13 +232,13 @@ pub fn count_children(
     note_id: String,
 ) -> std::result::Result<usize, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
 
-    workspace.count_children(&note_id)
-        .map_err(|e| { log::error!("count_children failed: {e}"); e.to_string() })
+    workspace.count_children(&note_id).map_err(|e| {
+        log::error!("count_children failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Deletes the note identified by `note_id` using the specified [`DeleteStrategy`].
@@ -233,13 +250,13 @@ pub fn delete_note(
     strategy: crate::DeleteStrategy,
 ) -> std::result::Result<crate::DeleteResult, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.delete_note(&note_id, strategy)
-        .map_err(|e| { log::error!("delete_note failed: {e}"); e.to_string() })
+    workspace.delete_note(&note_id, strategy).map_err(|e| {
+        log::error!("delete_note failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Moves a note to a new parent and/or position.
@@ -252,17 +269,15 @@ pub fn move_note(
     new_position: f64,
 ) -> std::result::Result<(), String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
 
-    workspace.move_note(
-        &note_id,
-        new_parent_id.as_deref(),
-        new_position,
-    )
-    .map_err(|e| { log::error!("move_note failed: {e}"); e.to_string() })
+    workspace
+        .move_note(&note_id, new_parent_id.as_deref(), new_position)
+        .map_err(|e| {
+            log::error!("move_note failed: {e}");
+            e.to_string()
+        })
 }
 
 #[tauri::command]
@@ -284,7 +299,10 @@ pub fn deep_copy_note_cmd(
         crate::AddPosition::AsSibling
     };
     ws.deep_copy_note(&source_note_id, &target_note_id, pos)
-        .map_err(|e| { log::error!("deep_copy_note failed: {e}"); e.to_string() })
+        .map_err(|e| {
+            log::error!("deep_copy_note failed: {e}");
+            e.to_string()
+        })
 }
 
 #[tauri::command]
@@ -295,12 +313,12 @@ pub fn update_note_tags(
     tags: Vec<String>,
 ) -> std::result::Result<(), String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    workspace.update_note_tags(&note_id, tags)
-        .map_err(|e| { log::error!("update_note_tags failed: {e}"); e.to_string() })
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.update_note_tags(&note_id, tags).map_err(|e| {
+        log::error!("update_note_tags failed: {e}");
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -309,12 +327,12 @@ pub fn get_all_tags(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<String>, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
-    workspace.get_all_tags()
-        .map_err(|e| { log::error!("get_all_tags failed: {e}"); e.to_string() })
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.get_all_tags().map_err(|e| {
+        log::error!("get_all_tags failed: {e}");
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -324,12 +342,12 @@ pub fn get_notes_for_tag(
     tags: Vec<String>,
 ) -> std::result::Result<Vec<crate::Note>, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
-    workspace.get_notes_for_tag(&tags)
-        .map_err(|e| { log::error!("get_notes_for_tag failed: {e}"); e.to_string() })
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.get_notes_for_tag(&tags).map_err(|e| {
+        log::error!("get_notes_for_tag failed: {e}");
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -343,7 +361,9 @@ pub fn set_paste_menu_enabled(
         let items = state.paste_menu_items.lock().expect("Mutex poisoned");
         if let Some((child_item, sibling_item)) = items.get("macos") {
             child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
-            sibling_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+            sibling_item
+                .set_enabled(enabled)
+                .map_err(|e| e.to_string())?;
         }
     }
 
@@ -353,7 +373,9 @@ pub fn set_paste_menu_enabled(
         let items = state.paste_menu_items.lock().expect("Mutex poisoned");
         if let Some((child_item, sibling_item)) = items.get(&label) {
             child_item.set_enabled(enabled).map_err(|e| e.to_string())?;
-            sibling_item.set_enabled(enabled).map_err(|e| e.to_string())?;
+            sibling_item
+                .set_enabled(enabled)
+                .map_err(|e| e.to_string())?;
         }
     }
 
@@ -372,12 +394,17 @@ pub fn list_operations(
     until: Option<i64>,
 ) -> std::result::Result<Vec<krillnotes_core::OperationSummary>, String> {
     let label = window.label();
-    let mut summaries = state.workspaces.lock()
+    let mut summaries = state
+        .workspaces
+        .lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
         .list_operations(type_filter.as_deref(), since, until)
-        .map_err(|e| { log::error!("list_operations failed: {e}"); e.to_string() })?;
+        .map_err(|e| {
+            log::error!("list_operations failed: {e}");
+            e.to_string()
+        })?;
 
     // Resolve raw base64 public keys to display names where possible.
     let mut resolved_indices = vec![false; summaries.len()];
@@ -427,12 +454,17 @@ pub fn get_operation_detail(
     operation_id: String,
 ) -> std::result::Result<Value, String> {
     let label = window.label();
-    state.workspaces.lock()
+    state
+        .workspaces
+        .lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
         .get_operation_detail(&operation_id)
-        .map_err(|e| { log::error!("get_operation_detail failed: {e}"); e.to_string() })
+        .map_err(|e| {
+            log::error!("get_operation_detail failed: {e}");
+            e.to_string()
+        })
 }
 
 /// Deletes all operations from the log.
@@ -442,12 +474,17 @@ pub fn purge_operations(
     state: State<'_, AppState>,
 ) -> std::result::Result<usize, String> {
     let label = window.label();
-    state.workspaces.lock()
+    state
+        .workspaces
+        .lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
         .purge_all_operations()
-        .map_err(|e| { log::error!("purge_operations failed: {e}"); e.to_string() })
+        .map_err(|e| {
+            log::error!("purge_operations failed: {e}");
+            e.to_string()
+        })
 }
 
 // ── Undo / Redo commands ──────────────────────────────────────────
@@ -461,7 +498,10 @@ pub fn undo(
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
-    workspace.undo().map_err(|e| { log::error!("undo failed: {e}"); e.to_string() })
+    workspace.undo().map_err(|e| {
+        log::error!("undo failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Re-applies the most recently undone mutation.
@@ -473,29 +513,32 @@ pub fn redo(
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
-    workspace.redo().map_err(|e| { log::error!("redo failed: {e}"); e.to_string() })
+    workspace.redo().map_err(|e| {
+        log::error!("redo failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Returns true if there is an action to undo.
 #[tauri::command]
-pub fn can_undo(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) -> bool {
+pub fn can_undo(window: tauri::Window, state: State<'_, AppState>) -> bool {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-    workspaces.get(label).map(|ws| ws.can_undo()).unwrap_or(false)
+    workspaces
+        .get(label)
+        .map(|ws| ws.can_undo())
+        .unwrap_or(false)
 }
 
 /// Returns true if there is an action to redo.
 #[tauri::command]
-pub fn can_redo(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) -> bool {
+pub fn can_redo(window: tauri::Window, state: State<'_, AppState>) -> bool {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-    workspaces.get(label).map(|ws| ws.can_redo()).unwrap_or(false)
+    workspaces
+        .get(label)
+        .map(|ws| ws.can_redo())
+        .unwrap_or(false)
 }
 
 /// Returns the workspace undo history limit.
@@ -520,15 +563,15 @@ pub fn set_undo_limit(
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let ws = workspaces.get_mut(label).ok_or("No workspace open")?;
-    ws.set_undo_limit(limit).map_err(|e| { log::error!("set_undo_limit failed: {e}"); e.to_string() })
+    ws.set_undo_limit(limit).map_err(|e| {
+        log::error!("set_undo_limit failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Opens an undo group.
 #[tauri::command]
-pub fn begin_undo_group(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) {
+pub fn begin_undo_group(window: tauri::Window, state: State<'_, AppState>) {
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     if let Some(ws) = workspaces.get_mut(label) {
@@ -538,10 +581,7 @@ pub fn begin_undo_group(
 
 /// Closes the open undo group and collapses buffered mutations into one entry.
 #[tauri::command]
-pub fn end_undo_group(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) {
+pub fn end_undo_group(window: tauri::Window, state: State<'_, AppState>) {
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     if let Some(ws) = workspaces.get_mut(label) {
@@ -558,7 +598,10 @@ pub fn script_undo(
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
-    workspace.script_undo().map_err(|e| { log::error!("script_undo failed: {e}"); e.to_string() })
+    workspace.script_undo().map_err(|e| {
+        log::error!("script_undo failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Re-applies the most recently undone script mutation.
@@ -570,27 +613,30 @@ pub fn script_redo(
     let label = window.label();
     let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
-    workspace.script_redo().map_err(|e| { log::error!("script_redo failed: {e}"); e.to_string() })
+    workspace.script_redo().map_err(|e| {
+        log::error!("script_redo failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Returns true if there is a script action to undo.
 #[tauri::command]
-pub fn can_script_undo(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) -> bool {
+pub fn can_script_undo(window: tauri::Window, state: State<'_, AppState>) -> bool {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-    workspaces.get(label).map(|ws| ws.can_script_undo()).unwrap_or(false)
+    workspaces
+        .get(label)
+        .map(|ws| ws.can_script_undo())
+        .unwrap_or(false)
 }
 
 /// Returns true if there is a script action to redo.
 #[tauri::command]
-pub fn can_script_redo(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) -> bool {
+pub fn can_script_redo(window: tauri::Window, state: State<'_, AppState>) -> bool {
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-    workspaces.get(label).map(|ws| ws.can_script_redo()).unwrap_or(false)
+    workspaces
+        .get(label)
+        .map(|ws| ws.can_script_redo())
+        .unwrap_or(false)
 }

@@ -99,7 +99,11 @@ pub fn get_effective_role(
             .optional()?;
 
         if let Some((role, granted_by)) = grant {
-            let inherited_from = if id != note_id { Some(id.clone()) } else { None };
+            let inherited_from = if id != note_id {
+                Some(id.clone())
+            } else {
+                None
+            };
             let inherited_from_title = if let Some(ref anchor_id) = inherited_from {
                 conn.query_row(
                     "SELECT title FROM notes WHERE id = ?1",
@@ -186,11 +190,9 @@ pub fn get_inherited_permissions(
 
         // Walk up
         current_id = conn
-            .query_row(
-                "SELECT parent_id FROM notes WHERE id = ?1",
-                [&id],
-                |row| row.get::<_, Option<String>>(0),
-            )
+            .query_row("SELECT parent_id FROM notes WHERE id = ?1", [&id], |row| {
+                row.get::<_, Option<String>>(0)
+            })
             .optional()?
             .flatten();
     }
@@ -227,8 +229,7 @@ pub fn get_all_effective_roles(
     }
 
     // 2. Fetch all grants for this user
-    let mut stmt =
-        conn.prepare("SELECT note_id, role FROM note_permissions WHERE user_id = ?1")?;
+    let mut stmt = conn.prepare("SELECT note_id, role FROM note_permissions WHERE user_id = ?1")?;
     let grants: Vec<(String, String)> = stmt
         .query_map([user_id], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
@@ -245,10 +246,7 @@ pub fn get_all_effective_roles(
     let mut stmt = conn.prepare("SELECT id, parent_id FROM notes")?;
     let rows = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
 

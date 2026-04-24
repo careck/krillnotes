@@ -41,7 +41,7 @@ impl Workspace {
         let mut stmt = conn.prepare(
             "SELECT operation_data FROM operations \
              WHERE operation_type IN ('SetPermission', 'RevokePermission') \
-             ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, timestamp_node_id ASC"
+             ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, timestamp_node_id ASC",
         )?;
         let ops = stmt.query_map([], |row| {
             let json: String = row.get(0)?;
@@ -98,12 +98,15 @@ impl Workspace {
         //     — don't echo back ops the peer already delivered to us
         let op_jsons: Vec<String> = if let Some(op_id) = since_op_id {
             // Look up HLC tuple for the watermark operation.
-            let hlc_row: Option<(i64, i64, i64)> = conn.query_row(
-                "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
+            let hlc_row: Option<(i64, i64, i64)> = conn
+                .query_row(
+                    "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
                  FROM operations WHERE operation_id = ?1",
-                [op_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            ).optional().map_err(KrillnotesError::Database)?;
+                    [op_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(KrillnotesError::Database)?;
 
             if let Some((wall_ms, counter, node_id)) = hlc_row {
                 // Three-column strictly-greater comparison (single-column > would silently
@@ -119,10 +122,19 @@ impl Workspace {
                      ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
                               timestamp_node_id ASC",
                 )?;
-                let rows = stmt.query_map(
-                    rusqlite::params![wall_ms, counter, node_id, exclude_device_id, exclude_device_id],
-                    |row| row.get::<_, String>(0),
-                )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+                let rows = stmt
+                    .query_map(
+                        rusqlite::params![
+                            wall_ms,
+                            counter,
+                            node_id,
+                            exclude_device_id,
+                            exclude_device_id
+                        ],
+                        |row| row.get::<_, String>(0),
+                    )?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(KrillnotesError::Database)?;
                 rows
             } else {
                 // Watermark op not in this workspace's log (e.g. freshly imported
@@ -136,10 +148,13 @@ impl Workspace {
                      ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
                               timestamp_node_id ASC",
                 )?;
-                let rows = stmt.query_map(
-                    rusqlite::params![exclude_device_id, exclude_device_id],
-                    |row| row.get::<_, String>(0),
-                )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+                let rows = stmt
+                    .query_map(
+                        rusqlite::params![exclude_device_id, exclude_device_id],
+                        |row| row.get::<_, String>(0),
+                    )?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(KrillnotesError::Database)?;
                 rows
             }
         } else {
@@ -150,10 +165,13 @@ impl Workspace {
                  ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
                           timestamp_node_id ASC",
             )?;
-            let rows = stmt.query_map(
-                rusqlite::params![exclude_device_id, exclude_device_id],
-                |row| row.get::<_, String>(0),
-            )?.collect::<rusqlite::Result<Vec<_>>>().map_err(KrillnotesError::Database)?;
+            let rows = stmt
+                .query_map(
+                    rusqlite::params![exclude_device_id, exclude_device_id],
+                    |row| row.get::<_, String>(0),
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(KrillnotesError::Database)?;
             rows
         };
 
@@ -164,7 +182,15 @@ impl Workspace {
 
         // Filter local-only retracts (propagate = false) in Rust
         // (the propagate flag is inside the JSON blob, not a SQL column).
-        ops.retain(|op| !matches!(op, Operation::RetractOperation { propagate: false, .. }));
+        ops.retain(|op| {
+            !matches!(
+                op,
+                Operation::RetractOperation {
+                    propagate: false,
+                    ..
+                }
+            )
+        });
 
         Ok(ops)
     }
@@ -183,7 +209,13 @@ impl Workspace {
         attachment_blobs: &[(String, Vec<u8>)],
     ) -> Result<bool> {
         // 1. Skip local-only retracts — they must never cross device boundaries.
-        if matches!(op, Operation::RetractOperation { propagate: false, .. }) {
+        if matches!(
+            op,
+            Operation::RetractOperation {
+                propagate: false,
+                ..
+            }
+        ) {
             log::debug!(target: "krillnotes::sync", "skipping local-only retract operation {}", op.operation_id());
             return Ok(false);
         }
@@ -234,13 +266,20 @@ impl Workspace {
         // 5. Apply the state change to working tables.
         let mut scripts_changed = false;
         // (attachment_id, note_id, filename, mime_type, blob)
-        let mut pending_attachment: Option<(String, String, String, Option<String>, Vec<u8>)> = None;
+        let mut pending_attachment: Option<(String, String, String, Option<String>, Vec<u8>)> =
+            None;
         let mut pending_attachment_delete: Option<String> = None;
         let tx = self.storage.connection_mut().transaction()?;
         match &op {
             Operation::CreateNote {
-                note_id, title, schema, parent_id, position,
-                created_by, fields, ..
+                note_id,
+                title,
+                schema,
+                parent_id,
+                position,
+                created_by,
+                fields,
+                ..
             } => {
                 let fields_json = serde_json::to_string(fields)?;
                 let ts_secs = ts.to_unix_secs();
@@ -264,13 +303,22 @@ impl Workspace {
                 )?;
             }
 
-            Operation::UpdateField { note_id, field, value, modified_by, .. } => {
+            Operation::UpdateField {
+                note_id,
+                field,
+                value,
+                modified_by,
+                ..
+            } => {
                 // Read-modify-write the fields_json blob.
-                let fields_json: Option<String> = tx.query_row(
-                    "SELECT fields_json FROM notes WHERE id = ?1",
-                    [note_id],
-                    |row| row.get(0),
-                ).optional().map_err(KrillnotesError::Database)?;
+                let fields_json: Option<String> = tx
+                    .query_row(
+                        "SELECT fields_json FROM notes WHERE id = ?1",
+                        [note_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(KrillnotesError::Database)?;
 
                 if let Some(json) = fields_json {
                     let mut map: std::collections::BTreeMap<String, crate::FieldValue> =
@@ -286,13 +334,15 @@ impl Workspace {
             }
 
             Operation::DeleteNote { note_id, .. } => {
-                tx.execute(
-                    "DELETE FROM notes WHERE id = ?1",
-                    [note_id],
-                )?;
+                tx.execute("DELETE FROM notes WHERE id = ?1", [note_id])?;
             }
 
-            Operation::MoveNote { note_id, new_parent_id, new_position, .. } => {
+            Operation::MoveNote {
+                note_id,
+                new_parent_id,
+                new_position,
+                ..
+            } => {
                 tx.execute(
                     "UPDATE notes SET parent_id = ?1, position = ?2 WHERE id = ?3",
                     rusqlite::params![new_parent_id, new_position, note_id],
@@ -300,10 +350,7 @@ impl Workspace {
             }
 
             Operation::SetTags { note_id, tags, .. } => {
-                tx.execute(
-                    "DELETE FROM note_tags WHERE note_id = ?1",
-                    [note_id],
-                )?;
+                tx.execute("DELETE FROM note_tags WHERE note_id = ?1", [note_id])?;
                 for tag in tags {
                     tx.execute(
                         "INSERT OR IGNORE INTO note_tags (note_id, tag) VALUES (?, ?)",
@@ -312,7 +359,9 @@ impl Workspace {
                 }
             }
 
-            Operation::SetChecked { note_id, checked, .. } => {
+            Operation::SetChecked {
+                note_id, checked, ..
+            } => {
                 let ts_secs = ts.to_unix_secs();
                 tx.execute(
                     "UPDATE notes SET is_checked = ?1, modified_at = ?2 WHERE id = ?3",
@@ -321,7 +370,14 @@ impl Workspace {
             }
 
             Operation::CreateUserScript {
-                created_by, script_id, name, description, source_code, load_order, enabled, ..
+                created_by,
+                script_id,
+                name,
+                description,
+                source_code,
+                load_order,
+                enabled,
+                ..
             } => {
                 if created_by == &self.owner_pubkey {
                     let ts_secs = ts.to_unix_secs();
@@ -331,8 +387,14 @@ impl Workspace {
                           created_at, modified_at, category) \
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user')",
                         rusqlite::params![
-                            script_id, name, description, source_code,
-                            load_order, *enabled as i32, ts_secs, ts_secs,
+                            script_id,
+                            name,
+                            description,
+                            source_code,
+                            load_order,
+                            *enabled as i32,
+                            ts_secs,
+                            ts_secs,
                         ],
                     )?;
                     scripts_changed = true;
@@ -340,7 +402,14 @@ impl Workspace {
             }
 
             Operation::UpdateUserScript {
-                modified_by, script_id, name, description, source_code, load_order, enabled, ..
+                modified_by,
+                script_id,
+                name,
+                description,
+                source_code,
+                load_order,
+                enabled,
+                ..
             } => {
                 if modified_by == &self.owner_pubkey {
                     let ts_secs = ts.to_unix_secs();
@@ -348,27 +417,32 @@ impl Workspace {
                         "UPDATE user_scripts SET name = ?1, description = ?2, source_code = ?3, \
                          load_order = ?4, enabled = ?5, modified_at = ?6 WHERE id = ?7",
                         rusqlite::params![
-                            name, description, source_code,
-                            load_order, *enabled as i32, ts_secs, script_id,
+                            name,
+                            description,
+                            source_code,
+                            load_order,
+                            *enabled as i32,
+                            ts_secs,
+                            script_id,
                         ],
                     )?;
                     scripts_changed = true;
                 }
             }
 
-            Operation::DeleteUserScript { deleted_by, script_id, .. } => {
+            Operation::DeleteUserScript {
+                deleted_by,
+                script_id,
+                ..
+            } => {
                 if deleted_by == &self.owner_pubkey {
-                    tx.execute(
-                        "DELETE FROM user_scripts WHERE id = ?1",
-                        [script_id],
-                    )?;
+                    tx.execute("DELETE FROM user_scripts WHERE id = ?1", [script_id])?;
                     scripts_changed = true;
                 }
             }
 
             // Permission-modifying operations: apply through the gate.
-            Operation::SetPermission { .. }
-            | Operation::RevokePermission { .. } => {
+            Operation::SetPermission { .. } | Operation::RevokePermission { .. } => {
                 Self::apply_permission_op_via(&*self.permission_gate, &tx, &op)?;
             }
 
@@ -381,7 +455,11 @@ impl Workspace {
             | Operation::RegisterDevice { .. } => {}
 
             Operation::AddAttachment {
-                attachment_id, note_id, filename, mime_type, ..
+                attachment_id,
+                note_id,
+                filename,
+                mime_type,
+                ..
             } => {
                 let note_exists: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
@@ -389,7 +467,9 @@ impl Workspace {
                     |row| row.get(0),
                 )?;
                 if note_exists {
-                    if let Some((_, blob)) = attachment_blobs.iter().find(|(id, _)| id == attachment_id) {
+                    if let Some((_, blob)) =
+                        attachment_blobs.iter().find(|(id, _)| id == attachment_id)
+                    {
                         pending_attachment = Some((
                             attachment_id.clone(),
                             note_id.clone(),
@@ -426,7 +506,9 @@ impl Workspace {
         // DB row may be missing.  Recovery: re-apply the delta (idempotent via
         // INSERT OR IGNORE) or re-sync from the peer.
         if let Some((att_id, note_id, filename, mime_type, blob)) = pending_attachment {
-            if let Err(e) = self.attach_file_with_id(&att_id, &note_id, &filename, mime_type.as_deref(), &blob) {
+            if let Err(e) =
+                self.attach_file_with_id(&att_id, &note_id, &filename, mime_type.as_deref(), &blob)
+            {
                 log::error!(target: "krillnotes::sync",
                     "Failed to write attachment file {}: {e}", att_id);
             }
@@ -437,7 +519,10 @@ impl Workspace {
         // This is acceptable: the operation is in the log and will be replayed; orphans
         // can be swept on next startup.
         if let Some(att_id) = pending_attachment_delete {
-            let enc_path = self.workspace_root.join("attachments").join(format!("{att_id}.enc"));
+            let enc_path = self
+                .workspace_root
+                .join("attachments")
+                .join(format!("{att_id}.enc"));
             if enc_path.exists() {
                 if let Err(e) = std::fs::remove_file(&enc_path) {
                     log::error!(target: "krillnotes::sync",
@@ -445,7 +530,10 @@ impl Workspace {
                 }
             }
             // Also clean up any .trash file
-            let trash_path = self.workspace_root.join("attachments").join(format!("{att_id}.enc.trash"));
+            let trash_path = self
+                .workspace_root
+                .join("attachments")
+                .join(format!("{att_id}.enc.trash"));
             if trash_path.exists() {
                 let _ = std::fs::remove_file(&trash_path);
             }
@@ -493,8 +581,8 @@ impl Workspace {
     /// Designed for freshly created workspaces — duplicates will be skipped via INSERT OR IGNORE.
     pub fn import_snapshot_json(&mut self, data: &[u8]) -> Result<usize> {
         log::info!(target: "krillnotes::sync", "importing snapshot ({} bytes)", data.len());
-        let snapshot: WorkspaceSnapshot = serde_json::from_slice(data)
-            .map_err(|e| KrillnotesError::Json(e))?;
+        let snapshot: WorkspaceSnapshot =
+            serde_json::from_slice(data).map_err(|e| KrillnotesError::Json(e))?;
 
         let note_count = snapshot.notes.len();
         log::debug!(target: "krillnotes::sync", "snapshot contains {} notes, {} scripts", note_count, snapshot.user_scripts.len());
@@ -619,14 +707,23 @@ impl Workspace {
                     .find(|c| c.public_key == peer.peer_identity_id);
 
                 let display_name = contact
-                    .map(|c| c.local_name.clone().unwrap_or_else(|| c.declared_name.clone()))
+                    .map(|c| {
+                        c.local_name
+                            .clone()
+                            .unwrap_or_else(|| c.declared_name.clone())
+                    })
                     .unwrap_or_else(|| {
                         let key = &peer.peer_identity_id;
                         format!("{}…", &key[..key.len().min(8)])
                     });
 
-                let fingerprint = generate_fingerprint(&peer.peer_identity_id)
-                    .unwrap_or_else(|_| format!("{}…", &peer.peer_identity_id[..peer.peer_identity_id.len().min(8)]));
+                let fingerprint =
+                    generate_fingerprint(&peer.peer_identity_id).unwrap_or_else(|_| {
+                        format!(
+                            "{}…",
+                            &peer.peer_identity_id[..peer.peer_identity_id.len().min(8)]
+                        )
+                    });
 
                 let trust_level = contact.map(|c| match c.trust_level {
                     TrustLevel::Tofu => "Tofu".to_string(),
@@ -660,10 +757,7 @@ impl Workspace {
 
     /// Pre-authorises a contact as a workspace sync peer before any .swarm exchange.
     /// Uses `identity:<peer_identity_id>` as a placeholder device ID.
-    pub fn add_contact_as_peer(
-        &self,
-        peer_identity_id: &str,
-    ) -> Result<()> {
+    pub fn add_contact_as_peer(&self, peer_identity_id: &str) -> Result<()> {
         let placeholder_device_id = format!("identity:{}", peer_identity_id);
         let conn = self.storage.connection();
         let registry = PeerRegistry::new(conn);
@@ -671,10 +765,7 @@ impl Workspace {
     }
 
     /// Removes a peer from this workspace's sync peer list by device ID.
-    pub fn remove_peer(
-        &self,
-        peer_device_id: &str,
-    ) -> Result<()> {
+    pub fn remove_peer(&self, peer_device_id: &str) -> Result<()> {
         let conn = self.storage.connection();
         let registry = PeerRegistry::new(conn);
         registry.remove_peer(peer_device_id)
@@ -691,7 +782,10 @@ impl Workspace {
     }
 
     /// Retrieve a sync peer by device ID.
-    pub fn get_sync_peer(&self, peer_device_id: &str) -> Result<Option<crate::core::peer_registry::SyncPeer>> {
+    pub fn get_sync_peer(
+        &self,
+        peer_device_id: &str,
+    ) -> Result<Option<crate::core::peer_registry::SyncPeer>> {
         crate::core::peer_registry::PeerRegistry::new(self.storage.connection())
             .get_peer(peer_device_id)
     }
@@ -728,8 +822,11 @@ impl Workspace {
         channel_type: &str,
         channel_params: &str,
     ) -> Result<()> {
-        PeerRegistry::new(self.storage.connection())
-            .update_channel_config(peer_device_id, channel_type, channel_params)
+        PeerRegistry::new(self.storage.connection()).update_channel_config(
+            peer_device_id,
+            channel_type,
+            channel_params,
+        )
     }
 
     /// Update a peer's sync status.
@@ -740,23 +837,23 @@ impl Workspace {
         detail: Option<&str>,
         error: Option<&str>,
     ) -> Result<()> {
-        PeerRegistry::new(self.storage.connection())
-            .update_sync_status(peer_device_id, sync_status, detail, error)
+        PeerRegistry::new(self.storage.connection()).update_sync_status(
+            peer_device_id,
+            sync_status,
+            detail,
+            error,
+        )
     }
 
     /// List peers filtered by channel type.
     pub fn list_peers_with_channel(&self, channel_type: &str) -> Result<Vec<SyncPeer>> {
-        PeerRegistry::new(self.storage.connection())
-            .list_peers_by_channel(channel_type)
+        PeerRegistry::new(self.storage.connection()).list_peers_by_channel(channel_type)
     }
 
     /// Reset `last_sent_op` for a peer to a specific op ID, or `None` to trigger full resend.
     pub fn reset_peer_watermark(&self, peer_device_id: &str, to_op: Option<&str>) -> Result<()> {
-        PeerRegistry::new(self.storage.connection())
-            .reset_last_sent(peer_device_id, to_op)
+        PeerRegistry::new(self.storage.connection()).reset_last_sent(peer_device_id, to_op)
     }
-
-
 
     /// Returns true if `op_a` is strictly before `op_b` in HLC order.
     /// Returns false if either operation is not found in the log.
@@ -767,22 +864,36 @@ impl Workspace {
                 "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
                  FROM operations WHERE operation_id = ?1",
                 [op_id],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
-            ).optional().map_err(KrillnotesError::Database)
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(KrillnotesError::Database)
         };
-        let Some(hlc_a) = get_hlc(op_a)? else { return Ok(false) };
-        let Some(hlc_b) = get_hlc(op_b)? else { return Ok(false) };
+        let Some(hlc_a) = get_hlc(op_a)? else {
+            return Ok(false);
+        };
+        let Some(hlc_b) = get_hlc(op_b)? else {
+            return Ok(false);
+        };
         Ok(hlc_a < hlc_b)
     }
 
     /// Returns true if the given operation_id exists in the operations log.
     pub fn operation_exists(&self, operation_id: &str) -> Result<bool> {
         let conn = self.storage.connection();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM operations WHERE operation_id = ?1",
-            [operation_id],
-            |row| row.get(0),
-        ).map_err(KrillnotesError::Database)?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM operations WHERE operation_id = ?1",
+                [operation_id],
+                |row| row.get(0),
+            )
+            .map_err(KrillnotesError::Database)?;
         Ok(count > 0)
     }
 
@@ -797,25 +908,36 @@ impl Workspace {
         for peer in &peers {
             let dev = &peer.peer_device_id;
             if peer.last_sent_op.is_none() {
-                let count: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM operations \
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM operations \
                      WHERE device_id != ?1 \
                      AND (received_from_peer IS NULL OR received_from_peer != ?2)",
-                    rusqlite::params![dev, dev],
-                    |row| row.get(0),
-                ).unwrap_or(0);
+                        rusqlite::params![dev, dev],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
                 if count > 0 {
                     return Ok(true);
                 }
                 continue;
             }
             if let Some(ref op_id) = peer.last_sent_op {
-                let hlc = conn.query_row(
-                    "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
+                let hlc = conn
+                    .query_row(
+                        "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
                      FROM operations WHERE operation_id = ?1",
-                    [op_id.as_str()],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
-                ).optional().map_err(KrillnotesError::Database)?;
+                        [op_id.as_str()],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .optional()
+                    .map_err(KrillnotesError::Database)?;
                 if let Some((wall_ms, counter, node_id)) = hlc {
                     let count: i64 = conn.query_row(
                         "SELECT COUNT(*) FROM operations WHERE \
@@ -838,21 +960,23 @@ impl Workspace {
 
     /// Get `PeerSyncInfo` for all non-manual peers (used by the SyncEngine).
     pub fn get_active_sync_peers(&self) -> Result<Vec<PeerSyncInfo>> {
-        let peers = PeerRegistry::new(self.storage.connection())
-            .list_peers_by_channel_not("manual")?;
-        Ok(peers.into_iter().map(|p| PeerSyncInfo {
-            peer_device_id: p.peer_device_id,
-            peer_identity_id: p.peer_identity_id,
-            channel_type: match p.channel_type.as_str() {
-                "relay" => ChannelType::Relay,
-                "folder" => ChannelType::Folder,
-                _ => ChannelType::Manual,
-            },
-            channel_params: serde_json::from_str(&p.channel_params)
-                .unwrap_or(serde_json::Value::Object(Default::default())),
-            last_sent_op: p.last_sent_op,
-            last_received_op: p.last_received_op,
-        }).collect())
+        let peers =
+            PeerRegistry::new(self.storage.connection()).list_peers_by_channel_not("manual")?;
+        Ok(peers
+            .into_iter()
+            .map(|p| PeerSyncInfo {
+                peer_device_id: p.peer_device_id,
+                peer_identity_id: p.peer_identity_id,
+                channel_type: match p.channel_type.as_str() {
+                    "relay" => ChannelType::Relay,
+                    "folder" => ChannelType::Folder,
+                    _ => ChannelType::Manual,
+                },
+                channel_params: serde_json::from_str(&p.channel_params)
+                    .unwrap_or(serde_json::Value::Object(Default::default())),
+                last_sent_op: p.last_sent_op,
+                last_received_op: p.last_received_op,
+            })
+            .collect())
     }
-
 }

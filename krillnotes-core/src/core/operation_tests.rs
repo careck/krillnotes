@@ -1,7 +1,11 @@
 use super::*;
 
 fn dummy_hlc() -> HlcTimestamp {
-    HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 }
+    HlcTimestamp {
+        wall_ms: 0,
+        counter: 0,
+        node_id: 0,
+    }
 }
 
 #[test]
@@ -105,7 +109,9 @@ fn test_retract_operation_serialization() {
         },
         device_id: "dev-1".into(),
         retracted_ids: vec!["op-1".into(), "op-2".into()],
-        inverse: RetractInverse::DeleteNote { note_id: "n-1".into() },
+        inverse: RetractInverse::DeleteNote {
+            note_id: "n-1".into(),
+        },
         propagate: true,
     };
     let json = serde_json::to_string(&op).unwrap();
@@ -139,7 +145,6 @@ fn test_operation_serialization() {
 #[test]
 fn test_sign_and_verify() {
     use ed25519_dalek::SigningKey;
-    
 
     let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
@@ -168,22 +173,33 @@ fn test_sign_and_verify() {
     if let Operation::UpdateField { ref mut field, .. } = op {
         *field = "tampered".to_string();
     }
-    assert!(!op.verify(&verifying_key), "tampered operation should not verify");
+    assert!(
+        !op.verify(&verifying_key),
+        "tampered operation should not verify"
+    );
 }
 
 #[test]
 fn test_create_note_sign_and_verify_multi_field() {
     use ed25519_dalek::SigningKey;
-    
 
     let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
 
     // Build a CreateNote with multiple fields — order must be deterministic.
     let mut fields = BTreeMap::new();
-    fields.insert("body".to_string(), crate::FieldValue::Text("hello world".to_string()));
-    fields.insert("rating".to_string(), crate::FieldValue::Text("5".to_string()));
-    fields.insert("author".to_string(), crate::FieldValue::Text("Alice".to_string()));
+    fields.insert(
+        "body".to_string(),
+        crate::FieldValue::Text("hello world".to_string()),
+    );
+    fields.insert(
+        "rating".to_string(),
+        crate::FieldValue::Text("5".to_string()),
+    );
+    fields.insert(
+        "author".to_string(),
+        crate::FieldValue::Text("Alice".to_string()),
+    );
 
     let mut op = Operation::CreateNote {
         operation_id: "op-cn-sign-1".to_string(),
@@ -205,13 +221,19 @@ fn test_create_note_sign_and_verify_multi_field() {
     assert!(!op.author_key().is_empty());
 
     // Verification must succeed with the correct key.
-    assert!(op.verify(&verifying_key), "CreateNote multi-field signature should verify");
+    assert!(
+        op.verify(&verifying_key),
+        "CreateNote multi-field signature should verify"
+    );
 
     // Tamper with a field value — verification must fail.
     if let Operation::CreateNote { ref mut title, .. } = op {
         *title = "tampered".to_string();
     }
-    assert!(!op.verify(&verifying_key), "tampered CreateNote should not verify");
+    assert!(
+        !op.verify(&verifying_key),
+        "tampered CreateNote should not verify"
+    );
 }
 
 #[test]
@@ -257,7 +279,6 @@ fn test_set_tags_variant() {
 #[test]
 fn test_add_attachment_sign_and_verify() {
     use ed25519_dalek::SigningKey;
-    
 
     let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
@@ -282,7 +303,10 @@ fn test_add_attachment_sign_and_verify() {
     assert!(op.verify(&verifying_key));
 
     // Tamper test
-    if let Operation::AddAttachment { ref mut filename, .. } = op {
+    if let Operation::AddAttachment {
+        ref mut filename, ..
+    } = op
+    {
         *filename = "tampered.jpg".to_string();
     }
     assert!(!op.verify(&verifying_key));
@@ -291,7 +315,6 @@ fn test_add_attachment_sign_and_verify() {
 #[test]
 fn test_remove_attachment_sign_and_verify() {
     use ed25519_dalek::SigningKey;
-    
 
     let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
@@ -310,7 +333,11 @@ fn test_remove_attachment_sign_and_verify() {
     assert!(op.verify(&verifying_key));
 
     // Tamper test
-    if let Operation::RemoveAttachment { ref mut attachment_id, .. } = op {
+    if let Operation::RemoveAttachment {
+        ref mut attachment_id,
+        ..
+    } = op
+    {
         *attachment_id = "tampered-id".to_string();
     }
     assert!(!op.verify(&verifying_key));

@@ -36,8 +36,12 @@ impl From<krillnotes_core::core::accepted_invite::AcceptedInvite> for AcceptedIn
             accepted_at: r.accepted_at.to_rfc3339(),
             response_relay_url: r.response_relay_url,
             status: match r.status {
-                krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WaitingSnapshot => "waitingSnapshot".to_string(),
-                krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WorkspaceCreated => "workspaceCreated".to_string(),
+                krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WaitingSnapshot => {
+                    "waitingSnapshot".to_string()
+                }
+                krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WorkspaceCreated => {
+                    "workspaceCreated".to_string()
+                }
             },
             workspace_path: r.workspace_path,
             snapshot_path: r.snapshot_path,
@@ -51,8 +55,13 @@ pub fn list_accepted_invites(
     state: State<'_, AppState>,
     identity_uuid: String,
 ) -> std::result::Result<Vec<AcceptedInviteInfo>, String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let managers = state
+        .accepted_invite_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get(&uuid).ok_or("Identity not unlocked")?;
     let records = mgr.list().map_err(|e| {
         log::error!("list_accepted_invites(identity={identity_uuid}) failed: {e}");
@@ -73,14 +82,25 @@ pub fn save_accepted_invite(
     response_relay_url: Option<String>,
     offered_role: String,
 ) -> std::result::Result<AcceptedInviteInfo, String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
-    let mut managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let invite_uuid: Uuid = invite_id
+        .parse()
+        .map_err(|e| format!("Invalid invite UUID: {e}"))?;
+    let mut managers = state
+        .accepted_invite_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
 
     let invite = krillnotes_core::core::accepted_invite::AcceptedInvite::new(
-        invite_uuid, workspace_id, workspace_name,
-        inviter_public_key, inviter_declared_name, response_relay_url,
+        invite_uuid,
+        workspace_id,
+        workspace_name,
+        inviter_public_key,
+        inviter_declared_name,
+        response_relay_url,
         offered_role,
     );
     mgr.save(&invite).map_err(|e| e.to_string())?;
@@ -95,16 +115,28 @@ pub fn update_accepted_invite_status(
     status: String,
     workspace_path: Option<String>,
 ) -> std::result::Result<(), String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
-    let mut managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let invite_uuid: Uuid = invite_id
+        .parse()
+        .map_err(|e| format!("Invalid invite UUID: {e}"))?;
+    let mut managers = state
+        .accepted_invite_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
     let new_status = match status.as_str() {
-        "waitingSnapshot" => krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WaitingSnapshot,
-        "workspaceCreated" => krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WorkspaceCreated,
+        "waitingSnapshot" => {
+            krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WaitingSnapshot
+        }
+        "workspaceCreated" => {
+            krillnotes_core::core::accepted_invite::AcceptedInviteStatus::WorkspaceCreated
+        }
         _ => return Err(format!("Invalid status: {status}")),
     };
-    mgr.update_status(invite_uuid, new_status, workspace_path).map_err(|e| e.to_string())
+    mgr.update_status(invite_uuid, new_status, workspace_path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -114,11 +146,19 @@ pub fn update_accepted_invite_snapshot_path(
     invite_id: String,
     snapshot_path: String,
 ) -> std::result::Result<(), String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
-    let mut managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let invite_uuid: Uuid = invite_id
+        .parse()
+        .map_err(|e| format!("Invalid invite UUID: {e}"))?;
+    let mut managers = state
+        .accepted_invite_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
-    mgr.update_snapshot_path(invite_uuid, snapshot_path).map_err(|e| e.to_string())
+    mgr.update_snapshot_path(invite_uuid, snapshot_path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -127,9 +167,16 @@ pub fn delete_accepted_invite(
     identity_uuid: String,
     invite_id: String,
 ) -> std::result::Result<(), String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let invite_uuid: Uuid = invite_id.parse().map_err(|e| format!("Invalid invite UUID: {e}"))?;
-    let mut managers = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let invite_uuid: Uuid = invite_id
+        .parse()
+        .map_err(|e| format!("Invalid invite UUID: {e}"))?;
+    let mut managers = state
+        .accepted_invite_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
     mgr.delete(invite_uuid).map_err(|e| e.to_string())
 }

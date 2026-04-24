@@ -325,8 +325,8 @@ impl<'a> PeerRegistry<'a> {
             }
         };
 
-        let (channel_type, channel_params) = existing_channel
-            .unwrap_or_else(|| ("manual".to_string(), "{}".to_string()));
+        let (channel_type, channel_params) =
+            existing_channel.unwrap_or_else(|| ("manual".to_string(), "{}".to_string()));
 
         // Drop all placeholder / stale rows for this identity, then insert one clean row.
         self.conn.execute(
@@ -418,8 +418,8 @@ impl<'a> PeerRegistry<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use crate::Storage;
+    use tempfile::NamedTempFile;
 
     fn open_db() -> (NamedTempFile, Storage) {
         let f = NamedTempFile::new().unwrap();
@@ -500,10 +500,14 @@ mod tests {
         let (_f, s) = open_db();
         let reg = PeerRegistry::new(s.connection());
         reg.add_peer("dev-1", "pk-1").unwrap();
-        reg.update_channel_config("dev-1", "relay", r#"{"url":"https://relay.example.com"}"#).unwrap();
+        reg.update_channel_config("dev-1", "relay", r#"{"url":"https://relay.example.com"}"#)
+            .unwrap();
         let peer = reg.get_peer("dev-1").unwrap().unwrap();
         assert_eq!(peer.channel_type, "relay");
-        assert_eq!(peer.channel_params, r#"{"url":"https://relay.example.com"}"#);
+        assert_eq!(
+            peer.channel_params,
+            r#"{"url":"https://relay.example.com"}"#
+        );
     }
 
     #[test]
@@ -511,11 +515,8 @@ mod tests {
         let (_f, s) = open_db();
         let reg = PeerRegistry::new(s.connection());
         // No peer was added — update should fail, not silently succeed
-        let result = reg.update_channel_config(
-            "nonexistent-device",
-            "folder",
-            r#"{"path":"/tmp"}"#,
-        );
+        let result =
+            reg.update_channel_config("nonexistent-device", "folder", r#"{"path":"/tmp"}"#);
         assert!(result.is_err(), "expected Err when device_id not found");
     }
 
@@ -524,11 +525,23 @@ mod tests {
         let (_f, s) = open_db();
         let reg = PeerRegistry::new(s.connection());
         reg.add_peer("dev-1", "pk-1").unwrap();
-        reg.update_sync_status("dev-1", "error", Some("connection refused"), Some("TLS handshake failed")).unwrap();
+        reg.update_sync_status(
+            "dev-1",
+            "error",
+            Some("connection refused"),
+            Some("TLS handshake failed"),
+        )
+        .unwrap();
         let peer = reg.get_peer("dev-1").unwrap().unwrap();
         assert_eq!(peer.sync_status, "error");
-        assert_eq!(peer.sync_status_detail.as_deref(), Some("connection refused"));
-        assert_eq!(peer.last_sync_error.as_deref(), Some("TLS handshake failed"));
+        assert_eq!(
+            peer.sync_status_detail.as_deref(),
+            Some("connection refused")
+        );
+        assert_eq!(
+            peer.last_sync_error.as_deref(),
+            Some("TLS handshake failed")
+        );
     }
 
     #[test]

@@ -56,11 +56,15 @@ pub struct AppState {
     /// Per-identity invite managers — keyed by identity UUID, created on unlock.
     pub invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::invite::InviteManager>>>,
     /// Per-identity relay account managers — keyed by identity UUID, created on unlock.
-    pub relay_account_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::sync::relay::RelayAccountManager>>>,
+    pub relay_account_managers:
+        Arc<Mutex<HashMap<Uuid, krillnotes_core::core::sync::relay::RelayAccountManager>>>,
     /// Per-identity accepted invite managers — keyed by identity UUID, created on unlock.
-    pub accepted_invite_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::accepted_invite::AcceptedInviteManager>>>,
+    pub accepted_invite_managers:
+        Arc<Mutex<HashMap<Uuid, krillnotes_core::core::accepted_invite::AcceptedInviteManager>>>,
     /// Per-identity received response managers — keyed by identity UUID, created on unlock.
-    pub received_response_managers: Arc<Mutex<HashMap<Uuid, krillnotes_core::core::received_response::ReceivedResponseManager>>>,
+    pub received_response_managers: Arc<
+        Mutex<HashMap<Uuid, krillnotes_core::core::received_response::ReceivedResponseManager>>,
+    >,
     /// Per-identity sync engines — keyed by identity UUID string.
     /// Created lazily when a relay is configured for that identity.
     pub sync_engines: Arc<Mutex<HashMap<String, krillnotes_core::core::sync::SyncEngine>>>,
@@ -70,7 +74,17 @@ pub struct AppState {
     /// Paste menu item handles for dynamic enable/disable.
     /// On macOS: one global pair keyed by "macos" (the menu bar is shared).
     /// On Windows: keyed by window label (each window owns its own menu bar).
-    pub paste_menu_items: Arc<Mutex<HashMap<String, (tauri::menu::MenuItem<tauri::Wry>, tauri::menu::MenuItem<tauri::Wry>)>>>,
+    pub paste_menu_items: Arc<
+        Mutex<
+            HashMap<
+                String,
+                (
+                    tauri::menu::MenuItem<tauri::Wry>,
+                    tauri::menu::MenuItem<tauri::Wry>,
+                ),
+            >,
+        >,
+    >,
     /// Workspace-specific menu item handles (Add Note, Delete Note, Copy Note,
     /// Manage Scripts, Operations Log, Export Workspace).
     /// On macOS: one global list keyed by "macos" — enabled when a workspace
@@ -108,15 +122,18 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
     ("edit_settings", "Edit > Settings clicked"),
     // Retained for when sync is enabled per-workspace and the Operations Log item is unlocked.
     ("view_operations_log", "View > Operations Log clicked"),
-    ("edit_copy_note",        "Edit > Copy Note clicked"),
-    ("edit_paste_as_child",   "Edit > Paste as Child clicked"),
+    ("edit_copy_note", "Edit > Copy Note clicked"),
+    ("edit_paste_as_child", "Edit > Paste as Child clicked"),
     ("edit_paste_as_sibling", "Edit > Paste as Sibling clicked"),
-    ("workspace_properties",  "Edit > Workspace Properties clicked"),
-    ("workspace_peers",       "Edit > Workspace Peers clicked"),
-    ("file_identities",       "File > Manage Identities clicked"),
-    ("file_open_swarm",       "File > Open Swarm File clicked"),
-    ("create_delta_swarm",    "Edit > Create delta Swarm clicked"),
-    ("file_sync_now",         "File > Sync Now clicked"),
+    (
+        "workspace_properties",
+        "Edit > Workspace Properties clicked",
+    ),
+    ("workspace_peers", "Edit > Workspace Peers clicked"),
+    ("file_identities", "File > Manage Identities clicked"),
+    ("file_open_swarm", "File > Open Swarm File clicked"),
+    ("create_delta_swarm", "Edit > Create delta Swarm clicked"),
+    ("file_sync_now", "File > Sync Now clicked"),
 ];
 
 /// Translates a native [`tauri::menu::MenuEvent`] into a `"menu-action"` event
@@ -131,7 +148,8 @@ const MENU_MESSAGES: &[(&str, &str)] = &[
 /// unfocuses the application window before the event fires, making async
 /// focus checks in the frontend unreliable.
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
-    let Some((_, message)) = MENU_MESSAGES.iter()
+    let Some((_, message)) = MENU_MESSAGES
+        .iter()
         .find(|(id, _)| id == &event.id().as_ref())
     else {
         return;
@@ -193,7 +211,7 @@ pub fn run() {
             workspace_identities: Arc::new(Mutex::new(HashMap::new())),
             focused_window: Arc::new(Mutex::new(None)),
             identity_manager: Arc::new(Mutex::new(
-                IdentityManager::new(settings::home_dir()).expect("Failed to init IdentityManager")
+                IdentityManager::new(settings::home_dir()).expect("Failed to init IdentityManager"),
             )),
             contact_managers: Arc::new(Mutex::new(HashMap::new())),
             invite_managers: Arc::new(Mutex::new(HashMap::new())),
@@ -229,29 +247,50 @@ pub fn run() {
                     // Persist cached metadata before dropping the workspace.
                     // Use unwrap_or_else to recover from a poisoned mutex (e.g. after a panic
                     // in a command that held the lock) rather than double-panicking on destroy.
-                    if let Some(ws) = state.workspaces.lock().unwrap_or_else(|e| e.into_inner()).get(&label) {
+                    if let Some(ws) = state
+                        .workspaces
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&label)
+                    {
                         let _ = ws.write_info_json();
                     }
-                    state.workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
-                    state.workspace_paths.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
-                    state.workspace_identities.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
+                    state
+                        .workspaces
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&label);
+                    state
+                        .workspace_paths
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&label);
+                    state
+                        .workspace_identities
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&label);
 
                     // On macOS the menu bar is global. If this was the last
                     // workspace window, disable workspace-specific items so
                     // they appear greyed out if the launch window ever returns.
                     #[cfg(target_os = "macos")]
                     {
-                        let no_workspaces_remain = state.workspaces
-                            .lock().expect("Mutex poisoned").is_empty();
+                        let no_workspaces_remain =
+                            state.workspaces.lock().expect("Mutex poisoned").is_empty();
                         if no_workspaces_remain {
-                            let items = state.workspace_menu_items
-                                .lock().expect("Mutex poisoned");
+                            let items = state.workspace_menu_items.lock().expect("Mutex poisoned");
                             if let Some(ws_items) = items.get("macos") {
                                 for item in ws_items {
                                     let _ = item.set_enabled(false);
                                 }
                             }
-                            if let Some(item) = state.export_menu_item.lock().expect("Mutex poisoned").as_ref() {
+                            if let Some(item) = state
+                                .export_menu_item
+                                .lock()
+                                .expect("Mutex poisoned")
+                                .as_ref()
+                            {
                                 let _ = item.set_enabled(false);
                             }
                         }
@@ -266,9 +305,19 @@ pub fn run() {
                     // whether the focused workspace is owned by the current identity.
                     #[cfg(target_os = "macos")]
                     {
-                        let is_owner = state.workspaces.lock().expect("Mutex poisoned")
-                            .get(&label).map(|ws| ws.is_owner()).unwrap_or(false);
-                        if let Some(item) = state.export_menu_item.lock().expect("Mutex poisoned").as_ref() {
+                        let is_owner = state
+                            .workspaces
+                            .lock()
+                            .expect("Mutex poisoned")
+                            .get(&label)
+                            .map(|ws| ws.is_owner())
+                            .unwrap_or(false);
+                        if let Some(item) = state
+                            .export_menu_item
+                            .lock()
+                            .expect("Mutex poisoned")
+                            .as_ref()
+                        {
                             let _ = item.set_enabled(is_owner);
                         }
                     }
@@ -288,11 +337,21 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let state = app.state::<AppState>();
-                state.paste_menu_items.lock().expect("Mutex poisoned")
-                    .insert("macos".to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
-                state.workspace_menu_items.lock().expect("Mutex poisoned")
+                state
+                    .paste_menu_items
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .insert(
+                        "macos".to_string(),
+                        (menu_result.paste_as_child, menu_result.paste_as_sibling),
+                    );
+                state
+                    .workspace_menu_items
+                    .lock()
+                    .expect("Mutex poisoned")
                     .insert("macos".to_string(), menu_result.workspace_items);
-                *state.export_menu_item.lock().expect("Mutex poisoned") = Some(menu_result.export_item);
+                *state.export_menu_item.lock().expect("Mutex poisoned") =
+                    Some(menu_result.export_item);
             }
 
             // Ensure home directory exists
@@ -309,7 +368,11 @@ pub fn run() {
                 .skip(1)
                 .filter_map(|a| {
                     let p = PathBuf::from(&a);
-                    if p.exists() { Some(p) } else { None }
+                    if p.exists() {
+                        Some(p)
+                    } else {
+                        None
+                    }
                 })
                 .collect();
             for path in file_args {

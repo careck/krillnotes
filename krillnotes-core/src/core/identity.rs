@@ -174,8 +174,8 @@ pub struct ExportedRelayFile {
 /// is already encrypted with Argon2id + AES-256-GCM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmIdFile {
-    pub format: String,   // always "swarmid"
-    pub version: u32,     // always 1
+    pub format: String, // always "swarmid"
+    pub version: u32,   // always 1
     pub identity: IdentityFile,
     /// Encrypted relay account files. Empty for old exports (backward compat).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -194,7 +194,10 @@ impl IdentityManager {
     pub fn new(home_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&home_dir)?;
         let folder_cache = Self::scan_identities(&home_dir);
-        Ok(Self { home_dir, folder_cache })
+        Ok(Self {
+            home_dir,
+            folder_cache,
+        })
     }
 
     /// Scans `home_dir` for display-name folders that contain `.identity/identity.json`.
@@ -206,7 +209,9 @@ impl IdentityManager {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_dir() { continue; }
+            if !path.is_dir() {
+                continue;
+            }
             let identity_json = path.join(".identity").join("identity.json");
             if let Ok(content) = std::fs::read_to_string(&identity_json) {
                 if let Ok(file) = serde_json::from_str::<IdentityFile>(&content) {
@@ -237,7 +242,9 @@ impl IdentityManager {
             Some(base) => base.join(".identity"),
             None => {
                 log::warn!("identity_dir: UUID {identity_uuid} not in cache");
-                self.home_dir.join(identity_uuid.to_string()).join(".identity")
+                self.home_dir
+                    .join(identity_uuid.to_string())
+                    .join(".identity")
             }
         }
     }
@@ -276,7 +283,11 @@ impl IdentityManager {
     ///
     /// Generates an Ed25519 keypair, encrypts the seed with Argon2id + AES-256-GCM,
     /// writes the identity file, and registers it in the folder cache.
-    pub fn create_identity(&mut self, display_name: &str, passphrase: &str) -> Result<IdentityFile> {
+    pub fn create_identity(
+        &mut self,
+        display_name: &str,
+        passphrase: &str,
+    ) -> Result<IdentityFile> {
         // Generate Ed25519 keypair
         let mut seed = [0u8; 32];
         OsRng.fill_bytes(&mut seed);
@@ -291,8 +302,9 @@ impl IdentityManager {
         let argon2 = Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
-            argon2::Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(32))
-                .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("Argon2 params: {e}")))?,
+            argon2::Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(32)).map_err(
+                |e| crate::KrillnotesError::IdentityCorrupt(format!("Argon2 params: {e}")),
+            )?,
         );
         argon2
             .hash_password_into(passphrase.as_bytes(), &salt, &mut derived_key)
@@ -348,23 +360,34 @@ impl IdentityManager {
     }
 
     /// Unlock an identity by decrypting its Ed25519 seed with the given passphrase.
-    pub fn unlock_identity(&mut self, identity_uuid: &Uuid, passphrase: &str) -> Result<UnlockedIdentity> {
+    pub fn unlock_identity(
+        &mut self,
+        identity_uuid: &Uuid,
+        passphrase: &str,
+    ) -> Result<UnlockedIdentity> {
         // Load identity file
         let file_path = self.identity_file_path(identity_uuid);
         if !file_path.exists() {
-            return Err(crate::KrillnotesError::IdentityNotFound(identity_uuid.to_string()));
+            return Err(crate::KrillnotesError::IdentityNotFound(
+                identity_uuid.to_string(),
+            ));
         }
         let data = std::fs::read_to_string(&file_path)?;
         let mut identity_file: IdentityFile = serde_json::from_str(&data)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("JSON parse: {e}")))?;
 
         // Decode stored values
-        let salt = BASE64.decode(&identity_file.private_key_enc.kdf_params.salt)
+        let salt = BASE64
+            .decode(&identity_file.private_key_enc.kdf_params.salt)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("salt decode: {e}")))?;
-        let nonce_bytes = BASE64.decode(&identity_file.private_key_enc.nonce)
+        let nonce_bytes = BASE64
+            .decode(&identity_file.private_key_enc.nonce)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("nonce decode: {e}")))?;
-        let ciphertext = BASE64.decode(&identity_file.private_key_enc.ciphertext)
-            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("ciphertext decode: {e}")))?;
+        let ciphertext = BASE64
+            .decode(&identity_file.private_key_enc.ciphertext)
+            .map_err(|e| {
+                crate::KrillnotesError::IdentityCorrupt(format!("ciphertext decode: {e}"))
+            })?;
 
         // Argon2id: derive decryption key
         let params = &identity_file.private_key_enc.kdf_params;
@@ -372,8 +395,9 @@ impl IdentityManager {
         let argon2 = Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
-            argon2::Params::new(params.m_cost, params.t_cost, params.p_cost, Some(32))
-                .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("Argon2 params: {e}")))?,
+            argon2::Params::new(params.m_cost, params.t_cost, params.p_cost, Some(32)).map_err(
+                |e| crate::KrillnotesError::IdentityCorrupt(format!("Argon2 params: {e}")),
+            )?,
         );
         argon2
             .hash_password_into(passphrase.as_bytes(), &salt, &mut derived_key)
@@ -389,9 +413,9 @@ impl IdentityManager {
             .decrypt(nonce, ciphertext.as_ref())
             .map_err(|_| crate::KrillnotesError::IdentityWrongPassphrase)?;
 
-        let seed: [u8; 32] = seed_bytes
-            .try_into()
-            .map_err(|_| crate::KrillnotesError::IdentityCorrupt("seed is not 32 bytes".to_string()))?;
+        let seed: [u8; 32] = seed_bytes.try_into().map_err(|_| {
+            crate::KrillnotesError::IdentityCorrupt("seed is not 32 bytes".to_string())
+        })?;
         let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
 
@@ -412,7 +436,11 @@ impl IdentityManager {
     pub fn list_identities(&self) -> Result<Vec<IdentityRef>> {
         let mut refs = Vec::new();
         for (uuid, folder_name) in &self.folder_cache {
-            let identity_json = self.home_dir.join(folder_name).join(".identity").join("identity.json");
+            let identity_json = self
+                .home_dir
+                .join(folder_name)
+                .join(".identity")
+                .join("identity.json");
             if let Ok(content) = std::fs::read_to_string(&identity_json) {
                 if let Ok(file) = serde_json::from_str::<IdentityFile>(&content) {
                     refs.push(IdentityRef {
@@ -433,7 +461,11 @@ impl IdentityManager {
     /// no local identity has that public key.
     pub fn lookup_display_name(&self, public_key: &str) -> Option<String> {
         for (_uuid, folder_name) in &self.folder_cache {
-            let identity_json = self.home_dir.join(folder_name).join(".identity").join("identity.json");
+            let identity_json = self
+                .home_dir
+                .join(folder_name)
+                .join(".identity")
+                .join("identity.json");
             if let Ok(content) = std::fs::read_to_string(&identity_json) {
                 if let Ok(file) = serde_json::from_str::<IdentityFile>(&content) {
                     if file.public_key == public_key {
@@ -484,8 +516,9 @@ impl IdentityManager {
         let argon2 = Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
-            argon2::Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(32))
-                .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("Argon2 params: {e}")))?,
+            argon2::Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(32)).map_err(
+                |e| crate::KrillnotesError::IdentityCorrupt(format!("Argon2 params: {e}")),
+            )?,
         );
         argon2
             .hash_password_into(new_passphrase.as_bytes(), &new_salt, &mut new_derived_key)
@@ -553,7 +586,11 @@ impl IdentityManager {
 
     /// Verifies the passphrase, then returns a `SwarmIdFile` ready to be serialised
     /// and written to disk by the caller. Does NOT write any file itself.
-    pub fn export_swarmid(&mut self, identity_uuid: &Uuid, passphrase: &str) -> Result<SwarmIdFile> {
+    pub fn export_swarmid(
+        &mut self,
+        identity_uuid: &Uuid,
+        passphrase: &str,
+    ) -> Result<SwarmIdFile> {
         // Verify passphrase by attempting an unlock (propagates IdentityWrongPassphrase on mismatch)
         self.unlock_identity(identity_uuid, passphrase)?;
         self.export_swarmid_no_verify(identity_uuid)
@@ -600,7 +637,9 @@ impl IdentityManager {
         self.validate_swarmid_file(&file)?;
         let uuid = file.identity.identity_uuid;
         if self.folder_cache.contains_key(&uuid) {
-            return Err(crate::KrillnotesError::IdentityAlreadyExists(uuid.to_string()));
+            return Err(crate::KrillnotesError::IdentityAlreadyExists(
+                uuid.to_string(),
+            ));
         }
         self.write_swarmid_to_store(file)
     }
@@ -703,39 +742,51 @@ impl IdentityManager {
     }
 
     /// Reads `<workspace_dir>/binding.json`. Returns `None` if the file is absent.
-    pub fn get_workspace_binding(&self, workspace_dir: &std::path::Path) -> Result<Option<WorkspaceBinding>> {
+    pub fn get_workspace_binding(
+        &self,
+        workspace_dir: &std::path::Path,
+    ) -> Result<Option<WorkspaceBinding>> {
         let path = workspace_dir.join("binding.json");
         if !path.exists() {
             return Ok(None);
         }
         let raw = std::fs::read_to_string(&path)?;
-        let binding: WorkspaceBinding = serde_json::from_str(&raw)
-            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(
-                format!("binding.json in {:?}: {e}", workspace_dir)
-            ))?;
+        let binding: WorkspaceBinding = serde_json::from_str(&raw).map_err(|e| {
+            crate::KrillnotesError::IdentityCorrupt(format!(
+                "binding.json in {:?}: {e}",
+                workspace_dir
+            ))
+        })?;
         Ok(Some(binding))
     }
 
     /// Decrypts the DB password from `<workspace_dir>/binding.json`.
     /// Uses `workspace_uuid` stored in the binding for HKDF key derivation.
-    pub fn decrypt_db_password(&self, workspace_dir: &std::path::Path, seed: &[u8; 32]) -> Result<String> {
-        let binding = self.get_workspace_binding(workspace_dir)?
-            .ok_or_else(|| crate::KrillnotesError::WorkspaceNotBound(
-                workspace_dir.display().to_string()
-            ))?;
+    pub fn decrypt_db_password(
+        &self,
+        workspace_dir: &std::path::Path,
+        seed: &[u8; 32],
+    ) -> Result<String> {
+        let binding = self.get_workspace_binding(workspace_dir)?.ok_or_else(|| {
+            crate::KrillnotesError::WorkspaceNotBound(workspace_dir.display().to_string())
+        })?;
 
         let key = self.derive_db_password_key(seed, &binding.workspace_uuid)?;
-        let blob = BASE64.decode(&binding.db_password_enc)
-            .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("db_password_enc: {e}")))?;
+        let blob = BASE64.decode(&binding.db_password_enc).map_err(|e| {
+            crate::KrillnotesError::IdentityCorrupt(format!("db_password_enc: {e}"))
+        })?;
 
         if blob.len() < 12 {
-            return Err(crate::KrillnotesError::IdentityCorrupt("db_password_enc too short".into()));
+            return Err(crate::KrillnotesError::IdentityCorrupt(
+                "db_password_enc too short".into(),
+            ));
         }
         let (nonce_bytes, ciphertext) = blob.split_at(12);
         let cipher = Aes256Gcm::new_from_slice(&key)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))?;
         let nonce = Nonce::from_slice(nonce_bytes);
-        let plaintext = cipher.decrypt(nonce, ciphertext)
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext)
             .map_err(|_| crate::KrillnotesError::IdentityCorrupt("decrypt failed".into()))?;
         String::from_utf8(plaintext)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(e.to_string()))
@@ -759,8 +810,12 @@ impl IdentityManager {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_dir() { continue; }
-            if path.file_name().map(|n| n == ".identity").unwrap_or(false) { continue; }
+            if !path.is_dir() {
+                continue;
+            }
+            if path.file_name().map(|n| n == ".identity").unwrap_or(false) {
+                continue;
+            }
             let binding_path = path.join("binding.json");
             if let Ok(content) = std::fs::read_to_string(&binding_path) {
                 if let Ok(binding) = serde_json::from_str::<WorkspaceBinding>(&content) {
@@ -786,7 +841,12 @@ impl IdentityManager {
         Ok(key)
     }
 
-    fn encrypt_db_password(&self, seed: &[u8; 32], workspace_uuid: &str, db_password: &str) -> Result<String> {
+    fn encrypt_db_password(
+        &self,
+        seed: &[u8; 32],
+        workspace_uuid: &str,
+        db_password: &str,
+    ) -> Result<String> {
         let key = self.derive_db_password_key(seed, workspace_uuid)?;
         let cipher = Aes256Gcm::new_from_slice(&key)
             .map_err(|e| crate::KrillnotesError::IdentityCorrupt(format!("AES key: {e}")))?;

@@ -10,8 +10,8 @@
 //! from `set_field()`, `set_title()`, `reject()`, and `commit()` calls
 //! during on_save hooks, tree actions, and on_add_child hooks.
 
-use std::collections::BTreeMap;
 use crate::core::note::FieldValue;
+use std::collections::BTreeMap;
 
 /// A soft validation error accumulated by `reject()`.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -41,7 +41,9 @@ pub struct PendingNote {
 impl PendingNote {
     /// Returns the current effective title (pending or original).
     pub fn effective_title(&self) -> &str {
-        self.pending_title.as_deref().unwrap_or(&self.original_title)
+        self.pending_title
+            .as_deref()
+            .unwrap_or(&self.original_title)
     }
 
     pub fn effective_checked(&self) -> Option<bool> {
@@ -86,17 +88,20 @@ impl SaveTransaction {
         fields: BTreeMap<String, FieldValue>,
     ) -> Self {
         let mut tx = Self::new();
-        tx.pending_notes.insert(note_id.clone(), PendingNote {
-            note_id,
-            is_new: false,
-            parent_id: None,
-            schema,
-            original_fields: fields,
-            pending_fields: BTreeMap::new(),
-            original_title: title,
-            pending_title: None,
-            pending_checked: None,
-        });
+        tx.pending_notes.insert(
+            note_id.clone(),
+            PendingNote {
+                note_id,
+                is_new: false,
+                parent_id: None,
+                schema,
+                original_fields: fields,
+                pending_fields: BTreeMap::new(),
+                original_title: title,
+                pending_title: None,
+                pending_checked: None,
+            },
+        );
         tx
     }
 
@@ -111,17 +116,20 @@ impl SaveTransaction {
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) {
-        self.pending_notes.insert(note_id.clone(), PendingNote {
-            note_id,
-            is_new: false,
-            parent_id: None,
-            schema,
-            original_fields: fields,
-            pending_fields: BTreeMap::new(),
-            original_title: title,
-            pending_title: None,
-            pending_checked: None,
-        });
+        self.pending_notes.insert(
+            note_id.clone(),
+            PendingNote {
+                note_id,
+                is_new: false,
+                parent_id: None,
+                schema,
+                original_fields: fields,
+                pending_fields: BTreeMap::new(),
+                original_title: title,
+                pending_title: None,
+                pending_checked: None,
+            },
+        );
     }
 
     /// Registers a newly created child note in the transaction.
@@ -133,17 +141,20 @@ impl SaveTransaction {
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) {
-        self.pending_notes.insert(note_id.clone(), PendingNote {
-            note_id,
-            is_new: true,
-            parent_id: Some(parent_id),
-            schema,
-            original_fields: fields.clone(),
-            pending_fields: fields,
-            original_title: title,
-            pending_title: None,
-            pending_checked: None,
-        });
+        self.pending_notes.insert(
+            note_id.clone(),
+            PendingNote {
+                note_id,
+                is_new: true,
+                parent_id: Some(parent_id),
+                schema,
+                original_fields: fields.clone(),
+                pending_fields: fields,
+                original_title: title,
+                pending_title: None,
+                pending_checked: None,
+            },
+        );
     }
 
     /// Queues a field write.
@@ -151,8 +162,15 @@ impl SaveTransaction {
     /// # Errors
     ///
     /// Returns an error if `note_id` is not in this transaction.
-    pub fn set_field(&mut self, note_id: &str, field: String, value: FieldValue) -> Result<(), String> {
-        let pending = self.pending_notes.get_mut(note_id)
+    pub fn set_field(
+        &mut self,
+        note_id: &str,
+        field: String,
+        value: FieldValue,
+    ) -> Result<(), String> {
+        let pending = self
+            .pending_notes
+            .get_mut(note_id)
             .ok_or_else(|| format!("Note '{}' is not in this transaction", note_id))?;
         pending.pending_fields.insert(field, value);
         Ok(())
@@ -164,7 +182,9 @@ impl SaveTransaction {
     ///
     /// Returns an error if `note_id` is not in this transaction.
     pub fn set_title(&mut self, note_id: &str, title: String) -> Result<(), String> {
-        let pending = self.pending_notes.get_mut(note_id)
+        let pending = self
+            .pending_notes
+            .get_mut(note_id)
             .ok_or_else(|| format!("Note '{}' is not in this transaction", note_id))?;
         pending.pending_title = Some(title);
         Ok(())
@@ -176,7 +196,9 @@ impl SaveTransaction {
     ///
     /// Returns an error if `note_id` is not in this transaction.
     pub fn set_checked(&mut self, note_id: &str, checked: bool) -> Result<(), String> {
-        let pending = self.pending_notes.get_mut(note_id)
+        let pending = self
+            .pending_notes
+            .get_mut(note_id)
             .ok_or_else(|| format!("Note '{}' is not in this transaction", note_id))?;
         pending.pending_checked = Some(checked);
         Ok(())
@@ -184,12 +206,18 @@ impl SaveTransaction {
 
     /// Accumulates a note-level soft error.
     pub fn reject_note(&mut self, message: String) {
-        self.soft_errors.push(SoftError { field: None, message });
+        self.soft_errors.push(SoftError {
+            field: None,
+            message,
+        });
     }
 
     /// Accumulates a field-pinned soft error.
     pub fn reject_field(&mut self, field: String, message: String) {
-        self.soft_errors.push(SoftError { field: Some(field), message });
+        self.soft_errors.push(SoftError {
+            field: Some(field),
+            message,
+        });
     }
 
     /// Returns true if any soft errors have been accumulated.
@@ -258,7 +286,10 @@ mod tests {
         let mut fields = BTreeMap::new();
         fields.insert("body".to_string(), FieldValue::Text("hello".to_string()));
         let tx = SaveTransaction::for_existing_note(
-            "n1".to_string(), "TextNote".to_string(), "Title".to_string(), fields,
+            "n1".to_string(),
+            "TextNote".to_string(),
+            "Title".to_string(),
+            fields,
         );
         assert_eq!(tx.pending_notes.len(), 1);
         let pn = tx.pending_notes.get("n1").unwrap();
@@ -270,9 +301,13 @@ mod tests {
     fn test_set_field_updates_pending() {
         let tx_fields = BTreeMap::new();
         let mut tx = SaveTransaction::for_existing_note(
-            "n1".to_string(), "T".to_string(), "T".to_string(), tx_fields,
+            "n1".to_string(),
+            "T".to_string(),
+            "T".to_string(),
+            tx_fields,
         );
-        tx.set_field("n1", "x".to_string(), FieldValue::Number(42.0)).unwrap();
+        tx.set_field("n1", "x".to_string(), FieldValue::Number(42.0))
+            .unwrap();
         let eff = tx.pending_notes.get("n1").unwrap().effective_fields();
         assert_eq!(eff.get("x"), Some(&FieldValue::Number(42.0)));
     }
@@ -280,7 +315,10 @@ mod tests {
     #[test]
     fn test_set_title_updates_pending() {
         let mut tx = SaveTransaction::for_existing_note(
-            "n1".to_string(), "T".to_string(), "Old".to_string(), BTreeMap::new(),
+            "n1".to_string(),
+            "T".to_string(),
+            "Old".to_string(),
+            BTreeMap::new(),
         );
         tx.set_title("n1", "New".to_string()).unwrap();
         assert_eq!(tx.pending_notes.get("n1").unwrap().effective_title(), "New");
@@ -324,7 +362,13 @@ mod tests {
         let mut tx = SaveTransaction::new();
         let mut fields = BTreeMap::new();
         fields.insert("body".to_string(), FieldValue::Text(String::new()));
-        tx.add_new_note("c1".to_string(), "p1".to_string(), "TextNote".to_string(), "".to_string(), fields);
+        tx.add_new_note(
+            "c1".to_string(),
+            "p1".to_string(),
+            "TextNote".to_string(),
+            "".to_string(),
+            fields,
+        );
         assert_eq!(tx.pending_notes.len(), 1);
         let pn = tx.pending_notes.get("c1").unwrap();
         assert!(pn.is_new);
@@ -334,11 +378,20 @@ mod tests {
     #[test]
     fn test_set_checked_updates_pending() {
         let mut tx = SaveTransaction::for_existing_note(
-            "n1".to_string(), "T".to_string(), "T".to_string(), BTreeMap::new(),
+            "n1".to_string(),
+            "T".to_string(),
+            "T".to_string(),
+            BTreeMap::new(),
         );
-        assert_eq!(tx.pending_notes.get("n1").unwrap().effective_checked(), None);
+        assert_eq!(
+            tx.pending_notes.get("n1").unwrap().effective_checked(),
+            None
+        );
         tx.set_checked("n1", true).unwrap();
-        assert_eq!(tx.pending_notes.get("n1").unwrap().effective_checked(), Some(true));
+        assert_eq!(
+            tx.pending_notes.get("n1").unwrap().effective_checked(),
+            Some(true)
+        );
     }
 
     #[test]
@@ -347,9 +400,17 @@ mod tests {
         orig.insert("a".to_string(), FieldValue::Text("original".to_string()));
         orig.insert("b".to_string(), FieldValue::Text("keep".to_string()));
         let mut tx = SaveTransaction::for_existing_note(
-            "n1".to_string(), "T".to_string(), "T".to_string(), orig,
+            "n1".to_string(),
+            "T".to_string(),
+            "T".to_string(),
+            orig,
         );
-        tx.set_field("n1", "a".to_string(), FieldValue::Text("updated".to_string())).unwrap();
+        tx.set_field(
+            "n1",
+            "a".to_string(),
+            FieldValue::Text("updated".to_string()),
+        )
+        .unwrap();
         let eff = tx.pending_notes.get("n1").unwrap().effective_fields();
         assert_eq!(eff.get("a"), Some(&FieldValue::Text("updated".to_string())));
         assert_eq!(eff.get("b"), Some(&FieldValue::Text("keep".to_string())));

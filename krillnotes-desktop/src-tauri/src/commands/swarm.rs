@@ -5,11 +5,11 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
-use tauri::{AppHandle, Emitter, Manager, State};
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 use krillnotes_core::Ed25519SigningKey;
 use krillnotes_core::Ed25519VerifyingKey;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State};
+use uuid::Uuid;
 
 // ── Swarm bundle commands ──────────────────────────────────────────
 
@@ -89,18 +89,21 @@ pub fn open_swarm_file_cmd(
     path: String,
 ) -> std::result::Result<SwarmFileInfo, String> {
     use krillnotes_core::core::swarm::header::SwarmMode;
-    let data = std::fs::read(&path).map_err(|e| { log::error!("open_swarm_file failed: {e}"); format!("Cannot read file: {e}") })?;
-    let header = krillnotes_core::core::swarm::header::read_header(&data)
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("invite.json") {
-                "This is a Phase C invite file. Use the 'Import Invite' button to open it.".to_string()
-            } else if msg.contains("response.json") {
-                "This is a Phase C response file. Use the 'Import Response' button to open it.".to_string()
-            } else {
-                msg
-            }
-        })?;
+    let data = std::fs::read(&path).map_err(|e| {
+        log::error!("open_swarm_file failed: {e}");
+        format!("Cannot read file: {e}")
+    })?;
+    let header = krillnotes_core::core::swarm::header::read_header(&data).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("invite.json") {
+            "This is a Phase C invite file. Use the 'Import Invite' button to open it.".to_string()
+        } else if msg.contains("response.json") {
+            "This is a Phase C response file. Use the 'Import Response' button to open it."
+                .to_string()
+        } else {
+            msg
+        }
+    })?;
 
     let fingerprint = krillnotes_core::core::contact::generate_fingerprint(&header.source_identity)
         .map_err(|e| e.to_string())?;
@@ -116,7 +119,10 @@ pub fn open_swarm_file_cmd(
                     for identity_ref in &identities {
                         let full_path = mgr.identity_file_path(&identity_ref.uuid);
                         if let Ok(data) = std::fs::read_to_string(&full_path) {
-                            if let Ok(file) = serde_json::from_str::<krillnotes_core::core::identity::IdentityFile>(&data) {
+                            if let Ok(file) = serde_json::from_str::<
+                                krillnotes_core::core::identity::IdentityFile,
+                            >(&data)
+                            {
                                 if &file.public_key == target_pubkey {
                                     found_uuid = Some(identity_ref.uuid.to_string());
                                     found_name = Some(identity_ref.display_name.clone());
@@ -152,7 +158,9 @@ pub fn open_swarm_file_cmd(
                 let mgr = state.identity_manager.lock().expect("Mutex poisoned");
                 let identities = mgr.list_identities().unwrap_or_default();
                 // Read each identity's public key and match against recipient peer_ids.
-                let peer_ids: Vec<String> = header.recipients.as_ref()
+                let peer_ids: Vec<String> = header
+                    .recipients
+                    .as_ref()
                     .map(|r| r.iter().map(|e| e.peer_id.clone()).collect())
                     .unwrap_or_default();
                 let mut found_uuid = None;
@@ -160,7 +168,10 @@ pub fn open_swarm_file_cmd(
                 for identity_ref in &identities {
                     let full_path = mgr.identity_file_path(&identity_ref.uuid);
                     if let Ok(data) = std::fs::read_to_string(&full_path) {
-                        if let Ok(file) = serde_json::from_str::<krillnotes_core::core::identity::IdentityFile>(&data) {
+                        if let Ok(file) = serde_json::from_str::<
+                            krillnotes_core::core::identity::IdentityFile,
+                        >(&data)
+                        {
                             if peer_ids.contains(&file.public_key) {
                                 found_uuid = Some(identity_ref.uuid.to_string());
                                 found_name = Some(identity_ref.display_name.clone());
@@ -191,7 +202,10 @@ pub fn open_swarm_file_cmd(
                 for identity_ref in &identities {
                     let full_path = mgr.identity_file_path(&identity_ref.uuid);
                     if let Ok(file_data) = std::fs::read_to_string(&full_path) {
-                        if let Ok(file) = serde_json::from_str::<krillnotes_core::core::identity::IdentityFile>(&file_data) {
+                        if let Ok(file) = serde_json::from_str::<
+                            krillnotes_core::core::identity::IdentityFile,
+                        >(&file_data)
+                        {
                             if file.public_key == target_pubkey {
                                 found_uuid = Some(identity_ref.uuid.to_string());
                                 found_name = Some(identity_ref.display_name.clone());
@@ -203,12 +217,14 @@ pub fn open_swarm_file_cmd(
                 (found_uuid, found_name)
             };
             // Find the local workspace name for the recipient identity's open workspace.
-            let local_workspace_name = target_identity_uuid.as_deref()
+            let local_workspace_name = target_identity_uuid
+                .as_deref()
                 .and_then(|uuid_str| Uuid::parse_str(uuid_str).ok())
                 .and_then(|uuid| {
                     let identity_map = state.workspace_identities.lock().expect("Mutex poisoned");
                     let paths = state.workspace_paths.lock().expect("Mutex poisoned");
-                    identity_map.iter()
+                    identity_map
+                        .iter()
                         .find(|(_, id)| **id == uuid)
                         .and_then(|(lbl, _)| paths.get(lbl))
                         .and_then(|p| p.file_stem())
@@ -242,7 +258,7 @@ pub async fn create_snapshot_for_peers(
     window: tauri::Window,
     state: State<'_, AppState>,
     identity_uuid: String,
-    peer_public_keys: Vec<String>,   // base64-encoded Ed25519 verifying keys
+    peer_public_keys: Vec<String>, // base64-encoded Ed25519 verifying keys
     save_path: String,
 ) -> std::result::Result<SnapshotCreatedResult, String> {
     use base64::Engine;
@@ -269,13 +285,23 @@ pub async fn create_snapshot_for_peers(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(pk_b64)
                 .map_err(|e| e.to_string())?;
-            let arr: [u8; 32] = bytes.try_into().map_err(|_| "key wrong length".to_string())?;
+            let arr: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| "key wrong length".to_string())?;
             Ed25519VerifyingKey::from_bytes(&arr).map_err(|e| e.to_string())
         })
         .collect::<std::result::Result<_, _>>()?;
 
     // 3. Collect workspace data (hold lock only briefly).
-    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
+    let (
+        workspace_id,
+        workspace_name,
+        workspace_json,
+        attachment_blobs,
+        as_of_op_id,
+        owner_pubkey,
+        protocol,
+    ) = {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
@@ -293,19 +319,30 @@ pub async fn create_snapshot_for_peers(
         let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
 
         // Get attachment metadata from the snapshot JSON to load blobs.
-        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot = serde_json::from_slice(&workspace_json)
-            .map_err(|e| e.to_string())?;
+        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot =
+            serde_json::from_slice(&workspace_json).map_err(|e| e.to_string())?;
         let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
         for meta in &snapshot.attachments {
-            let plaintext = ws.get_attachment_bytes(&meta.id).map_err(|e| e.to_string())?;
+            let plaintext = ws
+                .get_attachment_bytes(&meta.id)
+                .map_err(|e| e.to_string())?;
             attachment_blobs.push((meta.id.clone(), plaintext));
         }
 
-        let as_of_op_id = ws.get_latest_operation_id()
+        let as_of_op_id = ws
+            .get_latest_operation_id()
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
 
-        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol)
+        (
+            workspace_id,
+            workspace_name,
+            workspace_json,
+            attachment_blobs,
+            as_of_op_id,
+            owner_pubkey,
+            protocol,
+        )
     };
 
     // 4. Build the bundle.
@@ -323,7 +360,11 @@ pub async fn create_snapshot_for_peers(
         recipient_peer_ids: peer_public_keys.clone(),
         attachment_blobs,
         owner_pubkey,
-    }).map_err(|e| { log::error!("create_snapshot_for_peers failed: {e}"); e.to_string() })?;
+    })
+    .map_err(|e| {
+        log::error!("create_snapshot_for_peers failed: {e}");
+        e.to_string()
+    })?;
 
     // 5. Write to file.
     std::fs::write(&save_path, &bundle_bytes).map_err(|e| e.to_string())?;
@@ -365,8 +406,8 @@ pub async fn apply_swarm_snapshot(
     use base64::Engine;
     use krillnotes_core::core::swarm::snapshot::parse_snapshot_bundle;
     use krillnotes_core::core::workspace::WorkspaceSnapshot;
-    use rand::RngCore;
     use krillnotes_core::Workspace;
+    use rand::RngCore;
 
     let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
@@ -374,15 +415,20 @@ pub async fn apply_swarm_snapshot(
     let data = std::fs::read(&path).map_err(|e| e.to_string())?;
     let import_seed = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        let id = ids
+            .get(&identity_uuid_parsed)
+            .ok_or("Identity not unlocked")?;
         id.signing_key.to_bytes()
     };
     let recipient_key = Ed25519SigningKey::from_bytes(&import_seed);
-    let parsed = parse_snapshot_bundle(&data, &recipient_key).map_err(|e| { log::error!("apply_swarm_snapshot failed: {e}"); e.to_string() })?;
+    let parsed = parse_snapshot_bundle(&data, &recipient_key).map_err(|e| {
+        log::error!("apply_swarm_snapshot failed: {e}");
+        e.to_string()
+    })?;
 
     // Deserialise snapshot JSON now so we can look up attachment metadata later.
-    let snapshot: WorkspaceSnapshot = serde_json::from_slice(&parsed.workspace_json)
-        .map_err(|e| e.to_string())?;
+    let snapshot: WorkspaceSnapshot =
+        serde_json::from_slice(&parsed.workspace_json).map_err(|e| e.to_string())?;
 
     // 2. Determine workspace name → folder name (mirrors file-stem convention).
     let ws_name = workspace_name_override
@@ -398,8 +444,7 @@ pub async fn apply_swarm_snapshot(
             .join(&ws_name)
     };
 
-    std::fs::create_dir_all(&folder)
-        .map_err(|e| format!("create workspace dir: {e}"))?;
+    std::fs::create_dir_all(&folder).map_err(|e| format!("create workspace dir: {e}"))?;
     let db_path = folder.join("notes.db");
     if db_path.exists() {
         return Err(format!("Workspace '{}' already exists locally.", ws_name));
@@ -415,10 +460,17 @@ pub async fn apply_swarm_snapshot(
     // 4. Create workspace DB preserving the snapshot's UUID.
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD
-            .encode(Ed25519SigningKey::from_bytes(&import_seed).verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD.encode(
+            Ed25519SigningKey::from_bytes(&import_seed)
+                .verifying_key()
+                .as_bytes(),
+        )
     };
-    let swarm_identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&identity_uuid_parsed);
+    let swarm_identity_dir = state
+        .identity_manager
+        .lock()
+        .expect("Mutex poisoned")
+        .identity_dir(&identity_uuid_parsed);
     let mut ws = Workspace::create_empty_with_id(
         &db_path,
         &workspace_password,
@@ -463,7 +515,9 @@ pub async fn apply_swarm_snapshot(
     //    Otherwise, use a placeholder keyed on the sender's public key.
     let local_pubkey = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        let id = ids
+            .get(&identity_uuid_parsed)
+            .ok_or("Identity not unlocked")?;
         base64::engine::general_purpose::STANDARD.encode(
             Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes())
                 .verifying_key()
@@ -483,8 +537,8 @@ pub async fn apply_swarm_snapshot(
     let _ = ws.upsert_sync_peer(
         &peer_device_id,
         &parsed.sender_public_key,
-        Some(&parsed.as_of_operation_id),  // last_sent_op — snapshot is the baseline
-        Some(&parsed.as_of_operation_id),  // last_received_op
+        Some(&parsed.as_of_operation_id), // last_sent_op — snapshot is the baseline
+        Some(&parsed.as_of_operation_id), // last_received_op
     );
 
     // Set relay channel on sender peer if snapshot arrived via relay.
@@ -497,13 +551,16 @@ pub async fn apply_swarm_snapshot(
                 // The URL might be a full invite link — find an account whose
                 // base URL is a prefix of the provided URL.
                 ram.list_relay_accounts().ok().and_then(|accounts| {
-                    accounts.into_iter().find(|a| relay_url.starts_with(&a.relay_url))
+                    accounts
+                        .into_iter()
+                        .find(|a| relay_url.starts_with(&a.relay_url))
                 })
             });
             if let Some(account) = account {
                 let channel_params = serde_json::json!({
                     "relay_account_id": account.relay_account_id.to_string()
-                }).to_string();
+                })
+                .to_string();
                 let _ = ws.update_peer_channel(&peer_device_id, "relay", &channel_params);
             }
         }
@@ -531,7 +588,9 @@ pub async fn apply_swarm_snapshot(
     let workspace_uuid = ws.workspace_id().to_string();
     {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        let unlocked = ids
+            .get(&identity_uuid_parsed)
+            .ok_or("Identity not unlocked")?;
         let seed = unlocked.signing_key.to_bytes();
         let mgr = state.identity_manager.lock().expect("Mutex poisoned");
         mgr.bind_workspace(
@@ -577,7 +636,9 @@ pub async fn apply_swarm_delta(
 
     let recipient_key = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
+        let id = ids
+            .get(&identity_uuid_parsed)
+            .ok_or("Identity not unlocked")?;
         Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes())
     };
 
@@ -586,7 +647,8 @@ pub async fn apply_swarm_delta(
     // which may be a different user's workspace in a multi-workspace session.
     let target_label = {
         let identity_map = state.workspace_identities.lock().expect("Mutex poisoned");
-        identity_map.iter()
+        identity_map
+            .iter()
             .find(|(_, id)| **id == identity_uuid_parsed)
             .map(|(lbl, _)| lbl.clone())
             .ok_or("No open workspace for this identity")?
@@ -595,9 +657,16 @@ pub async fn apply_swarm_delta(
     let apply_result = {
         let mut cm_guard = state.contact_managers.lock().expect("Mutex poisoned");
         let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
-        let ws = workspaces.get_mut(&target_label).ok_or("Workspace not open")?;
-        let cm = cm_guard.get_mut(&identity_uuid_parsed).ok_or("Contact manager not available")?;
-        apply_delta(&bundle_bytes, ws, &recipient_key, cm).map_err(|e| { log::error!("apply_swarm_delta failed: {e}"); e.to_string() })?
+        let ws = workspaces
+            .get_mut(&target_label)
+            .ok_or("Workspace not open")?;
+        let cm = cm_guard
+            .get_mut(&identity_uuid_parsed)
+            .ok_or("Contact manager not available")?;
+        apply_delta(&bundle_bytes, ws, &recipient_key, cm).map_err(|e| {
+            log::error!("apply_swarm_delta failed: {e}");
+            e.to_string()
+        })?
     };
 
     // Emit workspace-updated on the target workspace's window so it refreshes.
@@ -612,7 +681,8 @@ pub async fn apply_swarm_delta(
         "operationsApplied": apply_result.operations_applied,
         "operationsSkipped": apply_result.operations_skipped,
         "newTofu": apply_result.new_tofu_contacts,
-    }).to_string())
+    })
+    .to_string())
 }
 
 /// Send a snapshot bundle to peers via the relay instead of saving to a file.
@@ -625,12 +695,12 @@ pub async fn send_snapshot_via_relay(
     window: tauri::Window,
     state: State<'_, AppState>,
     identity_uuid: String,
-    peer_public_keys: Vec<String>,   // base64-encoded Ed25519 verifying keys
+    peer_public_keys: Vec<String>, // base64-encoded Ed25519 verifying keys
 ) -> std::result::Result<(), String> {
     use base64::Engine;
-    use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
     use krillnotes_core::core::swarm::snapshot::create_snapshot_bundle;
     use krillnotes_core::core::swarm::snapshot::SnapshotParams;
+    use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
 
     let identity_uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
@@ -653,13 +723,23 @@ pub async fn send_snapshot_via_relay(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(pk_b64)
                 .map_err(|e| e.to_string())?;
-            let arr: [u8; 32] = bytes.try_into().map_err(|_| "key wrong length".to_string())?;
+            let arr: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| "key wrong length".to_string())?;
             Ed25519VerifyingKey::from_bytes(&arr).map_err(|e| e.to_string())
         })
         .collect::<std::result::Result<_, _>>()?;
 
     // 3. Collect workspace data (hold lock only briefly).
-    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
+    let (
+        workspace_id,
+        workspace_name,
+        workspace_json,
+        attachment_blobs,
+        as_of_op_id,
+        owner_pubkey,
+        protocol,
+    ) = {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
@@ -676,19 +756,30 @@ pub async fn send_snapshot_via_relay(
 
         let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
 
-        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot = serde_json::from_slice(&workspace_json)
-            .map_err(|e| e.to_string())?;
+        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot =
+            serde_json::from_slice(&workspace_json).map_err(|e| e.to_string())?;
         let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
         for meta in &snapshot.attachments {
-            let plaintext = ws.get_attachment_bytes(&meta.id).map_err(|e| e.to_string())?;
+            let plaintext = ws
+                .get_attachment_bytes(&meta.id)
+                .map_err(|e| e.to_string())?;
             attachment_blobs.push((meta.id.clone(), plaintext));
         }
 
-        let as_of_op_id = ws.get_latest_operation_id()
+        let as_of_op_id = ws
+            .get_latest_operation_id()
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
 
-        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol)
+        (
+            workspace_id,
+            workspace_name,
+            workspace_json,
+            attachment_blobs,
+            as_of_op_id,
+            owner_pubkey,
+            protocol,
+        )
     };
 
     // 4. Build the bundle.
@@ -706,21 +797,33 @@ pub async fn send_snapshot_via_relay(
         recipient_peer_ids: peer_public_keys.clone(),
         attachment_blobs,
         owner_pubkey,
-    }).map_err(|e| { log::error!("send_snapshot_via_relay bundle creation failed: {e}"); e.to_string() })?;
+    })
+    .map_err(|e| {
+        log::error!("send_snapshot_via_relay bundle creation failed: {e}");
+        e.to_string()
+    })?;
 
     // 5. Upload via relay (RelayClient uses reqwest::blocking — must run in spawn_blocking).
     let relay_account = {
         let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
-        let ram = rams.get(&identity_uuid).ok_or("No relay account manager for this identity")?;
+        let ram = rams
+            .get(&identity_uuid)
+            .ok_or("No relay account manager for this identity")?;
         let accounts = ram.list_relay_accounts().map_err(|e| e.to_string())?;
-        accounts.into_iter().next().ok_or("No relay account configured for this identity")?
+        accounts
+            .into_iter()
+            .next()
+            .ok_or("No relay account configured for this identity")?
     };
 
     // Convert device keys to hex for the relay protocol.
     let sender_hex = hex::encode(signing_key.verifying_key().to_bytes());
-    let recipient_hexes: Vec<String> = peer_public_keys.iter()
+    let recipient_hexes: Vec<String> = peer_public_keys
+        .iter()
         .filter_map(|pk_b64| {
-            base64::engine::general_purpose::STANDARD.decode(pk_b64).ok()
+            base64::engine::general_purpose::STANDARD
+                .decode(pk_b64)
+                .ok()
                 .map(|bytes| hex::encode(&bytes))
         })
         .collect();
@@ -735,7 +838,8 @@ pub async fn send_snapshot_via_relay(
             .into_iter()
             .map(|p| (p.peer_identity_id, p.peer_device_id))
             .collect();
-        peer_public_keys.iter()
+        peer_public_keys
+            .iter()
             .filter_map(|pk| peer_map.get(pk).cloned())
             .collect()
     };
@@ -795,9 +899,9 @@ pub async fn send_snapshot_via_relay(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerateDeltasResult {
-    succeeded: Vec<String>,          // peer_device_ids that worked
-    failed: Vec<(String, String)>,   // (peer_device_id, error_message)
-    files_written: Vec<String>,      // absolute paths of written .swarm files
+    succeeded: Vec<String>,        // peer_device_ids that worked
+    failed: Vec<(String, String)>, // (peer_device_id, error_message)
+    files_written: Vec<String>,    // absolute paths of written .swarm files
 }
 
 /// Batch-generates one delta .swarm per selected peer into `dir_path`.
@@ -867,7 +971,13 @@ pub async fn generate_deltas_for_peers(
         // Sanitise display name for use in file path.
         let safe_name: String = display_name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let base_name = format!("delta-{safe_name}-{date}.swarm");
@@ -888,10 +998,19 @@ pub async fn generate_deltas_for_peers(
         let bundle_result = {
             let cm_guard = state.contact_managers.lock().expect("Mutex poisoned");
             let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
-            let ws = workspaces.get_mut(window.label()).ok_or("Workspace not open")?;
+            let ws = workspaces
+                .get_mut(window.label())
+                .ok_or("Workspace not open")?;
             if let Some(cm) = cm_guard.get(&identity_uuid) {
-                generate_delta(ws, peer_id, &workspace_name, &signing_key, &sender_display_name, cm)
-                    .map_err(|e| e.to_string())
+                generate_delta(
+                    ws,
+                    peer_id,
+                    &workspace_name,
+                    &signing_key,
+                    &sender_display_name,
+                    cm,
+                )
+                .map_err(|e| e.to_string())
             } else {
                 Err("Contact manager not available".to_string())
             }
@@ -901,7 +1020,9 @@ pub async fn generate_deltas_for_peers(
             Ok(delta) => match std::fs::write(&file_path, &delta.bundle_bytes) {
                 Ok(()) => {
                     result.succeeded.push(peer_id.clone());
-                    result.files_written.push(file_path.to_string_lossy().to_string());
+                    result
+                        .files_written
+                        .push(file_path.to_string_lossy().to_string());
                 }
                 Err(e) => result.failed.push((peer_id.clone(), e.to_string())),
             },
@@ -928,9 +1049,9 @@ pub async fn send_self_snapshot_via_relay(
     target_device_key: String,
 ) -> std::result::Result<(), String> {
     use base64::Engine;
-    use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
     use krillnotes_core::core::swarm::snapshot::create_snapshot_bundle;
     use krillnotes_core::core::swarm::snapshot::SnapshotParams;
+    use krillnotes_core::core::sync::relay::client::{BundleHeader, RelayClient};
 
     let identity_uuid_parsed = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
@@ -941,8 +1062,13 @@ pub async fn send_self_snapshot_via_relay(
     };
     let (signing_key, source_display_name, own_device_pubkey_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
-        let short_device_id = source_device_id.split(':').next().unwrap_or(&source_device_id);
+        let id = ids
+            .get(&identity_uuid_parsed)
+            .ok_or("Identity not unlocked")?;
+        let short_device_id = source_device_id
+            .split(':')
+            .next()
+            .unwrap_or(&source_device_id);
         let device_sk = id.device_signing_key(short_device_id);
         let device_pubkey_hex = hex::encode(device_sk.verifying_key().to_bytes());
         (
@@ -957,7 +1083,15 @@ pub async fn send_self_snapshot_via_relay(
     let own_pubkey_b64 = base64::engine::general_purpose::STANDARD.encode(sender_vk.as_bytes());
 
     // 3. Collect workspace data (hold lock only briefly).
-    let (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol) = {
+    let (
+        workspace_id,
+        workspace_name,
+        workspace_json,
+        attachment_blobs,
+        as_of_op_id,
+        owner_pubkey,
+        protocol,
+    ) = {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
         let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
@@ -974,19 +1108,30 @@ pub async fn send_self_snapshot_via_relay(
 
         let workspace_json = ws.to_snapshot_json().map_err(|e| e.to_string())?;
 
-        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot = serde_json::from_slice(&workspace_json)
-            .map_err(|e| e.to_string())?;
+        let snapshot: krillnotes_core::core::workspace::WorkspaceSnapshot =
+            serde_json::from_slice(&workspace_json).map_err(|e| e.to_string())?;
         let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
         for meta in &snapshot.attachments {
-            let plaintext = ws.get_attachment_bytes(&meta.id).map_err(|e| e.to_string())?;
+            let plaintext = ws
+                .get_attachment_bytes(&meta.id)
+                .map_err(|e| e.to_string())?;
             attachment_blobs.push((meta.id.clone(), plaintext));
         }
 
-        let as_of_op_id = ws.get_latest_operation_id()
+        let as_of_op_id = ws
+            .get_latest_operation_id()
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
 
-        (workspace_id, workspace_name, workspace_json, attachment_blobs, as_of_op_id, owner_pubkey, protocol)
+        (
+            workspace_id,
+            workspace_name,
+            workspace_json,
+            attachment_blobs,
+            as_of_op_id,
+            owner_pubkey,
+            protocol,
+        )
     };
 
     // 4. Build the bundle — recipient is own key (self-encryption).
@@ -1006,7 +1151,8 @@ pub async fn send_self_snapshot_via_relay(
         recipient_peer_ids: vec![own_pubkey_b64],
         attachment_blobs,
         owner_pubkey,
-    }).map_err(|e| {
+    })
+    .map_err(|e| {
         log::error!("send_self_snapshot_via_relay bundle creation failed: {e}");
         e.to_string()
     })?;
@@ -1015,7 +1161,9 @@ pub async fn send_self_snapshot_via_relay(
     let relay_account_uuid = Uuid::parse_str(&relay_account_id).map_err(|e| e.to_string())?;
     let relay_account = {
         let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
-        let ram = rams.get(&identity_uuid_parsed).ok_or("No relay account manager for this identity")?;
+        let ram = rams
+            .get(&identity_uuid_parsed)
+            .ok_or("No relay account manager for this identity")?;
         ram.list_relay_accounts()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -1082,8 +1230,13 @@ pub async fn send_self_snapshot_via_relay(
                 if let Some(account) = ram.get_relay_account(relay_account_uuid).ok().flatten() {
                     let channel_params = serde_json::json!({
                         "relay_account_id": account.relay_account_id.to_string()
-                    }).to_string();
-                    let _ = ws.update_peer_channel(&target_device_id_for_peer, "relay", &channel_params);
+                    })
+                    .to_string();
+                    let _ = ws.update_peer_channel(
+                        &target_device_id_for_peer,
+                        "relay",
+                        &channel_params,
+                    );
                 }
             }
         }
@@ -1111,9 +1264,12 @@ pub async fn list_devices_on_relay(
     // 1. Get the relay account by ID.
     let relay_account = {
         let rams = state.relay_account_managers.lock().expect("Mutex poisoned");
-        let ram = rams.get(&identity_uuid_parsed).ok_or("No relay account manager for this identity")?;
+        let ram = rams
+            .get(&identity_uuid_parsed)
+            .ok_or("No relay account manager for this identity")?;
         let accounts = ram.list_relay_accounts().map_err(|e| e.to_string())?;
-        accounts.into_iter()
+        accounts
+            .into_iter()
             .find(|a| a.relay_account_id == relay_account_uuid)
             .ok_or("Relay account not found")?
     };
@@ -1121,8 +1277,11 @@ pub async fn list_devices_on_relay(
     // 2. Build own key hex + identity key hex to exclude from results.
     let (own_key_hex, identity_key_hex) = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let id = ids.get(&identity_uuid_parsed).ok_or("Identity not unlocked")?;
-        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let id = ids
+            .get(&identity_uuid_parsed)
+            .ok_or("Identity not unlocked")?;
+        let device_id =
+            krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         let device_sk = id.device_signing_key(&device_id);
         let own = hex::encode(device_sk.verifying_key().to_bytes());
         let identity = hex::encode(id.signing_key.verifying_key().to_bytes());
@@ -1136,36 +1295,43 @@ pub async fn list_devices_on_relay(
     let session_token = relay_account.session_token.clone();
     let session_expires = relay_account.session_expires_at;
 
-    let devices = tokio::task::spawn_blocking(move || -> std::result::Result<Vec<serde_json::Value>, String> {
-        // Auto-login if session expired.
-        let mut token = session_token;
-        if session_expires < chrono::Utc::now() && !relay_password.is_empty() {
-            let client = RelayClient::new(&relay_url);
-            match client.login(&relay_email, &relay_password, &relay_device_key) {
-                Ok(session) => token = session.session_token,
-                Err(e) => log::warn!("list_devices_on_relay: auto-login failed: {e}"),
+    let devices = tokio::task::spawn_blocking(
+        move || -> std::result::Result<Vec<serde_json::Value>, String> {
+            // Auto-login if session expired.
+            let mut token = session_token;
+            if session_expires < chrono::Utc::now() && !relay_password.is_empty() {
+                let client = RelayClient::new(&relay_url);
+                match client.login(&relay_email, &relay_password, &relay_device_key) {
+                    Ok(session) => token = session.session_token,
+                    Err(e) => log::warn!("list_devices_on_relay: auto-login failed: {e}"),
+                }
             }
-        }
-        let client = RelayClient::new(&relay_url).with_session_token(&token);
+            let client = RelayClient::new(&relay_url).with_session_token(&token);
 
-        let remote_devices = client.list_devices(Some(&own_key_hex))
-            .map_err(|e| e.to_string())?;
+            let remote_devices = client
+                .list_devices(Some(&own_key_hex))
+                .map_err(|e| e.to_string())?;
 
-        // Client-side safety net: remove own device key and the shared identity key
-        // (registered for peer routing, not a real device) from the list.
-        let remote_devices: Vec<_> = remote_devices.into_iter()
-            .filter(|d| d.device_key != own_key_hex && d.device_key != identity_key_hex)
-            .collect();
+            // Client-side safety net: remove own device key and the shared identity key
+            // (registered for peer routing, not a real device) from the list.
+            let remote_devices: Vec<_> = remote_devices
+                .into_iter()
+                .filter(|d| d.device_key != own_key_hex && d.device_key != identity_key_hex)
+                .collect();
 
-        let json_devices: Vec<serde_json::Value> = remote_devices.into_iter()
-            .map(|d| serde_json::json!({
-                "deviceKey": d.device_key,
-                "deviceId": d.device_id,
-            }))
-            .collect();
+            let json_devices: Vec<serde_json::Value> = remote_devices
+                .into_iter()
+                .map(|d| {
+                    serde_json::json!({
+                        "deviceKey": d.device_key,
+                        "deviceId": d.device_id,
+                    })
+                })
+                .collect();
 
-        Ok(json_devices)
-    })
+            Ok(json_devices)
+        },
+    )
     .await
     .map_err(|e| e.to_string())??;
 

@@ -40,7 +40,7 @@ pub struct ReceivedResponse {
     #[serde(default)]
     pub offered_role: String,
     #[serde(default)]
-    pub response_channel: String,          // "relay" | "file"
+    pub response_channel: String, // "relay" | "file"
     #[serde(default)]
     pub relay_account_id: Option<String>,
 }

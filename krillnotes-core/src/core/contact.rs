@@ -137,9 +137,9 @@ impl ContactManager {
     }
 
     fn encrypt_contact(&self, contact: &Contact) -> Result<EncryptedContactFile> {
-        let key_bytes = self.encryption_key.ok_or_else(|| {
-            crate::KrillnotesError::ContactEncryption("No encryption key".into())
-        })?;
+        let key_bytes = self
+            .encryption_key
+            .ok_or_else(|| crate::KrillnotesError::ContactEncryption("No encryption key".into()))?;
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         let cipher = Aes256Gcm::new(key);
 
@@ -159,9 +159,9 @@ impl ContactManager {
     }
 
     fn decrypt_file(&self, path: &std::path::Path) -> Result<Contact> {
-        let key_bytes = self.encryption_key.ok_or_else(|| {
-            crate::KrillnotesError::ContactEncryption("No encryption key".into())
-        })?;
+        let key_bytes = self
+            .encryption_key
+            .ok_or_else(|| crate::KrillnotesError::ContactEncryption("No encryption key".into()))?;
         let raw = std::fs::read_to_string(path)?;
         let enc: EncryptedContactFile = serde_json::from_str(&raw)?;
 
@@ -172,9 +172,10 @@ impl ContactManager {
             .decode(&enc.nonce)
             .map_err(|e| crate::KrillnotesError::ContactEncryption(e.to_string()))?;
         if nonce_bytes.len() != 12 {
-            return Err(crate::KrillnotesError::ContactEncryption(
-                format!("invalid nonce length: {} bytes", nonce_bytes.len()),
-            ));
+            return Err(crate::KrillnotesError::ContactEncryption(format!(
+                "invalid nonce length: {} bytes",
+                nonce_bytes.len()
+            )));
         }
         let nonce = Nonce::from_slice(&nonce_bytes);
 
@@ -182,13 +183,9 @@ impl ContactManager {
             .decode(&enc.ciphertext)
             .map_err(|e| crate::KrillnotesError::ContactEncryption(e.to_string()))?;
 
-        let plaintext = cipher
-            .decrypt(nonce, ciphertext.as_ref())
-            .map_err(|_| {
-                crate::KrillnotesError::ContactEncryption(
-                    "Decryption failed — wrong key?".into(),
-                )
-            })?;
+        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
+            crate::KrillnotesError::ContactEncryption("Decryption failed — wrong key?".into())
+        })?;
 
         let contact: Contact = serde_json::from_slice(&plaintext)?;
         Ok(contact)
@@ -320,8 +317,7 @@ pub fn generate_fingerprint(public_key_b64: &str) -> Result<String> {
     let b = hash_bytes;
     let idx0 = (((b[0] as u16) << 3) | ((b[1] as u16) >> 5)) & 0x7FF;
     let idx1 = (((b[1] as u16) << 6) | ((b[2] as u16) >> 2)) & 0x7FF;
-    let idx2 =
-        (((b[2] as u16) << 9) | ((b[3] as u16) << 1) | ((b[4] as u16) >> 7)) & 0x7FF;
+    let idx2 = (((b[2] as u16) << 9) | ((b[3] as u16) << 1) | ((b[4] as u16) >> 7)) & 0x7FF;
     let idx3 = (((b[4] as u16) << 4) | ((b[5] as u16) >> 4)) & 0x7FF;
 
     // Use bip39 crate to get the English word list.
@@ -338,8 +334,8 @@ pub fn generate_fingerprint(public_key_b64: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use tempfile::tempdir;
+    use tempfile::TempDir;
 
     fn test_key() -> [u8; 32] {
         [42u8; 32]
@@ -356,7 +352,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mgr = mgr(&tmp);
         let pubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-        let c = mgr.create_contact("Alice", pubkey, TrustLevel::Tofu).unwrap();
+        let c = mgr
+            .create_contact("Alice", pubkey, TrustLevel::Tofu)
+            .unwrap();
         assert_eq!(c.declared_name, "Alice");
         assert_eq!(c.local_name, None);
         // Legacy new() cache is empty after construction — save_contact populates it.
@@ -369,7 +367,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mgr = mgr(&tmp);
         let pubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-        let mut c = mgr.create_contact("Bob Chen", pubkey, TrustLevel::Tofu).unwrap();
+        let mut c = mgr
+            .create_contact("Bob Chen", pubkey, TrustLevel::Tofu)
+            .unwrap();
         c.local_name = Some("Robert — Field Lead".to_string());
         mgr.save_contact(&c).unwrap();
         let fetched = mgr.get_contact(c.contact_id).unwrap().unwrap();
@@ -381,7 +381,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mgr = mgr(&tmp);
         let pubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-        let c1 = mgr.create_contact("Alice", pubkey, TrustLevel::Tofu).unwrap();
+        let c1 = mgr
+            .create_contact("Alice", pubkey, TrustLevel::Tofu)
+            .unwrap();
         // Second create with same pubkey should return existing
         let c2 = mgr
             .find_or_create_by_public_key("Alice", pubkey, TrustLevel::Tofu)
@@ -441,8 +443,7 @@ mod tests {
         let contacts_dir = dir.path().join("contacts");
 
         // Create a contact
-        let mgr =
-            ContactManager::for_identity(contacts_dir.clone(), test_key()).unwrap();
+        let mgr = ContactManager::for_identity(contacts_dir.clone(), test_key()).unwrap();
         let contact = mgr
             .create_contact(
                 "Alice",
@@ -452,16 +453,14 @@ mod tests {
             .unwrap();
 
         // On-disk file must NOT be readable as plain JSON Contact
-        let raw =
-            std::fs::read_to_string(mgr.path_for(contact.contact_id)).unwrap();
+        let raw = std::fs::read_to_string(mgr.path_for(contact.contact_id)).unwrap();
         assert!(
             serde_json::from_str::<Contact>(&raw).is_err(),
             "File must not be plain JSON"
         );
 
         // Load fresh manager from same dir — contact must survive
-        let mgr2 =
-            ContactManager::for_identity(contacts_dir, test_key()).unwrap();
+        let mgr2 = ContactManager::for_identity(contacts_dir, test_key()).unwrap();
         let loaded = mgr2.get_contact(contact.contact_id).unwrap().unwrap();
         assert_eq!(loaded.declared_name, "Alice");
     }
@@ -471,8 +470,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let contacts_dir = dir.path().join("contacts");
 
-        let mgr =
-            ContactManager::for_identity(contacts_dir.clone(), test_key()).unwrap();
+        let mgr = ContactManager::for_identity(contacts_dir.clone(), test_key()).unwrap();
         mgr.create_contact(
             "Bob",
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -488,8 +486,7 @@ mod tests {
     #[test]
     fn list_and_delete_contact() {
         let dir = tempdir().unwrap();
-        let mgr =
-            ContactManager::for_identity(dir.path().join("c"), test_key()).unwrap();
+        let mgr = ContactManager::for_identity(dir.path().join("c"), test_key()).unwrap();
         mgr.create_contact(
             "Alice",
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

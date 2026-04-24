@@ -115,9 +115,9 @@ impl RelayAccountManager {
     }
 
     fn encrypt_account(&self, account: &RelayAccount) -> Result<EncryptedRelayAccountFile> {
-        let key_bytes = self.encryption_key.ok_or_else(|| {
-            crate::KrillnotesError::RelayEncryption("No encryption key".into())
-        })?;
+        let key_bytes = self
+            .encryption_key
+            .ok_or_else(|| crate::KrillnotesError::RelayEncryption("No encryption key".into()))?;
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         let cipher = Aes256Gcm::new(key);
 
@@ -137,9 +137,9 @@ impl RelayAccountManager {
     }
 
     fn decrypt_file(&self, path: &std::path::Path) -> Result<RelayAccount> {
-        let key_bytes = self.encryption_key.ok_or_else(|| {
-            crate::KrillnotesError::RelayEncryption("No encryption key".into())
-        })?;
+        let key_bytes = self
+            .encryption_key
+            .ok_or_else(|| crate::KrillnotesError::RelayEncryption("No encryption key".into()))?;
         let raw = std::fs::read_to_string(path)?;
         let enc: EncryptedRelayAccountFile = serde_json::from_str(&raw)?;
 
@@ -161,13 +161,9 @@ impl RelayAccountManager {
             .decode(&enc.ciphertext)
             .map_err(|e| crate::KrillnotesError::RelayEncryption(e.to_string()))?;
 
-        let plaintext = cipher
-            .decrypt(nonce, ciphertext.as_ref())
-            .map_err(|_| {
-                crate::KrillnotesError::RelayEncryption(
-                    "Decryption failed — wrong key?".into(),
-                )
-            })?;
+        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
+            crate::KrillnotesError::RelayEncryption("Decryption failed — wrong key?".into())
+        })?;
 
         let account: RelayAccount = serde_json::from_slice(&plaintext)?;
         Ok(account)
@@ -442,8 +438,7 @@ mod tests {
 
         let account_id;
         {
-            let mgr =
-                RelayAccountManager::for_identity(relays_dir.clone(), test_key()).unwrap();
+            let mgr = RelayAccountManager::for_identity(relays_dir.clone(), test_key()).unwrap();
             let account = mgr
                 .create_relay_account(
                     "https://relay.example.com",
@@ -458,8 +453,7 @@ mod tests {
         }
 
         // Load a fresh manager from the same directory.
-        let mgr2 =
-            RelayAccountManager::for_identity(relays_dir, test_key()).unwrap();
+        let mgr2 = RelayAccountManager::for_identity(relays_dir, test_key()).unwrap();
         let loaded = mgr2.get_relay_account(account_id).unwrap().unwrap();
 
         assert_eq!(loaded.relay_url, "https://relay.example.com");
@@ -500,8 +494,7 @@ mod tests {
         let expires = Utc::now() + chrono::Duration::days(30);
 
         {
-            let mgr =
-                RelayAccountManager::for_identity(relays_dir.clone(), test_key()).unwrap();
+            let mgr = RelayAccountManager::for_identity(relays_dir.clone(), test_key()).unwrap();
             mgr.create_relay_account(
                 "https://relay.example.com",
                 "alice@example.com",
@@ -515,6 +508,9 @@ mod tests {
 
         let wrong_key = [99u8; 32];
         let result = RelayAccountManager::for_identity(relays_dir, wrong_key);
-        assert!(result.is_err(), "Wrong key must fail to load relay accounts");
+        assert!(
+            result.is_err(),
+            "Wrong key must fail to load relay accounts"
+        );
     }
 }

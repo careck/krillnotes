@@ -18,7 +18,8 @@ use rusqlite::Connection;
 ///   +- child_3
 fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE notes (
             id TEXT PRIMARY KEY,
             parent_id TEXT,
@@ -41,7 +42,9 @@ fn setup_test_db() -> Connection {
         INSERT INTO notes (id, parent_id, title) VALUES ('grandchild_1', 'child_1', 'Grandchild 1');
         -- Child under root_b
         INSERT INTO notes (id, parent_id, title) VALUES ('child_3', 'root_b', 'Child 3');
-    ").unwrap();
+    ",
+    )
+    .unwrap();
     conn
 }
 
@@ -100,8 +103,14 @@ fn test_different_users_different_roles() {
         "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES ('root_a', 'carol', 'reader', 'alice')",
         [],
     ).unwrap();
-    assert_eq!(resolve_role(&conn, "bob", "child_1").unwrap(), Some(Role::Writer));
-    assert_eq!(resolve_role(&conn, "carol", "child_1").unwrap(), Some(Role::Reader));
+    assert_eq!(
+        resolve_role(&conn, "bob", "child_1").unwrap(),
+        Some(Role::Writer)
+    );
+    assert_eq!(
+        resolve_role(&conn, "carol", "child_1").unwrap(),
+        Some(Role::Reader)
+    );
 }
 
 #[test]

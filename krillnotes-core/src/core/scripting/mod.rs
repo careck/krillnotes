@@ -14,16 +14,18 @@ mod hooks;
 mod schema;
 
 pub(crate) use schema::field_value_to_dynamic;
-pub use schema::{AddChildResult, FieldDefinition, FieldGroup, Schema, ViewRegistration, ScriptWarning};
-use schema::{DeferredBinding, BindingKind};
+pub use schema::{
+    AddChildResult, FieldDefinition, FieldGroup, Schema, ScriptWarning, ViewRegistration,
+};
+use schema::{BindingKind, DeferredBinding};
 
-use crate::{FieldValue, KrillnotesError, Note, Result};
 use crate::core::attachment::AttachmentMeta;
 use crate::core::save_transaction::SaveTransaction;
-use schema::HookEntry;
+use crate::{FieldValue, KrillnotesError, Note, Result};
 use chrono::Local;
 use include_dir::{include_dir, Dir};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Map, AST};
+use schema::HookEntry;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -58,11 +60,14 @@ fn pending_note_to_dynamic(pending: &crate::core::save_transaction::PendingNote)
         fields_map.insert(k.as_str().into(), schema::field_value_to_dynamic(&v));
     }
     let mut note_map = rhai::Map::new();
-    note_map.insert("id".into(),        Dynamic::from(pending.note_id.clone()));
+    note_map.insert("id".into(), Dynamic::from(pending.note_id.clone()));
     note_map.insert("schema".into(), Dynamic::from(pending.schema.clone()));
-    note_map.insert("title".into(),     Dynamic::from(pending.effective_title().to_string()));
-    note_map.insert("fields".into(),    Dynamic::from(fields_map));
-    note_map.insert("tags".into(),      Dynamic::from(rhai::Array::new()));
+    note_map.insert(
+        "title".into(),
+        Dynamic::from(pending.effective_title().to_string()),
+    );
+    note_map.insert("fields".into(), Dynamic::from(fields_map));
+    note_map.insert("tags".into(), Dynamic::from(rhai::Array::new()));
     note_map.insert("is_checked".into(), Dynamic::from(false));
     Dynamic::from_map(note_map)
 }
@@ -77,7 +82,9 @@ where
     SAVE_TX.with(|cell| {
         let mut borrow = cell.borrow_mut();
         let tx = borrow.as_mut().ok_or_else(|| -> Box<EvalAltResult> {
-            "set_field/set_title/reject/commit called outside a write context".to_string().into()
+            "set_field/set_title/reject/commit called outside a write context"
+                .to_string()
+                .into()
         })?;
         f(tx).map_err(|e| -> Box<EvalAltResult> { e.into() })
     })
@@ -99,11 +106,11 @@ pub struct NoteRunContext {
 /// without conversion overhead at query time.
 #[derive(Debug)]
 pub struct QueryContext {
-    pub notes_by_id:    HashMap<String, Dynamic>,
+    pub notes_by_id: HashMap<String, Dynamic>,
     pub children_by_id: HashMap<String, Vec<Dynamic>>,
-    pub notes_by_type:  HashMap<String, Vec<Dynamic>>,
+    pub notes_by_type: HashMap<String, Vec<Dynamic>>,
     /// Maps each tag to all notes carrying that tag (pre-built for O(1) look-up).
-    pub notes_by_tag:   HashMap<String, Vec<Dynamic>>,
+    pub notes_by_tag: HashMap<String, Vec<Dynamic>>,
     /// Maps each target note ID to all source notes that link to it
     /// via a `note_link` field (pre-built for O(1) look-up).
     pub notes_by_link_target: HashMap<String, Vec<Dynamic>>,
@@ -166,7 +173,10 @@ impl ScriptRegistry {
             .filter_map(|file| {
                 let filename = file.path().file_name()?.to_str()?.to_string();
                 let source_code = file.contents_utf8()?.to_string();
-                Some(StarterScript { filename, source_code })
+                Some(StarterScript {
+                    filename,
+                    source_code,
+                })
             })
             .collect();
         scripts.sort_by(|a, b| a.filename.cmp(&b.filename));
@@ -219,7 +229,10 @@ impl ScriptRegistry {
 
         // Accumulate successful library scripts so later schema scripts can use them.
         if result.is_ok() && !is_schema {
-            self.library_sources.lock().unwrap().push(script.to_string());
+            self.library_sources
+                .lock()
+                .unwrap()
+                .push(script.to_string());
         }
 
         // Always clear: a failed script may have partially registered hooks;
@@ -276,8 +289,14 @@ impl ScriptRegistry {
         fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<SaveTransaction>> {
         let schema_def = self.schema_registry.get(schema_name)?;
-        self.schema_registry
-            .run_on_save_hook(&self.engine, &schema_def, note_id, schema, title, fields)
+        self.schema_registry.run_on_save_hook(
+            &self.engine,
+            &schema_def,
+            note_id,
+            schema,
+            title,
+            fields,
+        )
     }
 
     /// Runs the `on_add_child` hook registered for `parent_schema_name`, if any.
@@ -302,13 +321,19 @@ impl ScriptRegistry {
         child_fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<AddChildResult>> {
         let parent_schema = self.schema_registry.get(parent_schema_name)?;
-        let child_schema  = self.schema_registry.get(child_type)?;
+        let child_schema = self.schema_registry.get(child_type)?;
         self.schema_registry.run_on_add_child_hook(
             &self.engine,
             &parent_schema,
-            parent_id, parent_type, parent_title, parent_fields,
+            parent_id,
+            parent_type,
+            parent_title,
+            parent_fields,
             &child_schema,
-            child_id, child_type, child_title, child_fields,
+            child_id,
+            child_type,
+            child_title,
+            child_fields,
         )
     }
 
@@ -343,7 +368,14 @@ impl ScriptRegistry {
     }
 
     /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
-    pub fn get_versioned_schemas(&self) -> Vec<(String, u32, std::collections::BTreeMap<u32, FnPtr>, Option<AST>)> {
+    pub fn get_versioned_schemas(
+        &self,
+    ) -> Vec<(
+        String,
+        u32,
+        std::collections::BTreeMap<u32, FnPtr>,
+        Option<AST>,
+    )> {
         self.schema_registry.get_versioned_schemas()
     }
 
@@ -357,7 +389,9 @@ impl ScriptRegistry {
         let schema = self.schema_registry.get(schema_name)?;
         let mut result = BTreeMap::new();
         for (key, val) in map {
-            let field_type = schema.fields.iter()
+            let field_type = schema
+                .fields
+                .iter()
                 .find(|f| f.name == key.as_str())
                 .map(|f| f.field_type.as_str())
                 .unwrap_or("text");
@@ -375,7 +409,12 @@ impl ScriptRegistry {
     }
 
     /// Renders a default HTML view for `note` using schema field type information.
-    pub fn render_default_view(&self, note: &Note, resolved_titles: &std::collections::HashMap<String, String>, attachments: &[crate::core::attachment::AttachmentMeta]) -> String {
+    pub fn render_default_view(
+        &self,
+        note: &Note,
+        resolved_titles: &std::collections::HashMap<String, String>,
+        attachments: &[crate::core::attachment::AttachmentMeta],
+    ) -> String {
         let schema = self.schema_registry.get(&note.schema).ok();
         display_helpers::render_default_view(note, schema.as_ref(), resolved_titles, attachments)
     }
@@ -391,9 +430,7 @@ impl ScriptRegistry {
         note_map.insert("schema".into(), Dynamic::from(note.schema.clone()));
         note_map.insert("title".into(), Dynamic::from(note.title.clone()));
         note_map.insert("fields".into(), Dynamic::from(fields_map));
-        let tags_array: rhai::Array = note.tags.iter()
-            .map(|t| Dynamic::from(t.clone()))
-            .collect();
+        let tags_array: rhai::Array = note.tags.iter().map(|t| Dynamic::from(t.clone())).collect();
         note_map.insert("tags".into(), Dynamic::from(tags_array));
         note_map.insert("is_checked".into(), Dynamic::from(note.is_checked));
         note_map
@@ -402,41 +439,34 @@ impl ScriptRegistry {
     /// Runs the default view for a note (first display_first, or first registered).
     ///
     /// Returns `Ok(None)` when no views are registered for the note's schema.
-    pub fn run_on_view_hook(
-        &self,
-        note: &Note,
-        context: QueryContext,
-    ) -> Result<Option<String>> {
+    pub fn run_on_view_hook(&self, note: &Note, context: QueryContext) -> Result<Option<String>> {
         let note_map = self.build_note_map(note);
         *self.query_context.lock().unwrap() = Some(context);
-        let result = self.schema_registry.run_default_view(&self.engine, note_map);
+        let result = self
+            .schema_registry
+            .run_default_view(&self.engine, note_map);
         *self.query_context.lock().unwrap() = None;
         result
     }
 
     /// Renders a specific named view for a note.
-    pub fn run_view(
-        &self,
-        note: &Note,
-        view_label: &str,
-        context: QueryContext,
-    ) -> Result<String> {
+    pub fn run_view(&self, note: &Note, view_label: &str, context: QueryContext) -> Result<String> {
         let note_map = self.build_note_map(note);
         *self.query_context.lock().unwrap() = Some(context);
-        let result = self.schema_registry.run_view(&self.engine, note_map, view_label);
+        let result = self
+            .schema_registry
+            .run_view(&self.engine, note_map, view_label);
         *self.query_context.lock().unwrap() = None;
         result
     }
 
     /// Runs the hover registration for a note, if any.
-    pub fn run_on_hover_hook(
-        &self,
-        note: &Note,
-        context: QueryContext,
-    ) -> Result<Option<String>> {
+    pub fn run_on_hover_hook(&self, note: &Note, context: QueryContext) -> Result<Option<String>> {
         let note_map = self.build_note_map(note);
         *self.query_context.lock().unwrap() = Some(context);
-        let result = self.schema_registry.run_on_hover_hook(&self.engine, note_map);
+        let result = self
+            .schema_registry
+            .run_on_hover_hook(&self.engine, note_map);
         *self.query_context.lock().unwrap() = None;
         result
     }
@@ -469,13 +499,13 @@ impl ScriptRegistry {
     ) -> Result<hooks::TreeActionResult> {
         let regs = self.schema_registry.menu_registrations_arc();
         let regs_guard = regs.lock().unwrap();
-        let entry = regs_guard.values()
+        let entry = regs_guard
+            .values()
             .flat_map(|v| v.iter())
             .find(|r| r.label == label);
 
-        let entry = entry.ok_or_else(|| {
-            KrillnotesError::Scripting(format!("unknown tree action: {label:?}"))
-        })?;
+        let entry = entry
+            .ok_or_else(|| KrillnotesError::Scripting(format!("unknown tree action: {label:?}")))?;
         let fn_ptr = entry.fn_ptr.clone();
         let ast = entry.ast.as_ref().clone();
         let script_name = entry.script_name.clone();
@@ -487,10 +517,10 @@ impl ScriptRegistry {
             fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
         }
         let mut note_map = Map::new();
-        note_map.insert("id".into(),        Dynamic::from(note.id.clone()));
-        note_map.insert("schema".into(),    Dynamic::from(note.schema.clone()));
-        note_map.insert("title".into(),     Dynamic::from(note.title.clone()));
-        note_map.insert("fields".into(),    Dynamic::from(fields_map));
+        note_map.insert("id".into(), Dynamic::from(note.id.clone()));
+        note_map.insert("schema".into(), Dynamic::from(note.schema.clone()));
+        note_map.insert("title".into(), Dynamic::from(note.title.clone()));
+        note_map.insert("fields".into(), Dynamic::from(fields_map));
 
         // Install query context and a SaveTransaction pre-seeded with the acted-upon note,
         // so that set_title() / set_field() can reference it immediately.
@@ -504,16 +534,17 @@ impl ScriptRegistry {
         set_save_tx(initial_tx);
         let raw = fn_ptr
             .call::<Dynamic>(&self.engine, &ast, (Dynamic::from_map(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(
-                format!("[{script_name}] tree action {label:?}: {e}")
-            ));
+            .map_err(|e| {
+                KrillnotesError::Scripting(format!("[{script_name}] tree action {label:?}: {e}"))
+            });
         *self.query_context.lock().unwrap() = None;
         let transaction = take_save_tx().unwrap_or_default();
         let raw = raw?;
 
         // If callback returns an Array of Strings, treat as reorder request.
         let reorder = if let Some(arr) = raw.try_cast::<rhai::Array>() {
-            let ids: Vec<String> = arr.into_iter()
+            let ids: Vec<String> = arr
+                .into_iter()
                 .filter_map(|v| v.try_cast::<String>())
                 .collect();
             Some(ids)
@@ -521,7 +552,10 @@ impl ScriptRegistry {
             None
         };
 
-        Ok(hooks::TreeActionResult { reorder, transaction })
+        Ok(hooks::TreeActionResult {
+            reorder,
+            transaction,
+        })
     }
 
     /// Returns `true` if a schema with `name` is registered.
@@ -540,19 +574,27 @@ impl ScriptRegistry {
         value: &crate::core::note::FieldValue,
     ) -> crate::Result<Option<String>> {
         let schema = self.schema_registry.get(schema_name)?;
-        let Some(ast) = schema.ast.as_ref() else { return Ok(None); };
+        let Some(ast) = schema.ast.as_ref() else {
+            return Ok(None);
+        };
 
-        let field = schema.all_fields().into_iter()
+        let field = schema
+            .all_fields()
+            .into_iter()
             .find(|f| f.name == field_name);
-        let Some(field_def) = field else { return Ok(None); };
-        let Some(fn_ptr) = field_def.validate.as_ref() else { return Ok(None); };
+        let Some(field_def) = field else {
+            return Ok(None);
+        };
+        let Some(fn_ptr) = field_def.validate.as_ref() else {
+            return Ok(None);
+        };
 
         let dyn_value = schema::field_value_to_dynamic(value);
         let result = fn_ptr
             .call::<rhai::Dynamic>(&self.engine, ast, (dyn_value,))
-            .map_err(|e| KrillnotesError::Scripting(
-                format!("[{schema_name}] validate {field_name:?}: {e}")
-            ))?;
+            .map_err(|e| {
+                KrillnotesError::Scripting(format!("[{schema_name}] validate {field_name:?}: {e}"))
+            })?;
 
         // () = valid; String = error message
         if result.is_unit() {
@@ -574,18 +616,27 @@ impl ScriptRegistry {
     ) -> crate::Result<std::collections::BTreeMap<String, String>> {
         let mut errors = std::collections::BTreeMap::new();
         let schema = self.schema_registry.get(schema_name)?;
-        let Some(ast) = schema.ast.as_ref() else { return Ok(errors); };
+        let Some(ast) = schema.ast.as_ref() else {
+            return Ok(errors);
+        };
 
         for field_def in schema.all_fields() {
-            let Some(fn_ptr) = field_def.validate.as_ref() else { continue; };
-            let Some(value) = fields.get(&field_def.name) else { continue; };
+            let Some(fn_ptr) = field_def.validate.as_ref() else {
+                continue;
+            };
+            let Some(value) = fields.get(&field_def.name) else {
+                continue;
+            };
 
             let dyn_value = schema::field_value_to_dynamic(value);
             let result = fn_ptr
                 .call::<rhai::Dynamic>(&self.engine, ast, (dyn_value,))
-                .map_err(|e| KrillnotesError::Scripting(
-                    format!("[{schema_name}] validate {:?}: {e}", field_def.name)
-                ))?;
+                .map_err(|e| {
+                    KrillnotesError::Scripting(format!(
+                        "[{schema_name}] validate {:?}: {e}",
+                        field_def.name
+                    ))
+                })?;
 
             if let Some(msg) = result.try_cast::<String>() {
                 errors.insert(field_def.name.clone(), msg);
@@ -605,7 +656,9 @@ impl ScriptRegistry {
     ) -> crate::Result<std::collections::BTreeMap<String, bool>> {
         let schema = self.schema_registry.get(schema_name)?;
         let Some(ast) = schema.ast.as_ref() else {
-            return Ok(schema.field_groups.iter()
+            return Ok(schema
+                .field_groups
+                .iter()
                 .map(|g| (g.name.clone(), true))
                 .collect());
         };
@@ -621,10 +674,17 @@ impl ScriptRegistry {
                 None => true,
                 Some(fn_ptr) => {
                     let ret = fn_ptr
-                        .call::<rhai::Dynamic>(&self.engine, ast, (Dynamic::from_map(fields_map.clone()),))
-                        .map_err(|e| KrillnotesError::Scripting(
-                            format!("[{schema_name}] visible {:?}: {e}", group.name)
-                        ))?;
+                        .call::<rhai::Dynamic>(
+                            &self.engine,
+                            ast,
+                            (Dynamic::from_map(fields_map.clone()),),
+                        )
+                        .map_err(|e| {
+                            KrillnotesError::Scripting(format!(
+                                "[{schema_name}] visible {:?}: {e}",
+                                group.name
+                            ))
+                        })?;
                     ret.try_cast::<bool>().unwrap_or(true)
                 }
             };
@@ -643,7 +703,6 @@ impl ScriptRegistry {
     pub fn clear_run_context(&self) {
         *self.run_context.lock().expect("run_context poisoned") = None;
     }
-
 }
 
 #[cfg(test)]

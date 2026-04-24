@@ -9,9 +9,9 @@
 //! The manifest is computed by hashing all (filename, contents) pairs in
 //! lexicographic filename order.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use crate::KrillnotesError;
 use crate::Result;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 /// Compute BLAKE3 manifest hash over `(filename, contents)` pairs.
 ///
@@ -59,10 +59,7 @@ mod tests {
     fn test_sign_and_verify_manifest() {
         let signing_key = SigningKey::generate(&mut rand_core::OsRng);
         let verifying_key = signing_key.verifying_key();
-        let files: Vec<(&str, &[u8])> = vec![
-            ("header.json", b"{}"),
-            ("payload.enc", b"data"),
-        ];
+        let files: Vec<(&str, &[u8])> = vec![("header.json", b"{}"), ("payload.enc", b"data")];
         let signature = sign_manifest(&files, &signing_key);
         assert!(verify_manifest(&files, &signature, &verifying_key).is_ok());
     }

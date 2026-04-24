@@ -65,17 +65,24 @@ pub fn list_themes() -> Result<Vec<ThemeMeta>, String> {
             Ok(v) => v,
             Err(_) => continue,
         };
-        let name = json.get("name")
+        let name = json
+            .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("Unnamed")
             .to_string();
         let has_light = json.get("light-theme").is_some();
         let has_dark = json.get("dark-theme").is_some();
-        let filename = path.file_name()
+        let filename = path
+            .file_name()
             .and_then(|f| f.to_str())
             .unwrap_or("")
             .to_string();
-        metas.push(ThemeMeta { name, filename, has_light, has_dark });
+        metas.push(ThemeMeta {
+            name,
+            filename,
+            has_light,
+            has_dark,
+        });
     }
     metas.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(metas)
@@ -90,8 +97,8 @@ pub fn read_theme(filename: &str) -> Result<String, String> {
 /// Writes (creates or overwrites) a theme file.
 pub fn write_theme(filename: &str, content: &str) -> Result<(), String> {
     // Validate JSON before saving.
-    let _: serde_json::Value = serde_json::from_str(content)
-        .map_err(|e| format!("Invalid JSON: {e}"))?;
+    let _: serde_json::Value =
+        serde_json::from_str(content).map_err(|e| format!("Invalid JSON: {e}"))?;
     let path = safe_theme_path(filename)?;
     fs::write(&path, content).map_err(|e| e.to_string())
 }
@@ -135,7 +142,9 @@ mod tests {
         let content = r#"{"name":"BothVariants","light-theme":{},"dark-theme":{}}"#;
         write_theme("__test_both__.krilltheme", content).unwrap();
         let themes = list_themes().unwrap();
-        let found = themes.iter().find(|t| t.filename == "__test_both__.krilltheme");
+        let found = themes
+            .iter()
+            .find(|t| t.filename == "__test_both__.krilltheme");
         assert!(found.is_some(), "written theme should appear in list");
         let meta = found.unwrap();
         assert!(meta.has_light, "should detect light-theme key");

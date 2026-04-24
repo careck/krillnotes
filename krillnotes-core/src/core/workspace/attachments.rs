@@ -9,7 +9,6 @@
 use super::*;
 
 impl Workspace {
-
     // -------------------------------------------------------------------------
     // Attachment methods
     // -------------------------------------------------------------------------
@@ -47,11 +46,13 @@ impl Workspace {
         let id = uuid::Uuid::new_v4().to_string();
         let now = UnixSecs::now();
 
-        let (encrypted_bytes, file_salt) =
-            encrypt_attachment(data, self.attachment_key.as_ref())?;
+        let (encrypted_bytes, file_salt) = encrypt_attachment(data, self.attachment_key.as_ref())?;
 
         // Write to disk
-        let enc_path = self.workspace_root.join("attachments").join(format!("{id}.enc"));
+        let enc_path = self
+            .workspace_root
+            .join("attachments")
+            .join(format!("{id}.enc"));
         std::fs::write(&enc_path, &encrypted_bytes)?;
 
         let meta = AttachmentMeta {
@@ -134,7 +135,10 @@ impl Workspace {
         };
         let now = UnixSecs::now();
         let (encrypted_bytes, file_salt) = encrypt_attachment(data, self.attachment_key.as_ref())?;
-        let enc_path = self.workspace_root.join("attachments").join(format!("{id}.enc"));
+        let enc_path = self
+            .workspace_root
+            .join("attachments")
+            .join(format!("{id}.enc"));
         std::fs::write(&enc_path, &encrypted_bytes)?;
         let _ = self.storage.connection().execute(
             "INSERT OR IGNORE INTO attachments (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
@@ -150,20 +154,21 @@ impl Workspace {
             "SELECT id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at
              FROM attachments WHERE note_id = ? ORDER BY created_at ASC",
         )?;
-        let results = stmt.query_map([note_id], |row| {
-            let salt_bytes: Vec<u8> = row.get(6)?;
-            Ok(AttachmentMeta {
-                id: row.get(0)?,
-                note_id: row.get(1)?,
-                filename: row.get(2)?,
-                mime_type: row.get(3)?,
-                size_bytes: row.get(4)?,
-                hash_sha256: row.get(5)?,
-                salt: hex::encode(&salt_bytes),
-                created_at: row.get(7)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        let results = stmt
+            .query_map([note_id], |row| {
+                let salt_bytes: Vec<u8> = row.get(6)?;
+                Ok(AttachmentMeta {
+                    id: row.get(0)?,
+                    note_id: row.get(1)?,
+                    filename: row.get(2)?,
+                    mime_type: row.get(3)?,
+                    size_bytes: row.get(4)?,
+                    hash_sha256: row.get(5)?,
+                    salt: hex::encode(&salt_bytes),
+                    created_at: row.get(7)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(results)
     }
 
@@ -173,30 +178,35 @@ impl Workspace {
             "SELECT id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at
              FROM attachments ORDER BY created_at ASC",
         )?;
-        let results = stmt.query_map([], |row| {
-            let salt_bytes: Vec<u8> = row.get(6)?;
-            Ok(AttachmentMeta {
-                id: row.get(0)?,
-                note_id: row.get(1)?,
-                filename: row.get(2)?,
-                mime_type: row.get(3)?,
-                size_bytes: row.get(4)?,
-                hash_sha256: row.get(5)?,
-                salt: hex::encode(&salt_bytes),
-                created_at: row.get(7)?,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        let results = stmt
+            .query_map([], |row| {
+                let salt_bytes: Vec<u8> = row.get(6)?;
+                Ok(AttachmentMeta {
+                    id: row.get(0)?,
+                    note_id: row.get(1)?,
+                    filename: row.get(2)?,
+                    mime_type: row.get(3)?,
+                    size_bytes: row.get(4)?,
+                    hash_sha256: row.get(5)?,
+                    salt: hex::encode(&salt_bytes),
+                    created_at: row.get(7)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(results)
     }
 
     /// Decrypts and returns the plaintext bytes for an attachment.
     pub fn get_attachment_bytes(&self, attachment_id: &str) -> Result<Vec<u8>> {
-        let (salt_bytes, _): (Vec<u8>, i64) = self.storage.connection().query_row(
-            "SELECT salt, size_bytes FROM attachments WHERE id = ?",
-            [attachment_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).map_err(|_| KrillnotesError::NoteNotFound(attachment_id.to_string()))?;
+        let (salt_bytes, _): (Vec<u8>, i64) = self
+            .storage
+            .connection()
+            .query_row(
+                "SELECT salt, size_bytes FROM attachments WHERE id = ?",
+                [attachment_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| KrillnotesError::NoteNotFound(attachment_id.to_string()))?;
 
         let enc_path = self
             .workspace_root
@@ -211,19 +221,23 @@ impl Workspace {
         &self,
         attachment_id: &str,
     ) -> Result<(Vec<u8>, Option<String>)> {
-        let (salt_bytes, _, mime_type): (Vec<u8>, i64, Option<String>) =
-            self.storage.connection().query_row(
+        let (salt_bytes, _, mime_type): (Vec<u8>, i64, Option<String>) = self
+            .storage
+            .connection()
+            .query_row(
                 "SELECT salt, size_bytes, mime_type FROM attachments WHERE id = ?",
                 [attachment_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            ).map_err(|_| KrillnotesError::NoteNotFound(attachment_id.to_string()))?;
+            )
+            .map_err(|_| KrillnotesError::NoteNotFound(attachment_id.to_string()))?;
 
         let enc_path = self
             .workspace_root
             .join("attachments")
             .join(format!("{attachment_id}.enc"));
         let encrypted_bytes = std::fs::read(&enc_path)?;
-        let bytes = decrypt_attachment(&encrypted_bytes, self.attachment_key.as_ref(), &salt_bytes)?;
+        let bytes =
+            decrypt_attachment(&encrypted_bytes, self.attachment_key.as_ref(), &salt_bytes)?;
         Ok((bytes, mime_type))
     }
 
@@ -245,9 +259,8 @@ impl Workspace {
         let id_re = ID_RE.get_or_init(|| {
             regex::Regex::new(r#"data-kn-attach-id="([^"]+)""#).expect("valid regex")
         });
-        let width_re = WIDTH_RE.get_or_init(|| {
-            regex::Regex::new(r#"data-kn-width="(\d+)""#).expect("valid regex")
-        });
+        let width_re = WIDTH_RE
+            .get_or_init(|| regex::Regex::new(r#"data-kn-width="(\d+)""#).expect("valid regex"));
 
         // Collect unique attachment IDs present in the HTML.
         let ids: Vec<String> = id_re
@@ -397,23 +410,31 @@ impl Workspace {
     /// button. Safe to call even if the session ended and the trash file was purged —
     /// only the DB row is re-inserted in that case.
     pub fn restore_attachment(&mut self, meta: &AttachmentMeta) -> Result<()> {
-        let trash_path = self.workspace_root.join("attachments")
+        let trash_path = self
+            .workspace_root
+            .join("attachments")
             .join(format!("{}.enc.trash", meta.id));
-        let enc_path = self.workspace_root.join("attachments")
+        let enc_path = self
+            .workspace_root
+            .join("attachments")
             .join(format!("{}.enc", meta.id));
         if trash_path.exists() {
             std::fs::rename(&trash_path, &enc_path)?;
         }
-        let salt_bytes = hex::decode(&meta.salt)
-            .unwrap_or_else(|_| meta.salt.as_bytes().to_vec());
+        let salt_bytes = hex::decode(&meta.salt).unwrap_or_else(|_| meta.salt.as_bytes().to_vec());
         self.storage.connection().execute(
             "INSERT OR IGNORE INTO attachments
              (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
              VALUES (?,?,?,?,?,?,?,?)",
             rusqlite::params![
-                meta.id, meta.note_id, meta.filename, meta.mime_type,
-                meta.size_bytes as i64, meta.hash_sha256,
-                salt_bytes.as_slice(), meta.created_at,
+                meta.id,
+                meta.note_id,
+                meta.filename,
+                meta.mime_type,
+                meta.size_bytes as i64,
+                meta.hash_sha256,
+                salt_bytes.as_slice(),
+                meta.created_at,
             ],
         )?;
         Ok(())
@@ -437,11 +458,12 @@ impl Workspace {
 
     /// Returns the workspace-level max attachment size in bytes, or `None` if unlimited.
     pub fn attachment_max_size_bytes(&self) -> Result<Option<u64>> {
-        let val: std::result::Result<String, rusqlite::Error> = self.storage.connection().query_row(
-            "SELECT value FROM workspace_meta WHERE key = 'attachment_max_size_bytes'",
-            [],
-            |row| row.get(0),
-        );
+        let val: std::result::Result<String, rusqlite::Error> =
+            self.storage.connection().query_row(
+                "SELECT value FROM workspace_meta WHERE key = 'attachment_max_size_bytes'",
+                [],
+                |row| row.get(0),
+            );
         match val {
             Ok(s) => Ok(s.parse::<u64>().ok()),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),

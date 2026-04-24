@@ -16,8 +16,8 @@ use serde::Serialize;
 use tauri::{State, Window};
 use uuid::Uuid;
 
-use krillnotes_core::core::sync::relay::RelayClient;
 use krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge;
+use krillnotes_core::core::sync::relay::RelayClient;
 
 /// Relay account info returned to the frontend.
 ///
@@ -58,7 +58,10 @@ pub fn list_relay_accounts(
         log::error!("list_relay_accounts failed: {e}");
         e.to_string()
     })?;
-    Ok(accounts.iter().map(RelayAccountInfo::from_account).collect())
+    Ok(accounts
+        .iter()
+        .map(RelayAccountInfo::from_account)
+        .collect())
 }
 
 // ── register_relay_account ─────────────────────────────────────────────────
@@ -81,10 +84,15 @@ pub async fn register_relay_account(
     // Derive a per-device signing key so each device gets a unique relay identity,
     // and also grab the identity's main signing key for peer-to-peer routing.
     let (signing_key, device_public_key, identity_signing_key, identity_pubkey_hex) = {
-        let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
-        let id = m.get(&uuid)
+        let m = state
+            .unlocked_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let id = m
+            .get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_id =
+            krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         let device_sk = id.device_signing_key(&device_id);
         let dpk = hex::encode(device_sk.verifying_key().to_bytes());
         let identity_sk = crate::Ed25519SigningKey::from_bytes(&id.signing_key.to_bytes());
@@ -191,11 +199,22 @@ pub async fn login_relay_account(
     log::debug!("login_relay_account(identity={identity_uuid}, relay_url={relay_url})");
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let (signing_key, device_public_key, composite_device_id, identity_signing_key, identity_pubkey_hex) = {
-        let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
-        let id = m.get(&uuid)
+    let (
+        signing_key,
+        device_public_key,
+        composite_device_id,
+        identity_signing_key,
+        identity_pubkey_hex,
+    ) = {
+        let m = state
+            .unlocked_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let id = m
+            .get(&uuid)
             .ok_or("Identity is not unlocked — please unlock your identity first")?;
-        let device_id = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
+        let device_id =
+            krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         let device_sk = id.device_signing_key(&device_id);
         let dpk = hex::encode(device_sk.verifying_key().to_bytes());
         let composite = format!("{}:identity:{}", device_id, uuid);
@@ -270,11 +289,17 @@ pub async fn login_relay_account(
         if !managers.contains_key(&uuid) {
             drop(managers);
             let relay_key = {
-                let ids = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
+                let ids = state
+                    .unlocked_identities
+                    .lock()
+                    .map_err(|e| e.to_string())?;
                 let id = ids.get(&uuid).ok_or("Identity is not unlocked")?;
                 id.relay_key()
             };
-            let relays_dir = state.identity_manager.lock().expect("Mutex poisoned")
+            let relays_dir = state
+                .identity_manager
+                .lock()
+                .expect("Mutex poisoned")
                 .identity_dir(&uuid)
                 .join("relays");
             let mgr = krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(
@@ -293,32 +318,33 @@ pub async fn login_relay_account(
     let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
     let mgr = managers.get(&uuid).ok_or("Identity not unlocked")?;
 
-    let account = if let Some(mut existing) = mgr.find_by_url(&relay_url).map_err(|e| e.to_string())? {
-        // Update the existing account with the new session.
-        existing.email = email;
-        existing.password = password;
-        existing.session_token = session_token;
-        existing.session_expires_at = session_expires_at;
-        existing.device_public_key = device_public_key;
-        mgr.save_relay_account(&existing).map_err(|e| {
-            log::error!("login_relay_account: save_relay_account failed: {e}");
-            e.to_string()
-        })?;
-        existing
-    } else {
-        mgr.create_relay_account(
-            &relay_url,
-            &email,
-            &password,
-            &session_token,
-            session_expires_at,
-            &device_public_key,
-        )
-        .map_err(|e| {
-            log::error!("login_relay_account: create_relay_account failed: {e}");
-            e.to_string()
-        })?
-    };
+    let account =
+        if let Some(mut existing) = mgr.find_by_url(&relay_url).map_err(|e| e.to_string())? {
+            // Update the existing account with the new session.
+            existing.email = email;
+            existing.password = password;
+            existing.session_token = session_token;
+            existing.session_expires_at = session_expires_at;
+            existing.device_public_key = device_public_key;
+            mgr.save_relay_account(&existing).map_err(|e| {
+                log::error!("login_relay_account: save_relay_account failed: {e}");
+                e.to_string()
+            })?;
+            existing
+        } else {
+            mgr.create_relay_account(
+                &relay_url,
+                &email,
+                &password,
+                &session_token,
+                session_expires_at,
+                &device_public_key,
+            )
+            .map_err(|e| {
+                log::error!("login_relay_account: create_relay_account failed: {e}");
+                e.to_string()
+            })?
+        };
 
     Ok(RelayAccountInfo::from_account(&account))
 }

@@ -61,9 +61,12 @@ impl Workspace {
         // Validate allowed_parent_schemas
         if !schema.allowed_parent_schemas.is_empty() {
             match &final_parent {
-                None => return Err(KrillnotesError::InvalidMove(format!(
-                    "Note type '{}' cannot be placed at root level", note_type
-                ))),
+                None => {
+                    return Err(KrillnotesError::InvalidMove(format!(
+                        "Note type '{}' cannot be placed at root level",
+                        note_type
+                    )))
+                }
                 Some(pid) => {
                     let parent_note = self.get_note(pid)?;
                     if !schema.allowed_parent_schemas.contains(&parent_note.schema) {
@@ -87,7 +90,9 @@ impl Workspace {
                 )));
             }
             if !parent_schema.allowed_children_schemas.is_empty()
-                && !parent_schema.allowed_children_schemas.contains(&note_type.to_string())
+                && !parent_schema
+                    .allowed_children_schemas
+                    .contains(&note_type.to_string())
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
@@ -124,7 +129,11 @@ impl Workspace {
         // Authorize before opening the transaction.
         let auth_op = Operation::CreateNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note.id.clone(),
             parent_id: note.parent_id.clone(),
@@ -177,8 +186,14 @@ impl Workspace {
         if let Some(ref parent_note) = hook_parent {
             if let Some(hook_result) = self.script_registry.run_on_add_child_hook(
                 &parent_note.schema,
-                &parent_note.id, &parent_note.schema, &parent_note.title, &parent_note.fields,
-                &note.id, &note.schema, &note.title, &note.fields,
+                &parent_note.id,
+                &parent_note.schema,
+                &parent_note.title,
+                &parent_note.fields,
+                &note.id,
+                &note.schema,
+                &note.title,
+                &note.fields,
             )? {
                 let now = UnixSecs::now();
                 if let Some((new_title, new_fields)) = hook_result.child {
@@ -189,7 +204,7 @@ impl Workspace {
                     )?;
                     // Keep note in sync with what was persisted so the operation log
                     // records the final stored values, not the pre-hook defaults.
-                    note.title  = new_title;
+                    note.title = new_title;
                     note.fields = new_fields;
                 }
                 if let Some((new_title, new_fields)) = hook_result.parent {
@@ -289,9 +304,12 @@ impl Workspace {
         // Validate allowed_parent_schemas for the root copy
         if !root_schema.allowed_parent_schemas.is_empty() {
             match &new_parent_id {
-                None => return Err(KrillnotesError::InvalidMove(format!(
-                    "Note type '{}' cannot be placed at root level", root_source.schema
-                ))),
+                None => {
+                    return Err(KrillnotesError::InvalidMove(format!(
+                        "Note type '{}' cannot be placed at root level",
+                        root_source.schema
+                    )))
+                }
                 Some(pid) => {
                     let parent = self.get_note(pid)?;
                     if !root_schema.allowed_parent_schemas.contains(&parent.schema) {
@@ -315,7 +333,9 @@ impl Workspace {
                 )));
             }
             if !parent_schema.allowed_children_schemas.is_empty()
-                && !parent_schema.allowed_children_schemas.contains(&root_source.schema)
+                && !parent_schema
+                    .allowed_children_schemas
+                    .contains(&root_source.schema)
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
@@ -333,7 +353,11 @@ impl Workspace {
         // Authorize the deep copy (as a CreateNote for the root of the copy).
         let auth_op = Operation::CreateNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: id_map[source_id].clone(),
             parent_id: new_parent_id.clone(),
@@ -350,9 +374,8 @@ impl Workspace {
 
         // Pre-advance HLC once per note in the subtree, and capture signing key,
         // before the transaction borrows self.storage mutably.
-        let subtree_timestamps: Vec<HlcTimestamp> = subtree.iter()
-            .map(|_| self.advance_hlc())
-            .collect();
+        let subtree_timestamps: Vec<HlcTimestamp> =
+            subtree.iter().map(|_| self.advance_hlc()).collect();
         let signing_key = self.signing_key.clone();
 
         // 4. Insert all cloned notes in a single transaction.
@@ -375,9 +398,15 @@ impl Workspace {
                 new_parent_id.clone()
             } else {
                 // Children remap their parent_id through the id_map
-                note.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned())
+                note.parent_id
+                    .as_ref()
+                    .and_then(|pid| id_map.get(pid).cloned())
             };
-            let this_position = if note.id == source_id { new_position } else { note.position };
+            let this_position = if note.id == source_id {
+                new_position
+            } else {
+                note.position
+            };
 
             tx.execute(
                 "INSERT INTO notes (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded, schema_version)
@@ -422,7 +451,9 @@ impl Workspace {
 
         self.push_undo(UndoEntry {
             retracted_ids: vec![],
-            inverse: RetractInverse::DeleteNote { note_id: root_new_id.clone() },
+            inverse: RetractInverse::DeleteNote {
+                note_id: root_new_id.clone(),
+            },
             propagate: true,
         });
 
@@ -444,7 +475,8 @@ impl Workspace {
         // Validate allowed_parent_schemas — root notes have no parent
         if !schema.allowed_parent_schemas.is_empty() {
             return Err(KrillnotesError::InvalidMove(format!(
-                "Note type '{}' cannot be placed at root level", node_type
+                "Note type '{}' cannot be placed at root level",
+                node_type
             )));
         }
 
@@ -460,14 +492,19 @@ impl Workspace {
             modified_by: self.current_identity_pubkey.clone(),
             fields: schema.default_fields(),
             is_expanded: true,
-            tags: vec![], schema_version: 1,
+            tags: vec![],
+            schema_version: 1,
             is_checked: false,
         };
 
         // Authorize before opening the transaction.
         let auth_op = Operation::CreateNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: new_note.id.clone(),
             parent_id: new_note.parent_id.clone(),
@@ -551,7 +588,11 @@ impl Workspace {
         // Authorize before opening the transaction.
         let auth_op = Operation::UpdateNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             title: new_title.clone(),
@@ -567,7 +608,12 @@ impl Workspace {
 
         tx.execute(
             "UPDATE notes SET title = ?, modified_at = ?, modified_by = ? WHERE id = ?",
-            rusqlite::params![new_title, now, self.current_identity_pubkey.clone(), note_id],
+            rusqlite::params![
+                new_title,
+                now,
+                self.current_identity_pubkey.clone(),
+                note_id
+            ],
         )?;
 
         // Log operation
@@ -605,7 +651,11 @@ impl Workspace {
         // Authorize before opening the transaction.
         let auth_op = Operation::SetTags {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             tags: normalised.clone(),
@@ -647,10 +697,11 @@ impl Workspace {
 
     /// Returns all distinct tags used across the workspace, sorted alphabetically.
     pub fn get_all_tags(&self) -> Result<Vec<String>> {
-        let mut stmt = self.connection().prepare(
-            "SELECT DISTINCT tag FROM note_tags ORDER BY tag"
-        )?;
-        let tags = stmt.query_map([], |row| row.get::<_, String>(0))?
+        let mut stmt = self
+            .connection()
+            .prepare("SELECT DISTINCT tag FROM note_tags ORDER BY tag")?;
+        let tags = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(tags)
     }
@@ -675,16 +726,22 @@ impl Workspace {
              ORDER BY n.parent_id, n.position"
         );
         let mut stmt = self.connection().prepare(&sql)?;
-        let params: Vec<&dyn rusqlite::ToSql> = tags.iter()
-            .map(|t| t as &dyn rusqlite::ToSql)
-            .collect();
-        let rows = stmt.query_map(params.as_slice(), map_note_row)?
+        let params: Vec<&dyn rusqlite::ToSql> =
+            tags.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(params.as_slice(), map_note_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let notes: Vec<Note> = rows.into_iter().map(note_from_row_tuple).collect::<Result<_>>()?;
+        let notes: Vec<Note> = rows
+            .into_iter()
+            .map(note_from_row_tuple)
+            .collect::<Result<_>>()?;
 
         // Filter by read access
         if let Some(visible) = self.visible_note_ids()? {
-            Ok(notes.into_iter().filter(|n| visible.contains(&n.id)).collect())
+            Ok(notes
+                .into_iter()
+                .filter(|n| visible.contains(&n.id))
+                .collect())
         } else {
             Ok(notes)
         }
@@ -700,9 +757,8 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure.
     pub fn get_notes_with_link(&self, target_id: &str) -> Result<Vec<Note>> {
         let conn = self.connection();
-        let mut stmt = conn.prepare(
-            "SELECT nl.source_id FROM note_links nl WHERE nl.target_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT nl.source_id FROM note_links nl WHERE nl.target_id = ?1")?;
         let source_ids: Vec<String> = stmt
             .query_map([target_id], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
@@ -768,7 +824,10 @@ impl Workspace {
                 }
                 false
             })
-            .map(|n| NoteSearchResult { id: n.id, title: n.title })
+            .map(|n| NoteSearchResult {
+                id: n.id,
+                title: n.title,
+            })
             .collect();
 
         Ok(results)
@@ -834,11 +893,17 @@ impl Workspace {
             .query_map([], map_note_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        let notes: Vec<Note> = rows.into_iter().map(note_from_row_tuple).collect::<Result<_>>()?;
+        let notes: Vec<Note> = rows
+            .into_iter()
+            .map(note_from_row_tuple)
+            .collect::<Result<_>>()?;
 
         // Filter by read access
         if let Some(visible) = self.visible_note_ids()? {
-            Ok(notes.into_iter().filter(|n| visible.contains(&n.id)).collect())
+            Ok(notes
+                .into_iter()
+                .filter(|n| visible.contains(&n.id))
+                .collect())
         } else {
             Ok(notes)
         }
@@ -857,7 +922,7 @@ impl Workspace {
         let current: i64 = tx.query_row(
             "SELECT is_expanded FROM notes WHERE id = ?",
             [note_id],
-            |row| row.get(0)
+            |row| row.get(0),
         )?;
 
         // Toggle
@@ -878,7 +943,11 @@ impl Workspace {
 
         let auth_op = Operation::SetChecked {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             checked,
@@ -970,7 +1039,7 @@ impl Workspace {
         let result = self.storage.connection().query_row(
             "SELECT value FROM workspace_meta WHERE key = 'selected_note_id'",
             [],
-            |row| row.get::<_, String>(0)
+            |row| row.get::<_, String>(0),
         );
 
         match result {
@@ -1002,9 +1071,8 @@ impl Workspace {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
-        let json = serde_json::to_string(metadata).map_err(|e| {
-            rusqlite::Error::ToSqlConversionFailure(Box::new(e))
-        })?;
+        let json = serde_json::to_string(metadata)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         self.storage.connection().execute(
             "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES ('workspace_metadata', ?)",
             [&json],
@@ -1049,9 +1117,7 @@ impl Workspace {
                         [&current],
                         |row| row.get(0),
                     )
-                    .map_err(|_| {
-                        KrillnotesError::NoteNotFound(current.clone())
-                    })?;
+                    .map_err(|_| KrillnotesError::NoteNotFound(current.clone()))?;
                 match parent {
                     Some(pid) => {
                         if pid == note_id {
@@ -1071,9 +1137,12 @@ impl Workspace {
         let schema = self.script_registry.get_schema(&note_to_move.schema)?;
         if !schema.allowed_parent_schemas.is_empty() {
             match new_parent_id {
-                None => return Err(KrillnotesError::InvalidMove(format!(
-                    "Note type '{}' cannot be placed at root level", note_to_move.schema
-                ))),
+                None => {
+                    return Err(KrillnotesError::InvalidMove(format!(
+                        "Note type '{}' cannot be placed at root level",
+                        note_to_move.schema
+                    )))
+                }
                 Some(pid) => {
                     let parent_note = self.get_note(pid)?;
                     if !schema.allowed_parent_schemas.contains(&parent_note.schema) {
@@ -1097,7 +1166,9 @@ impl Workspace {
                 )));
             }
             if !parent_schema.allowed_children_schemas.is_empty()
-                && !parent_schema.allowed_children_schemas.contains(&note_to_move.schema)
+                && !parent_schema
+                    .allowed_children_schemas
+                    .contains(&note_to_move.schema)
             {
                 return Err(KrillnotesError::InvalidMove(format!(
                     "Note type '{}' is not allowed as a child of '{}'",
@@ -1121,7 +1192,11 @@ impl Workspace {
         // Authorize before opening the transaction.
         let auth_op = Operation::MoveNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             new_parent_id: new_parent_id.map(|s| s.to_string()),
@@ -1160,8 +1235,14 @@ impl Workspace {
         if let Some(ref parent_note) = hook_new_parent {
             if let Some(hook_result) = self.script_registry.run_on_add_child_hook(
                 &parent_note.schema,
-                &parent_note.id, &parent_note.schema, &parent_note.title, &parent_note.fields,
-                &note_to_move.id, &note_to_move.schema, &note_to_move.title, &note_to_move.fields,
+                &parent_note.id,
+                &parent_note.schema,
+                &parent_note.title,
+                &parent_note.fields,
+                &note_to_move.id,
+                &note_to_move.schema,
+                &note_to_move.title,
+                &note_to_move.fields,
             )? {
                 let hook_now = UnixSecs::now();
                 if let Some((new_title, new_fields)) = hook_result.child {
@@ -1269,7 +1350,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::DeleteNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             deleted_by: self.current_identity_pubkey.clone(),
@@ -1280,7 +1365,8 @@ impl Workspace {
         // Capture full subtree for undo before any deletion.
         let subtree_notes = self.collect_subtree_notes(note_id)?;
         let subtree_ids: Vec<&str> = subtree_notes.iter().map(|n| n.id.as_str()).collect();
-        let attachments = self.list_all_attachments()
+        let attachments = self
+            .list_all_attachments()
             .unwrap_or_default()
             .into_iter()
             .filter(|a| subtree_ids.contains(&a.note_id.as_str()))
@@ -1335,7 +1421,10 @@ impl Workspace {
 
         self.push_undo(UndoEntry {
             retracted_ids: vec![op_id],
-            inverse: RetractInverse::SubtreeRestore { notes: subtree_notes, attachments },
+            inverse: RetractInverse::SubtreeRestore {
+                notes: subtree_notes,
+                attachments,
+            },
             propagate: true,
         });
 
@@ -1414,7 +1503,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::DeleteNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             deleted_by: self.current_identity_pubkey.clone(),
@@ -1424,7 +1517,8 @@ impl Workspace {
 
         // Capture before-state for undo before any mutations.
         // Map Database error (QueryReturnedNoRows) to NoteNotFound for a missing ID.
-        let deleted_note = self.get_note(note_id)
+        let deleted_note = self
+            .get_note(note_id)
             .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
         let children = self.get_children(note_id)?;
         let deleted_attachments = self.get_attachments(note_id).unwrap_or_default();
@@ -1459,10 +1553,10 @@ impl Workspace {
 
         // Renumber all children of the new parent to avoid position collisions
         let child_ids: Vec<String> = {
-            let mut stmt = tx.prepare(
-                "SELECT id FROM notes WHERE parent_id IS ?1 ORDER BY position, id",
-            )?;
-            let ids = stmt.query_map(rusqlite::params![parent_id], |row| row.get::<_, String>(0))?
+            let mut stmt =
+                tx.prepare("SELECT id FROM notes WHERE parent_id IS ?1 ORDER BY position, id")?;
+            let ids = stmt
+                .query_map(rusqlite::params![parent_id], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<_>>()?;
             ids
         };
@@ -1560,11 +1654,7 @@ impl Workspace {
     /// or [`crate::KrillnotesError::Database`] (for either strategy) if the
     /// underlying operation fails. All database mutations are transactional;
     /// a failure leaves the workspace unchanged.
-    pub fn delete_note(
-        &mut self,
-        note_id: &str,
-        strategy: DeleteStrategy,
-    ) -> Result<DeleteResult> {
+    pub fn delete_note(&mut self, note_id: &str, strategy: DeleteStrategy) -> Result<DeleteResult> {
         match strategy {
             DeleteStrategy::DeleteAll => self.delete_note_recursive(note_id),
             DeleteStrategy::PromoteChildren => self.delete_note_promote(note_id),
@@ -1615,28 +1705,36 @@ impl Workspace {
         title: String,
         fields: BTreeMap<String, FieldValue>,
     ) -> Result<SaveResult> {
-        let note = self.get_note(note_id)
+        let note = self
+            .get_note(note_id)
             .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
         let schema = self.script_registry.get_schema(&note.schema)?;
 
         // Step 1: Evaluate group visibility.
-        let visibility = self.script_registry.evaluate_group_visibility(
-            &note.schema, &fields,
-        )?;
+        let visibility = self
+            .script_registry
+            .evaluate_group_visibility(&note.schema, &fields)?;
 
         // Collect visible field names (top-level + fields from visible groups).
-        let visible_field_names: std::collections::HashSet<String> = schema.fields.iter()
+        let visible_field_names: std::collections::HashSet<String> = schema
+            .fields
+            .iter()
             .map(|f| f.name.clone())
             .chain(
-                schema.field_groups.iter()
+                schema
+                    .field_groups
+                    .iter()
                     .filter(|g| visibility.get(&g.name).copied().unwrap_or(true))
-                    .flat_map(|g| g.fields.iter().map(|f| f.name.clone()))
+                    .flat_map(|g| g.fields.iter().map(|f| f.name.clone())),
             )
             .collect();
 
         // Step 2: Run validate closures on visible fields.
-        let all_errors = self.script_registry.validate_fields(&note.schema, &fields)?;
-        let mut field_errors: BTreeMap<String, String> = all_errors.into_iter()
+        let all_errors = self
+            .script_registry
+            .validate_fields(&note.schema, &fields)?;
+        let mut field_errors: BTreeMap<String, String> = all_errors
+            .into_iter()
             .filter(|(k, _)| visible_field_names.contains(k))
             .collect();
 
@@ -1645,8 +1743,8 @@ impl Workspace {
             if field_def.required && visible_field_names.contains(&field_def.name) {
                 let empty = match fields.get(&field_def.name) {
                     None => true,
-                    Some(FieldValue::Text(s))   => s.is_empty(),
-                    Some(FieldValue::Email(s))  => s.is_empty(),
+                    Some(FieldValue::Text(s)) => s.is_empty(),
+                    Some(FieldValue::Email(s)) => s.is_empty(),
                     Some(FieldValue::Date(None))
                     | Some(FieldValue::NoteLink(None))
                     | Some(FieldValue::File(None)) => true,
@@ -1682,14 +1780,12 @@ impl Workspace {
         // Steps 4-7: update_note (runs on_save hook + writes to DB).
         match self.update_note(note_id, title, final_fields) {
             Ok(updated) => Ok(SaveResult::Ok(updated)),
-            Err(KrillnotesError::ValidationFailed(msg)) => {
-                Ok(SaveResult::ValidationErrors {
-                    field_errors: BTreeMap::new(),
-                    note_errors: vec![msg],
-                    preview_title: None,
-                    preview_fields: BTreeMap::new(),
-                })
-            }
+            Err(KrillnotesError::ValidationFailed(msg)) => Ok(SaveResult::ValidationErrors {
+                field_errors: BTreeMap::new(),
+                note_errors: vec![msg],
+                preview_title: None,
+                preview_fields: BTreeMap::new(),
+            }),
             Err(e) => Err(e),
         }
     }
@@ -1707,7 +1803,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::UpdateNote {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: note_id.to_string(),
             title: title.clone(),
@@ -1719,7 +1819,8 @@ impl Workspace {
         // Capture before-state for undo.
         // Map Database errors (e.g. QueryReturnedNoRows) to NoteNotFound so that
         // callers see a consistent error type when the note does not exist.
-        let old_note = self.get_note(note_id)
+        let old_note = self
+            .get_note(note_id)
             .map_err(|_| KrillnotesError::NoteNotFound(note_id.to_string()))?;
 
         // Look up this note's schema so the pre-save hook can be dispatched.
@@ -1738,30 +1839,36 @@ impl Workspace {
         // - hook called commit()        → apply effective_title / effective_fields
         // - hook called reject(…)       → return ValidationFailed error
         // - hook returned Map (old API) → hard Scripting error with migration message
-        let (title, fields) =
-            match self
-                .script_registry
-                .run_on_save_hook(&note_schema, note_id, &note_schema, &title, &fields)?
-            {
-                None => (title, fields),
-                Some(tx) if tx.committed => {
-                    let pn = tx.pending_notes.get(note_id)
-                        .ok_or_else(|| KrillnotesError::Scripting(
-                            format!("on_save hook committed but pending note '{}' not found", note_id)
-                        ))?;
-                    (pn.effective_title().to_string(), pn.effective_fields())
-                }
-                Some(tx) if tx.has_errors() => {
-                    let msgs: Vec<String> = tx.soft_errors.iter().map(|e| {
-                        match &e.field {
-                            Some(f) => format!("{}: {}", f, e.message),
-                            None => e.message.clone(),
-                        }
-                    }).collect();
-                    return Err(KrillnotesError::ValidationFailed(msgs.join("; ")));
-                }
-                Some(_) => (title, fields),  // hook ran but didn't commit → no-op
-            };
+        let (title, fields) = match self.script_registry.run_on_save_hook(
+            &note_schema,
+            note_id,
+            &note_schema,
+            &title,
+            &fields,
+        )? {
+            None => (title, fields),
+            Some(tx) if tx.committed => {
+                let pn = tx.pending_notes.get(note_id).ok_or_else(|| {
+                    KrillnotesError::Scripting(format!(
+                        "on_save hook committed but pending note '{}' not found",
+                        note_id
+                    ))
+                })?;
+                (pn.effective_title().to_string(), pn.effective_fields())
+            }
+            Some(tx) if tx.has_errors() => {
+                let msgs: Vec<String> = tx
+                    .soft_errors
+                    .iter()
+                    .map(|e| match &e.field {
+                        Some(f) => format!("{}: {}", f, e.message),
+                        None => e.message.clone(),
+                    })
+                    .collect();
+                return Err(KrillnotesError::ValidationFailed(msgs.join("; ")));
+            }
+            Some(_) => (title, fields), // hook ran but didn't commit → no-op
+        };
 
         // Enforce required-field constraints defined in the schema.
         let schema = self.script_registry.get_schema(&note_schema)?;
@@ -1812,14 +1919,14 @@ impl Workspace {
         // Pre-advance HLC for title op + one per field, and capture signing key,
         // before the transaction borrows self.storage mutably.
         let title_ts = self.advance_hlc();
-        let field_timestamps: Vec<HlcTimestamp> = fields.keys()
-            .map(|_| self.advance_hlc())
-            .collect();
+        let field_timestamps: Vec<HlcTimestamp> =
+            fields.keys().map(|_| self.advance_hlc()).collect();
         let signing_key = self.signing_key.clone();
 
         let tx = self.storage.connection_mut().transaction()?;
 
-        let current_schema_version = self.script_registry
+        let current_schema_version = self
+            .script_registry
             .get_schema(&note_schema)
             .map(|s| s.version)
             .unwrap_or(1);
@@ -1898,7 +2005,6 @@ impl Workspace {
         self.get_note(note_id)
     }
 
-
     ///
     /// Returns a flat `Vec<String>` containing the root ID plus all descendant
     /// IDs in an unspecified order.
@@ -1933,10 +2039,10 @@ impl Workspace {
         // Find all notes linking to this target (read-only, uses shared ref).
         let links: Vec<(String, String)> = {
             let conn = self.connection();
-            let mut stmt = conn.prepare(
-                "SELECT source_id, field_name FROM note_links WHERE target_id = ?1",
-            )?;
-            let rows = stmt.query_map([target_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            let mut stmt =
+                conn.prepare("SELECT source_id, field_name FROM note_links WHERE target_id = ?1")?;
+            let rows = stmt
+                .query_map([target_id], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<rusqlite::Result<_>>()?;
             rows
         };
@@ -1990,9 +2096,9 @@ impl Workspace {
             GROUP BY n.id
             ORDER BY s.depth ASC",
         )?;
-        let rows = stmt.query_map([note_id], map_note_row)?
+        let rows = stmt
+            .query_map([note_id], map_note_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         rows.into_iter().map(note_from_row_tuple).collect()
     }
-
 }

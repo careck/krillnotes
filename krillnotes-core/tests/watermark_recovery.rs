@@ -46,8 +46,15 @@ fn b64_pubkey(key: &SigningKey) -> String {
 
 fn make_workspace(key: &SigningKey, identity_id: &str) -> (NamedTempFile, Workspace) {
     let tmp = NamedTempFile::new().expect("tempfile");
-    let ws = Workspace::create(tmp.path(), "", identity_id, SigningKey::from_bytes(&key.to_bytes()), test_gate(), None)
-        .expect("Workspace::create");
+    let ws = Workspace::create(
+        tmp.path(),
+        "",
+        identity_id,
+        SigningKey::from_bytes(&key.to_bytes()),
+        test_gate(),
+        None,
+    )
+    .expect("Workspace::create");
     (tmp, ws)
 }
 
@@ -71,11 +78,14 @@ fn has_pending_ops_true_when_peer_has_no_watermark() {
     let (_tmp, ws) = make_workspace(&key, "alice-id");
 
     // Register Bob with NO last_sent_op (snapshot not yet sent).
-    ws.upsert_sync_peer("dev-bob", &bob_pub, None, None).expect("upsert_sync_peer");
-    ws.update_peer_channel("dev-bob", "folder", "{}").expect("update_peer_channel");
+    ws.upsert_sync_peer("dev-bob", &bob_pub, None, None)
+        .expect("upsert_sync_peer");
+    ws.update_peer_channel("dev-bob", "folder", "{}")
+        .expect("update_peer_channel");
 
     assert!(
-        ws.has_pending_ops_for_any_peer().expect("has_pending_ops_for_any_peer"),
+        ws.has_pending_ops_for_any_peer()
+            .expect("has_pending_ops_for_any_peer"),
         "should report pending when peer watermark is None (snapshot not yet sent)"
     );
 }
@@ -99,10 +109,12 @@ fn has_pending_ops_false_when_watermark_covers_all() {
 
     ws.upsert_sync_peer("dev-bob", &bob_pub, Some(&latest), None)
         .expect("upsert_sync_peer");
-    ws.update_peer_channel("dev-bob", "folder", "{}").expect("update_peer_channel");
+    ws.update_peer_channel("dev-bob", "folder", "{}")
+        .expect("update_peer_channel");
 
     assert!(
-        !ws.has_pending_ops_for_any_peer().expect("has_pending_ops_for_any_peer"),
+        !ws.has_pending_ops_for_any_peer()
+            .expect("has_pending_ops_for_any_peer"),
         "should report no pending when watermark covers all ops"
     );
 }
@@ -125,15 +137,20 @@ fn has_pending_ops_true_after_new_op_past_watermark() {
 
     ws.upsert_sync_peer("dev-bob", &bob_pub, Some(&snap), None)
         .expect("upsert_sync_peer");
-    ws.update_peer_channel("dev-bob", "folder", "{}").expect("update_peer_channel");
+    ws.update_peer_channel("dev-bob", "folder", "{}")
+        .expect("update_peer_channel");
 
-    assert!(!ws.has_pending_ops_for_any_peer().unwrap(), "baseline: no pending");
+    assert!(
+        !ws.has_pending_ops_for_any_peer().unwrap(),
+        "baseline: no pending"
+    );
 
     // New op AFTER the watermark.
     ws.create_note_root("TextNote").expect("second note");
 
     assert!(
-        ws.has_pending_ops_for_any_peer().expect("has_pending_ops_for_any_peer"),
+        ws.has_pending_ops_for_any_peer()
+            .expect("has_pending_ops_for_any_peer"),
         "should report pending after new op past watermark"
     );
 }
@@ -151,29 +168,47 @@ fn reset_watermark_to_specific_op_makes_later_ops_pending() {
     let (_tmp, mut ws) = make_workspace(&key, "alice-id");
 
     ws.create_note_root("TextNote").expect("op 1");
-    let op1 = ws.get_latest_operation_id().expect("get_latest").expect("op1");
+    let op1 = ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op1");
 
     ws.create_note_root("TextNote").expect("op 2");
-    let op2 = ws.get_latest_operation_id().expect("get_latest").expect("op2");
+    let op2 = ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op2");
 
     // Register Bob with watermark = op2 (everything sent).
     ws.upsert_sync_peer("dev-bob", &bob_pub, Some(&op2), None)
         .expect("upsert_sync_peer");
-    ws.update_peer_channel("dev-bob", "folder", "{}").expect("update_peer_channel");
+    ws.update_peer_channel("dev-bob", "folder", "{}")
+        .expect("update_peer_channel");
 
-    assert!(!ws.has_pending_ops_for_any_peer().unwrap(), "all ops covered before reset");
+    assert!(
+        !ws.has_pending_ops_for_any_peer().unwrap(),
+        "all ops covered before reset"
+    );
 
     // Force-reset watermark back to op1 — op2 becomes pending again.
     ws.reset_peer_watermark("dev-bob", Some(&op1))
         .expect("reset_peer_watermark");
 
     assert!(
-        ws.has_pending_ops_for_any_peer().expect("has_pending_ops_for_any_peer"),
+        ws.has_pending_ops_for_any_peer()
+            .expect("has_pending_ops_for_any_peer"),
         "op2 should be pending after watermark reset to op1"
     );
 
-    let peer = ws.get_sync_peer("dev-bob").expect("get_sync_peer").expect("peer exists");
-    assert_eq!(peer.last_sent_op.as_deref(), Some(op1.as_str()), "watermark should be op1");
+    let peer = ws
+        .get_sync_peer("dev-bob")
+        .expect("get_sync_peer")
+        .expect("peer exists");
+    assert_eq!(
+        peer.last_sent_op.as_deref(),
+        Some(op1.as_str()),
+        "watermark should be op1"
+    );
 }
 
 /// `reset_peer_watermark(None)` clears the watermark entirely — all ops pending.
@@ -186,16 +221,27 @@ fn reset_watermark_to_none_makes_all_ops_pending() {
     let (_tmp, mut ws) = make_workspace(&key, "alice-id");
 
     ws.create_note_root("TextNote").expect("op");
-    let latest = ws.get_latest_operation_id().expect("get_latest").expect("op");
+    let latest = ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op");
 
     ws.upsert_sync_peer("dev-bob", &bob_pub, Some(&latest), None)
         .expect("upsert_sync_peer");
-    ws.update_peer_channel("dev-bob", "folder", "{}").expect("update_peer_channel");
+    ws.update_peer_channel("dev-bob", "folder", "{}")
+        .expect("update_peer_channel");
 
-    ws.reset_peer_watermark("dev-bob", None).expect("reset_peer_watermark");
+    ws.reset_peer_watermark("dev-bob", None)
+        .expect("reset_peer_watermark");
 
-    let peer = ws.get_sync_peer("dev-bob").expect("get_sync_peer").expect("peer");
-    assert!(peer.last_sent_op.is_none(), "watermark should be None after reset");
+    let peer = ws
+        .get_sync_peer("dev-bob")
+        .expect("get_sync_peer")
+        .expect("peer");
+    assert!(
+        peer.last_sent_op.is_none(),
+        "watermark should be None after reset"
+    );
 }
 
 // ── Mechanism B: ACK-based watermark correction ───────────────────────────────
@@ -221,10 +267,16 @@ fn ack_behind_watermark_resets_alice_watermark() {
     let (_alice_cm_dir, mut alice_cm) = make_contact_manager([0xAAu8; 32]);
 
     alice_ws.create_note_root("TextNote").expect("op 1");
-    let op1 = alice_ws.get_latest_operation_id().expect("get_latest").expect("op1");
+    let op1 = alice_ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op1");
     alice_ws.create_note_root("TextNote").expect("op 2");
     alice_ws.create_note_root("TextNote").expect("op 3");
-    let op3 = alice_ws.get_latest_operation_id().expect("get_latest").expect("op3");
+    let op3 = alice_ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op3");
 
     // Alice registers Bob; pretends she sent everything up to op3.
     alice_ws
@@ -250,7 +302,9 @@ fn ack_behind_watermark_resets_alice_watermark() {
         None,
     )
     .expect("bob create_with_id");
-    bob_ws.set_owner_pubkey(&alice_pub).expect("set_owner_pubkey");
+    bob_ws
+        .set_owner_pubkey(&alice_pub)
+        .expect("set_owner_pubkey");
 
     let (_bob_cm_dir, mut bob_cm) = make_contact_manager([0xBBu8; 32]);
     bob_cm
@@ -277,8 +331,13 @@ fn ack_behind_watermark_resets_alice_watermark() {
     // ── Alice applies Bob's delta ─────────────────────────────────────────────
     // upsert_peer_from_delta migrates "dev-bob" → "bob-id", preserving last_sent_op=op3.
     // The ACK block then runs: is_operation_before(op1, op3) = true → reset to op1.
-    apply_delta(&bundle.bundle_bytes, &mut alice_ws, &alice_key, &mut alice_cm)
-        .expect("apply_delta");
+    apply_delta(
+        &bundle.bundle_bytes,
+        &mut alice_ws,
+        &alice_key,
+        &mut alice_cm,
+    )
+    .expect("apply_delta");
 
     // ── Alice's watermark for Bob (now keyed by "bob-id") should be op1 ──────
     let peer = alice_ws
@@ -306,7 +365,10 @@ fn ack_unknown_op_resets_alice_watermark_to_none() {
     let (_alice_cm_dir, mut alice_cm) = make_contact_manager([0xCCu8; 32]);
 
     alice_ws.create_note_root("TextNote").expect("op");
-    let latest = alice_ws.get_latest_operation_id().expect("get_latest").expect("op");
+    let latest = alice_ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op");
 
     alice_ws
         .upsert_sync_peer("dev-bob", &bob_pub, Some(&latest), None)
@@ -326,7 +388,9 @@ fn ack_unknown_op_resets_alice_watermark_to_none() {
         None,
     )
     .expect("bob create_with_id");
-    bob_ws.set_owner_pubkey(&alice_pub).expect("set_owner_pubkey");
+    bob_ws
+        .set_owner_pubkey(&alice_pub)
+        .expect("set_owner_pubkey");
 
     let (_bob_cm_dir, mut bob_cm) = make_contact_manager([0xDDu8; 32]);
     bob_cm
@@ -349,8 +413,13 @@ fn ack_unknown_op_resets_alice_watermark_to_none() {
     )
     .expect("generate_delta");
 
-    apply_delta(&bundle.bundle_bytes, &mut alice_ws, &alice_key, &mut alice_cm)
-        .expect("apply_delta");
+    apply_delta(
+        &bundle.bundle_bytes,
+        &mut alice_ws,
+        &alice_key,
+        &mut alice_cm,
+    )
+    .expect("apply_delta");
 
     let peer = alice_ws
         .get_sync_peer("bob-id")
@@ -377,7 +446,10 @@ fn no_ack_in_delta_resets_alice_watermark_to_none() {
     let (_alice_cm_dir, mut alice_cm) = make_contact_manager([0xEEu8; 32]);
 
     alice_ws.create_note_root("TextNote").expect("op");
-    let latest = alice_ws.get_latest_operation_id().expect("get_latest").expect("op");
+    let latest = alice_ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op");
 
     alice_ws
         .upsert_sync_peer("dev-bob", &bob_pub, Some(&latest), None)
@@ -397,7 +469,9 @@ fn no_ack_in_delta_resets_alice_watermark_to_none() {
         None,
     )
     .expect("bob create_with_id");
-    bob_ws.set_owner_pubkey(&alice_pub).expect("set_owner_pubkey");
+    bob_ws
+        .set_owner_pubkey(&alice_pub)
+        .expect("set_owner_pubkey");
 
     let (_bob_cm_dir, mut bob_cm) = make_contact_manager([0xFFu8; 32]);
     bob_cm
@@ -419,8 +493,13 @@ fn no_ack_in_delta_resets_alice_watermark_to_none() {
     )
     .expect("generate_delta");
 
-    apply_delta(&bundle.bundle_bytes, &mut alice_ws, &alice_key, &mut alice_cm)
-        .expect("apply_delta");
+    apply_delta(
+        &bundle.bundle_bytes,
+        &mut alice_ws,
+        &alice_key,
+        &mut alice_cm,
+    )
+    .expect("apply_delta");
 
     let peer = alice_ws
         .get_sync_peer("bob-id")
@@ -449,7 +528,10 @@ fn generate_delta_does_not_advance_watermark() {
     cm.find_or_create_by_public_key("Bob", &bob_pub, TrustLevel::Tofu)
         .expect("register Bob");
 
-    let snap_op = ws.get_latest_operation_id().expect("get_latest").unwrap_or_default();
+    let snap_op = ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .unwrap_or_default();
     ws.upsert_sync_peer("dev-bob", &bob_pub, Some(&snap_op), None)
         .expect("upsert_sync_peer");
 
@@ -497,7 +579,10 @@ fn purged_ack_resets_watermark_same_as_unknown_op() {
     let (_tmp, mut ws) = make_workspace(&key, "alice-id");
 
     ws.create_note_root("TextNote").expect("op");
-    let latest = ws.get_latest_operation_id().expect("get_latest").expect("op");
+    let latest = ws
+        .get_latest_operation_id()
+        .expect("get_latest")
+        .expect("op");
 
     // A plausible-but-purged op ID that is NOT in Alice's operations table.
     let purged_op_id = "purged-00-0000-0000-0000-000000000000";
@@ -511,13 +596,18 @@ fn purged_ack_resets_watermark_same_as_unknown_op() {
     // Alice has watermark = latest; Bob's ACK will reference the purged op.
     ws.upsert_sync_peer("dev-bob", &bob_pub, Some(&latest), None)
         .expect("upsert_sync_peer");
-    ws.update_peer_channel("dev-bob", "folder", "{}").expect("update_peer_channel");
+    ws.update_peer_channel("dev-bob", "folder", "{}")
+        .expect("update_peer_channel");
 
     // Simulate ACK processing: is_operation_before returns false (op doesn't exist),
     // operation_exists returns false → reset to None.
-    ws.reset_peer_watermark("dev-bob", None).expect("reset_peer_watermark");
+    ws.reset_peer_watermark("dev-bob", None)
+        .expect("reset_peer_watermark");
 
-    let peer = ws.get_sync_peer("dev-bob").expect("get_sync_peer").expect("peer");
+    let peer = ws
+        .get_sync_peer("dev-bob")
+        .expect("get_sync_peer")
+        .expect("peer");
     assert!(
         peer.last_sent_op.is_none(),
         "watermark should be None after purged ACK processing resets it"

@@ -122,10 +122,7 @@ pub fn receive_poll_identity(
             Err(e) => {
                 result.errors.push(PollError {
                     bundle_id: None,
-                    error: format!(
-                        "list_bundles on {} failed: {e}",
-                        conn.account.relay_url
-                    ),
+                    error: format!("list_bundles on {} failed: {e}", conn.account.relay_url),
                 });
                 continue;
             }
@@ -141,8 +138,7 @@ pub fn receive_poll_identity(
             let bid = meta.bundle_id.clone();
             match conn.client.download_bundle(&meta.bundle_id) {
                 Ok(bundle_bytes) => {
-                    let snapshot_path =
-                        temp_dir.join(format!("snapshot-{}.bin", Uuid::new_v4()));
+                    let snapshot_path = temp_dir.join(format!("snapshot-{}.bin", Uuid::new_v4()));
                     if let Err(e) = std::fs::write(&snapshot_path, &bundle_bytes) {
                         result.errors.push(PollError {
                             bundle_id: Some(bid),

@@ -89,9 +89,7 @@ impl RbacGate {
                 if let Some(dest_id) = new_parent_id {
                     let dest_role = crate::resolver::resolve_role(conn, actor, dest_id)?
                         .ok_or_else(|| {
-                            PermissionError::Denied(
-                                "no access to move destination".into(),
-                            )
+                            PermissionError::Denied("no access to move destination".into())
                         })?;
                     require_at_least(dest_role, Role::Writer)?;
                 }
@@ -130,14 +128,9 @@ impl RbacGate {
     /// If the granter no longer holds a sufficient role for the grant,
     /// invalidate it and recurse.
     #[allow(dead_code)] // called only from #[cfg(test)] wrapper for now
-    fn cascade_revoke(
-        &self,
-        conn: &Connection,
-        revoked_user: &str,
-    ) -> Result<(), PermissionError> {
-        let mut stmt = conn.prepare(
-            "SELECT note_id, user_id, role FROM note_permissions WHERE granted_by = ?1",
-        )?;
+    fn cascade_revoke(&self, conn: &Connection, revoked_user: &str) -> Result<(), PermissionError> {
+        let mut stmt = conn
+            .prepare("SELECT note_id, user_id, role FROM note_permissions WHERE granted_by = ?1")?;
         let downstream: Vec<(String, String, String)> = stmt
             .query_map(rusqlite::params![revoked_user], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -247,13 +240,12 @@ impl PermissionGate for RbacGate {
                 granted_by,
                 ..
             } => {
-                let note_id = note_id.as_ref().ok_or_else(|| {
-                    PermissionError::Denied("RBAC requires a note_id".into())
-                })?;
+                let note_id = note_id
+                    .as_ref()
+                    .ok_or_else(|| PermissionError::Denied("RBAC requires a note_id".into()))?;
                 // Validate role
-                Role::from_str(role).ok_or_else(|| {
-                    PermissionError::Denied(format!("invalid role: {}", role))
-                })?;
+                Role::from_str(role)
+                    .ok_or_else(|| PermissionError::Denied(format!("invalid role: {}", role)))?;
                 conn.execute(
                     "INSERT INTO note_permissions (note_id, user_id, role, granted_by)
                      VALUES (?1, ?2, ?3, ?4)
@@ -265,9 +257,9 @@ impl PermissionGate for RbacGate {
             Operation::RevokePermission {
                 note_id, user_id, ..
             } => {
-                let note_id = note_id.as_ref().ok_or_else(|| {
-                    PermissionError::Denied("RBAC requires a note_id".into())
-                })?;
+                let note_id = note_id
+                    .as_ref()
+                    .ok_or_else(|| PermissionError::Denied("RBAC requires a note_id".into()))?;
                 conn.execute(
                     "DELETE FROM note_permissions WHERE note_id = ?1 AND user_id = ?2",
                     rusqlite::params![note_id, user_id],
@@ -287,8 +279,7 @@ impl PermissionGate for RbacGate {
                 ..
             } => {
                 let root_note_ids: Vec<String> = {
-                    let mut stmt =
-                        conn.prepare("SELECT id FROM notes WHERE parent_id IS NULL")?;
+                    let mut stmt = conn.prepare("SELECT id FROM notes WHERE parent_id IS NULL")?;
                     let ids = stmt
                         .query_map([], |row| row.get(0))?
                         .collect::<Result<Vec<_>, _>>()?;

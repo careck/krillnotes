@@ -28,12 +28,12 @@ use krillnotes_core::{
     core::{
         contact::{ContactManager, TrustLevel},
         permission::{AllowAllGate, PermissionGate},
+        swarm::sync::{apply_delta, generate_delta},
         sync::{
             channel::{ChannelType, PeerSyncInfo, SyncChannel},
             folder::FolderChannel,
             SyncContext, SyncEngine,
         },
-        swarm::sync::{apply_delta, generate_delta},
     },
     Workspace,
 };
@@ -55,8 +55,15 @@ fn b64_pubkey(key: &SigningKey) -> String {
 /// Create an in-memory (temp-file backed) workspace.
 fn make_workspace(key: &SigningKey, identity_id: &str) -> (NamedTempFile, Workspace) {
     let tmp = NamedTempFile::new().expect("tempfile");
-    let ws = Workspace::create(tmp.path(), "", identity_id, SigningKey::from_bytes(&key.to_bytes()), test_gate(), None)
-        .expect("Workspace::create");
+    let ws = Workspace::create(
+        tmp.path(),
+        "",
+        identity_id,
+        SigningKey::from_bytes(&key.to_bytes()),
+        test_gate(),
+        None,
+    )
+    .expect("Workspace::create");
     (tmp, ws)
 }
 
@@ -88,8 +95,8 @@ fn relay_registration_flow() {
     use krillnotes_core::core::sync::relay::{auth::decrypt_pop_challenge, client::RelayClient};
     use uuid::Uuid;
 
-    let relay_url = std::env::var("RELAY_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let relay_url =
+        std::env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // 1. Generate identity keypair.
     let device_key = make_key();
@@ -120,11 +127,16 @@ fn relay_registration_flow() {
         .register_verify(&device_pubkey_b64, &nonce_hex, None)
         .expect("register_verify should succeed");
 
-    assert!(!session.session_token.is_empty(), "session token must be non-empty");
+    assert!(
+        !session.session_token.is_empty(),
+        "session token must be non-empty"
+    );
 
     // Verify the token works.
     let authed_client = RelayClient::new(&relay_url).with_session_token(&session.session_token);
-    let account = authed_client.get_account().expect("get_account should succeed");
+    let account = authed_client
+        .get_account()
+        .expect("get_account should succeed");
     assert_eq!(account.identity_uuid, identity_uuid);
 
     // 5. Clean up: log out.
@@ -147,14 +159,11 @@ fn relay_registration_flow() {
 #[ignore]
 #[cfg(feature = "relay")]
 fn relay_delta_roundtrip() {
-    use krillnotes_core::core::sync::relay::{
-        auth::decrypt_pop_challenge,
-        client::RelayClient,
-    };
+    use krillnotes_core::core::sync::relay::{auth::decrypt_pop_challenge, client::RelayClient};
     use uuid::Uuid;
 
-    let relay_url = std::env::var("RELAY_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let relay_url =
+        std::env::var("RELAY_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // ── 1. Create identities ────────────────────────────────────────────────
     let alice_key = make_key();
@@ -171,9 +180,15 @@ fn relay_delta_roundtrip() {
     let register_and_verify = |key: &SigningKey, uuid: &str, email: &str| -> RelayClient {
         let relay = RelayClient::new(&relay_url);
         let pk = b64_pubkey(key);
-        let reg = relay.register(email, password, uuid, &pk).expect("register");
-        let nonce = decrypt_pop_challenge(key, &reg.challenge.encrypted_nonce, &reg.challenge.server_public_key)
-            .expect("decrypt_pop_challenge");
+        let reg = relay
+            .register(email, password, uuid, &pk)
+            .expect("register");
+        let nonce = decrypt_pop_challenge(
+            key,
+            &reg.challenge.encrypted_nonce,
+            &reg.challenge.server_public_key,
+        )
+        .expect("decrypt_pop_challenge");
         let session = relay
             .register_verify(&pk, &hex::encode(&nonce), None)
             .expect("register_verify");
@@ -199,7 +214,9 @@ fn relay_delta_roundtrip() {
         .expect("upsert_sync_peer");
 
     // Add a note AFTER the watermark so it's included in the delta.
-    alice_ws.create_note_root("TextNote").expect("create_note_root");
+    alice_ws
+        .create_note_root("TextNote")
+        .expect("create_note_root");
 
     // Register Bob as a contact so the encryption key can be resolved.
     alice_cm
@@ -230,8 +247,13 @@ fn relay_delta_roundtrip() {
         recipient_device_ids: vec!["bob-device-test".to_string()],
         mode: Some("delta".to_string()),
     };
-    let bundle_ids = alice_client.upload_bundle(&header, &bundle.bundle_bytes).expect("upload_bundle");
-    let bundle_id = bundle_ids.into_iter().next().expect("relay returned at least one bundle_id");
+    let bundle_ids = alice_client
+        .upload_bundle(&header, &bundle.bundle_bytes)
+        .expect("upload_bundle");
+    let bundle_id = bundle_ids
+        .into_iter()
+        .next()
+        .expect("relay returned at least one bundle_id");
 
     // ── 5. Bob downloads and applies the delta ─────────────────────────────
     // Drop alice_ws before Bob opens the same DB file to avoid concurrent access.
@@ -249,9 +271,11 @@ fn relay_delta_roundtrip() {
     .expect("Workspace::open");
     let (_bob_cm_dir, mut bob_cm) = make_contact_manager([0xBBu8; 32]);
 
-    let bundle_bytes = bob_client.download_bundle(&bundle_id).expect("bob download bundle");
-    let result = apply_delta(&bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm)
-        .expect("apply_delta");
+    let bundle_bytes = bob_client
+        .download_bundle(&bundle_id)
+        .expect("bob download bundle");
+    let result =
+        apply_delta(&bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).expect("apply_delta");
     let applied_total = result.operations_applied;
     bob_client.delete_bundle(&bundle_id).expect("delete_bundle");
 
@@ -324,7 +348,9 @@ fn folder_channel_delta_roundtrip() {
         .expect("upsert_sync_peer (Alice→Bob)");
 
     // ── Step 2: Alice adds a note AFTER the watermark ────────────────────────
-    alice_ws.create_note_root("TextNote").expect("create_note_root");
+    alice_ws
+        .create_note_root("TextNote")
+        .expect("create_note_root");
 
     // Register Bob as a contact so the encryption key can be resolved.
     alice_cm
@@ -369,15 +395,16 @@ fn folder_channel_delta_roundtrip() {
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map_or(false, |ext| ext == "swarm"))
         .collect();
-    assert_eq!(files_in_dir.len(), 1, "exactly one .swarm file should exist");
+    assert_eq!(
+        files_in_dir.len(),
+        1,
+        "exactly one .swarm file should exist"
+    );
 
     // ── Step 5: Bob's FolderChannel picks up the bundle ────────────────────
     // Bob must use the same identity_id that Alice used as peer_identity_id
     // so that the inbox-prefix filter matches the filename Alice wrote.
-    let bob_folder_ch = FolderChannel::new(
-        bob_pubkey_b64.clone(),
-        "bob-device-uuid".to_string(),
-    );
+    let bob_folder_ch = FolderChannel::new(bob_pubkey_b64.clone(), "bob-device-uuid".to_string());
     let received = bob_folder_ch
         .receive_bundles_from_dir(shared_dir.path())
         .expect("receive_bundles_from_dir");
@@ -389,8 +416,8 @@ fn folder_channel_delta_roundtrip() {
     );
 
     // ── Step 6: Apply delta to Bob's workspace ─────────────────────────────
-    let result = apply_delta(&received[0].data, &mut bob_ws, &bob_key, &mut bob_cm)
-        .expect("apply_delta");
+    let result =
+        apply_delta(&received[0].data, &mut bob_ws, &bob_key, &mut bob_cm).expect("apply_delta");
 
     // Bob should have applied at least one operation (the CreateNote).
     assert!(

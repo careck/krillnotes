@@ -116,19 +116,32 @@ pub fn set_home_dir(path: &str) -> Result<(), String> {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create breadcrumb directory: {e}"))?;
     }
-    fs::write(&bp, path.trim())
-        .map_err(|e| format!("Failed to write breadcrumb file: {e}"))
+    fs::write(&bp, path.trim()).map_err(|e| format!("Failed to write breadcrumb file: {e}"))
 }
 
 // ── Settings I/O ─────────────────────────────────────────────────────
 
-fn default_theme_mode() -> String { "system".to_string() }
-fn default_light_theme() -> String { "light".to_string() }
-fn default_dark_theme() -> String { "dark".to_string() }
-fn default_language() -> String { "en".to_string() }
-fn default_sharing_indicator_mode() -> String { "auto".to_string() }
-fn default_undo_history_limit() -> usize { 50 }
-fn default_sync_on_close() -> String { "ask".to_string() }
+fn default_theme_mode() -> String {
+    "system".to_string()
+}
+fn default_light_theme() -> String {
+    "light".to_string()
+}
+fn default_dark_theme() -> String {
+    "dark".to_string()
+}
+fn default_language() -> String {
+    "en".to_string()
+}
+fn default_sharing_indicator_mode() -> String {
+    "auto".to_string()
+}
+fn default_undo_history_limit() -> usize {
+    50
+}
+fn default_sync_on_close() -> String {
+    "ask".to_string()
+}
 
 /// Returns the path to the settings JSON file: `{home_dir}/settings.json`.
 pub fn settings_file_path() -> PathBuf {
@@ -153,8 +166,7 @@ pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
     }
     let json = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("Failed to serialize settings: {e}"))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write settings: {e}"))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write settings: {e}"))?;
     Ok(())
 }
 
