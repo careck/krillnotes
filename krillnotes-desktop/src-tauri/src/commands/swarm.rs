@@ -91,7 +91,16 @@ pub fn open_swarm_file_cmd(
     use krillnotes_core::core::swarm::header::SwarmMode;
     let data = std::fs::read(&path).map_err(|e| { log::error!("open_swarm_file failed: {e}"); format!("Cannot read file: {e}") })?;
     let header = krillnotes_core::core::swarm::header::read_header(&data)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("invite.json") {
+                "This is a Phase C invite file. Use the 'Import Invite' button to open it.".to_string()
+            } else if msg.contains("response.json") {
+                "This is a Phase C response file. Use the 'Import Response' button to open it.".to_string()
+            } else {
+                msg
+            }
+        })?;
 
     let fingerprint = krillnotes_core::core::contact::generate_fingerprint(&header.source_identity)
         .map_err(|e| e.to_string())?;
