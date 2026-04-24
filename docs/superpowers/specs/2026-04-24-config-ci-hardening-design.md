@@ -84,13 +84,13 @@ Change: `rand = "0.8"` → `rand = "0.9"`
 
 ## Zip Cleanup
 
-**File:** `krillnotes-desktop/src-tauri/Cargo.toml` line 48
+The sole zip usage in desktop is `peek_swarm_header()` in `commands/swarm.rs:86-110`. This function reads a `.swarm` zip bundle, validates its type (invite vs response vs snapshot), and deserializes a `SwarmHeader` — all core types and logic.
 
-Desktop crate directly uses `zip::ZipArchive` in `commands/swarm.rs:88` for reading `.swarm` bundles, so the dep cannot be removed entirely. However, it currently has `default-features = false` with no feature flags, while core specifies `["deflate", "aes-crypto"]`.
+**Fix:** Move `peek_swarm_header` into `krillnotes-core` (e.g., `core::swarm::header` or a new `core::swarm::peek` module). The desktop command (`open_swarm_file_cmd`) then calls core's function instead.
 
-Change: `zip = { version = "8", default-features = false }` → `zip = { version = "8", default-features = false, features = ["deflate"] }`
-
-Desktop only reads zip archives (no encryption needed for reading), but `deflate` is required for decompression. The `aes-crypto` feature is only needed in core (which writes encrypted archives).
+After the move:
+- Remove `zip = { version = "8", default-features = false }` from `krillnotes-desktop/src-tauri/Cargo.toml` line 48
+- Desktop no longer depends on `zip` directly — it gets bundle reading through core's API
 
 ## Testing
 
