@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Wider script & theme editors** — The script and theme editor dialogs now expand to 90% of the window width when editing, instead of being fixed at 700px. The list view retains its compact size.
 
 ### Fixed
+- **Sync timestamp corruption** — Synced notes displayed dates like year 56000+ because the sync replay path stored HLC milliseconds in `created_at`/`modified_at` columns where the frontend expects Unix seconds. Introduced a `UnixSecs(i64)` newtype that makes this mismatch a compile error — `HlcTimestamp::to_unix_secs()` is the only conversion path, and no `From<i64>` impl forces callers to use named constructors. `serde(transparent)` preserves JSON format (PR #160).
+- **lock_identity stale state** — `lock_identity` now inserts labels into `closing_windows` and calls `destroy()` (matching `close_window`), eagerly removing workspace entries to prevent stale state between destroy and the Destroyed event handler (PR #154).
+- **Rapid file-open clobber** — Split shared `pending_file_open` into `pending_krillnotes_open` and `pending_swarm_open` so rapid `.krillnotes` + `.swarm` opens no longer overwrite each other (PR #154).
+- **Duplicate-while-open guard** — `duplicate_workspace` now checks `find_window_for_path` at entry and returns an error if the source workspace is currently open (PR #154).
+- **Non-owner duplicate/export blocked** — Peers invited to a workspace they don't own can no longer duplicate or export it (produces empty copies). Duplicate button is disabled in the workspace manager, Export menu item is toggled per-window, and backend guards return `NOT_OWNER`. `info.json` now includes `is_owner` (PR #154).
+- **Frontend i18n gaps** — Replaced hardcoded English strings with i18n keys across InfoPanel and WorkspaceView, fixed shadowed `t()` variable in migration toast, replaced all `alert()` calls with inline error state (PR #143/#156).
+- **Async forEach race** — `HoverTooltip` async `forEach` replaced with `Promise.all` to avoid sequential awaits (PR #143/#156).
+- **Stale closure prevention** — InfoPanel callback props wrapped in `useCallback`, memo comparator updated to prevent stale closures (PR #143/#156).
+- **PeerInfo type boundary** — Added `PeerInfo` TypeScript type at the IPC boundary to replace untyped objects (PR #143/#156).
 - **Pending sync false positives** — `has_pending_ops_for_any_peer()` now excludes operations authored by the peer and operations received from the peer (echo prevention), matching the filters used by `generate_delta()`. Previously, ops received from a peer were counted as "pending", causing the sync indicator and sync-on-close dialog to trigger when there was nothing to send (PR #135).
 - **Stale view tab on note switch** — Switching between note types with different view names no longer produces `render_view` errors. The view rendering effect now uses a ref-based guard to prevent firing with stale state from the previous note.
 
