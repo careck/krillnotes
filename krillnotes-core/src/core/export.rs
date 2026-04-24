@@ -18,6 +18,7 @@ use zip::{ZipArchive, ZipWriter};
 
 use crate::core::attachment::AttachmentMeta;
 use crate::core::note::Note;
+use crate::core::timestamp::UnixSecs;
 use crate::core::user_script;
 use crate::core::workspace::Workspace;
 use crate::get_device_id;
@@ -494,7 +495,7 @@ pub fn import_workspace<R: Read + Seek>(
             .connection_mut()
             .transaction()
             .map_err(|e| ExportError::Database(e.to_string()))?;
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         for (source_code, load_order, enabled, category) in &script_sources {
             let id = uuid::Uuid::new_v4().to_string();
             let fm = user_script::parse_front_matter(source_code);

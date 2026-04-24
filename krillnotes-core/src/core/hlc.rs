@@ -41,6 +41,10 @@ impl HlcTimestamp {
             node_id: 0,
         }
     }
+
+    pub fn to_unix_secs(&self) -> super::timestamp::UnixSecs {
+        super::timestamp::UnixSecs::from_secs((self.wall_ms / 1000) as i64)
+    }
 }
 
 impl Ord for HlcTimestamp {

@@ -10,6 +10,8 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use super::timestamp::UnixSecs;
+
 /// Custom deserializer for `created_by` / `modified_by` that accepts both
 /// the legacy integer format (always `0`) and the new base64 string format.
 fn deserialize_author_field<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -72,9 +74,9 @@ pub struct Note {
     /// Fractional sort order among siblings that share the same `parent_id`.
     pub position: f64,
     /// Unix timestamp (seconds) when this note was created.
-    pub created_at: i64,
+    pub created_at: UnixSecs,
     /// Unix timestamp (seconds) of the most recent modification.
-    pub modified_at: i64,
+    pub modified_at: UnixSecs,
     /// Base64-encoded Ed25519 public key of the identity that created this note.
     /// Empty string for notes created before identity enforcement was added.
     #[serde(default, deserialize_with = "deserialize_author_field")]
@@ -114,8 +116,8 @@ mod tests {
             schema: "TextNote".to_string(),
             parent_id: None,
             position: 0.0,
-            created_at: 1234567890,
-            modified_at: 1234567890,
+            created_at: UnixSecs::from_secs(1234567890),
+            modified_at: UnixSecs::from_secs(1234567890),
             created_by: String::new(),
             modified_by: String::new(),
             fields: BTreeMap::new(),
@@ -250,7 +252,7 @@ mod tests {
         // New exports must use "schema", not "nodeType".
         let note = Note {
             id: "x".into(), title: "T".into(), schema: "TextNote".into(),
-            parent_id: None, position: 0.0, created_at: 0, modified_at: 0,
+            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
             created_by: String::new(), modified_by: String::new(),
             fields: BTreeMap::new(), is_expanded: true, tags: vec![], schema_version: 1,
             is_checked: false,

@@ -13,6 +13,8 @@ use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, aead::{Aead, KeyInit}};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
+use super::timestamp::UnixSecs;
+
 /// Metadata for a single file attachment stored on disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,7 +27,7 @@ pub struct AttachmentMeta {
     pub hash_sha256: String,
     /// 32-byte HKDF per-file salt (hex-encoded for Tauri serialisation).
     pub salt: String,
-    pub created_at: i64,
+    pub created_at: UnixSecs,
 }
 
 /// Derives a 32-byte workspace attachment key from the master password and a

@@ -503,7 +503,7 @@ impl Workspace {
                 // Restore title + fields + tags + is_checked atomically.
                 let fields_json = serde_json::to_string(old_fields)
                     .map_err(KrillnotesError::Json)?;
-                let now = chrono::Utc::now().timestamp();
+                let now = UnixSecs::now();
                 let conn = self.storage.connection_mut();
                 let tx = conn.transaction()?;
                 tx.execute(
@@ -539,7 +539,7 @@ impl Workspace {
                 script_id, name, description,
                 source_code, load_order, enabled, category,
             } => {
-                let now = chrono::Utc::now().timestamp();
+                let now = UnixSecs::now();
                 self.storage.connection().execute(
                     "INSERT OR REPLACE INTO user_scripts
                      (id, name, description, source_code, load_order, enabled,

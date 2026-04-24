@@ -103,7 +103,7 @@ impl Workspace {
             None
         };
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let mut note = Note {
             id: Uuid::new_v4().to_string(),
             title: "Untitled".to_string(),
@@ -180,7 +180,7 @@ impl Workspace {
                 &parent_note.id, &parent_note.schema, &parent_note.title, &parent_note.fields,
                 &note.id, &note.schema, &note.title, &note.fields,
             )? {
-                let now = chrono::Utc::now().timestamp();
+                let now = UnixSecs::now();
                 if let Some((new_title, new_fields)) = hook_result.child {
                     let fields_json = serde_json::to_string(&new_fields)?;
                     tx.execute(
@@ -346,7 +346,7 @@ impl Workspace {
         };
         self.authorize(&auth_op)?;
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
 
         // Pre-advance HLC once per note in the subtree, and capture signing key,
         // before the transaction borrows self.storage mutably.
@@ -438,7 +438,7 @@ impl Workspace {
     /// Returns [`crate::KrillnotesError::SchemaNotFound`] if `node_type` is unknown,
     /// or [`crate::KrillnotesError::Database`] for any SQLite failure.
     pub fn create_note_root(&mut self, node_type: &str) -> Result<String> {
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let schema = self.script_registry.get_schema(node_type)?;
 
         // Validate allowed_parent_schemas — root notes have no parent
@@ -560,7 +560,7 @@ impl Workspace {
         };
         self.authorize(&auth_op)?;
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;
@@ -887,7 +887,7 @@ impl Workspace {
         };
         self.authorize(&auth_op)?;
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
 
@@ -1131,7 +1131,7 @@ impl Workspace {
         };
         self.authorize(&auth_op)?;
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let ts = self.advance_hlc();
         let signing_key = self.signing_key.clone();
         let tx = self.storage.connection_mut().transaction()?;
@@ -1163,7 +1163,7 @@ impl Workspace {
                 &parent_note.id, &parent_note.schema, &parent_note.title, &parent_note.fields,
                 &note_to_move.id, &note_to_move.schema, &note_to_move.title, &note_to_move.fields,
             )? {
-                let hook_now = chrono::Utc::now().timestamp();
+                let hook_now = UnixSecs::now();
                 if let Some((new_title, new_fields)) = hook_result.child {
                     let fields_json = serde_json::to_string(&new_fields)?;
                     tx.execute(
@@ -1767,7 +1767,7 @@ impl Workspace {
         let schema = self.script_registry.get_schema(&note_schema)?;
         schema.validate_required_fields(&fields)?;
 
-        let now = chrono::Utc::now().timestamp();
+        let now = UnixSecs::now();
         let fields_json = serde_json::to_string(&fields)?;
 
         // Clean up replaced or cleared File field attachments before the note UPDATE.

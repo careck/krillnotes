@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::timestamp::UnixSecs;
+
 /// A user-defined Rhai script stored in the workspace database.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,8 +20,8 @@ pub struct UserScript {
     pub source_code: String,
     pub load_order: i32,
     pub enabled: bool,
-    pub created_at: i64,
-    pub modified_at: i64,
+    pub created_at: UnixSecs,
+    pub modified_at: UnixSecs,
     pub category: String, // "schema" or "library"
 }
 
@@ -110,8 +112,8 @@ schema("Test", #{ fields: [] });
             source_code: "".to_string(),
             load_order: 0,
             enabled: true,
-            created_at: 0,
-            modified_at: 0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
             category: "schema".to_string(),
         };
         assert_eq!(script.category, "schema");
