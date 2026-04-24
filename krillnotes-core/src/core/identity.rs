@@ -11,14 +11,14 @@
 //! with its encrypted key file inside `<folder>/.identity/identity.json`.
 
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use argon2::Argon2;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
-use aes_gcm::aead::rand_core::RngCore;
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
