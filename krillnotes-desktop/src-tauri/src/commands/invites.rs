@@ -5,9 +5,9 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
+use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
-use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,7 +123,8 @@ pub fn create_invite(
     // Resolve scope note title from workspace if scope_note_id is provided.
     let scope_note_title = if let Some(ref nid) = scope_note_id {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
-        let ws = workspaces.get(window.label())
+        let ws = workspaces
+            .get(window.label())
             .ok_or("No workspace for this window")?;
         Some(ws.get_note(nid).map_err(|e| e.to_string())?.title)
     } else {
@@ -179,11 +180,14 @@ pub fn create_invite(
         file.signature = krillnotes_core::core::invite::sign_payload(&payload, &signing_key);
     }
 
-    krillnotes_core::core::invite::InviteManager::save_invite_file(&file, std::path::Path::new(&save_path))
-        .map_err(|e| {
-            log::error!("create_invite save_file failed: {e}");
-            e.to_string()
-        })?;
+    krillnotes_core::core::invite::InviteManager::save_invite_file(
+        &file,
+        std::path::Path::new(&save_path),
+    )
+    .map_err(|e| {
+        log::error!("create_invite save_file failed: {e}");
+        e.to_string()
+    })?;
 
     Ok(InviteInfo::from(record))
 }
@@ -328,19 +332,25 @@ pub fn import_invite_response(
     identity_uuid: String,
     path: String,
 ) -> std::result::Result<PendingPeer, String> {
-    use krillnotes_core::core::invite::InviteManager;
     use krillnotes_core::core::contact::generate_fingerprint;
+    use krillnotes_core::core::invite::InviteManager;
 
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
-    let response = InviteManager::parse_and_verify_response(std::path::Path::new(&path))
-        .map_err(|e| {
+    let response =
+        InviteManager::parse_and_verify_response(std::path::Path::new(&path)).map_err(|e| {
             log::error!("import_invite_response(identity={identity_uuid}) failed: {e}");
             e.to_string()
         })?;
 
     // Validate invite is still active and increment use count.
     let invite_uuid = Uuid::parse_str(&response.invite_id).map_err(|e| e.to_string())?;
-    let (invite_workspace_id, invite_workspace_name, invite_scope_note_id, invite_scope_note_title, invite_offered_role) = {
+    let (
+        invite_workspace_id,
+        invite_workspace_name,
+        invite_scope_note_id,
+        invite_scope_note_title,
+        invite_offered_role,
+    ) = {
         let mut ims = state.invite_managers.lock().expect("Mutex poisoned");
         let im = ims.get_mut(&uuid).ok_or("Identity not unlocked")?;
         let record = im
@@ -355,12 +365,19 @@ pub fn import_invite_response(
                 return Err("Invite has expired".to_string());
             }
         }
-        im.increment_use_count(invite_uuid).map_err(|e| e.to_string())?;
-        (record.workspace_id.clone(), record.workspace_name.clone(), record.scope_note_id.clone(), record.scope_note_title.clone(), record.offered_role.clone())
+        im.increment_use_count(invite_uuid)
+            .map_err(|e| e.to_string())?;
+        (
+            record.workspace_id.clone(),
+            record.workspace_name.clone(),
+            record.scope_note_id.clone(),
+            record.scope_note_title.clone(),
+            record.offered_role.clone(),
+        )
     };
 
-    let fingerprint = generate_fingerprint(&response.invitee_public_key)
-        .map_err(|e| e.to_string())?;
+    let fingerprint =
+        generate_fingerprint(&response.invitee_public_key).map_err(|e| e.to_string())?;
 
     let pending_peer = PendingPeer {
         invite_id: response.invite_id,
@@ -371,7 +388,10 @@ pub fn import_invite_response(
 
     // Create a ReceivedResponse record so the polling UI can track this response.
     {
-        let mut rrm = state.received_response_managers.lock().expect("Mutex poisoned");
+        let mut rrm = state
+            .received_response_managers
+            .lock()
+            .expect("Mutex poisoned");
         if let Some(rr_mgr) = rrm.get_mut(&uuid) {
             let existing = rr_mgr
                 .find_by_invite_and_invitee(invite_uuid, &pending_peer.invitee_public_key)
@@ -398,16 +418,17 @@ pub fn import_invite_response(
 
 #[tauri::command]
 pub fn import_invite(path: String) -> std::result::Result<InviteFileData, String> {
-    use krillnotes_core::core::invite::InviteManager;
     use krillnotes_core::core::contact::generate_fingerprint;
+    use krillnotes_core::core::invite::InviteManager;
 
-    let invite = InviteManager::parse_and_verify_invite(std::path::Path::new(&path))
-        .map_err(|e| {
+    let invite =
+        InviteManager::parse_and_verify_invite(std::path::Path::new(&path)).map_err(|e| {
             log::error!("import_invite failed: {e}");
             e.to_string()
         })?;
 
-    let fingerprint = generate_fingerprint(&invite.inviter_public_key).map_err(|e| e.to_string())?;
+    let fingerprint =
+        generate_fingerprint(&invite.inviter_public_key).map_err(|e| e.to_string())?;
 
     Ok(InviteFileData {
         invite_id: invite.invite_id,
@@ -504,7 +525,9 @@ pub fn accept_peer(
     Ok(crate::ContactInfo::from_contact(contact))
 }
 
-fn parse_trust_level_local(s: &str) -> std::result::Result<krillnotes_core::core::contact::TrustLevel, String> {
+fn parse_trust_level_local(
+    s: &str,
+) -> std::result::Result<krillnotes_core::core::contact::TrustLevel, String> {
     use krillnotes_core::core::contact::TrustLevel;
     match s {
         "Tofu" => Ok(TrustLevel::Tofu),

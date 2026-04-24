@@ -24,11 +24,19 @@ where
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("a string or integer author field")
         }
-        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<String, E> { Ok(v) }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<String, E> {
+            Ok(v)
+        }
         // Legacy: old archives serialized created_by/modified_by as integer 0.
-        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<String, E> { Ok(String::new()) }
-        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<String, E> { Ok(String::new()) }
+        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<String, E> {
+            Ok(String::new())
+        }
+        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<String, E> {
+            Ok(String::new())
+        }
     }
     deserializer.deserialize_any(Visitor)
 }
@@ -102,7 +110,9 @@ pub struct Note {
     pub is_checked: bool,
 }
 
-fn default_schema_version() -> u32 { 1 }
+fn default_schema_version() -> u32 {
+    1
+}
 
 #[cfg(test)]
 mod tests {
@@ -122,7 +132,8 @@ mod tests {
             modified_by: String::new(),
             fields: BTreeMap::new(),
             is_expanded: true,
-            tags: vec![], schema_version: 1,
+            tags: vec![],
+            schema_version: 1,
             is_checked: false,
         };
 
@@ -251,10 +262,19 @@ mod tests {
     fn test_note_serializes_new_schema_key() {
         // New exports must use "schema", not "nodeType".
         let note = Note {
-            id: "x".into(), title: "T".into(), schema: "TextNote".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(),
-            fields: BTreeMap::new(), is_expanded: true, tags: vec![], schema_version: 1,
+            id: "x".into(),
+            title: "T".into(),
+            schema: "TextNote".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields: BTreeMap::new(),
+            is_expanded: true,
+            tags: vec![],
+            schema_version: 1,
             is_checked: false,
         };
         let json = serde_json::to_string(&note).unwrap();

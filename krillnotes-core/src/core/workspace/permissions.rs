@@ -67,10 +67,7 @@ pub struct CascadeImpactRow {
 
 impl Workspace {
     /// Get explicit permission grants anchored at `note_id`.
-    pub fn get_note_permissions(
-        &self,
-        note_id: &str,
-    ) -> Result<Vec<PermissionGrantRow>> {
+    pub fn get_note_permissions(&self, note_id: &str) -> Result<Vec<PermissionGrantRow>> {
         let conn = self.connection();
         let mut stmt = conn.prepare(
             "SELECT note_id, user_id, role, granted_by \
@@ -94,10 +91,7 @@ impl Workspace {
     /// Walks up the note tree from `note_id` to the root, returning the
     /// first matching grant.  The workspace owner is short-circuited to
     /// `"root_owner"` without any DB lookup.
-    pub fn get_effective_role(
-        &self,
-        note_id: &str,
-    ) -> Result<EffectiveRoleInfo> {
+    pub fn get_effective_role(&self, note_id: &str) -> Result<EffectiveRoleInfo> {
         let conn = self.connection();
         let user_id = self.identity_pubkey();
         let owner_pubkey = self.owner_pubkey();
@@ -172,10 +166,7 @@ impl Workspace {
     /// Walks up from the parent of `note_id` to the root, collecting all
     /// grants found along the way (excluding grants anchored on `note_id`
     /// itself).
-    pub fn get_inherited_permissions(
-        &self,
-        note_id: &str,
-    ) -> Result<Vec<InheritedGrant>> {
+    pub fn get_inherited_permissions(&self, note_id: &str) -> Result<Vec<InheritedGrant>> {
         let conn = self.connection();
         let mut results = Vec::new();
 
@@ -191,11 +182,9 @@ impl Workspace {
 
         while let Some(id) = current_id {
             let title: Option<String> = conn
-                .query_row(
-                    "SELECT title FROM notes WHERE id = ?1",
-                    [&id],
-                    |row| row.get(0),
-                )
+                .query_row("SELECT title FROM notes WHERE id = ?1", [&id], |row| {
+                    row.get(0)
+                })
                 .optional()?;
 
             let mut stmt = conn.prepare(
@@ -223,11 +212,9 @@ impl Workspace {
 
             // Walk up
             current_id = conn
-                .query_row(
-                    "SELECT parent_id FROM notes WHERE id = ?1",
-                    [&id],
-                    |row| row.get::<_, Option<String>>(0),
-                )
+                .query_row("SELECT parent_id FROM notes WHERE id = ?1", [&id], |row| {
+                    row.get::<_, Option<String>>(0)
+                })
                 .optional()?
                 .flatten();
         }
@@ -258,9 +245,8 @@ impl Workspace {
         }
 
         // 2. Fetch all grants for this user
-        let mut stmt = conn.prepare(
-            "SELECT note_id, role FROM note_permissions WHERE user_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT note_id, role FROM note_permissions WHERE user_id = ?1")?;
         let grants: Vec<(String, String)> = stmt
             .query_map([user_id], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -277,10 +263,7 @@ impl Workspace {
         let mut stmt = conn.prepare("SELECT id, parent_id FROM notes")?;
         let rows = stmt
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                ))
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -324,16 +307,15 @@ impl Workspace {
     ///
     /// The operation is authorized, applied through the permission gate,
     /// signed, logged, and committed in a single transaction.
-    pub fn set_permission(
-        &mut self,
-        note_id: &str,
-        user_id: &str,
-        role: &str,
-    ) -> Result<()> {
+    pub fn set_permission(&mut self, note_id: &str, user_id: &str, role: &str) -> Result<()> {
         // Authorize before opening the transaction.
         let auth_op = Operation::SetPermission {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: Some(note_id.to_string()),
             user_id: user_id.to_string(),
@@ -374,15 +356,15 @@ impl Workspace {
     ///
     /// The operation is authorized, applied through the permission gate,
     /// signed, logged, and committed in a single transaction.
-    pub fn revoke_permission(
-        &mut self,
-        note_id: &str,
-        user_id: &str,
-    ) -> Result<()> {
+    pub fn revoke_permission(&mut self, note_id: &str, user_id: &str) -> Result<()> {
         // Authorize before opening the transaction.
         let auth_op = Operation::RevokePermission {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             note_id: Some(note_id.to_string()),
             user_id: user_id.to_string(),
@@ -436,9 +418,8 @@ impl Workspace {
             return Ok(vec![]);
         }
 
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT note_id FROM note_permissions WHERE note_id IS NOT NULL",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT note_id FROM note_permissions WHERE note_id IS NOT NULL")?;
         let ids: Vec<String> = stmt
             .query_map([], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;

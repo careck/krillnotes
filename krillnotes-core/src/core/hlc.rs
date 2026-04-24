@@ -225,7 +225,11 @@ impl HlcClock {
         // SQLite INTEGER is signed i64; wall_ms won't overflow i64 until year ~292M — safe cast.
         tx.execute(
             "INSERT OR REPLACE INTO hlc_state (id, wall_ms, counter, node_id) VALUES (1, ?, ?, ?)",
-            rusqlite::params![self.wall_ms as i64, self.counter as i64, self.node_id as i64],
+            rusqlite::params![
+                self.wall_ms as i64,
+                self.counter as i64,
+                self.node_id as i64
+            ],
         )?;
         Ok(())
     }
@@ -319,7 +323,10 @@ mod tests {
         let id2 = node_id_from_device(&uuid2);
 
         assert_eq!(id1a, id1b, "same UUID must produce same node_id");
-        assert_ne!(id1a, id2, "different UUIDs should produce different node_ids");
+        assert_ne!(
+            id1a, id2,
+            "different UUIDs should produce different node_ids"
+        );
     }
 
     #[test]
@@ -363,7 +370,10 @@ mod tests {
 
         assert!(a < b, "earlier wall_ms must be less");
         assert!(b < c, "same wall_ms, higher counter must be greater");
-        assert!(c < d, "same wall_ms+counter, higher node_id must be greater");
+        assert!(
+            c < d,
+            "same wall_ms+counter, higher node_id must be greater"
+        );
         assert_eq!(a, a, "reflexive equality");
     }
 }

@@ -68,11 +68,9 @@ pub fn generate_delta(
     contact_manager: &ContactManager,
 ) -> Result<DeltaBundle> {
     // 1. Look up peer.
-    let peer = workspace
-        .get_sync_peer(peer_device_id)?
-        .ok_or_else(|| {
-            KrillnotesError::Swarm(format!("peer {peer_device_id} not found in registry"))
-        })?;
+    let peer = workspace.get_sync_peer(peer_device_id)?.ok_or_else(|| {
+        KrillnotesError::Swarm(format!("peer {peer_device_id} not found in registry"))
+    })?;
 
     // 2. Collect operations since watermark, excluding this peer's own ops.
     //    When last_sent_op is None (force-resync), operations_since(None) returns all ops.
@@ -113,9 +111,9 @@ pub fn generate_delta(
         let recipient_key_bytes = BASE64
             .decode(&contact.public_key)
             .map_err(|e| KrillnotesError::Swarm(format!("bad contact public key: {e}")))?;
-        let recipient_key_arr: [u8; 32] = recipient_key_bytes.try_into().map_err(|_| {
-            KrillnotesError::Swarm("contact public key wrong length".to_string())
-        })?;
+        let recipient_key_arr: [u8; 32] = recipient_key_bytes
+            .try_into()
+            .map_err(|_| KrillnotesError::Swarm("contact public key wrong length".to_string()))?;
         VerifyingKey::from_bytes(&recipient_key_arr)
             .map_err(|e| KrillnotesError::Swarm(format!("invalid recipient key: {e}")))?
     };
@@ -150,7 +148,11 @@ pub fn generate_delta(
     // NOTE: watermark is NOT advanced here.
     // The poll loop advances it only after confirmed delivery (SendResult::Delivered).
 
-    Ok(DeltaBundle { bundle_bytes, last_included_op, op_count })
+    Ok(DeltaBundle {
+        bundle_bytes,
+        last_included_op,
+        op_count,
+    })
 }
 
 /// Apply a received delta `.swarm` bundle to the local workspace.
@@ -239,7 +241,11 @@ pub fn apply_delta(
             new_tofu_contacts.push(name);
         }
 
-        if workspace.apply_incoming_operation(op.clone(), &parsed.sender_device_id, &parsed.attachment_blobs)? {
+        if workspace.apply_incoming_operation(
+            op.clone(),
+            &parsed.sender_device_id,
+            &parsed.attachment_blobs,
+        )? {
             applied += 1;
         } else {
             skipped += 1;
@@ -356,9 +362,11 @@ mod tests {
 
         // Register Bob as a contact so generate_delta can find the encryption key.
         let cm_dir = tempfile::tempdir().unwrap();
-        let alice_cm =
-            crate::core::contact::ContactManager::for_identity(cm_dir.path().to_path_buf(), [2u8; 32])
-                .unwrap();
+        let alice_cm = crate::core::contact::ContactManager::for_identity(
+            cm_dir.path().to_path_buf(),
+            [2u8; 32],
+        )
+        .unwrap();
         alice_cm
             .find_or_create_by_public_key(
                 "Bob",
@@ -411,9 +419,11 @@ mod tests {
             .unwrap();
 
         let cm_dir = tempfile::tempdir().unwrap();
-        let cm =
-            crate::core::contact::ContactManager::for_identity(cm_dir.path().to_path_buf(), [2u8; 32])
-                .unwrap();
+        let cm = crate::core::contact::ContactManager::for_identity(
+            cm_dir.path().to_path_buf(),
+            [2u8; 32],
+        )
+        .unwrap();
         cm.find_or_create_by_public_key(
             "Bob",
             &bob_pubkey_b64,
@@ -421,9 +431,15 @@ mod tests {
         )
         .unwrap();
 
-        let bundle =
-            super::generate_delta(&mut ws, "dev-bob", "TestWorkspace", &alice_key, "Alice", &cm)
-                .expect("generate_delta should succeed when last_sent_op is None");
+        let bundle = super::generate_delta(
+            &mut ws,
+            "dev-bob",
+            "TestWorkspace",
+            &alice_key,
+            "Alice",
+            &cm,
+        )
+        .expect("generate_delta should succeed when last_sent_op is None");
 
         // All ops (excluding dev-bob's own device_id, but alice owns all ops here)
         // should be included.
@@ -559,7 +575,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
+        let result =
+            super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
 
         assert_eq!(
             result.operations_applied + result.operations_skipped,
@@ -610,9 +627,15 @@ mod tests {
                 crate::core::contact::TrustLevel::Tofu,
             )
             .unwrap();
-        let bundle =
-            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
-                .unwrap();
+        let bundle = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "Test",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
 
         // Bob's workspace — **different database file** → different workspace_id.
         let bob_temp = tempfile::NamedTempFile::new().unwrap();
@@ -635,7 +658,10 @@ mod tests {
         let result = super::apply_delta(&bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm);
         assert!(result.is_err(), "workspace_id mismatch must be an error");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("workspace_id mismatch"), "unexpected error: {err}");
+        assert!(
+            err.contains("workspace_id mismatch"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Regression test: when all incoming ops are duplicates, last_received_op
@@ -723,7 +749,10 @@ mod tests {
             "expected all duplicates, got {} applied",
             result.operations_applied
         );
-        assert!(result.operations_skipped > 0, "should have skipped some ops");
+        assert!(
+            result.operations_skipped > 0,
+            "should have skipped some ops"
+        );
 
         // Key assertion: Bob's peer record for Alice must have last_received_op
         // matching the last op in the bundle, even though all ops were duplicates.
@@ -761,18 +790,29 @@ mod tests {
         // Create a note to generate an operation.
         let root = alice_ws.list_all_notes().unwrap()[0].clone();
         alice_ws
-            .create_note(&root.id, crate::core::workspace::AddPosition::AsChild, "TextNote")
+            .create_note(
+                &root.id,
+                crate::core::workspace::AddPosition::AsChild,
+                "TextNote",
+            )
             .unwrap();
 
         // Register Bob as a peer with a snapshot watermark.
-        let snap_op = alice_ws.get_latest_operation_id().unwrap().unwrap_or_default();
+        let snap_op = alice_ws
+            .get_latest_operation_id()
+            .unwrap()
+            .unwrap_or_default();
         alice_ws
             .upsert_sync_peer("dev-bob", &bob_pubkey_b64, Some(&snap_op), None)
             .unwrap();
 
         // Create another note so there's a new operation to delta.
         alice_ws
-            .create_note(&root.id, crate::core::workspace::AddPosition::AsChild, "TextNote")
+            .create_note(
+                &root.id,
+                crate::core::workspace::AddPosition::AsChild,
+                "TextNote",
+            )
             .unwrap();
 
         let alice_cm_dir = tempfile::tempdir().unwrap();
@@ -822,7 +862,10 @@ mod tests {
         assert!(result.is_err(), "should reject mismatched protocol");
         let err = result.unwrap_err();
         assert!(
-            matches!(err, crate::core::error::KrillnotesError::ProtocolMismatch { .. }),
+            matches!(
+                err,
+                crate::core::error::KrillnotesError::ProtocolMismatch { .. }
+            ),
             "error should be ProtocolMismatch, got: {err}"
         );
     }
@@ -854,7 +897,13 @@ mod tests {
         let note_id = alice_ws.create_note_root("TextNote").unwrap();
         let file_bytes: &[u8] = b"hello attachment";
         let meta = alice_ws
-            .attach_file(&note_id, "hello.txt", Some("text/plain"), file_bytes, Some(&alice_key))
+            .attach_file(
+                &note_id,
+                "hello.txt",
+                Some("text/plain"),
+                file_bytes,
+                Some(&alice_key),
+            )
             .unwrap();
         let attachment_id = meta.id.clone();
 
@@ -878,9 +927,15 @@ mod tests {
             )
             .unwrap();
 
-        let bundle =
-            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
-                .unwrap();
+        let bundle = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "Test",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
 
         assert!(bundle.op_count > 0, "delta must contain ops");
 
@@ -919,13 +974,17 @@ mod tests {
 
         // Verify the bundle actually carried a blob sidecar (guards against
         // generate_delta regressions where blob collection is silently skipped).
-        let parsed = crate::core::swarm::delta::parse_delta_bundle(
-            &bundle.bundle_bytes, &bob_key,
-        ).unwrap();
-        assert_eq!(parsed.attachment_blobs.len(), 1,
-            "delta must carry exactly one blob sidecar");
-        assert_eq!(parsed.attachment_blobs[0].0, attachment_id,
-            "blob sidecar id must match attachment_id");
+        let parsed =
+            crate::core::swarm::delta::parse_delta_bundle(&bundle.bundle_bytes, &bob_key).unwrap();
+        assert_eq!(
+            parsed.attachment_blobs.len(),
+            1,
+            "delta must carry exactly one blob sidecar"
+        );
+        assert_eq!(
+            parsed.attachment_blobs[0].0, attachment_id,
+            "blob sidecar id must match attachment_id"
+        );
 
         // ── Assertions ────────────────────────────────────────────────────────
         // Bob should see the attachment in the note's list.
@@ -972,7 +1031,13 @@ mod tests {
         let note_id = alice_ws.create_note_root("TextNote").unwrap();
         let file_bytes: &[u8] = b"data to be removed";
         let meta = alice_ws
-            .attach_file(&note_id, "remove_me.bin", None, file_bytes, Some(&alice_key))
+            .attach_file(
+                &note_id,
+                "remove_me.bin",
+                None,
+                file_bytes,
+                Some(&alice_key),
+            )
             .unwrap();
         let attachment_id = meta.id.clone();
 
@@ -1018,9 +1083,15 @@ mod tests {
         alice_ws
             .upsert_sync_peer("dev-bob", &bob_pubkey_b64, None, None)
             .unwrap();
-        let add_bundle =
-            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
-                .unwrap();
+        let add_bundle = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "Test",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
         super::apply_delta(&add_bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm).unwrap();
 
         // Verify Bob has the attachment after the first sync.
@@ -1046,13 +1117,26 @@ mod tests {
             .unwrap();
 
         // Second sync: Bob receives the RemoveAttachment op.
-        let remove_bundle =
-            super::generate_delta(&mut alice_ws, "dev-bob", "Test", &alice_key, "Alice", &alice_cm)
-                .unwrap();
-        assert_eq!(remove_bundle.op_count, 1,
-            "second delta should contain only the RemoveAttachment op (watermark advance check)");
-        super::apply_delta(&remove_bundle.bundle_bytes, &mut bob_ws, &bob_key, &mut bob_cm)
-            .unwrap();
+        let remove_bundle = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "Test",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
+        assert_eq!(
+            remove_bundle.op_count, 1,
+            "second delta should contain only the RemoveAttachment op (watermark advance check)"
+        );
+        super::apply_delta(
+            &remove_bundle.bundle_bytes,
+            &mut bob_ws,
+            &bob_key,
+            &mut bob_cm,
+        )
+        .unwrap();
 
         // ── Assertions ────────────────────────────────────────────────────────
         // Bob's attachment list must now be empty.

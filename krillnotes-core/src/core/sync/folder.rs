@@ -4,11 +4,11 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
-use std::path::Path;
-use chrono::Utc;
-use uuid::Uuid;
 use crate::core::error::KrillnotesError;
 use crate::core::sync::channel::{BundleRef, ChannelType, PeerSyncInfo, SendResult, SyncChannel};
+use chrono::Utc;
+use std::path::Path;
+use uuid::Uuid;
 
 pub struct FolderChannel {
     /// Short prefix of local identity UUID for inbox filtering
@@ -50,11 +50,14 @@ impl FolderChannel {
     }
 
     fn extract_folder_path(peer: &PeerSyncInfo) -> Result<&str, KrillnotesError> {
-        peer.channel_params.get("path")
+        peer.channel_params
+            .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| KrillnotesError::Swarm(
-                "Folder channel peer missing 'path' in channel_params".to_string()
-            ))
+            .ok_or_else(|| {
+                KrillnotesError::Swarm(
+                    "Folder channel peer missing 'path' in channel_params".to_string(),
+                )
+            })
     }
 
     /// Receive bundles from a specific directory (for testing and internal use).
@@ -62,7 +65,10 @@ impl FolderChannel {
         log::debug!(target: "krillnotes::sync::folder", "scanning directory {}", dir.display());
         if !dir.exists() {
             log::error!(target: "krillnotes::sync::folder", "folder not found: {}", dir.display());
-            return Err(KrillnotesError::Swarm(format!("Folder not found: {}", dir.display())));
+            return Err(KrillnotesError::Swarm(format!(
+                "Folder not found: {}",
+                dir.display()
+            )));
         }
 
         let mut bundles = Vec::new();
@@ -78,9 +84,7 @@ impl FolderChannel {
             }
 
             // Inbox filter: only process files addressed to this device.
-            let filename = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             let inbox_prefix = format!("{}_", self.identity_short);
             if !filename.starts_with(&inbox_prefix) {
                 continue;
@@ -121,13 +125,20 @@ impl FolderChannel {
 }
 
 impl SyncChannel for FolderChannel {
-    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<SendResult, KrillnotesError> {
+    fn send_bundle(
+        &self,
+        peer: &PeerSyncInfo,
+        bundle_bytes: &[u8],
+    ) -> Result<SendResult, KrillnotesError> {
         let folder_path = Self::extract_folder_path(peer)?;
         let dir = Path::new(folder_path);
 
         if !dir.exists() {
             log::error!(target: "krillnotes::sync::folder", "folder not found for send: {}", dir.display());
-            return Err(KrillnotesError::Swarm(format!("Folder not found: {}", dir.display())));
+            return Err(KrillnotesError::Swarm(format!(
+                "Folder not found: {}",
+                dir.display()
+            )));
         }
 
         let recipient_short = Self::identity_short(&peer.peer_identity_id);
@@ -191,7 +202,7 @@ impl SyncChannel for FolderChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::sync::channel::{SyncChannel, PeerSyncInfo, ChannelType};
+    use crate::core::sync::channel::{ChannelType, PeerSyncInfo, SyncChannel};
 
     fn make_test_peer(device_id: &str, identity_id: &str, path: &str) -> PeerSyncInfo {
         PeerSyncInfo {
@@ -207,15 +218,13 @@ mod tests {
     #[test]
     fn test_folder_channel_send_creates_file() {
         let dir = tempfile::tempdir().unwrap();
-        let channel = FolderChannel::new(
-            "my-identity".to_string(),
-            "my-device".to_string(),
-        );
+        let channel = FolderChannel::new("my-identity".to_string(), "my-device".to_string());
         let peer = make_test_peer("peer-dev", "peer-id", dir.path().to_str().unwrap());
 
         channel.send_bundle(&peer, b"test bundle data").unwrap();
 
-        let files: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+        let files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map_or(false, |ext| ext == "swarm"))
             .collect();
@@ -232,11 +241,22 @@ mod tests {
         let stem = filename.strip_suffix(".swarm").unwrap();
         // Use splitn(3) so the uuid part is kept whole even if it contains '_'
         let parts: Vec<&str> = stem.splitn(3, '_').collect();
-        assert_eq!(parts.len(), 3, "filename must have exactly 3 '_'-separated segments");
+        assert_eq!(
+            parts.len(),
+            3,
+            "filename must have exactly 3 '_'-separated segments"
+        );
         // First segment = recipient_short = "peer-id".chars().take(8).collect() = "peer-id" (7 chars)
-        assert_eq!(parts[0], "peer-id", "first segment must be recipient identity short");
+        assert_eq!(
+            parts[0], "peer-id",
+            "first segment must be recipient identity short"
+        );
         // Second segment = 14-digit timestamp
-        assert_eq!(parts[1].len(), 14, "second segment must be 14-digit timestamp");
+        assert_eq!(
+            parts[1].len(),
+            14,
+            "second segment must be 14-digit timestamp"
+        );
         assert!(
             parts[1].chars().all(|c| c.is_ascii_digit()),
             "second segment must be all digits"
@@ -249,10 +269,7 @@ mod tests {
     fn test_folder_channel_inbox_prefix_filtering() {
         let dir = tempfile::tempdir().unwrap();
         // identity_short = first 8 chars of "my-identity" = "my-ident"
-        let channel = FolderChannel::new(
-            "my-identity".to_string(),
-            "my-device".to_string(),
-        );
+        let channel = FolderChannel::new("my-identity".to_string(), "my-device".to_string());
 
         // File addressed TO this device (new format) — must be returned
         let inbox_file = dir.path().join("my-ident_20260315120000_abcdef01.swarm");
@@ -271,10 +288,7 @@ mod tests {
     fn test_folder_channel_ignores_old_format_files() {
         let dir = tempfile::tempdir().unwrap();
         // identity_short = "my-ident"
-        let channel = FolderChannel::new(
-            "my-identity".to_string(),
-            "my-device".to_string(),
-        );
+        let channel = FolderChannel::new("my-identity".to_string(), "my-device".to_string());
 
         // Old-format file: starts with MY identity short but second segment is NOT 14 digits
         // (it's "my-devic", an 8-char device short)

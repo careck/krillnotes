@@ -28,8 +28,12 @@ fn main() {
 
     let mut entries: Vec<(String, String)> = Vec::new();
 
-    let read_dir = fs::read_dir(&locales_dir)
-        .unwrap_or_else(|e| panic!("Cannot read locales directory {}: {e}", locales_dir.display()));
+    let read_dir = fs::read_dir(&locales_dir).unwrap_or_else(|e| {
+        panic!(
+            "Cannot read locales directory {}: {e}",
+            locales_dir.display()
+        )
+    });
     for entry in read_dir.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("json") {

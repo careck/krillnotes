@@ -72,16 +72,12 @@ pub enum RetractInverse {
     /// Inverse of `DeleteAttachment` — restores a soft-deleted attachment.
     ///
     /// The `.enc.trash` file is renamed back to `.enc` and the DB row is re-inserted.
-    AttachmentRestore {
-        meta: AttachmentMeta,
-    },
+    AttachmentRestore { meta: AttachmentMeta },
 
     /// Inverse of `AttachmentRestore` (i.e. redo of an undone DeleteAttachment).
     ///
     /// Re-soft-deletes the attachment: renames `.enc` → `.enc.trash` and removes the DB row.
-    AttachmentSoftDelete {
-        attachment_id: String,
-    },
+    AttachmentSoftDelete { attachment_id: String },
 
     /// Inverse of a compound action (tree hook, batch import).
     /// Items are applied in **reverse** order (LIFO — children before parent).
@@ -106,8 +102,12 @@ mod tests {
     #[test]
     fn test_retract_inverse_batch_serializes() {
         let batch = RetractInverse::Batch(vec![
-            RetractInverse::DeleteNote { note_id: "n1".into() },
-            RetractInverse::DeleteNote { note_id: "n2".into() },
+            RetractInverse::DeleteNote {
+                note_id: "n1".into(),
+            },
+            RetractInverse::DeleteNote {
+                note_id: "n2".into(),
+            },
         ]);
         let json = serde_json::to_string(&batch).unwrap();
         let back: RetractInverse = serde_json::from_str(&json).unwrap();
@@ -119,7 +119,9 @@ mod tests {
 
     #[test]
     fn test_undo_result_no_note() {
-        let r = UndoResult { affected_note_id: None };
+        let r = UndoResult {
+            affected_note_id: None,
+        };
         assert!(r.affected_note_id.is_none());
     }
 }

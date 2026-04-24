@@ -10,13 +10,13 @@ pub mod contacts;
 pub mod identity;
 pub mod invites;
 pub mod notes;
+pub mod permissions;
 pub mod receive_poll;
 pub mod relay_accounts;
 pub mod scripting;
 pub mod scripts;
 pub mod swarm;
 pub mod sync;
-pub mod permissions;
 pub mod workspace;
 
 pub use accepted_invites::*;

@@ -6,8 +6,8 @@
 
 //! Schema definitions and the private schema store for Krillnotes note types.
 
-use crate::{FieldValue, KrillnotesError, Result};
 use crate::core::save_transaction::SaveTransaction;
+use crate::{FieldValue, KrillnotesError, Result};
 use rhai::{Dynamic, Engine, FnPtr, Map, AST};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -75,7 +75,7 @@ pub struct ScriptWarning {
 #[derive(Debug)]
 pub struct AddChildResult {
     pub parent: Option<(String, BTreeMap<String, FieldValue>)>,
-    pub child:  Option<(String, BTreeMap<String, FieldValue>)>,
+    pub child: Option<(String, BTreeMap<String, FieldValue>)>,
 }
 
 /// Describes a single typed field within a note schema.
@@ -163,7 +163,8 @@ pub struct Schema {
 impl Schema {
     /// All fields in declaration order: top-level first, then each group's fields.
     pub fn all_fields(&self) -> Vec<&FieldDefinition> {
-        self.fields.iter()
+        self.fields
+            .iter()
             .chain(self.field_groups.iter().flat_map(|g| g.fields.iter()))
             .collect()
     }
@@ -181,7 +182,10 @@ impl Schema {
     ///
     /// Returns [`KrillnotesError::ValidationFailed`] for the first required
     /// field that is empty, naming the field in the error message.
-    pub fn validate_required_fields(&self, fields: &BTreeMap<String, FieldValue>) -> crate::Result<()> {
+    pub fn validate_required_fields(
+        &self,
+        fields: &BTreeMap<String, FieldValue>,
+    ) -> crate::Result<()> {
         for field_def in self.all_fields() {
             if !field_def.required {
                 continue;
@@ -278,9 +282,10 @@ impl Schema {
             .unwrap_or(0);
 
         if max < 0 {
-            return Err(KrillnotesError::Scripting(
-                format!("field '{}': max must be >= 0, got {}", field_name, max)
-            ));
+            return Err(KrillnotesError::Scripting(format!(
+                "field '{}': max must be >= 0, got {}",
+                field_name, max
+            )));
         }
 
         let target_schema: Option<String> = field_map
@@ -299,7 +304,9 @@ impl Schema {
         {
             for item in arr {
                 let s = item.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("allowed_types array must contain only strings".into())
+                    KrillnotesError::Scripting(
+                        "allowed_types array must contain only strings".into(),
+                    )
                 })?;
                 allowed_types.push(s);
             }
@@ -309,7 +316,19 @@ impl Schema {
             .get("validate")
             .and_then(|v| v.clone().try_cast::<rhai::FnPtr>());
 
-        Ok(FieldDefinition { name: field_name, field_type, required, can_view, can_edit, options, max, target_schema, show_on_hover, allowed_types, validate })
+        Ok(FieldDefinition {
+            name: field_name,
+            field_type,
+            required,
+            can_view,
+            can_edit,
+            options,
+            max,
+            target_schema,
+            show_on_hover,
+            allowed_types,
+            validate,
+        })
     }
 
     /// Parses a `Schema` from a Rhai object map produced by a `schema(...)` call.
@@ -329,7 +348,8 @@ impl Schema {
             let field = Self::parse_field_def(&field_item)?;
             if !all_field_names.insert(field.name.clone()) {
                 return Err(KrillnotesError::Scripting(format!(
-                    "Duplicate field name '{}' in schema '{}'", field.name, name
+                    "Duplicate field name '{}' in schema '{}'",
+                    field.name, name
                 )));
             }
             fields.push(field);
@@ -357,7 +377,9 @@ impl Schema {
         {
             for item in arr {
                 let s = item.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("allowed_parent_schemas must contain only strings".into())
+                    KrillnotesError::Scripting(
+                        "allowed_parent_schemas must contain only strings".into(),
+                    )
                 })?;
                 allowed_parent_schemas.push(s);
             }
@@ -370,7 +392,9 @@ impl Schema {
         {
             for item in arr {
                 let s = item.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("allowed_children_schemas must contain only strings".into())
+                    KrillnotesError::Scripting(
+                        "allowed_children_schemas must contain only strings".into(),
+                    )
                 })?;
                 allowed_children_schemas.push(s);
             }
@@ -388,7 +412,9 @@ impl Schema {
         {
             for item in arr {
                 let s = item.try_cast::<String>().ok_or_else(|| {
-                    KrillnotesError::Scripting("attachment_types array must contain only strings".into())
+                    KrillnotesError::Scripting(
+                        "attachment_types array must contain only strings".into(),
+                    )
                 })?;
                 attachment_types.push(s);
             }
@@ -400,14 +426,16 @@ impl Schema {
             .and_then(|v| v.clone().try_cast::<rhai::Array>())
         {
             for group_item in groups_array {
-                let group_map = group_item
-                    .try_cast::<Map>()
-                    .ok_or_else(|| KrillnotesError::Scripting("field_groups entry must be a map".to_string()))?;
+                let group_map = group_item.try_cast::<Map>().ok_or_else(|| {
+                    KrillnotesError::Scripting("field_groups entry must be a map".to_string())
+                })?;
 
                 let group_name = group_map
                     .get("name")
                     .and_then(|v| v.clone().try_cast::<String>())
-                    .ok_or_else(|| KrillnotesError::Scripting("field group missing 'name'".to_string()))?;
+                    .ok_or_else(|| {
+                        KrillnotesError::Scripting("field group missing 'name'".to_string())
+                    })?;
 
                 let collapsed = group_map
                     .get("collapsed")
@@ -421,22 +449,31 @@ impl Schema {
                 let group_fields_array = group_map
                     .get("fields")
                     .and_then(|v| v.clone().try_cast::<rhai::Array>())
-                    .ok_or_else(|| KrillnotesError::Scripting(
-                        format!("field group '{}' missing 'fields' array", group_name)
-                    ))?;
+                    .ok_or_else(|| {
+                        KrillnotesError::Scripting(format!(
+                            "field group '{}' missing 'fields' array",
+                            group_name
+                        ))
+                    })?;
 
                 let mut group_fields = Vec::new();
                 for field_item in group_fields_array {
                     let field = Self::parse_field_def(&field_item)?;
                     if !all_field_names.insert(field.name.clone()) {
                         return Err(KrillnotesError::Scripting(format!(
-                            "Duplicate field name '{}' in schema '{}'", field.name, name
+                            "Duplicate field name '{}' in schema '{}'",
+                            field.name, name
                         )));
                     }
                     group_fields.push(field);
                 }
 
-                field_groups.push(FieldGroup { name: group_name, fields: group_fields, visible, collapsed });
+                field_groups.push(FieldGroup {
+                    name: group_name,
+                    fields: group_fields,
+                    visible,
+                    collapsed,
+                });
             }
         }
 
@@ -444,13 +481,17 @@ impl Schema {
         let version = def
             .get("version")
             .and_then(|v| v.clone().try_cast::<i64>())
-            .ok_or_else(|| KrillnotesError::Scripting(
-                format!("Schema '{}' missing required 'version' key", name)
-            ))?;
+            .ok_or_else(|| {
+                KrillnotesError::Scripting(format!(
+                    "Schema '{}' missing required 'version' key",
+                    name
+                ))
+            })?;
         if version < 1 {
-            return Err(KrillnotesError::Scripting(
-                format!("Schema '{}' version must be >= 1, got {}", name, version)
-            ));
+            return Err(KrillnotesError::Scripting(format!(
+                "Schema '{}' version must be >= 1, got {}",
+                name, version
+            )));
         }
         let version = version as u32;
 
@@ -462,22 +503,22 @@ impl Schema {
         {
             for (key, val) in migrate_map.iter() {
                 let target_ver = key.to_string().parse::<u32>().map_err(|_| {
-                    KrillnotesError::Scripting(
-                        format!("Schema '{}' migrate key '{}' must be an integer", name, key)
-                    )
+                    KrillnotesError::Scripting(format!(
+                        "Schema '{}' migrate key '{}' must be an integer",
+                        name, key
+                    ))
                 })?;
                 if target_ver < 2 || target_ver > version {
-                    return Err(KrillnotesError::Scripting(
-                        format!(
-                            "Schema '{}' migrate key {} out of range (must be 2..={})",
-                            name, target_ver, version
-                        )
-                    ));
+                    return Err(KrillnotesError::Scripting(format!(
+                        "Schema '{}' migrate key {} out of range (must be 2..={})",
+                        name, target_ver, version
+                    )));
                 }
                 let fn_ptr = val.clone().try_cast::<rhai::FnPtr>().ok_or_else(|| {
-                    KrillnotesError::Scripting(
-                        format!("Schema '{}' migrate[{}] must be a closure", name, target_ver)
-                    )
+                    KrillnotesError::Scripting(format!(
+                        "Schema '{}' migrate[{}] must be a closure",
+                        name, target_ver
+                    ))
                 })?;
                 migrations.insert(target_ver, fn_ptr);
             }
@@ -493,34 +534,50 @@ impl Schema {
             .and_then(|v| v.clone().try_cast::<bool>())
             .unwrap_or(false);
 
-        Ok(Schema { name: name.to_string(), fields, title_can_view, title_can_edit, children_sort, allowed_parent_schemas, allowed_children_schemas, allow_attachments, attachment_types, field_groups, ast: None, version, migrations, is_leaf, show_checkbox })
+        Ok(Schema {
+            name: name.to_string(),
+            fields,
+            title_can_view,
+            title_can_edit,
+            children_sort,
+            allowed_parent_schemas,
+            allowed_children_schemas,
+            allow_attachments,
+            attachment_types,
+            field_groups,
+            ast: None,
+            version,
+            migrations,
+            is_leaf,
+            show_checkbox,
+        })
     }
 }
 
 /// Private store for registered schemas plus per-schema hook side-tables.
 #[derive(Debug, Clone)]
 pub(super) struct SchemaRegistry {
-    schemas:              Arc<Mutex<HashMap<String, Schema>>>,
-    on_save_hooks:        Arc<Mutex<HashMap<String, HookEntry>>>,
-    on_add_child_hooks:   Arc<Mutex<HashMap<String, HookEntry>>>,
-    view_registrations:   Arc<Mutex<HashMap<String, Vec<ViewRegistration>>>>,
-    hover_registrations:  Arc<Mutex<HashMap<String, HookEntry>>>,
-    menu_registrations:   Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>>,
-    deferred_bindings:    Arc<Mutex<Vec<DeferredBinding>>>,
-    warnings:             Arc<Mutex<Vec<ScriptWarning>>>,
+    schemas: Arc<Mutex<HashMap<String, Schema>>>,
+    on_save_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    on_add_child_hooks: Arc<Mutex<HashMap<String, HookEntry>>>,
+    view_registrations: Arc<Mutex<HashMap<String, Vec<ViewRegistration>>>>,
+    hover_registrations: Arc<Mutex<HashMap<String, HookEntry>>>,
+    menu_registrations: Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>>,
+    deferred_bindings: Arc<Mutex<Vec<DeferredBinding>>>,
+    warnings: Arc<Mutex<Vec<ScriptWarning>>>,
 }
 
 impl SchemaRegistry {
     pub(super) fn new() -> Self {
         Self {
-            schemas:              Arc::new(Mutex::new(HashMap::new())),
-            on_save_hooks:        Arc::new(Mutex::new(HashMap::new())),
-            on_add_child_hooks:   Arc::new(Mutex::new(HashMap::new())),
-            view_registrations:   Arc::new(Mutex::new(HashMap::new())),
-            hover_registrations:  Arc::new(Mutex::new(HashMap::new())),
-            menu_registrations:   Arc::new(Mutex::new(HashMap::new())),
-            deferred_bindings:    Arc::new(Mutex::new(Vec::new())),
-            warnings:             Arc::new(Mutex::new(Vec::new())),
+            schemas: Arc::new(Mutex::new(HashMap::new())),
+            on_save_hooks: Arc::new(Mutex::new(HashMap::new())),
+            on_add_child_hooks: Arc::new(Mutex::new(HashMap::new())),
+            view_registrations: Arc::new(Mutex::new(HashMap::new())),
+            hover_registrations: Arc::new(Mutex::new(HashMap::new())),
+            menu_registrations: Arc::new(Mutex::new(HashMap::new())),
+            deferred_bindings: Arc::new(Mutex::new(Vec::new())),
+            warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -537,7 +594,9 @@ impl SchemaRegistry {
         Arc::clone(&self.on_add_child_hooks)
     }
 
-    pub(super) fn menu_registrations_arc(&self) -> Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>> {
+    pub(super) fn menu_registrations_arc(
+        &self,
+    ) -> Arc<Mutex<HashMap<String, Vec<MenuRegistration>>>> {
         Arc::clone(&self.menu_registrations)
     }
 
@@ -546,8 +605,12 @@ impl SchemaRegistry {
     }
 
     pub fn get_views_for_type(&self, schema_name: &str) -> Vec<ViewRegistration> {
-        self.view_registrations.lock().unwrap()
-            .get(schema_name).cloned().unwrap_or_default()
+        self.view_registrations
+            .lock()
+            .unwrap()
+            .get(schema_name)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn get_warnings(&self) -> Vec<ScriptWarning> {
@@ -563,10 +626,26 @@ impl SchemaRegistry {
 
     /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
     /// Used by the Phase D migration pipeline to detect and migrate stale notes.
-    pub(super) fn get_versioned_schemas(&self) -> Vec<(String, u32, std::collections::BTreeMap<u32, FnPtr>, Option<rhai::AST>)> {
-        self.schemas.lock().unwrap()
+    pub(super) fn get_versioned_schemas(
+        &self,
+    ) -> Vec<(
+        String,
+        u32,
+        std::collections::BTreeMap<u32, FnPtr>,
+        Option<rhai::AST>,
+    )> {
+        self.schemas
+            .lock()
+            .unwrap()
             .values()
-            .map(|s| (s.name.clone(), s.version, s.migrations.clone(), s.ast.clone()))
+            .map(|s| {
+                (
+                    s.name.clone(),
+                    s.version,
+                    s.migrations.clone(),
+                    s.ast.clone(),
+                )
+            })
             .collect()
     }
 
@@ -617,13 +696,19 @@ impl SchemaRegistry {
 
     /// Returns `true` if any view registrations exist for `schema_name`.
     pub(super) fn has_views(&self, schema_name: &str) -> bool {
-        self.view_registrations.lock().unwrap()
-            .get(schema_name).is_some_and(|v| !v.is_empty())
+        self.view_registrations
+            .lock()
+            .unwrap()
+            .get(schema_name)
+            .is_some_and(|v| !v.is_empty())
     }
 
     /// Returns `true` if a hover registration exists for `schema_name`.
     pub(super) fn has_hover(&self, schema_name: &str) -> bool {
-        self.hover_registrations.lock().unwrap().contains_key(schema_name)
+        self.hover_registrations
+            .lock()
+            .unwrap()
+            .contains_key(schema_name)
     }
 
     /// Resolves deferred bindings against currently registered schemas.
@@ -639,7 +724,9 @@ impl SchemaRegistry {
             match binding.kind {
                 BindingKind::View => {
                     if schemas.contains_key(&binding.target_schema) {
-                        let label = binding.label.unwrap_or_else(|| binding.target_schema.clone());
+                        let label = binding
+                            .label
+                            .unwrap_or_else(|| binding.target_schema.clone());
                         let slot = views.entry(binding.target_schema).or_default();
                         // Deduplicate: library source is prepended to each schema compilation,
                         // so register_view() in a library script fires once per schema loaded.
@@ -733,9 +820,9 @@ impl SchemaRegistry {
         fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<SaveTransaction>> {
         let entry = {
-            let hooks = self.on_save_hooks
-                .lock()
-                .map_err(|_| KrillnotesError::Scripting("on_save hook lock poisoned".to_string()))?;
+            let hooks = self.on_save_hooks.lock().map_err(|_| {
+                KrillnotesError::Scripting("on_save hook lock poisoned".to_string())
+            })?;
             hooks.get(&schema.name).cloned()
         };
         let entry = match entry {
@@ -748,10 +835,10 @@ impl SchemaRegistry {
             fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
         }
         let mut note_map = Map::new();
-        note_map.insert("id".into(),        Dynamic::from(note_id.to_string()));
-        note_map.insert("schema".into(),    Dynamic::from(schema_type.to_string()));
-        note_map.insert("title".into(),     Dynamic::from(title.to_string()));
-        note_map.insert("fields".into(),    Dynamic::from(fields_map));
+        note_map.insert("id".into(), Dynamic::from(note_id.to_string()));
+        note_map.insert("schema".into(), Dynamic::from(schema_type.to_string()));
+        note_map.insert("title".into(), Dynamic::from(title.to_string()));
+        note_map.insert("fields".into(), Dynamic::from(fields_map));
 
         // Populate the thread-local SaveTransaction before calling the hook.
         let tx = SaveTransaction::for_existing_note(
@@ -774,30 +861,33 @@ impl SchemaRegistry {
         // This preserves the structured error data from reject() calls.
         let result = match result {
             Err(_) if tx.has_errors() => {
-                let msgs: Vec<String> = tx.soft_errors.iter().map(|e| {
-                    match &e.field {
+                let msgs: Vec<String> = tx
+                    .soft_errors
+                    .iter()
+                    .map(|e| match &e.field {
                         Some(f) => format!("{}: {}", f, e.message),
                         None => e.message.clone(),
-                    }
-                }).collect();
+                    })
+                    .collect();
                 return Err(KrillnotesError::ValidationFailed(msgs.join("; ")));
             }
-            Err(e) => return Err(KrillnotesError::Scripting(
-                format!("on_save hook error in '{}': {e}", entry.script_name)
-            )),
+            Err(e) => {
+                return Err(KrillnotesError::Scripting(format!(
+                    "on_save hook error in '{}': {e}",
+                    entry.script_name
+                )))
+            }
             Ok(v) => v,
         };
 
         // Old-style hooks return the note map. Detect and reject with a clear migration message.
         if result.is::<Map>() {
-            return Err(KrillnotesError::Scripting(
-                format!(
-                    "on_save hook in '{}' uses the old direct-mutation style (returns the note map). \
+            return Err(KrillnotesError::Scripting(format!(
+                "on_save hook in '{}' uses the old direct-mutation style (returns the note map). \
                      Migrate to the gated model: use set_field(note.id, \"field\", value), \
                      set_title(note.id, \"title\"), and commit() instead.",
-                    entry.script_name
-                )
-            ));
+                entry.script_name
+            )));
         }
 
         Ok(Some(tx))
@@ -823,15 +913,23 @@ impl SchemaRegistry {
         };
 
         // Pick the first display_first view, or just the first one
-        let view = view_list.iter().find(|v| v.display_first).unwrap_or(&view_list[0]);
+        let view = view_list
+            .iter()
+            .find(|v| v.display_first)
+            .unwrap_or(&view_list[0]);
         let result = view
             .fn_ptr
             .call::<Dynamic>(engine, &view.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("view '{}' error in '{}': {e}", view.label, view.script_name)))?;
+            .map_err(|e| {
+                KrillnotesError::Scripting(format!(
+                    "view '{}' error in '{}': {e}",
+                    view.label, view.script_name
+                ))
+            })?;
 
-        let html = result.try_cast::<String>().ok_or_else(|| {
-            KrillnotesError::Scripting("view must return a string".to_string())
-        })?;
+        let html = result
+            .try_cast::<String>()
+            .ok_or_else(|| KrillnotesError::Scripting("view must return a string".to_string()))?;
 
         Ok(Some(html))
     }
@@ -853,18 +951,28 @@ impl SchemaRegistry {
             KrillnotesError::Scripting(format!("No views registered for type '{schema_name}'"))
         })?;
 
-        let view = view_list.iter().find(|v| v.label == view_label).ok_or_else(|| {
-            KrillnotesError::Scripting(format!("View '{view_label}' not found for type '{schema_name}'"))
-        })?;
+        let view = view_list
+            .iter()
+            .find(|v| v.label == view_label)
+            .ok_or_else(|| {
+                KrillnotesError::Scripting(format!(
+                    "View '{view_label}' not found for type '{schema_name}'"
+                ))
+            })?;
 
         let result = view
             .fn_ptr
             .call::<Dynamic>(engine, &view.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("view '{}' error in '{}': {e}", view.label, view.script_name)))?;
+            .map_err(|e| {
+                KrillnotesError::Scripting(format!(
+                    "view '{}' error in '{}': {e}",
+                    view.label, view.script_name
+                ))
+            })?;
 
-        result.try_cast::<String>().ok_or_else(|| {
-            KrillnotesError::Scripting("view must return a string".to_string())
-        })
+        result
+            .try_cast::<String>()
+            .ok_or_else(|| KrillnotesError::Scripting("view must return a string".to_string()))
     }
 
     /// Runs the hover registration for `schema_name`, if registered.
@@ -881,9 +989,9 @@ impl SchemaRegistry {
             .unwrap_or_default();
 
         let entry = {
-            let hovers = self.hover_registrations
-                .lock()
-                .map_err(|_| KrillnotesError::Scripting("hover registration lock poisoned".to_string()))?;
+            let hovers = self.hover_registrations.lock().map_err(|_| {
+                KrillnotesError::Scripting("hover registration lock poisoned".to_string())
+            })?;
             hovers.get(&schema_name).cloned()
         };
         let entry = match entry {
@@ -894,11 +1002,13 @@ impl SchemaRegistry {
         let result = entry
             .fn_ptr
             .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(note_map),))
-            .map_err(|e| KrillnotesError::Scripting(format!("hover error in '{}': {e}", entry.script_name)))?;
+            .map_err(|e| {
+                KrillnotesError::Scripting(format!("hover error in '{}': {e}", entry.script_name))
+            })?;
 
-        let html = result.try_cast::<String>().ok_or_else(|| {
-            KrillnotesError::Scripting("hover must return a string".to_string())
-        })?;
+        let html = result
+            .try_cast::<String>()
+            .ok_or_else(|| KrillnotesError::Scripting("hover must return a string".to_string()))?;
 
         Ok(Some(html))
     }
@@ -927,9 +1037,9 @@ impl SchemaRegistry {
         child_fields: &BTreeMap<String, FieldValue>,
     ) -> Result<Option<AddChildResult>> {
         let entry = {
-            let hooks = self.on_add_child_hooks
-                .lock()
-                .map_err(|_| KrillnotesError::Scripting("on_add_child hook lock poisoned".to_string()))?;
+            let hooks = self.on_add_child_hooks.lock().map_err(|_| {
+                KrillnotesError::Scripting("on_add_child hook lock poisoned".to_string())
+            })?;
             hooks.get(&parent_schema.name).cloned()
         };
         let entry = match entry {
@@ -944,10 +1054,10 @@ impl SchemaRegistry {
             p_fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
         }
         let mut parent_map = Map::new();
-        parent_map.insert("id".into(),        Dynamic::from(parent_id.to_string()));
+        parent_map.insert("id".into(), Dynamic::from(parent_id.to_string()));
         parent_map.insert("schema".into(), Dynamic::from(parent_type.to_string()));
-        parent_map.insert("title".into(),     Dynamic::from(parent_title.to_string()));
-        parent_map.insert("fields".into(),    Dynamic::from(p_fields_map));
+        parent_map.insert("title".into(), Dynamic::from(parent_title.to_string()));
+        parent_map.insert("fields".into(), Dynamic::from(p_fields_map));
 
         // Build child note map
         let mut c_fields_map = Map::new();
@@ -955,10 +1065,10 @@ impl SchemaRegistry {
             c_fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
         }
         let mut child_map = Map::new();
-        child_map.insert("id".into(),        Dynamic::from(child_id.to_string()));
+        child_map.insert("id".into(), Dynamic::from(child_id.to_string()));
         child_map.insert("schema".into(), Dynamic::from(child_type.to_string()));
-        child_map.insert("title".into(),     Dynamic::from(child_title.to_string()));
-        child_map.insert("fields".into(),    Dynamic::from(c_fields_map));
+        child_map.insert("title".into(), Dynamic::from(child_title.to_string()));
+        child_map.insert("fields".into(), Dynamic::from(c_fields_map));
 
         // Pre-seed the SaveTransaction with both parent and child so that
         // set_field / set_title calls inside the hook can target either note.
@@ -977,38 +1087,44 @@ impl SchemaRegistry {
         );
         super::set_save_tx(tx);
 
-        let result = entry
-            .fn_ptr
-            .call::<Dynamic>(engine, &entry.ast, (Dynamic::from(parent_map), Dynamic::from(child_map)));
+        let result = entry.fn_ptr.call::<Dynamic>(
+            engine,
+            &entry.ast,
+            (Dynamic::from(parent_map), Dynamic::from(child_map)),
+        );
 
         // Always take the SaveTransaction back before inspecting errors.
         let tx = super::take_save_tx().unwrap_or_default();
 
         let result = match result {
-            Err(e) => return Err(KrillnotesError::Scripting(
-                format!("on_add_child hook error in '{}': {e}", entry.script_name)
-            )),
+            Err(e) => {
+                return Err(KrillnotesError::Scripting(format!(
+                    "on_add_child hook error in '{}': {e}",
+                    entry.script_name
+                )))
+            }
             Ok(v) => v,
         };
 
         // Old-style hooks return a map #{ parent: ..., child: ... }.
         // Detect and reject with a clear migration message.
         if result.is::<Map>() {
-            return Err(KrillnotesError::Scripting(
-                format!(
-                    "on_add_child hook in '{}' uses the old direct-mutation style (returns a map). \
+            return Err(KrillnotesError::Scripting(format!(
+                "on_add_child hook in '{}' uses the old direct-mutation style (returns a map). \
                      Migrate to the gated model: use set_field(id, \"field\", value), \
                      set_title(id, \"title\"), and commit() instead.",
-                    entry.script_name
-                )
-            ));
+                entry.script_name
+            )));
         }
 
         // Extract modifications from the transaction's pending notes.
         let parent_update = extract_note_update(&tx, parent_id, parent_schema);
-        let child_update  = extract_note_update(&tx, child_id,  child_schema);
+        let child_update = extract_note_update(&tx, child_id, child_schema);
 
-        Ok(Some(AddChildResult { parent: parent_update, child: child_update }))
+        Ok(Some(AddChildResult {
+            parent: parent_update,
+            child: child_update,
+        }))
     }
 }
 
@@ -1024,7 +1140,7 @@ fn extract_note_update(
     let pending = tx.pending_notes.get(note_id)?;
 
     // Only return Some if the hook actually changed something.
-    let title_changed  = pending.pending_title.is_some();
+    let title_changed = pending.pending_title.is_some();
     let fields_changed = !pending.pending_fields.is_empty();
 
     if !title_changed && !fields_changed {
@@ -1077,7 +1193,9 @@ pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> FieldValue
     use chrono::NaiveDate;
     match field_type {
         "number" | "rating" => {
-            let n = d.clone().try_cast::<f64>()
+            let n = d
+                .clone()
+                .try_cast::<f64>()
                 .or_else(|| d.clone().try_cast::<i64>().map(|i| i as f64))
                 .unwrap_or(0.0);
             FieldValue::Number(n)
@@ -1088,13 +1206,8 @@ pub(super) fn dynamic_to_field_value(d: Dynamic, field_type: &str) -> FieldValue
             FieldValue::Date(NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
         }
         "email" => FieldValue::Email(d.try_cast::<String>().unwrap_or_default()),
-        "note_link" => FieldValue::NoteLink(
-            d.try_cast::<String>().filter(|s| !s.is_empty())
-        ),
-        "file" => FieldValue::File(
-            d.try_cast::<String>().filter(|s| !s.is_empty())
-        ),
+        "note_link" => FieldValue::NoteLink(d.try_cast::<String>().filter(|s| !s.is_empty())),
+        "file" => FieldValue::File(d.try_cast::<String>().filter(|s| !s.is_empty())),
         _ => FieldValue::Text(d.try_cast::<String>().unwrap_or_default()),
     }
 }
-

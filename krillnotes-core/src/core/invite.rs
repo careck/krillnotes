@@ -6,14 +6,14 @@
 
 //! Invite record and `.swarm` file structures for the peer invite flow.
 
-use std::path::{Path, PathBuf};
-use std::collections::BTreeMap;
-use chrono::{DateTime, Utc, Duration};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use base64::{engine::general_purpose::STANDARD, Engine};
-use ed25519_dalek::{SigningKey, Signer, VerifyingKey, Verifier, Signature};
 use crate::core::error::KrillnotesError;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use chrono::{DateTime, Duration, Utc};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, KrillnotesError>;
 
@@ -36,7 +36,7 @@ pub struct InviteRecord {
     #[serde(default)]
     pub scope_note_title: Option<String>,
     #[serde(default)]
-    pub offered_role: String,  // "owner" | "writer" | "reader"
+    pub offered_role: String, // "owner" | "writer" | "reader"
 }
 
 // ── .swarm file formats ───────────────────────────────────────────────────────
@@ -97,10 +97,8 @@ pub struct InviteResponseFile {
 fn sort_json(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
-            let sorted: BTreeMap<String, serde_json::Value> = map
-                .into_iter()
-                .map(|(k, v)| (k, sort_json(v)))
-                .collect();
+            let sorted: BTreeMap<String, serde_json::Value> =
+                map.into_iter().map(|(k, v)| (k, sort_json(v))).collect();
             serde_json::Value::Object(sorted.into_iter().collect())
         }
         serde_json::Value::Array(arr) => {
@@ -164,8 +162,7 @@ fn write_json_zip_to_writer<W: std::io::Write + std::io::Seek>(
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
     let mut zip = ZipWriter::new(writer);
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     zip.start_file(entry_name, options)
         .map_err(|e| KrillnotesError::Swarm(format!("zip write error: {e}")))?;
     zip.write_all(json.as_bytes())?;
@@ -187,7 +184,8 @@ fn read_json_from_zip_bytes(bytes: &[u8], entry_name: &str) -> Result<String> {
     let cursor = std::io::Cursor::new(bytes);
     let mut archive = ZipArchive::new(cursor)
         .map_err(|e| KrillnotesError::Swarm(format!("Cannot read .swarm bytes: {e}")))?;
-    let mut file = archive.by_name(entry_name)
+    let mut file = archive
+        .by_name(entry_name)
         .map_err(|e| KrillnotesError::Swarm(format!("Missing {entry_name} in archive: {e}")))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -323,7 +321,10 @@ impl InviteManager {
     pub fn delete_invite(&mut self, invite_id: Uuid) -> Result<()> {
         let path = self.path_for(invite_id);
         if !path.exists() {
-            return Err(KrillnotesError::Swarm(format!("Invite {} not found", invite_id)));
+            return Err(KrillnotesError::Swarm(format!(
+                "Invite {} not found",
+                invite_id
+            )));
         }
         std::fs::remove_file(path)?;
         Ok(())
@@ -496,7 +497,10 @@ mod record_tests {
             "relayUrl": "https://swarm.krillnotes.org/invites/abc123"
         }"#;
         let record: InviteRecord = serde_json::from_str(json).unwrap();
-        assert_eq!(record.relay_url.as_deref(), Some("https://swarm.krillnotes.org/invites/abc123"));
+        assert_eq!(
+            record.relay_url.as_deref(),
+            Some("https://swarm.krillnotes.org/invites/abc123")
+        );
     }
 }
 
@@ -516,7 +520,22 @@ mod manager_tests {
         let (dir, key) = setup();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let (record, file) = mgr
-            .create_invite("ws-id", "My Workspace", None, &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "My Workspace",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         assert_eq!(record.workspace_id, "ws-id");
         assert!(!record.revoked);
@@ -531,7 +550,22 @@ mod manager_tests {
         let (dir, key) = setup();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let (record, _) = mgr
-            .create_invite("ws-id", "My Workspace", None, &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "My Workspace",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         mgr.revoke_invite(record.invite_id).unwrap();
         let list = mgr.list_invites().unwrap();
@@ -543,7 +577,22 @@ mod manager_tests {
         let (dir, key) = setup();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let (record, _) = mgr
-            .create_invite("ws-id", "My Workspace", None, &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "My Workspace",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         assert_eq!(mgr.list_invites().unwrap().len(), 1);
         mgr.delete_invite(record.invite_id).unwrap();
@@ -555,13 +604,58 @@ mod manager_tests {
         let (dir, key) = setup();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let (r1, _) = mgr
-            .create_invite("ws-id", "WS1", None, &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "WS1",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         let (_r2, _) = mgr
-            .create_invite("ws-id", "WS2", None, &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "WS2",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         let (r3, _) = mgr
-            .create_invite("ws-id", "WS3", None, &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "WS3",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         mgr.revoke_invite(r1.invite_id).unwrap();
         mgr.revoke_invite(r3.invite_id).unwrap();
@@ -577,7 +671,22 @@ mod manager_tests {
         let (dir, key) = setup();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let (record, file) = mgr
-            .create_invite("ws-id", "My Workspace", Some(7), &key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "My Workspace",
+                Some(7),
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
         assert!(record.expires_at.is_some());
         assert!(file.expires_at.is_some());
@@ -590,10 +699,24 @@ mod manager_tests {
         let inviter_key = SigningKey::generate(&mut rand_core::OsRng);
         let invitee_key = SigningKey::generate(&mut rand_core::OsRng);
 
-        let (_record, invite_file) = mgr.create_invite(
-            "ws-1", "Test", Some(7), &inviter_key, "Alice",
-            None, None, None, None, None, vec![], None, None, "writer".to_string(),
-        ).unwrap();
+        let (_record, invite_file) = mgr
+            .create_invite(
+                "ws-1",
+                "Test",
+                Some(7),
+                &inviter_key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
+            .unwrap();
 
         let response = InviteManager::build_response(&invite_file, &invitee_key, "Bob").unwrap();
         assert_eq!(response.invite_id, invite_file.invite_id);
@@ -608,11 +731,24 @@ mod manager_tests {
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let signing_key = SigningKey::generate(&mut rand_core::OsRng);
 
-        let (_record, invite_file) = mgr.create_invite(
-            "ws-1", "Test Workspace", Some(7),
-            &signing_key, "Alice",
-            None, None, None, None, None, vec![], None, None, "writer".to_string(),
-        ).unwrap();
+        let (_record, invite_file) = mgr
+            .create_invite(
+                "ws-1",
+                "Test Workspace",
+                Some(7),
+                &signing_key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
+            .unwrap();
 
         let bytes = InviteManager::serialize_invite_to_bytes(&invite_file).unwrap();
         assert!(!bytes.is_empty());
@@ -642,17 +778,35 @@ mod manager_tests {
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let signing_key = SigningKey::generate(&mut rand_core::OsRng);
 
-        let (record, _invite_file) = mgr.create_invite(
-            "ws-1", "Test", Some(7), &signing_key, "Alice",
-            None, None, None, None, None, vec![], None, None, "writer".to_string(),
-        ).unwrap();
+        let (record, _invite_file) = mgr
+            .create_invite(
+                "ws-1",
+                "Test",
+                Some(7),
+                &signing_key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
+            .unwrap();
         let id = record.invite_id;
         assert!(record.relay_url.is_none());
 
-        mgr.set_relay_url(id, "https://swarm.krillnotes.org/invites/abc".into()).unwrap();
+        mgr.set_relay_url(id, "https://swarm.krillnotes.org/invites/abc".into())
+            .unwrap();
 
         let loaded = mgr.get_invite(id).unwrap().unwrap();
-        assert_eq!(loaded.relay_url.as_deref(), Some("https://swarm.krillnotes.org/invites/abc"));
+        assert_eq!(
+            loaded.relay_url.as_deref(),
+            Some("https://swarm.krillnotes.org/invites/abc")
+        );
     }
 
     #[test]
@@ -660,13 +814,29 @@ mod manager_tests {
         let (dir, inviter_key) = setup();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let (_, invite_file) = mgr
-            .create_invite("ws-id", "My Workspace", None, &inviter_key, "Alice", None, None, None, None, None, vec![], None, None, "writer".to_string())
+            .create_invite(
+                "ws-id",
+                "My Workspace",
+                None,
+                &inviter_key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
             .unwrap();
 
         // Invitee builds response
         let invitee_key = SigningKey::from_bytes(&[2u8; 32]);
         let response_path = dir.path().join("response.swarm");
-        InviteManager::build_and_save_response(&invite_file, &invitee_key, "Bob", &response_path).unwrap();
+        InviteManager::build_and_save_response(&invite_file, &invitee_key, "Bob", &response_path)
+            .unwrap();
 
         // Inviter parses and verifies response
         let response = InviteManager::parse_and_verify_response(&response_path).unwrap();
@@ -691,7 +861,9 @@ mod signing_tests {
         let sig = sign_payload(&payload, &key);
         let mut signed = payload.clone();
         signed["signature"] = serde_json::Value::String(sig);
-        assert!(verify_payload(&signed, signed["signature"].as_str().unwrap(), &pubkey_b64).is_ok());
+        assert!(
+            verify_payload(&signed, signed["signature"].as_str().unwrap(), &pubkey_b64).is_ok()
+        );
     }
 
     #[test]
@@ -703,7 +875,12 @@ mod signing_tests {
         let mut tampered = payload.clone();
         tampered["hello"] = serde_json::Value::String("evil".to_string());
         tampered["signature"] = serde_json::Value::String(sig);
-        assert!(verify_payload(&tampered, tampered["signature"].as_str().unwrap(), &pubkey_b64).is_err());
+        assert!(verify_payload(
+            &tampered,
+            tampered["signature"].as_str().unwrap(),
+            &pubkey_b64
+        )
+        .is_err());
     }
 
     #[test]
@@ -711,13 +888,24 @@ mod signing_tests {
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let key = test_key();
-        let (record, file) = mgr.create_invite(
-            "ws-1", "Test WS", Some(7), &key, "Alice",
-            None, None, None, None, None, vec![],
-            Some("note-42".to_string()),
-            Some("My Subtree".to_string()),
-            "writer".to_string(),
-        ).unwrap();
+        let (record, file) = mgr
+            .create_invite(
+                "ws-1",
+                "Test WS",
+                Some(7),
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                Some("note-42".to_string()),
+                Some("My Subtree".to_string()),
+                "writer".to_string(),
+            )
+            .unwrap();
         assert_eq!(record.scope_note_id.as_deref(), Some("note-42"));
         assert_eq!(record.scope_note_title.as_deref(), Some("My Subtree"));
         assert_eq!(file.scope_note_id.as_deref(), Some("note-42"));
@@ -729,11 +917,24 @@ mod signing_tests {
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
         let key = test_key();
-        let (record, file) = mgr.create_invite(
-            "ws-1", "Test WS", None, &key, "Alice",
-            None, None, None, None, None, vec![],
-            None, None, "writer".to_string(),
-        ).unwrap();
+        let (record, file) = mgr
+            .create_invite(
+                "ws-1",
+                "Test WS",
+                None,
+                &key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                None,
+                None,
+                "writer".to_string(),
+            )
+            .unwrap();
         assert!(record.scope_note_id.is_none());
         assert!(file.scope_note_id.is_none());
     }
@@ -775,13 +976,24 @@ mod signing_tests {
         let inviter_key = test_key();
 
         // Create scoped invite
-        let (record, file) = mgr.create_invite(
-            "ws-1", "Test WS", None, &inviter_key, "Alice",
-            None, None, None, None, None, vec![],
-            Some("note-42".to_string()),
-            Some("Backend API".to_string()),
-            "writer".to_string(),
-        ).unwrap();
+        let (record, file) = mgr
+            .create_invite(
+                "ws-1",
+                "Test WS",
+                None,
+                &inviter_key,
+                "Alice",
+                None,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                Some("note-42".to_string()),
+                Some("Backend API".to_string()),
+                "writer".to_string(),
+            )
+            .unwrap();
 
         assert_eq!(record.scope_note_id.as_deref(), Some("note-42"));
 

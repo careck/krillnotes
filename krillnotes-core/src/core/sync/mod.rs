@@ -49,9 +49,7 @@ pub enum SyncEvent {
         op_count: usize,
     },
     /// The relay session token has expired — the user must re-authenticate.
-    AuthExpired {
-        relay_url: String,
-    },
+    AuthExpired { relay_url: String },
     /// A non-fatal error occurred during outbound sync for a peer.
     SyncError {
         workspace_id: String,
@@ -66,10 +64,7 @@ pub enum SyncEvent {
     },
     /// Received a bundle with a mode we don't handle in the dispatch loop
     /// (e.g. Snapshot, Invite, Accept).
-    UnexpectedBundleMode {
-        workspace_id: String,
-        mode: String,
-    },
+    UnexpectedBundleMode { workspace_id: String, mode: String },
     /// Bundle transport succeeded but the relay did not route it to any recipient
     /// (e.g. peer's device key is unknown or unverified). Watermark NOT advanced.
     SendSkipped {
@@ -342,7 +337,7 @@ impl SyncEngine {
             op: Operation,
             sender_device_id: String,
             bundle_ack: Option<String>,
-            attachment_blobs: Arc<Vec<(String, Vec<u8>)>>,  // shared ref to parent delta's blobs
+            attachment_blobs: Arc<Vec<(String, Vec<u8>)>>, // shared ref to parent delta's blobs
         }
 
         let mut op_entries: Vec<OpEntry> = pending_deltas
@@ -372,7 +367,10 @@ impl SyncEngine {
             // TOFU: auto-register unknown operation authors.
             let author_key = entry.op.author_key();
             if !author_key.is_empty()
-                && ctx.contact_manager.find_by_public_key(author_key)?.is_none()
+                && ctx
+                    .contact_manager
+                    .find_by_public_key(author_key)?
+                    .is_none()
             {
                 let name = if let Operation::JoinWorkspace { declared_name, .. } = &entry.op {
                     declared_name.clone()
@@ -424,7 +422,10 @@ impl SyncEngine {
         for entry in &op_entries {
             sender_last_op.insert(
                 entry.sender_device_id.clone(),
-                (entry.op.operation_id().to_string(), entry.bundle_ack.clone()),
+                (
+                    entry.op.operation_id().to_string(),
+                    entry.bundle_ack.clone(),
+                ),
             );
         }
 
@@ -439,9 +440,7 @@ impl SyncEngine {
 
             if !upserted.contains(sender) {
                 upserted.insert(sender.clone());
-                let last_received = sender_last_op
-                    .get(sender)
-                    .map(|(op_id, _)| op_id.as_str());
+                let last_received = sender_last_op.get(sender).map(|(op_id, _)| op_id.as_str());
                 workspace.upsert_peer_from_delta(
                     sender,
                     &pd.parsed.sender_public_key,
@@ -532,12 +531,7 @@ impl SyncEngine {
 
         for peer in &active_peers {
             // Mark peer as syncing
-            let _ = workspace.update_peer_sync_status(
-                &peer.peer_device_id,
-                "syncing",
-                None,
-                None,
-            );
+            let _ = workspace.update_peer_sync_status(&peer.peer_device_id, "syncing", None, None);
 
             log::debug!(target: "krillnotes::sync", "generating delta for peer {} via {}", peer.peer_device_id, peer.channel_type);
 
@@ -591,12 +585,7 @@ impl SyncEngine {
             // Skip 0-op bundles unless we received from this peer in the
             // inbound phase (meaning we have a fresh ACK to deliver).
             if delta.op_count == 0 && !peers_with_inbound.contains(&peer.peer_device_id) {
-                let _ = workspace.update_peer_sync_status(
-                    &peer.peer_device_id,
-                    "idle",
-                    None,
-                    None,
-                );
+                let _ = workspace.update_peer_sync_status(&peer.peer_device_id, "idle", None, None);
                 continue;
             }
 
@@ -615,12 +604,8 @@ impl SyncEngine {
                             None,
                         );
                     }
-                    let _ = workspace.update_peer_sync_status(
-                        &peer.peer_device_id,
-                        "idle",
-                        None,
-                        None,
-                    );
+                    let _ =
+                        workspace.update_peer_sync_status(&peer.peer_device_id, "idle", None, None);
                     events.push(SyncEvent::DeltaSent {
                         workspace_id: workspace_id.clone(),
                         peer_device_id: peer.peer_device_id.clone(),
@@ -687,7 +672,6 @@ impl SyncEngine {
     fn read_header_from_bundle(data: &[u8]) -> Result<SwarmHeader, KrillnotesError> {
         crate::core::swarm::header::read_header(data)
     }
-
 }
 
 impl Default for SyncEngine {

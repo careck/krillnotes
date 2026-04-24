@@ -44,7 +44,9 @@ pub enum KrillnotesError {
     WrongPassword,
 
     /// The file is a valid but unencrypted (pre-encryption) workspace.
-    #[error("This workspace was created with an older version of Krillnotes and cannot be opened here")]
+    #[error(
+        "This workspace was created with an older version of Krillnotes and cannot be opened here"
+    )]
     UnencryptedWorkspace,
 
     /// An I/O operation on the filesystem failed.
@@ -161,7 +163,10 @@ mod tests {
         let e = KrillnotesError::AttachmentEncryption("bad key".to_string());
         assert!(e.to_string().contains("encryption") || e.to_string().contains("Encryption"));
 
-        let e2 = KrillnotesError::AttachmentTooLarge { size: 200, limit: 100 };
+        let e2 = KrillnotesError::AttachmentTooLarge {
+            size: 200,
+            limit: 100,
+        };
         assert!(e2.to_string().contains("200"));
     }
 }

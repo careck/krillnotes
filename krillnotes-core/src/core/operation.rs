@@ -486,12 +486,18 @@ impl Operation {
             Self::RetractOperation { .. } => "",
             Self::SetPermission { granted_by, .. } => granted_by,
             Self::RevokePermission { revoked_by, .. } => revoked_by,
-            Self::JoinWorkspace { identity_public_key, .. } => identity_public_key,
+            Self::JoinWorkspace {
+                identity_public_key,
+                ..
+            } => identity_public_key,
             Self::RemovePeer { removed_by, .. } => removed_by,
             Self::TransferRootOwnership { transferred_by, .. } => transferred_by,
             Self::AddAttachment { added_by, .. } => added_by,
             Self::RemoveAttachment { removed_by, .. } => removed_by,
-            Self::RegisterDevice { identity_public_key, .. } => identity_public_key,
+            Self::RegisterDevice {
+                identity_public_key,
+                ..
+            } => identity_public_key,
             Self::SetChecked { modified_by, .. } => modified_by,
         }
     }
@@ -513,12 +519,18 @@ impl Operation {
             Self::RetractOperation { .. } => {}
             Self::SetPermission { granted_by, .. } => *granted_by = key,
             Self::RevokePermission { revoked_by, .. } => *revoked_by = key,
-            Self::JoinWorkspace { identity_public_key, .. } => *identity_public_key = key,
+            Self::JoinWorkspace {
+                identity_public_key,
+                ..
+            } => *identity_public_key = key,
             Self::RemovePeer { removed_by, .. } => *removed_by = key,
             Self::TransferRootOwnership { transferred_by, .. } => *transferred_by = key,
             Self::AddAttachment { added_by, .. } => *added_by = key,
             Self::RemoveAttachment { removed_by, .. } => *removed_by = key,
-            Self::RegisterDevice { identity_public_key, .. } => *identity_public_key = key,
+            Self::RegisterDevice {
+                identity_public_key,
+                ..
+            } => *identity_public_key = key,
             Self::SetChecked { modified_by, .. } => *modified_by = key,
         }
     }

@@ -43,7 +43,10 @@ struct WorkspaceMenuResult<R: Runtime> {
 ///
 /// On macOS: App menu (Krillnotes), File, Edit, Workspace, View.
 /// On other platforms: File, Edit, Workspace, View, Help.
-pub fn build_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<MenuResult<R>, tauri::Error> {
+pub fn build_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<MenuResult<R>, tauri::Error> {
     let file_result = build_file_menu(app, strings)?;
     let edit_result = build_edit_menu(app, strings)?;
     let tools_result = build_workspace_menu(app, strings)?;
@@ -58,7 +61,13 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Men
     {
         let app_menu = build_macos_app_menu(app, strings)?;
         let menu = MenuBuilder::new(app)
-            .items(&[&app_menu, &file_result.submenu, &edit_result.submenu, &tools_result.submenu, &view_menu])
+            .items(&[
+                &app_menu,
+                &file_result.submenu,
+                &edit_result.submenu,
+                &tools_result.submenu,
+                &view_menu,
+            ])
             .build()?;
         return Ok(MenuResult {
             menu,
@@ -73,7 +82,13 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Men
     {
         let help_menu = build_help_menu(app, strings)?;
         let menu = MenuBuilder::new(app)
-            .items(&[&file_result.submenu, &edit_result.submenu, &tools_result.submenu, &view_menu, &help_menu])
+            .items(&[
+                &file_result.submenu,
+                &edit_result.submenu,
+                &tools_result.submenu,
+                &view_menu,
+                &help_menu,
+            ])
             .build()?;
         return Ok(MenuResult {
             menu,
@@ -89,7 +104,10 @@ fn s<'a>(strings: &'a Value, key: &str, fallback: &'a str) -> &'a str {
     strings[key].as_str().unwrap_or(fallback)
 }
 
-fn build_view_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Submenu<R>, tauri::Error> {
+fn build_view_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<Submenu<R>, tauri::Error> {
     SubmenuBuilder::new(app, s(strings, "view", "View"))
         .items(&[
             &PredefinedMenuItem::fullscreen(app, None)?,
@@ -101,54 +119,100 @@ fn build_view_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Su
         .build()
 }
 
-fn build_workspace_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<WorkspaceMenuResult<R>, tauri::Error> {
-    let workspace_properties = MenuItemBuilder::with_id("workspace_properties", s(strings, "workspaceProperties", "Workspace Properties\u{2026}"))
-        .enabled(false)
-        .build(app)?;
-    let workspace_peers_item = MenuItemBuilder::with_id("workspace_peers",
-        s(strings, "workspacePeers", "Workspace Peers"))
-        .enabled(false)
-        .build(app)?;
-    let create_delta_swarm_item = MenuItemBuilder::with_id("create_delta_swarm",
-        s(strings, "createDeltaSwarm", "Create delta Swarm"))
-        .enabled(false)
-        .build(app)?;
+fn build_workspace_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<WorkspaceMenuResult<R>, tauri::Error> {
+    let workspace_properties = MenuItemBuilder::with_id(
+        "workspace_properties",
+        s(
+            strings,
+            "workspaceProperties",
+            "Workspace Properties\u{2026}",
+        ),
+    )
+    .enabled(false)
+    .build(app)?;
+    let workspace_peers_item = MenuItemBuilder::with_id(
+        "workspace_peers",
+        s(strings, "workspacePeers", "Workspace Peers"),
+    )
+    .enabled(false)
+    .build(app)?;
+    let create_delta_swarm_item = MenuItemBuilder::with_id(
+        "create_delta_swarm",
+        s(strings, "createDeltaSwarm", "Create delta Swarm"),
+    )
+    .enabled(false)
+    .build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
-    let manage_scripts = MenuItemBuilder::with_id("edit_manage_scripts", s(strings, "manageScripts", "Manage Scripts..."))
-        .enabled(false)
-        .build(app)?;
-    let operations_log = MenuItemBuilder::with_id("view_operations_log", s(strings, "operationsLog", "Operations Log..."))
-        .enabled(false)
-        .build(app)?;
+    let manage_scripts = MenuItemBuilder::with_id(
+        "edit_manage_scripts",
+        s(strings, "manageScripts", "Manage Scripts..."),
+    )
+    .enabled(false)
+    .build(app)?;
+    let operations_log = MenuItemBuilder::with_id(
+        "view_operations_log",
+        s(strings, "operationsLog", "Operations Log..."),
+    )
+    .enabled(false)
+    .build(app)?;
 
     let submenu = SubmenuBuilder::new(app, s(strings, "workspace", "Workspace"))
-        .items(&[&workspace_properties, &workspace_peers_item, &create_delta_swarm_item, &sep1, &manage_scripts, &operations_log])
+        .items(&[
+            &workspace_properties,
+            &workspace_peers_item,
+            &create_delta_swarm_item,
+            &sep1,
+            &manage_scripts,
+            &operations_log,
+        ])
         .build()?;
 
     Ok(WorkspaceMenuResult {
         submenu,
-        workspace_items: vec![workspace_properties, workspace_peers_item, create_delta_swarm_item, manage_scripts, operations_log],
+        workspace_items: vec![
+            workspace_properties,
+            workspace_peers_item,
+            create_delta_swarm_item,
+            manage_scripts,
+            operations_log,
+        ],
     })
 }
 
-fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<FileMenuResult<R>, tauri::Error> {
-    let new_item = MenuItemBuilder::with_id("file_new", s(strings, "newWorkspace", "New Workspace"))
-        .accelerator("CmdOrCtrl+N")
-        .build(app)?;
-    let open_item = MenuItemBuilder::with_id("file_open", s(strings, "openWorkspace", "Open Workspace..."))
-        .accelerator("CmdOrCtrl+O")
-        .build(app)?;
+fn build_file_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<FileMenuResult<R>, tauri::Error> {
+    let new_item =
+        MenuItemBuilder::with_id("file_new", s(strings, "newWorkspace", "New Workspace"))
+            .accelerator("CmdOrCtrl+N")
+            .build(app)?;
+    let open_item = MenuItemBuilder::with_id(
+        "file_open",
+        s(strings, "openWorkspace", "Open Workspace..."),
+    )
+    .accelerator("CmdOrCtrl+O")
+    .build(app)?;
     let identities_item = MenuItemBuilder::with_id(
         "file_identities",
         s(strings, "manageIdentities", "Manage Identities\u{2026}"),
     )
     .build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
-    let export_item = MenuItemBuilder::with_id("file_export", s(strings, "exportWorkspace", "Export Workspace..."))
-        .enabled(false)
-        .build(app)?;
-    let import_item = MenuItemBuilder::with_id("file_import", s(strings, "importWorkspace", "Import Workspace..."))
-        .build(app)?;
+    let export_item = MenuItemBuilder::with_id(
+        "file_export",
+        s(strings, "exportWorkspace", "Export Workspace..."),
+    )
+    .enabled(false)
+    .build(app)?;
+    let import_item = MenuItemBuilder::with_id(
+        "file_import",
+        s(strings, "importWorkspace", "Import Workspace..."),
+    )
+    .build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let close_item = PredefinedMenuItem::close_window(app, None)?;
     let open_swarm_item = MenuItemBuilder::with_id(
@@ -158,13 +222,26 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     .build(app)?;
     let sep_sync = PredefinedMenuItem::separator(app)?;
     let sep_sync2 = PredefinedMenuItem::separator(app)?;
-    let sync_now_item = MenuItemBuilder::with_id("file_sync_now", s(strings, "syncNow", "Sync Now"))
-        .accelerator("CmdOrCtrl+S")
-        .enabled(false)
-        .build(app)?;
+    let sync_now_item =
+        MenuItemBuilder::with_id("file_sync_now", s(strings, "syncNow", "Sync Now"))
+            .accelerator("CmdOrCtrl+S")
+            .enabled(false)
+            .build(app)?;
 
-    let builder = SubmenuBuilder::new(app, s(strings, "file", "File"))
-        .items(&[&new_item, &open_item, &identities_item, &sep1, &export_item, &import_item, &sep_sync, &open_swarm_item, &sep_sync2, &sync_now_item, &sep2, &close_item]);
+    let builder = SubmenuBuilder::new(app, s(strings, "file", "File")).items(&[
+        &new_item,
+        &open_item,
+        &identities_item,
+        &sep1,
+        &export_item,
+        &import_item,
+        &sep_sync,
+        &open_swarm_item,
+        &sep_sync2,
+        &sync_now_item,
+        &sep2,
+        &close_item,
+    ]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -180,46 +257,66 @@ fn build_file_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Fi
     })
 }
 
-fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<EditMenuResult<R>, tauri::Error> {
+fn build_edit_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<EditMenuResult<R>, tauri::Error> {
     let add_note = MenuItemBuilder::with_id("edit_add_note", s(strings, "addNote", "Add Note"))
         .accelerator("CmdOrCtrl+Shift+N")
         .enabled(false)
         .build(app)?;
-    let delete_note = MenuItemBuilder::with_id("edit_delete_note", s(strings, "deleteNote", "Delete Note"))
-        .accelerator("CmdOrCtrl+Backspace")
-        .enabled(false)
-        .build(app)?;
+    let delete_note =
+        MenuItemBuilder::with_id("edit_delete_note", s(strings, "deleteNote", "Delete Note"))
+            .accelerator("CmdOrCtrl+Backspace")
+            .enabled(false)
+            .build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let copy_note = MenuItemBuilder::with_id("edit_copy_note", s(strings, "copyNote", "Copy Note"))
         .enabled(false)
         .build(app)?;
-    let paste_child = MenuItemBuilder::with_id("edit_paste_as_child", s(strings, "pasteAsChild", "Paste as Child"))
-        .enabled(false)
-        .build(app)?;
-    let paste_sibling = MenuItemBuilder::with_id("edit_paste_as_sibling", s(strings, "pasteAsSibling", "Paste as Sibling"))
-        .enabled(false)
-        .build(app)?;
+    let paste_child = MenuItemBuilder::with_id(
+        "edit_paste_as_child",
+        s(strings, "pasteAsChild", "Paste as Child"),
+    )
+    .enabled(false)
+    .build(app)?;
+    let paste_sibling = MenuItemBuilder::with_id(
+        "edit_paste_as_sibling",
+        s(strings, "pasteAsSibling", "Paste as Sibling"),
+    )
+    .enabled(false)
+    .build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let undo       = PredefinedMenuItem::undo(app, None)?;
-    let redo       = PredefinedMenuItem::redo(app, None)?;
-    let cut        = PredefinedMenuItem::cut(app, None)?;
-    let copy       = PredefinedMenuItem::copy(app, None)?;
-    let paste      = PredefinedMenuItem::paste(app, None)?;
+    let undo = PredefinedMenuItem::undo(app, None)?;
+    let redo = PredefinedMenuItem::redo(app, None)?;
+    let cut = PredefinedMenuItem::cut(app, None)?;
+    let copy = PredefinedMenuItem::copy(app, None)?;
+    let paste = PredefinedMenuItem::paste(app, None)?;
     let select_all = PredefinedMenuItem::select_all(app, None)?;
 
-    let builder = SubmenuBuilder::new(app, s(strings, "edit", "Edit"))
-        .items(&[&add_note, &delete_note, &sep1, &copy_note, &paste_child, &paste_sibling, &sep2]);
+    let builder = SubmenuBuilder::new(app, s(strings, "edit", "Edit")).items(&[
+        &add_note,
+        &delete_note,
+        &sep1,
+        &copy_note,
+        &paste_child,
+        &paste_sibling,
+        &sep2,
+    ]);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
-        let settings = MenuItemBuilder::with_id("edit_settings", s(strings, "settings", "Settings..."))
-            .accelerator("CmdOrCtrl+,")
-            .build(app)?;
+        let settings =
+            MenuItemBuilder::with_id("edit_settings", s(strings, "settings", "Settings..."))
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?;
         let sep4 = PredefinedMenuItem::separator(app)?;
         builder.item(&settings).item(&sep4)
     };
 
-    let submenu = builder.items(&[&undo, &redo, &cut, &copy, &paste, &select_all]).build()?;
+    let submenu = builder
+        .items(&[&undo, &redo, &cut, &copy, &paste, &select_all])
+        .build()?;
     Ok(EditMenuResult {
         submenu,
         paste_as_child: paste_child,
@@ -229,7 +326,10 @@ fn build_edit_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Ed
 }
 
 #[cfg(target_os = "macos")]
-fn build_macos_app_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Submenu<R>, tauri::Error> {
+fn build_macos_app_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<Submenu<R>, tauri::Error> {
     SubmenuBuilder::new(app, "Krillnotes")
         .items(&[
             &PredefinedMenuItem::about(app, None, None)?,
@@ -250,11 +350,15 @@ fn build_macos_app_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Resu
 }
 
 #[cfg(not(target_os = "macos"))]
-fn build_help_menu<R: Runtime>(app: &AppHandle<R>, strings: &Value) -> Result<Submenu<R>, tauri::Error> {
+fn build_help_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    strings: &Value,
+) -> Result<Submenu<R>, tauri::Error> {
     SubmenuBuilder::new(app, s(strings, "help", "Help"))
-        .items(&[
-            &MenuItemBuilder::with_id("help_about", s(strings, "aboutKrillnotes", "About Krillnotes"))
-                .build(app)?,
-        ])
+        .items(&[&MenuItemBuilder::with_id(
+            "help_about",
+            s(strings, "aboutKrillnotes", "About Krillnotes"),
+        )
+        .build(app)?])
         .build()
 }

@@ -112,8 +112,12 @@ fn test_list_waiting_snapshot() {
     );
     mgr.save(&invite2).unwrap();
 
-    mgr.update_status(id1, AcceptedInviteStatus::WorkspaceCreated, Some("/path".to_string()))
-        .unwrap();
+    mgr.update_status(
+        id1,
+        AcceptedInviteStatus::WorkspaceCreated,
+        Some("/path".to_string()),
+    )
+    .unwrap();
 
     let waiting = mgr.list_waiting_snapshot().unwrap();
     assert_eq!(waiting.len(), 1);

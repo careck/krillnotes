@@ -145,10 +145,7 @@ pub fn is_root_owner(
     state: State<'_, AppState>,
 ) -> std::result::Result<bool, String> {
     let label = window.label();
-    let ws = state
-        .workspaces
-        .lock()
-        .expect("Mutex poisoned");
+    let ws = state.workspaces.lock().expect("Mutex poisoned");
     let ws = ws.get(label).ok_or("No workspace open")?;
     Ok(ws.is_root_owner())
 }

@@ -18,18 +18,26 @@ pub mod sync;
 mod integration_tests {
     use ed25519_dalek::SigningKey;
 
+    use crate::core::hlc::HlcTimestamp;
+    use crate::core::operation::Operation;
     use crate::core::swarm::delta::{create_delta_bundle, parse_delta_bundle, DeltaParams};
     use crate::core::swarm::invite::*;
-    use crate::core::swarm::snapshot::{create_snapshot_bundle, parse_snapshot_bundle, SnapshotParams};
-    use crate::core::operation::Operation;
-    use crate::core::hlc::HlcTimestamp;
+    use crate::core::swarm::snapshot::{
+        create_snapshot_bundle, parse_snapshot_bundle, SnapshotParams,
+    };
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
+    fn make_key() -> SigningKey {
+        SigningKey::generate(&mut rand_core::OsRng)
+    }
 
     fn dummy_op(id: &str, note_id: &str) -> Operation {
         Operation::UpdateNote {
             operation_id: id.to_string(),
-            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 1000,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: "dev-alice".to_string(),
             note_id: note_id.to_string(),
             title: "Alice's edit".to_string(),
@@ -57,7 +65,8 @@ mod integration_tests {
             inviter_key: &alice_key,
             owner_pubkey: "owner-pk-alice".to_string(),
             reply_channels: vec![],
-        }).unwrap();
+        })
+        .unwrap();
 
         // === Step 2: Bob reads invite ===
         let parsed_invite = parse_invite_bundle(&invite_bundle).unwrap();
@@ -76,7 +85,8 @@ mod integration_tests {
             acceptor_key: &bob_key,
             owner_pubkey: parsed_invite.owner_pubkey.clone(),
             channel_preference: ChannelPreference::default(),
-        }).unwrap();
+        })
+        .unwrap();
 
         // === Step 4: Alice processes accept ===
         let parsed_accept = parse_accept_bundle(&accept_bundle).unwrap();
@@ -87,7 +97,8 @@ mod integration_tests {
         let workspace_state = serde_json::to_vec(&serde_json::json!({
             "notes": [],
             "scripts": []
-        })).unwrap();
+        }))
+        .unwrap();
 
         let snapshot_bundle = create_snapshot_bundle(SnapshotParams {
             protocol: "test".to_string(),
@@ -102,7 +113,8 @@ mod integration_tests {
             recipient_peer_ids: vec!["dev-bob".to_string()],
             attachment_blobs: vec![],
             owner_pubkey: "owner-pk-alice".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
 
         // === Step 6: Bob imports snapshot ===
         let parsed_snapshot = parse_snapshot_bundle(&snapshot_bundle, &bob_key).unwrap();
@@ -127,7 +139,8 @@ mod integration_tests {
             owner_pubkey: "owner-pk-alice".to_string(),
             ack_operation_id: None,
             attachment_blobs: vec![],
-        }).unwrap();
+        })
+        .unwrap();
 
         // === Step 8: Bob applies delta ===
         let parsed_delta = parse_delta_bundle(&delta_bundle, &bob_key).unwrap();

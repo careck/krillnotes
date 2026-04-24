@@ -39,7 +39,9 @@ fn test_identity_manager_creates_directory() {
 fn test_create_identity() {
     let tmp = tempfile::tempdir().unwrap();
     let mut mgr = IdentityManager::new(tmp.path().to_path_buf()).unwrap();
-    let file = mgr.create_identity("Test Identity", "my-passphrase").unwrap();
+    let file = mgr
+        .create_identity("Test Identity", "my-passphrase")
+        .unwrap();
     assert_eq!(file.display_name, "Test Identity");
     assert!(file.last_used.is_some());
     let base = tmp.path().join("Test Identity");
@@ -55,7 +57,9 @@ fn test_unlock_identity() {
     let mut mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
     let identity_file = mgr.create_identity("Bob", "secret").unwrap();
 
-    let unlocked = mgr.unlock_identity(&identity_file.identity_uuid, "secret").unwrap();
+    let unlocked = mgr
+        .unlock_identity(&identity_file.identity_uuid, "secret")
+        .unwrap();
     assert_eq!(unlocked.identity_uuid, identity_file.identity_uuid);
     assert_eq!(unlocked.display_name, "Bob");
 
@@ -85,7 +89,9 @@ fn test_sign_and_verify() {
     let dir = tempfile::tempdir().unwrap();
     let mut mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
     let identity_file = mgr.create_identity("Dave", "pass").unwrap();
-    let unlocked = mgr.unlock_identity(&identity_file.identity_uuid, "pass").unwrap();
+    let unlocked = mgr
+        .unlock_identity(&identity_file.identity_uuid, "pass")
+        .unwrap();
 
     let message = b"hello world";
     let signature = unlocked.signing_key.sign(message);
@@ -93,9 +99,8 @@ fn test_sign_and_verify() {
 
     // Also verify using the public key loaded from the file (not from unlock)
     let pk_bytes = BASE64.decode(&identity_file.public_key).unwrap();
-    let file_vk = ed25519_dalek::VerifyingKey::from_bytes(
-        pk_bytes.as_slice().try_into().unwrap()
-    ).unwrap();
+    let file_vk =
+        ed25519_dalek::VerifyingKey::from_bytes(pk_bytes.as_slice().try_into().unwrap()).unwrap();
     assert!(file_vk.verify(message, &signature).is_ok());
 }
 
@@ -139,18 +144,26 @@ fn test_change_passphrase() {
     let identity = mgr.create_identity("Eve", "old-pass").unwrap();
 
     // Unlock with old passphrase — get the public key for comparison
-    let unlocked_before = mgr.unlock_identity(&identity.identity_uuid, "old-pass").unwrap();
+    let unlocked_before = mgr
+        .unlock_identity(&identity.identity_uuid, "old-pass")
+        .unwrap();
     let pk_before = *unlocked_before.verifying_key.as_bytes();
 
     // Change passphrase
-    mgr.change_passphrase(&identity.identity_uuid, "old-pass", "new-pass").unwrap();
+    mgr.change_passphrase(&identity.identity_uuid, "old-pass", "new-pass")
+        .unwrap();
 
     // Old passphrase no longer works
     let result = mgr.unlock_identity(&identity.identity_uuid, "old-pass");
-    assert!(matches!(result.unwrap_err(), crate::KrillnotesError::IdentityWrongPassphrase));
+    assert!(matches!(
+        result.unwrap_err(),
+        crate::KrillnotesError::IdentityWrongPassphrase
+    ));
 
     // New passphrase works and produces the same keypair
-    let unlocked_after = mgr.unlock_identity(&identity.identity_uuid, "new-pass").unwrap();
+    let unlocked_after = mgr
+        .unlock_identity(&identity.identity_uuid, "new-pass")
+        .unwrap();
     assert_eq!(*unlocked_after.verifying_key.as_bytes(), pk_before);
 }
 
@@ -165,12 +178,22 @@ fn bind_and_get_workspace_binding_round_trips() {
     let seed = unlocked.signing_key.to_bytes();
 
     let workspace_uuid = Uuid::new_v4().to_string();
-    let workspace_dir = mgr.identity_base_dir(&identity_uuid).unwrap().join("MyWorkspace");
+    let workspace_dir = mgr
+        .identity_base_dir(&identity_uuid)
+        .unwrap()
+        .join("MyWorkspace");
     std::fs::create_dir_all(&workspace_dir).unwrap();
 
     let password = "hunter2";
 
-    mgr.bind_workspace(&identity_uuid, &workspace_uuid, &workspace_dir, password, &seed).unwrap();
+    mgr.bind_workspace(
+        &identity_uuid,
+        &workspace_uuid,
+        &workspace_dir,
+        password,
+        &seed,
+    )
+    .unwrap();
 
     // binding.json must exist
     assert!(workspace_dir.join("binding.json").exists());
@@ -211,7 +234,8 @@ fn decrypt_db_password_round_trips_multiple_workspaces() {
         let ws_dir = base.join(format!("ws{i}"));
         std::fs::create_dir_all(&ws_dir).unwrap();
         let password = format!("pass{i}");
-        mgr.bind_workspace(&identity_uuid, &ws_uuid, &ws_dir, &password, &seed).unwrap();
+        mgr.bind_workspace(&identity_uuid, &ws_uuid, &ws_dir, &password, &seed)
+            .unwrap();
         let decrypted = mgr.decrypt_db_password(&ws_dir, &seed).unwrap();
         assert_eq!(decrypted, password);
     }
@@ -243,19 +267,47 @@ fn test_multiple_identities_isolation() {
     let unlocked_a = mgr.unlock_identity(&id_a.identity_uuid, "passA").unwrap();
     let unlocked_b = mgr.unlock_identity(&id_b.identity_uuid, "passB").unwrap();
 
-    let ws_a = mgr.identity_base_dir(&id_a.identity_uuid).unwrap().join("ws_a");
-    let ws_b = mgr.identity_base_dir(&id_b.identity_uuid).unwrap().join("ws_b");
+    let ws_a = mgr
+        .identity_base_dir(&id_a.identity_uuid)
+        .unwrap()
+        .join("ws_a");
+    let ws_b = mgr
+        .identity_base_dir(&id_b.identity_uuid)
+        .unwrap()
+        .join("ws_b");
     std::fs::create_dir_all(&ws_a).unwrap();
     std::fs::create_dir_all(&ws_b).unwrap();
 
-    mgr.bind_workspace(&id_a.identity_uuid, "ws-a-uuid", &ws_a, "pw-a", unlocked_a.signing_key.as_bytes()).unwrap();
-    mgr.bind_workspace(&id_b.identity_uuid, "ws-b-uuid", &ws_b, "pw-b", unlocked_b.signing_key.as_bytes()).unwrap();
+    mgr.bind_workspace(
+        &id_a.identity_uuid,
+        "ws-a-uuid",
+        &ws_a,
+        "pw-a",
+        unlocked_a.signing_key.as_bytes(),
+    )
+    .unwrap();
+    mgr.bind_workspace(
+        &id_b.identity_uuid,
+        "ws-b-uuid",
+        &ws_b,
+        "pw-b",
+        unlocked_b.signing_key.as_bytes(),
+    )
+    .unwrap();
 
     // A can decrypt A's workspace
-    assert_eq!(mgr.decrypt_db_password(&ws_a, unlocked_a.signing_key.as_bytes()).unwrap(), "pw-a");
+    assert_eq!(
+        mgr.decrypt_db_password(&ws_a, unlocked_a.signing_key.as_bytes())
+            .unwrap(),
+        "pw-a"
+    );
 
     // B can decrypt B's workspace
-    assert_eq!(mgr.decrypt_db_password(&ws_b, unlocked_b.signing_key.as_bytes()).unwrap(), "pw-b");
+    assert_eq!(
+        mgr.decrypt_db_password(&ws_b, unlocked_b.signing_key.as_bytes())
+            .unwrap(),
+        "pw-b"
+    );
 
     // A cannot decrypt B's workspace (wrong key, AES-GCM will fail)
     let result = mgr.decrypt_db_password(&ws_b, unlocked_a.signing_key.as_bytes());
@@ -272,9 +324,13 @@ fn delete_identity_fails_if_workspaces_still_bound() {
     let seed = unlocked.signing_key.to_bytes();
     let ws_dir = mgr.identity_base_dir(&uuid).unwrap().join("My Workspace");
     std::fs::create_dir_all(&ws_dir).unwrap();
-    mgr.bind_workspace(&uuid, "ws-uuid-1", &ws_dir, "db-pass", &seed).unwrap();
+    mgr.bind_workspace(&uuid, "ws-uuid-1", &ws_dir, "db-pass", &seed)
+        .unwrap();
     let err = mgr.delete_identity(&uuid).unwrap_err();
-    assert!(matches!(err, crate::KrillnotesError::IdentityHasBoundWorkspaces(_)));
+    assert!(matches!(
+        err,
+        crate::KrillnotesError::IdentityHasBoundWorkspaces(_)
+    ));
 }
 
 #[test]
@@ -308,7 +364,8 @@ fn get_workspaces_for_identity_scans_identity_folder() {
     for name in &["Work", "Personal"] {
         let ws_dir = base.join(name);
         std::fs::create_dir_all(&ws_dir).unwrap();
-        mgr.bind_workspace(&uuid, &format!("uuid-{name}"), &ws_dir, "pass", &seed).unwrap();
+        mgr.bind_workspace(&uuid, &format!("uuid-{name}"), &ws_dir, "pass", &seed)
+            .unwrap();
     }
     let workspaces = mgr.get_workspaces_for_identity(&uuid).unwrap();
     assert_eq!(workspaces.len(), 2);
@@ -380,7 +437,10 @@ fn export_swarmid_wrong_passphrase() {
     let mut mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
     let identity = mgr.create_identity("Alice", "correct-passphrase").unwrap();
     let result = mgr.export_swarmid(&identity.identity_uuid, "wrong-passphrase");
-    assert!(matches!(result, Err(crate::KrillnotesError::IdentityWrongPassphrase)));
+    assert!(matches!(
+        result,
+        Err(crate::KrillnotesError::IdentityWrongPassphrase)
+    ));
 }
 
 #[test]
@@ -388,7 +448,9 @@ fn export_swarmid_correct_passphrase() {
     let dir = tempfile::tempdir().unwrap();
     let mut mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
     let identity = mgr.create_identity("Bob", "my-passphrase").unwrap();
-    let swarmid = mgr.export_swarmid(&identity.identity_uuid, "my-passphrase").unwrap();
+    let swarmid = mgr
+        .export_swarmid(&identity.identity_uuid, "my-passphrase")
+        .unwrap();
     assert_eq!(swarmid.format, "swarmid");
     assert_eq!(swarmid.version, 1);
     assert_eq!(swarmid.identity.display_name, "Bob");
@@ -433,7 +495,10 @@ fn import_swarmid_collision_returns_error() {
     };
     // Import again — same UUID should fail with IdentityAlreadyExists
     let result = mgr.import_swarmid(swarmid);
-    assert!(matches!(result, Err(crate::KrillnotesError::IdentityAlreadyExists(_))));
+    assert!(matches!(
+        result,
+        Err(crate::KrillnotesError::IdentityAlreadyExists(_))
+    ));
 }
 
 #[test]
@@ -487,9 +552,7 @@ fn import_swarmid_invalid_format_rejected() {
 fn contacts_key_is_deterministic() {
     let dir = tempfile::tempdir().unwrap();
     let mut mgr = IdentityManager::new(dir.path().to_path_buf()).unwrap();
-    let identity = mgr
-        .create_identity("Test User", "passphrase123")
-        .unwrap();
+    let identity = mgr.create_identity("Test User", "passphrase123").unwrap();
     let unlocked = mgr
         .unlock_identity(&identity.identity_uuid, "passphrase123")
         .unwrap();
@@ -498,9 +561,7 @@ fn contacts_key_is_deterministic() {
     assert_eq!(key1, key2, "contacts_key must be deterministic");
     assert_eq!(key1.len(), 32);
     // Must differ from a different identity
-    let identity2 = mgr
-        .create_identity("Other User", "passphrase123")
-        .unwrap();
+    let identity2 = mgr.create_identity("Other User", "passphrase123").unwrap();
     let unlocked2 = mgr
         .unlock_identity(&identity2.identity_uuid, "passphrase123")
         .unwrap();
@@ -535,7 +596,13 @@ fn identity_file_path_returns_identity_json_inside_folder() {
     let mut mgr = IdentityManager::new(tmp.path().to_path_buf()).unwrap();
     let file = mgr.create_identity("Alice", "pass").unwrap();
     let path = mgr.identity_file_path(&file.identity_uuid);
-    assert_eq!(path, tmp.path().join("Alice").join(".identity").join("identity.json"));
+    assert_eq!(
+        path,
+        tmp.path()
+            .join("Alice")
+            .join(".identity")
+            .join("identity.json")
+    );
 }
 
 #[test]
@@ -549,8 +616,11 @@ fn test_relay_key_differs_from_contacts_key() {
         signing_key,
         verifying_key,
     };
-    assert_ne!(unlocked.relay_key(), unlocked.contacts_key(),
-        "relay_key and contacts_key must differ");
+    assert_ne!(
+        unlocked.relay_key(),
+        unlocked.contacts_key(),
+        "relay_key and contacts_key must differ"
+    );
 }
 
 #[test]
@@ -564,8 +634,11 @@ fn test_relay_key_deterministic() {
         signing_key,
         verifying_key,
     };
-    assert_eq!(unlocked.relay_key(), unlocked.relay_key(),
-        "relay_key must be deterministic");
+    assert_eq!(
+        unlocked.relay_key(),
+        unlocked.relay_key(),
+        "relay_key must be deterministic"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -581,7 +654,10 @@ fn test_ensure_device_uuid_creates_and_persists() {
     let uuid1 = super::ensure_device_uuid(identity_dir).expect("first call should succeed");
     assert!(!uuid1.is_empty(), "UUID should not be empty");
     // Should be a valid UUID format.
-    assert!(uuid::Uuid::parse_str(&uuid1).is_ok(), "Must be a valid UUID string: {uuid1}");
+    assert!(
+        uuid::Uuid::parse_str(&uuid1).is_ok(),
+        "Must be a valid UUID string: {uuid1}"
+    );
 
     // Second call: file now exists — should return the same UUID.
     let uuid2 = super::ensure_device_uuid(identity_dir).expect("second call should succeed");
@@ -589,7 +665,10 @@ fn test_ensure_device_uuid_creates_and_persists() {
 
     // The file should exist on disk.
     let device_id_path = identity_dir.join("device_id");
-    assert!(device_id_path.exists(), "device_id file must exist after ensure_device_uuid");
+    assert!(
+        device_id_path.exists(),
+        "device_id file must exist after ensure_device_uuid"
+    );
 }
 
 #[test]
@@ -615,7 +694,10 @@ fn test_identity_from_device_id_composite() {
 #[test]
 fn test_identity_from_device_id_legacy() {
     let device_id = "legacy-uuid-only";
-    assert_eq!(super::identity_from_device_id(device_id), "legacy-uuid-only");
+    assert_eq!(
+        super::identity_from_device_id(device_id),
+        "legacy-uuid-only"
+    );
 }
 
 // ---------------------------------------------------------------------------

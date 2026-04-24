@@ -102,12 +102,7 @@ fn make_set_permission(note_id: &str, user_id: &str, role: &str) -> Operation {
     make_set_permission_by(note_id, user_id, role, ROOT_OWNER)
 }
 
-fn make_set_permission_by(
-    note_id: &str,
-    user_id: &str,
-    role: &str,
-    granted_by: &str,
-) -> Operation {
+fn make_set_permission_by(note_id: &str, user_id: &str, role: &str, granted_by: &str) -> Operation {
     Operation::SetPermission {
         operation_id: uuid::Uuid::new_v4().to_string(),
         timestamp: krillnotes_core::HlcTimestamp {
@@ -161,17 +156,26 @@ fn test_full_lifecycle_invite_and_authorize() {
     gate.apply_permission_op(&conn, &grant_op2).unwrap();
 
     // Carol can create and edit
-    assert!(gate.authorize(&conn, CAROL, &make_create_note("root_a")).is_ok());
-    assert!(gate.authorize(&conn, CAROL, &make_update_field("child_1")).is_ok());
+    assert!(gate
+        .authorize(&conn, CAROL, &make_create_note("root_a"))
+        .is_ok());
+    assert!(gate
+        .authorize(&conn, CAROL, &make_update_field("child_1"))
+        .is_ok());
 
     // Carol cannot delete Bob's note (child_1 created_by BOB, Carol is writer)
-    assert!(gate.authorize(&conn, CAROL, &make_delete_note("child_1")).is_err());
+    assert!(gate
+        .authorize(&conn, CAROL, &make_delete_note("child_1"))
+        .is_err());
 
     // Carol cannot set permissions (writers lack that ability)
-    assert!(
-        gate.authorize(&conn, CAROL, &make_set_permission("root_a", "dave", "reader"))
-            .is_err()
-    );
+    assert!(gate
+        .authorize(
+            &conn,
+            CAROL,
+            &make_set_permission("root_a", "dave", "reader")
+        )
+        .is_err());
 }
 
 /// Cascade revocation is now opt-in:
@@ -192,7 +196,9 @@ fn test_cascade_revocation_end_to_end() {
     gate.apply_permission_op(&conn, &g2).unwrap();
 
     // Carol can create
-    assert!(gate.authorize(&conn, CAROL, &make_create_note("root_a")).is_ok());
+    assert!(gate
+        .authorize(&conn, CAROL, &make_create_note("root_a"))
+        .is_ok());
 
     // Revoke Bob
     let revoke = make_revoke_permission("root_a", BOB);
@@ -200,7 +206,9 @@ fn test_cascade_revocation_end_to_end() {
     gate.apply_permission_op(&conn, &revoke).unwrap();
 
     // Carol's grant is PRESERVED (opt-in cascade — UI decides)
-    assert!(gate.authorize(&conn, CAROL, &make_create_note("root_a")).is_ok());
+    assert!(gate
+        .authorize(&conn, CAROL, &make_create_note("root_a"))
+        .is_ok());
 }
 
 /// Multi-subtree isolation:
@@ -216,10 +224,14 @@ fn test_multi_subtree_isolation() {
     gate.apply_permission_op(&conn, &g1).unwrap();
 
     // Bob can operate on root_a subtree
-    assert!(gate.authorize(&conn, BOB, &make_create_note("root_a")).is_ok());
+    assert!(gate
+        .authorize(&conn, BOB, &make_create_note("root_a"))
+        .is_ok());
 
     // Bob cannot operate on root_b subtree
-    assert!(gate.authorize(&conn, BOB, &make_create_note("root_b")).is_err());
+    assert!(gate
+        .authorize(&conn, BOB, &make_create_note("root_b"))
+        .is_err());
 }
 
 // ── Full Workspace integration tests ─────────────────────────────────
@@ -234,25 +246,34 @@ fn test_root_owner_can_do_everything() {
     let signing_key = SigningKey::from_bytes(&[1u8; 32]);
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD
-            .encode(signing_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
     };
     let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
 
     let temp = tempfile::NamedTempFile::new().unwrap();
     let mut ws = Workspace::create(
-        temp.path(), "", "test-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
-    ).unwrap();
+        temp.path(),
+        "",
+        "test-identity",
+        SigningKey::from_bytes(&[1u8; 32]),
+        gate,
+    )
+    .unwrap();
 
     // Create note
     let root = ws.list_all_notes().unwrap()[0].clone();
-    let child_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    let child_id = ws
+        .create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
 
     // Update note
-    ws.update_note_title(&child_id, "Test Note".to_string()).unwrap();
+    ws.update_note_title(&child_id, "Test Note".to_string())
+        .unwrap();
 
     // Move note (create another child, move under it)
-    let child2_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    let child2_id = ws
+        .create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
     ws.move_note(&child_id, Some(&child2_id), 0.0).unwrap();
 
     // Delete note
@@ -279,46 +300,65 @@ fn test_delete_recursive_cleans_up_permissions() {
     let signing_key = SigningKey::from_bytes(&[1u8; 32]);
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD
-            .encode(signing_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
     };
     let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
 
     let temp = tempfile::NamedTempFile::new().unwrap();
     let mut ws = Workspace::create(
-        temp.path(), "", "test-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
-    ).unwrap();
+        temp.path(),
+        "",
+        "test-identity",
+        SigningKey::from_bytes(&[1u8; 32]),
+        gate,
+    )
+    .unwrap();
 
     // Build a small tree: root → parent → child
     let root = ws.list_all_notes().unwrap()[0].clone();
-    let parent_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
-    let child_id = ws.create_note(&parent_id, AddPosition::AsChild, "TextNote").unwrap();
+    let parent_id = ws
+        .create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
+    let child_id = ws
+        .create_note(&parent_id, AddPosition::AsChild, "TextNote")
+        .unwrap();
 
     // Manually insert permission grants on both notes
-    ws.connection().execute_batch(&format!(
-        "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES \
+    ws.connection()
+        .execute_batch(&format!(
+            "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES \
          ('{parent_id}', 'bob', 'writer', 'root'), \
          ('{child_id}', 'carol', 'reader', 'root');"
-    )).unwrap();
+        ))
+        .unwrap();
 
     // Verify grants exist
-    let count: i64 = ws.connection().query_row(
-        "SELECT COUNT(*) FROM note_permissions WHERE note_id IN (?1, ?2)",
-        rusqlite::params![&parent_id, &child_id],
-        |row| row.get(0),
-    ).unwrap();
+    let count: i64 = ws
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM note_permissions WHERE note_id IN (?1, ?2)",
+            rusqlite::params![&parent_id, &child_id],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(count, 2, "expected 2 grants before deletion");
 
     // Delete the parent recursively (takes child with it)
     ws.delete_note_recursive(&parent_id).unwrap();
 
     // All grants should be cleaned up
-    let count_after: i64 = ws.connection().query_row(
-        "SELECT COUNT(*) FROM note_permissions WHERE note_id IN (?1, ?2)",
-        rusqlite::params![&parent_id, &child_id],
-        |row| row.get(0),
-    ).unwrap();
-    assert_eq!(count_after, 0, "grants should be cleaned up after recursive delete");
+    let count_after: i64 = ws
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM note_permissions WHERE note_id IN (?1, ?2)",
+            rusqlite::params![&parent_id, &child_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count_after, 0,
+        "grants should be cleaned up after recursive delete"
+    );
 }
 
 /// Deleting a note with promote-children strategy should clean up
@@ -331,46 +371,65 @@ fn test_delete_promote_cleans_up_permissions() {
     let signing_key = SigningKey::from_bytes(&[1u8; 32]);
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD
-            .encode(signing_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
     };
     let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
 
     let temp = tempfile::NamedTempFile::new().unwrap();
     let mut ws = Workspace::create(
-        temp.path(), "", "test-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
-    ).unwrap();
+        temp.path(),
+        "",
+        "test-identity",
+        SigningKey::from_bytes(&[1u8; 32]),
+        gate,
+    )
+    .unwrap();
 
     // Build a small tree: root → parent → child
     let root = ws.list_all_notes().unwrap()[0].clone();
-    let parent_id = ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
-    let child_id = ws.create_note(&parent_id, AddPosition::AsChild, "TextNote").unwrap();
+    let parent_id = ws
+        .create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
+    let child_id = ws
+        .create_note(&parent_id, AddPosition::AsChild, "TextNote")
+        .unwrap();
 
     // Manually insert permission grants on both notes
-    ws.connection().execute_batch(&format!(
-        "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES \
+    ws.connection()
+        .execute_batch(&format!(
+            "INSERT INTO note_permissions (note_id, user_id, role, granted_by) VALUES \
          ('{parent_id}', 'bob', 'writer', 'root'), \
          ('{child_id}', 'carol', 'reader', 'root');"
-    )).unwrap();
+        ))
+        .unwrap();
 
     // Delete the parent with promote strategy (child survives)
     ws.delete_note_promote(&parent_id).unwrap();
 
     // Parent's grant should be cleaned up
-    let parent_count: i64 = ws.connection().query_row(
-        "SELECT COUNT(*) FROM note_permissions WHERE note_id = ?1",
-        rusqlite::params![&parent_id],
-        |row| row.get(0),
-    ).unwrap();
+    let parent_count: i64 = ws
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM note_permissions WHERE note_id = ?1",
+            rusqlite::params![&parent_id],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(parent_count, 0, "parent's grant should be cleaned up");
 
     // Child's grant should survive
-    let child_count: i64 = ws.connection().query_row(
-        "SELECT COUNT(*) FROM note_permissions WHERE note_id = ?1",
-        rusqlite::params![&child_id],
-        |row| row.get(0),
-    ).unwrap();
-    assert_eq!(child_count, 1, "child's grant should survive promote delete");
+    let child_count: i64 = ws
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM note_permissions WHERE note_id = ?1",
+            rusqlite::params![&child_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        child_count, 1,
+        "child's grant should survive promote delete"
+    );
 }
 
 /// A non-owner identity without any grants should be denied on mutating operations.
@@ -382,20 +441,25 @@ fn test_non_owner_without_grants_is_denied() {
     let owner_key = SigningKey::from_bytes(&[1u8; 32]);
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD
-            .encode(owner_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD.encode(owner_key.verifying_key().as_bytes())
     };
     let gate: Box<dyn PermissionGate> = Box::new(RbacGate::new(owner_pubkey));
 
     // Create workspace as owner.
     let temp = tempfile::NamedTempFile::new().unwrap();
     let mut ws = Workspace::create(
-        temp.path(), "", "owner-identity", SigningKey::from_bytes(&[1u8; 32]), gate,
-    ).unwrap();
+        temp.path(),
+        "",
+        "owner-identity",
+        SigningKey::from_bytes(&[1u8; 32]),
+        gate,
+    )
+    .unwrap();
 
     // Add a child note so there's something to operate on.
     let root = ws.list_all_notes().unwrap()[0].clone();
-    ws.create_note(&root.id, AddPosition::AsChild, "TextNote").unwrap();
+    ws.create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
     drop(ws);
 
     // Re-open the workspace as a different identity (non-owner).
@@ -404,13 +468,17 @@ fn test_non_owner_without_grants_is_denied() {
         // Still the ORIGINAL owner's pubkey — this is the gate's "who is root" setting
         {
             use base64::Engine;
-            base64::engine::general_purpose::STANDARD
-                .encode(owner_key.verifying_key().as_bytes())
+            base64::engine::general_purpose::STANDARD.encode(owner_key.verifying_key().as_bytes())
         },
     ));
     let ws2 = Workspace::open(
-        temp.path(), "", "non-owner-identity", non_owner_key, non_owner_gate,
-    ).unwrap();
+        temp.path(),
+        "",
+        "non-owner-identity",
+        non_owner_key,
+        non_owner_gate,
+    )
+    .unwrap();
 
     // Read filtering: non-owner without grants sees an empty tree.
     let visible = ws2.list_all_notes().unwrap();
@@ -422,9 +490,15 @@ fn test_non_owner_without_grants_is_denied() {
 
     // Direct get_note should also be denied.
     let result = ws2.get_note(&root.id);
-    assert!(result.is_err(), "non-owner without grants should be denied on get_note");
     assert!(
-        matches!(result.unwrap_err(), krillnotes_core::KrillnotesError::Permission(_)),
+        result.is_err(),
+        "non-owner without grants should be denied on get_note"
+    );
+    assert!(
+        matches!(
+            result.unwrap_err(),
+            krillnotes_core::KrillnotesError::Permission(_)
+        ),
         "error should be Permission"
     );
 }

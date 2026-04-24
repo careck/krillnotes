@@ -5,12 +5,12 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
+use krillnotes_core::core::sync::relay::RelayClient;
+use krillnotes_core::core::sync::SyncChannel;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{Emitter, State, Window};
 use uuid::Uuid;
-use krillnotes_core::core::sync::relay::RelayClient;
-use krillnotes_core::core::sync::SyncChannel;
 
 // --- ReceivedResponse CRUD ---
 
@@ -63,15 +63,23 @@ pub fn list_received_responses(
     identity_uuid: String,
     workspace_id: Option<String>,
 ) -> std::result::Result<Vec<ReceivedResponseInfo>, String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let managers = state.received_response_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let managers = state
+        .received_response_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get(&uuid).ok_or("Identity not unlocked")?;
     let records = if let Some(ws_id) = workspace_id {
         mgr.list_by_workspace(&ws_id).map_err(|e| e.to_string())?
     } else {
         mgr.list().map_err(|e| e.to_string())?
     };
-    Ok(records.into_iter().map(ReceivedResponseInfo::from).collect())
+    Ok(records
+        .into_iter()
+        .map(ReceivedResponseInfo::from)
+        .collect())
 }
 
 #[tauri::command]
@@ -81,18 +89,30 @@ pub fn update_response_status(
     response_id: String,
     status: String,
 ) -> std::result::Result<(), String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let resp_uuid: Uuid = response_id.parse().map_err(|e| format!("Invalid response UUID: {e}"))?;
-    let mut managers = state.received_response_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let resp_uuid: Uuid = response_id
+        .parse()
+        .map_err(|e| format!("Invalid response UUID: {e}"))?;
+    let mut managers = state
+        .received_response_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
     let new_status = match status.as_str() {
         "pending" => krillnotes_core::core::received_response::ReceivedResponseStatus::Pending,
         "peerAdded" => krillnotes_core::core::received_response::ReceivedResponseStatus::PeerAdded,
-        "snapshotSent" => krillnotes_core::core::received_response::ReceivedResponseStatus::SnapshotSent,
-        "permissionPending" => krillnotes_core::core::received_response::ReceivedResponseStatus::PermissionPending,
+        "snapshotSent" => {
+            krillnotes_core::core::received_response::ReceivedResponseStatus::SnapshotSent
+        }
+        "permissionPending" => {
+            krillnotes_core::core::received_response::ReceivedResponseStatus::PermissionPending
+        }
         _ => return Err(format!("Invalid status: {status}")),
     };
-    mgr.update_status(resp_uuid, new_status).map_err(|e| e.to_string())
+    mgr.update_status(resp_uuid, new_status)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -101,9 +121,16 @@ pub fn dismiss_response(
     identity_uuid: String,
     response_id: String,
 ) -> std::result::Result<(), String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
-    let resp_uuid: Uuid = response_id.parse().map_err(|e| format!("Invalid response UUID: {e}"))?;
-    let mut managers = state.received_response_managers.lock().expect("Mutex poisoned");
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
+    let resp_uuid: Uuid = response_id
+        .parse()
+        .map_err(|e| format!("Invalid response UUID: {e}"))?;
+    let mut managers = state
+        .received_response_managers
+        .lock()
+        .expect("Mutex poisoned");
     let mgr = managers.get_mut(&uuid).ok_or("Identity not unlocked")?;
     mgr.delete(resp_uuid).map_err(|e| e.to_string())
 }
@@ -135,8 +162,12 @@ pub async fn poll_receive_workspace(
 
     // -- Collect context data under brief locks (all guards released before spawn) --
     let identity_uuid = {
-        let m = state.workspace_identities.lock().map_err(|e| e.to_string())?;
-        *m.get(&workspace_label).ok_or("No identity bound to this workspace")?
+        let m = state
+            .workspace_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
+        *m.get(&workspace_label)
+            .ok_or("No identity bound to this workspace")?
     };
 
     let workspace_id = {
@@ -150,21 +181,26 @@ pub async fn poll_receive_workspace(
 
     // Signing key + identity public key (base64) for decrypting and folder inbox.
     let (signing_key, identity_pubkey) = {
-        let m = state.unlocked_identities.lock().map_err(|e| e.to_string())?;
+        let m = state
+            .unlocked_identities
+            .lock()
+            .map_err(|e| e.to_string())?;
         let id = m.get(&identity_uuid).ok_or("Identity not unlocked")?;
         let pubkey_b64 = BASE64.encode(id.verifying_key.as_bytes());
         (id.signing_key.clone(), pubkey_b64)
     };
 
     let device_id = {
-        let short = krillnotes_core::core::device::get_device_id()
-            .map_err(|e| e.to_string())?;
+        let short = krillnotes_core::core::device::get_device_id().map_err(|e| e.to_string())?;
         format!("{}:identity:{}", short, identity_uuid)
     };
 
     // Get relay accounts for this identity (brief lock).
     let relay_accounts = {
-        let ram = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+        let ram = state
+            .relay_account_managers
+            .lock()
+            .map_err(|e| e.to_string())?;
         if let Some(mgr) = ram.get(&identity_uuid) {
             mgr.list_relay_accounts().unwrap_or_default()
         } else {
@@ -221,7 +257,8 @@ pub async fn poll_receive_workspace(
 
     log::debug!(
         "poll_receive_workspace: found {} active invite(s) for workspace {}",
-        active_invites.len(), workspace_id
+        active_invites.len(),
+        workspace_id
     );
 
     // Clone Arcs for use inside spawn_blocking.
@@ -683,12 +720,15 @@ pub async fn poll_receive_workspace(
 
     // Emit events for each new invite response.
     for resp in &result.new_responses {
-        let _ = window.emit("invite-response-received", serde_json::json!({
-            "responseId": resp.response_id,
-            "inviteId": resp.invite_id,
-            "workspaceId": resp.workspace_id,
-            "inviteeDeclaredName": resp.invitee_declared_name,
-        }));
+        let _ = window.emit(
+            "invite-response-received",
+            serde_json::json!({
+                "responseId": resp.response_id,
+                "inviteId": resp.invite_id,
+                "workspaceId": resp.workspace_id,
+                "inviteeDeclaredName": resp.invitee_declared_name,
+            }),
+        );
     }
 
     // Notify WorkspaceView to reload the note tree if deltas were applied.
@@ -705,17 +745,25 @@ pub async fn poll_receive_identity(
     app_handle: tauri::AppHandle,
     identity_uuid: String,
 ) -> std::result::Result<(), String> {
-    let uuid: Uuid = identity_uuid.parse().map_err(|e| format!("Invalid UUID: {e}"))?;
+    let uuid: Uuid = identity_uuid
+        .parse()
+        .map_err(|e| format!("Invalid UUID: {e}"))?;
     log::debug!("poll_receive_identity: identity={uuid}");
 
     // Get accepted invites in WaitingSnapshot status (brief lock)
     let waiting = {
-        let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+        let aim = state
+            .accepted_invite_managers
+            .lock()
+            .expect("Mutex poisoned");
         let ai_mgr = aim.get(&uuid).ok_or("Accepted invite manager not found")?;
         ai_mgr.list_waiting_snapshot().map_err(|e| e.to_string())?
     };
 
-    log::debug!("poll_receive_identity: {} invite(s) waiting for snapshot", waiting.len());
+    log::debug!(
+        "poll_receive_identity: {} invite(s) waiting for snapshot",
+        waiting.len()
+    );
 
     if waiting.is_empty() {
         return Ok(());
@@ -723,7 +771,10 @@ pub async fn poll_receive_identity(
 
     // Get relay accounts (brief lock)
     let relay_accounts = {
-        let rams = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+        let rams = state
+            .relay_account_managers
+            .lock()
+            .map_err(|e| e.to_string())?;
         let ram = rams.get(&uuid).ok_or("Relay account manager not found")?;
         ram.list_relay_accounts().unwrap_or_default()
     };
@@ -740,26 +791,32 @@ pub async fn poll_receive_identity(
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};
+        use krillnotes_core::core::sync::receive_poll::{receive_poll_identity, RelayConnection};
         use krillnotes_core::core::sync::relay::client::RelayClient;
 
-        let connections: Vec<RelayConnection> = relay_accounts.into_iter()
+        let connections: Vec<RelayConnection> = relay_accounts
+            .into_iter()
             .map(|account| {
-                let client = RelayClient::new(&account.relay_url)
-                    .with_session_token(&account.session_token);
+                let client =
+                    RelayClient::new(&account.relay_url).with_session_token(&account.session_token);
                 RelayConnection { account, client }
             })
             .collect();
 
         receive_poll_identity(&connections, &waiting, &temp_dir, &device_id)
             .map_err(|e| e.to_string())
-    }).await.map_err(|e| e.to_string())??;
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     // Update accepted invites with snapshot paths and emit events
     for snapshot in &result.received_snapshots {
         // Persist the snapshot path on the AcceptedInvite record
         {
-            let mut aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+            let mut aim = state
+                .accepted_invite_managers
+                .lock()
+                .expect("Mutex poisoned");
             if let Some(ai_mgr) = aim.get_mut(&uuid) {
                 let _ = ai_mgr.update_snapshot_path(
                     snapshot.invite_id,
@@ -767,11 +824,14 @@ pub async fn poll_receive_identity(
                 );
             }
         }
-        let _ = app_handle.emit("snapshot-received", serde_json::json!({
-            "workspaceId": snapshot.workspace_id,
-            "inviteId": snapshot.invite_id.to_string(),
-            "snapshotPath": snapshot.snapshot_path.to_string_lossy(),
-        }));
+        let _ = app_handle.emit(
+            "snapshot-received",
+            serde_json::json!({
+                "workspaceId": snapshot.workspace_id,
+                "inviteId": snapshot.invite_id.to_string(),
+                "snapshotPath": snapshot.snapshot_path.to_string_lossy(),
+            }),
+        );
     }
     for error in &result.errors {
         let _ = app_handle.emit("poll-error", serde_json::json!({ "error": error.error }));
@@ -790,20 +850,28 @@ pub async fn poll_all_identity_snapshots(
 ) -> std::result::Result<(), String> {
     // Collect all identity UUIDs that have accepted invite managers (= unlocked).
     let identity_uuids: Vec<Uuid> = {
-        let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+        let aim = state
+            .accepted_invite_managers
+            .lock()
+            .expect("Mutex poisoned");
         aim.keys().copied().collect()
     };
 
     for uuid in identity_uuids {
         // 1. Check relay accounts FIRST (needed for both discovery and polling).
         let relay_accounts = {
-            let rams = state.relay_account_managers.lock().map_err(|e| e.to_string())?;
+            let rams = state
+                .relay_account_managers
+                .lock()
+                .map_err(|e| e.to_string())?;
             match rams.get(&uuid) {
                 Some(mgr) => mgr.list_relay_accounts().unwrap_or_default(),
                 None => continue,
             }
         };
-        if relay_accounts.is_empty() { continue; }
+        if relay_accounts.is_empty() {
+            continue;
+        }
 
         // 2. Discover self-device snapshots on the relay that have no matching invite.
         //    "Send to My Device" puts a snapshot bundle on the relay but the receiving
@@ -811,9 +879,17 @@ pub async fn poll_all_identity_snapshots(
         {
             // Collect workspace_ids from ALL existing invites (any status).
             let all_invite_ws_ids: std::collections::HashSet<String> = {
-                let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+                let aim = state
+                    .accepted_invite_managers
+                    .lock()
+                    .expect("Mutex poisoned");
                 match aim.get(&uuid) {
-                    Some(mgr) => mgr.list().unwrap_or_default().iter().map(|i| i.workspace_id.clone()).collect(),
+                    Some(mgr) => mgr
+                        .list()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|i| i.workspace_id.clone())
+                        .collect(),
                     None => std::collections::HashSet::new(),
                 }
             };
@@ -824,39 +900,54 @@ pub async fn poll_all_identity_snapshots(
             let device_id_clone = device_id.clone();
             let all_ws_ids_clone = all_invite_ws_ids.clone();
 
-            let self_transfers: Vec<(krillnotes_core::core::sync::relay::client::BundleMeta, Vec<u8>, String)> =
-                tokio::task::spawn_blocking(move || {
-                    use krillnotes_core::core::sync::relay::client::RelayClient;
+            let self_transfers: Vec<(
+                krillnotes_core::core::sync::relay::client::BundleMeta,
+                Vec<u8>,
+                String,
+            )> = tokio::task::spawn_blocking(move || {
+                use krillnotes_core::core::sync::relay::client::RelayClient;
 
-                    let mut transfers = Vec::new();
-                    for account in &relay_accounts_clone {
-                        let relay_url = account.relay_url.clone();
-                        let client = RelayClient::new(&account.relay_url)
-                            .with_session_token(&account.session_token);
-                        match client.list_bundles(&device_id_clone) {
-                            Ok(metas) => {
-                                for meta in metas {
-                                    if meta.mode == "snapshot" && !all_ws_ids_clone.contains(&meta.workspace_id) {
-                                        log::info!("Discovered self-device snapshot for workspace {}", meta.workspace_id);
-                                        match client.download_bundle(&meta.bundle_id) {
-                                            Ok(bytes) => {
-                                                let _ = client.delete_bundle(&meta.bundle_id);
-                                                transfers.push((meta, bytes, relay_url.clone()));
-                                            }
-                                            Err(e) => log::warn!("Failed to download self-transfer bundle: {e}"),
+                let mut transfers = Vec::new();
+                for account in &relay_accounts_clone {
+                    let relay_url = account.relay_url.clone();
+                    let client = RelayClient::new(&account.relay_url)
+                        .with_session_token(&account.session_token);
+                    match client.list_bundles(&device_id_clone) {
+                        Ok(metas) => {
+                            for meta in metas {
+                                if meta.mode == "snapshot"
+                                    && !all_ws_ids_clone.contains(&meta.workspace_id)
+                                {
+                                    log::info!(
+                                        "Discovered self-device snapshot for workspace {}",
+                                        meta.workspace_id
+                                    );
+                                    match client.download_bundle(&meta.bundle_id) {
+                                        Ok(bytes) => {
+                                            let _ = client.delete_bundle(&meta.bundle_id);
+                                            transfers.push((meta, bytes, relay_url.clone()));
                                         }
+                                        Err(e) => log::warn!(
+                                            "Failed to download self-transfer bundle: {e}"
+                                        ),
                                     }
                                 }
                             }
-                            Err(e) => log::warn!("list_bundles for self-transfer discovery failed: {e}"),
+                        }
+                        Err(e) => {
+                            log::warn!("list_bundles for self-transfer discovery failed: {e}")
                         }
                     }
-                    transfers
-                }).await.map_err(|e| e.to_string())?;
+                }
+                transfers
+            })
+            .await
+            .map_err(|e| e.to_string())?;
 
             // Create synthetic accepted invites for discovered self-transfers.
             for (meta, bytes, relay_url) in self_transfers {
-                let snapshot_path = std::env::temp_dir().join(format!("snapshot-{}.bin", Uuid::new_v4()));
+                let snapshot_path =
+                    std::env::temp_dir().join(format!("snapshot-{}.bin", Uuid::new_v4()));
                 if let Err(e) = std::fs::write(&snapshot_path, &bytes) {
                     log::warn!("Failed to write self-transfer snapshot: {e}");
                     continue;
@@ -877,7 +968,10 @@ pub async fn poll_all_identity_snapshots(
                 };
 
                 {
-                    let mut aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+                    let mut aim = state
+                        .accepted_invite_managers
+                        .lock()
+                        .expect("Mutex poisoned");
                     if let Some(ai_mgr) = aim.get_mut(&uuid) {
                         if let Err(e) = ai_mgr.save(&invite) {
                             log::warn!("Failed to save synthetic invite: {e}");
@@ -886,24 +980,35 @@ pub async fn poll_all_identity_snapshots(
                     }
                 }
 
-                log::info!("Created synthetic invite for self-device transfer: workspace={}", meta.workspace_id);
-                let _ = app_handle.emit("snapshot-received", serde_json::json!({
-                    "workspaceId": meta.workspace_id,
-                    "inviteId": invite.invite_id.to_string(),
-                    "snapshotPath": snapshot_path.to_string_lossy(),
-                }));
+                log::info!(
+                    "Created synthetic invite for self-device transfer: workspace={}",
+                    meta.workspace_id
+                );
+                let _ = app_handle.emit(
+                    "snapshot-received",
+                    serde_json::json!({
+                        "workspaceId": meta.workspace_id,
+                        "inviteId": invite.invite_id.to_string(),
+                        "snapshotPath": snapshot_path.to_string_lossy(),
+                    }),
+                );
             }
         }
 
         // 3. Normal invite-based polling (existing logic).
         let waiting = {
-            let aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+            let aim = state
+                .accepted_invite_managers
+                .lock()
+                .expect("Mutex poisoned");
             match aim.get(&uuid) {
                 Some(mgr) => mgr.list_waiting_snapshot().unwrap_or_default(),
                 None => continue,
             }
         };
-        if waiting.is_empty() { continue; }
+        if waiting.is_empty() {
+            continue;
+        }
 
         log::debug!(
             "poll_all_identity_snapshots: identity={uuid}, {} waiting invite(s), {} relay account(s)",
@@ -916,10 +1021,13 @@ pub async fn poll_all_identity_snapshots(
             format!("{}:identity:{}", short, uuid)
         };
         let result = tokio::task::spawn_blocking(move || {
-            use krillnotes_core::core::sync::receive_poll::{RelayConnection, receive_poll_identity};
+            use krillnotes_core::core::sync::receive_poll::{
+                receive_poll_identity, RelayConnection,
+            };
             use krillnotes_core::core::sync::relay::client::RelayClient;
 
-            let connections: Vec<RelayConnection> = relay_accounts.into_iter()
+            let connections: Vec<RelayConnection> = relay_accounts
+                .into_iter()
                 .map(|account| {
                     let client = RelayClient::new(&account.relay_url)
                         .with_session_token(&account.session_token);
@@ -929,12 +1037,17 @@ pub async fn poll_all_identity_snapshots(
 
             receive_poll_identity(&connections, &waiting, &temp_dir, &device_id)
                 .map_err(|e| e.to_string())
-        }).await.map_err(|e| e.to_string())??;
+        })
+        .await
+        .map_err(|e| e.to_string())??;
 
         // Update accepted invites with snapshot paths and emit events.
         for snapshot in &result.received_snapshots {
             {
-                let mut aim = state.accepted_invite_managers.lock().expect("Mutex poisoned");
+                let mut aim = state
+                    .accepted_invite_managers
+                    .lock()
+                    .expect("Mutex poisoned");
                 if let Some(ai_mgr) = aim.get_mut(&uuid) {
                     let _ = ai_mgr.update_snapshot_path(
                         snapshot.invite_id,
@@ -942,14 +1055,20 @@ pub async fn poll_all_identity_snapshots(
                     );
                 }
             }
-            let _ = app_handle.emit("snapshot-received", serde_json::json!({
-                "workspaceId": snapshot.workspace_id,
-                "inviteId": snapshot.invite_id.to_string(),
-                "snapshotPath": snapshot.snapshot_path.to_string_lossy(),
-            }));
+            let _ = app_handle.emit(
+                "snapshot-received",
+                serde_json::json!({
+                    "workspaceId": snapshot.workspace_id,
+                    "inviteId": snapshot.invite_id.to_string(),
+                    "snapshotPath": snapshot.snapshot_path.to_string_lossy(),
+                }),
+            );
         }
         for error in &result.errors {
-            log::warn!("poll_all_identity_snapshots: identity={uuid}: {}", error.error);
+            log::warn!(
+                "poll_all_identity_snapshots: identity={uuid}: {}",
+                error.error
+            );
         }
     }
 

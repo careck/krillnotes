@@ -12,13 +12,13 @@
 //! through as-is so that HTML helpers like `link_to()` compose correctly.
 //! DOMPurify in the frontend is the final XSS sanitization layer.
 
+use super::schema::Schema;
+use crate::core::attachment::AttachmentMeta;
+use crate::{FieldValue, Note};
 use pulldown_cmark::{html as md_html, Options, Parser};
 use rhai::{Array, Map};
-use std::sync::OnceLock;
 use std::collections::{BTreeMap, HashMap};
-use crate::{FieldValue, Note};
-use crate::core::attachment::AttachmentMeta;
-use super::schema::Schema;
+use std::sync::OnceLock;
 
 // ── Escaping ─────────────────────────────────────────────────────────────────
 
@@ -75,9 +75,8 @@ pub fn preprocess_image_blocks(
     fields: &BTreeMap<String, FieldValue>,
     attachments: &[AttachmentMeta],
 ) -> String {
-    let re = IMAGE_BLOCK_RE.get_or_init(|| {
-        regex::Regex::new(r"\{\{image:\s*([^}]*)\}\}").expect("valid regex")
-    });
+    let re = IMAGE_BLOCK_RE
+        .get_or_init(|| regex::Regex::new(r"\{\{image:\s*([^}]*)\}\}").expect("valid regex"));
 
     re.replace_all(text, |caps: &regex::Captures| {
         let inner = caps[1].trim();
@@ -85,10 +84,12 @@ pub fn preprocess_image_blocks(
 
         match resolve_attachment_source(source, fields, attachments) {
             Some(meta) => {
-                let width_attr = opts.get("width")
+                let width_attr = opts
+                    .get("width")
                     .map(|w| format!(" data-kn-width=\"{}\"", html_escape(w)))
                     .unwrap_or_default();
-                let alt_attr = opts.get("alt")
+                let alt_attr = opts
+                    .get("alt")
                     .map(|a| format!(" alt=\"{}\"", html_escape(a)))
                     .unwrap_or_default();
                 format!(
@@ -101,7 +102,8 @@ pub fn preprocess_image_blocks(
                 html_escape(source)
             ),
         }
-    }).into_owned()
+    })
+    .into_owned()
 }
 
 /// Parse `"attach:photo.png, width: 200, alt: My caption"` into
@@ -142,7 +144,10 @@ pub fn render_markdown_to_html(text: &str) -> String {
 /// The closure registered in the Rhai engine pre-processes image blocks and then
 /// calls this function.
 pub fn rhai_markdown_raw(text: String) -> String {
-    format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&text))
+    format!(
+        "<div class=\"kn-view-markdown\">{}</div>",
+        render_markdown_to_html(&text)
+    )
 }
 
 // ── Structural helpers ────────────────────────────────────────────────────────
@@ -169,7 +174,11 @@ pub fn section(title: String, content: String) -> String {
 /// stack([section(...), divider(), text("footer")])
 /// ```
 pub fn stack(items: Array) -> String {
-    let inner: String = items.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("");
+    let inner: String = items
+        .iter()
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join("");
     format!("<div class=\"kn-view-stack\">{inner}</div>")
 }
 
@@ -180,7 +189,11 @@ pub fn stack(items: Array) -> String {
 /// ```
 pub fn columns(items: Array) -> String {
     let count = items.len().max(1);
-    let inner: String = items.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("");
+    let inner: String = items
+        .iter()
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join("");
     format!(
         "<div class=\"kn-view-columns\" style=\"grid-template-columns: repeat({count}, 1fr);\">{inner}</div>"
     )
@@ -198,14 +211,20 @@ pub fn columns(items: Array) -> String {
 pub fn table(headers: Array, rows: Array) -> String {
     let mut out = String::from("<table class=\"kn-view-table\"><thead><tr>");
     for h in &headers {
-        out.push_str(&format!("<th class=\"kn-view-th\">{}</th>", html_escape(&h.to_string())));
+        out.push_str(&format!(
+            "<th class=\"kn-view-th\">{}</th>",
+            html_escape(&h.to_string())
+        ));
     }
     out.push_str("</tr></thead><tbody>");
     for row in &rows {
         out.push_str("<tr class=\"kn-view-tr\">");
         if let Ok(cells) = row.clone().try_cast::<Array>().ok_or(()) {
             for cell in &cells {
-                out.push_str(&format!("<td class=\"kn-view-td\">{}</td>", cell.to_string()));
+                out.push_str(&format!(
+                    "<td class=\"kn-view-td\">{}</td>",
+                    cell.to_string()
+                ));
             }
         }
         out.push_str("</tr>");
@@ -271,7 +290,10 @@ pub fn fields(note: Map) -> String {
 /// heading("Project Details")
 /// ```
 pub fn heading(text: String) -> String {
-    format!("<div class=\"kn-view-heading\">{}</div>", html_escape(&text))
+    format!(
+        "<div class=\"kn-view-heading\">{}</div>",
+        html_escape(&text)
+    )
 }
 
 /// Renders a whitespace-preserving paragraph.
@@ -308,7 +330,10 @@ pub fn list(items: Array) -> String {
 /// badge("Active")
 /// ```
 pub fn badge(text: String) -> String {
-    format!("<span class=\"kn-view-badge\">{}</span>", html_escape(&text))
+    format!(
+        "<span class=\"kn-view-badge\">{}</span>",
+        html_escape(&text)
+    )
 }
 
 /// Renders a colored pill badge.
@@ -321,14 +346,14 @@ pub fn badge(text: String) -> String {
 /// ```
 pub fn badge_colored(text: String, color: String) -> String {
     let class = match color.as_str() {
-        "red"    => "kn-view-badge kn-view-badge-red",
-        "green"  => "kn-view-badge kn-view-badge-green",
-        "blue"   => "kn-view-badge kn-view-badge-blue",
+        "red" => "kn-view-badge kn-view-badge-red",
+        "green" => "kn-view-badge kn-view-badge-green",
+        "blue" => "kn-view-badge kn-view-badge-blue",
         "yellow" => "kn-view-badge kn-view-badge-yellow",
-        "gray"   => "kn-view-badge kn-view-badge-gray",
+        "gray" => "kn-view-badge kn-view-badge-gray",
         "orange" => "kn-view-badge kn-view-badge-orange",
         "purple" => "kn-view-badge kn-view-badge-purple",
-        _        => "kn-view-badge",
+        _ => "kn-view-badge",
     };
     format!("<span class=\"{class}\">{}</span>", html_escape(&text))
 }
@@ -345,14 +370,17 @@ pub fn badge_colored(text: String, color: String) -> String {
 /// });
 /// ```
 pub fn rhai_render_tags(tags: Array) -> String {
-    let pills: String = tags.iter().map(|d| {
-        let tag = d.to_string();
-        let hue: u32 = tag.bytes().map(|b| b as u32).sum::<u32>() % 360;
-        let escaped = html_escape(&tag);
-        format!(
+    let pills: String = tags
+        .iter()
+        .map(|d| {
+            let tag = d.to_string();
+            let hue: u32 = tag.bytes().map(|b| b as u32).sum::<u32>() % 360;
+            let escaped = html_escape(&tag);
+            format!(
             "<span class=\"kn-tag-pill\" style=\"background:hsl({hue},40%,88%)\">{escaped}</span>"
         )
-    }).collect();
+        })
+        .collect();
     format!("<div class=\"kn-view-tags\">{pills}</div>")
 }
 
@@ -469,7 +497,10 @@ fn format_field_value_html(
                 s.clone()
             };
             let preprocessed = preprocess_media_embeds(&after_images);
-            format!("<div class=\"kn-view-markdown\">{}</div>", render_markdown_to_html(&preprocessed))
+            format!(
+                "<div class=\"kn-view-markdown\">{}</div>",
+                render_markdown_to_html(&preprocessed)
+            )
         }
         (FieldValue::Text(s), _) => {
             format!("<span>{}</span>", html_escape(s))
@@ -494,7 +525,10 @@ fn format_field_value_html(
         }
         (FieldValue::Date(None), _) => String::new(),
         (FieldValue::NoteLink(Some(id)), _) => {
-            let title = resolved_titles.get(id).map(|s| s.as_str()).unwrap_or(id.as_str());
+            let title = resolved_titles
+                .get(id)
+                .map(|s| s.as_str())
+                .unwrap_or(id.as_str());
             format!(
                 r#"<a class="kn-view-link" data-note-id="{}">{}</a>"#,
                 html_escape(id),
@@ -550,8 +584,8 @@ pub fn make_download_link_html(uuid: &str, label: &str) -> String {
 
 static YT_WATCH_RE: OnceLock<regex::Regex> = OnceLock::new();
 static YT_SHORT_RE: OnceLock<regex::Regex> = OnceLock::new();
-static IG_POST_RE:  OnceLock<regex::Regex> = OnceLock::new();
-static IG_REEL_RE:  OnceLock<regex::Regex> = OnceLock::new();
+static IG_POST_RE: OnceLock<regex::Regex> = OnceLock::new();
+static IG_REEL_RE: OnceLock<regex::Regex> = OnceLock::new();
 
 /// Given a YouTube or Instagram URL, returns a sentinel `<div>` that the
 /// frontend will hydrate into a click-to-play thumbnail card.
@@ -563,12 +597,13 @@ pub fn make_media_embed_html(url: &str) -> String {
     }
 
     let yt_watch = YT_WATCH_RE.get_or_init(|| {
-        regex::Regex::new(r"(?:https?://)?(?:www\.)?youtube\.com/watch\?(?:[^&\s]*&)*v=([A-Za-z0-9_-]{11})")
-            .expect("valid regex")
+        regex::Regex::new(
+            r"(?:https?://)?(?:www\.)?youtube\.com/watch\?(?:[^&\s]*&)*v=([A-Za-z0-9_-]{11})",
+        )
+        .expect("valid regex")
     });
     let yt_short = YT_SHORT_RE.get_or_init(|| {
-        regex::Regex::new(r"(?:https?://)?youtu\.be/([A-Za-z0-9_-]{11})")
-            .expect("valid regex")
+        regex::Regex::new(r"(?:https?://)?youtu\.be/([A-Za-z0-9_-]{11})").expect("valid regex")
     });
     let ig_post = IG_POST_RE.get_or_init(|| {
         regex::Regex::new(r"(?:https?://)?(?:www\.)?instagram\.com/p/([A-Za-z0-9_-]+)")
@@ -579,18 +614,17 @@ pub fn make_media_embed_html(url: &str) -> String {
             .expect("valid regex")
     });
 
-    let (embed_type, id) =
-        if let Some(caps) = yt_watch.captures(url) {
-            ("youtube", caps[1].to_string())
-        } else if let Some(caps) = yt_short.captures(url) {
-            ("youtube", caps[1].to_string())
-        } else if let Some(caps) = ig_post.captures(url) {
-            ("instagram", caps[1].to_string())
-        } else if let Some(caps) = ig_reel.captures(url) {
-            ("instagram", caps[1].to_string())
-        } else {
-            return String::new();
-        };
+    let (embed_type, id) = if let Some(caps) = yt_watch.captures(url) {
+        ("youtube", caps[1].to_string())
+    } else if let Some(caps) = yt_short.captures(url) {
+        ("youtube", caps[1].to_string())
+    } else if let Some(caps) = ig_post.captures(url) {
+        ("instagram", caps[1].to_string())
+    } else if let Some(caps) = ig_reel.captures(url) {
+        ("instagram", caps[1].to_string())
+    } else {
+        return String::new();
+    };
 
     format!(
         "<div class=\"kn-media-embed\" \
@@ -623,11 +657,12 @@ pub fn preprocess_media_embeds(text: &str) -> String {
         let url = caps[1].trim();
         let sentinel = make_media_embed_html(url);
         if sentinel.is_empty() {
-            caps[0].to_string()  // unrecognised URL: leave unchanged
+            caps[0].to_string() // unrecognised URL: leave unchanged
         } else {
             sentinel
         }
-    }).into_owned()
+    })
+    .into_owned()
 }
 
 /// Returns `true` if the field value is considered empty (and should be hidden).
@@ -669,13 +704,20 @@ pub fn render_default_view(
             if !field_def.can_view {
                 continue;
             }
-            let Some(value) = note.fields.get(&field_def.name) else { continue };
+            let Some(value) = note.fields.get(&field_def.name) else {
+                continue;
+            };
             if is_field_empty(value) {
                 continue;
             }
             let label = humanise_key(&field_def.name);
-            let value_html =
-                format_field_value_html(value, &field_def.field_type, field_def.max, resolved_titles, image_ctx);
+            let value_html = format_field_value_html(
+                value,
+                &field_def.field_type,
+                field_def.max,
+                resolved_titles,
+                image_ctx,
+            );
             if value_html.is_empty() {
                 continue;
             }
@@ -695,13 +737,20 @@ pub fn render_default_view(
                 if !field_def.can_view {
                     continue;
                 }
-                let Some(value) = note.fields.get(&field_def.name) else { continue };
+                let Some(value) = note.fields.get(&field_def.name) else {
+                    continue;
+                };
                 if is_field_empty(value) {
                     continue;
                 }
                 let label = humanise_key(&field_def.name);
-                let value_html =
-                    format_field_value_html(value, &field_def.field_type, field_def.max, resolved_titles, image_ctx);
+                let value_html = format_field_value_html(
+                    value,
+                    &field_def.field_type,
+                    field_def.max,
+                    resolved_titles,
+                    image_ctx,
+                );
                 if value_html.is_empty() {
                     continue;
                 }
@@ -722,9 +771,16 @@ pub fn render_default_view(
         }
 
         // Render any fields not in the schema (top-level or in any field group) as "legacy".
-        let schema_names: std::collections::HashSet<&str> = schema.fields.iter()
+        let schema_names: std::collections::HashSet<&str> = schema
+            .fields
+            .iter()
             .map(|f| f.name.as_str())
-            .chain(schema.field_groups.iter().flat_map(|g| g.fields.iter().map(|f| f.name.as_str())))
+            .chain(
+                schema
+                    .field_groups
+                    .iter()
+                    .flat_map(|g| g.fields.iter().map(|f| f.name.as_str())),
+            )
             .collect();
         let mut legacy: Vec<(&String, &FieldValue)> = note
             .fields
@@ -787,7 +843,7 @@ mod tests {
 
     fn make_note_map(id: &str, title: &str) -> Map {
         let mut m = Map::new();
-        m.insert("id".into(),    rhai::Dynamic::from(id.to_string()));
+        m.insert("id".into(), rhai::Dynamic::from(id.to_string()));
         m.insert("title".into(), rhai::Dynamic::from(title.to_string()));
         m
     }
@@ -805,7 +861,10 @@ mod tests {
     fn test_link_to_escapes_title() {
         let m = make_note_map("id-1", "<script>alert('xss')</script>");
         let html = link_to(m);
-        assert!(!html.contains("<script>"), "raw <script> tag must not appear in output");
+        assert!(
+            !html.contains("<script>"),
+            "raw <script> tag must not appear in output"
+        );
         assert!(html.contains("&lt;script&gt;"));
     }
 
@@ -813,7 +872,10 @@ mod tests {
     fn test_link_to_escapes_id() {
         let m = make_note_map(r#"id"with"quotes"#, "Title");
         let html = link_to(m);
-        assert!(!html.contains(r#"id"with"quotes"#), "raw quotes in id must be escaped");
+        assert!(
+            !html.contains(r#"id"with"quotes"#),
+            "raw quotes in id must be escaped"
+        );
     }
 
     #[test]
@@ -866,61 +928,124 @@ mod tests {
 
     #[test]
     fn test_render_default_view_textarea_renders_markdown() {
-        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use crate::{FieldDefinition, FieldValue, Note, Schema};
         use std::collections::{BTreeMap, HashMap};
 
         let mut fields = BTreeMap::new();
         fields.insert("notes".into(), FieldValue::Text("**bold**".into()));
 
         let note = Note {
-            id: "id1".into(), title: "Test".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
+            id: "id1".into(),
+            title: "Test".into(),
+            schema: "T".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields,
+            is_expanded: false,
+            tags: vec![],
+            schema_version: 1,
+            is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
             fields: vec![FieldDefinition {
-                name: "notes".into(), field_type: "textarea".into(),
-                required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                name: "notes".into(),
+                field_type: "textarea".into(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_schema: None,
+                show_on_hover: false,
+                allowed_types: vec![],
+                validate: None,
             }],
-            title_can_view: true, title_can_edit: true,
+            title_can_view: true,
+            title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
+            attachment_types: vec![],
+            field_groups: vec![],
+            ast: None,
+            version: 1,
+            migrations: std::collections::BTreeMap::new(),
+            is_leaf: false,
+            show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
-        assert!(html.contains("<strong>bold</strong>"), "expected rendered markdown, got: {html}");
-        assert!(html.contains("kn-view-markdown"), "expected markdown wrapper class");
+        assert!(
+            html.contains("<strong>bold</strong>"),
+            "expected rendered markdown, got: {html}"
+        );
+        assert!(
+            html.contains("kn-view-markdown"),
+            "expected markdown wrapper class"
+        );
     }
 
     #[test]
     fn test_render_default_view_text_field_html_escaped() {
-        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use crate::{FieldDefinition, FieldValue, Note, Schema};
         use std::collections::{BTreeMap, HashMap};
 
         let mut fields = BTreeMap::new();
-        fields.insert("name".into(), FieldValue::Text("<script>alert(1)</script>".into()));
+        fields.insert(
+            "name".into(),
+            FieldValue::Text("<script>alert(1)</script>".into()),
+        );
 
         let note = Note {
-            id: "id2".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
+            id: "id2".into(),
+            title: "T".into(),
+            schema: "T".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields,
+            is_expanded: false,
+            tags: vec![],
+            schema_version: 1,
+            is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
             fields: vec![FieldDefinition {
-                name: "name".into(), field_type: "text".into(),
-                required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                name: "name".into(),
+                field_type: "text".into(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_schema: None,
+                show_on_hover: false,
+                allowed_types: vec![],
+                validate: None,
             }],
-            title_can_view: true, title_can_edit: true,
+            title_can_view: true,
+            title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
+            attachment_types: vec![],
+            field_groups: vec![],
+            ast: None,
+            version: 1,
+            migrations: std::collections::BTreeMap::new(),
+            is_leaf: false,
+            show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -930,33 +1055,63 @@ mod tests {
 
     #[test]
     fn test_render_default_view_skips_can_view_false() {
-        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use crate::{FieldDefinition, FieldValue, Note, Schema};
         use std::collections::{BTreeMap, HashMap};
 
         let mut fields = BTreeMap::new();
         fields.insert("secret".into(), FieldValue::Text("hidden".into()));
 
         let note = Note {
-            id: "id3".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
+            id: "id3".into(),
+            title: "T".into(),
+            schema: "T".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields,
+            is_expanded: false,
+            tags: vec![],
+            schema_version: 1,
+            is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
             fields: vec![FieldDefinition {
-                name: "secret".into(), field_type: "text".into(),
-                required: false, can_view: false, can_edit: true,
-                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                name: "secret".into(),
+                field_type: "text".into(),
+                required: false,
+                can_view: false,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_schema: None,
+                show_on_hover: false,
+                allowed_types: vec![],
+                validate: None,
             }],
-            title_can_view: true, title_can_edit: true,
+            title_can_view: true,
+            title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
+            attachment_types: vec![],
+            field_groups: vec![],
+            ast: None,
+            version: 1,
+            migrations: std::collections::BTreeMap::new(),
+            is_leaf: false,
+            show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
-        assert!(!html.contains("hidden"), "can_view:false fields must not appear");
+        assert!(
+            !html.contains("hidden"),
+            "can_view:false fields must not appear"
+        );
     }
 
     #[test]
@@ -964,30 +1119,60 @@ mod tests {
         // pulldown-cmark passes inline HTML through; DOMPurify on the frontend
         // is the only XSS defence for the textarea path. This test documents
         // that contract so it is not accidentally "fixed" by escaping at this layer.
-        use crate::{FieldValue, Note};
         use crate::{FieldDefinition, Schema};
+        use crate::{FieldValue, Note};
         use std::collections::{BTreeMap, HashMap};
 
         let mut fields = BTreeMap::new();
-        fields.insert("body".into(), FieldValue::Text("<em>italic</em> and **bold**".into()));
+        fields.insert(
+            "body".into(),
+            FieldValue::Text("<em>italic</em> and **bold**".into()),
+        );
 
         let note = Note {
-            id: "sec1".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
+            id: "sec1".into(),
+            title: "T".into(),
+            schema: "T".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields,
+            is_expanded: false,
+            tags: vec![],
+            schema_version: 1,
+            is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
             fields: vec![FieldDefinition {
-                name: "body".into(), field_type: "textarea".into(),
-                required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                name: "body".into(),
+                field_type: "textarea".into(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_schema: None,
+                show_on_hover: false,
+                allowed_types: vec![],
+                validate: None,
             }],
-            title_can_view: true, title_can_edit: true,
+            title_can_view: true,
+            title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
+            attachment_types: vec![],
+            field_groups: vec![],
+            ast: None,
+            version: 1,
+            migrations: std::collections::BTreeMap::new(),
+            is_leaf: false,
+            show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
@@ -997,7 +1182,10 @@ mod tests {
         assert!(html.contains("<strong>bold</strong>"), "got: {html}");
         // The inline HTML <em>italic</em> is passed through by pulldown-cmark
         // (not double-escaped) — DOMPurify handles final sanitisation.
-        assert!(html.contains("<em>italic</em>"), "inline HTML should pass through, got: {html}");
+        assert!(
+            html.contains("<em>italic</em>"),
+            "inline HTML should pass through, got: {html}"
+        );
     }
 
     #[test]
@@ -1023,7 +1211,7 @@ mod tests {
 
     #[test]
     fn test_render_default_view_legacy_fields_shown() {
-        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use crate::{FieldDefinition, FieldValue, Note, Schema};
         use std::collections::{BTreeMap, HashMap};
 
         let mut fields = BTreeMap::new();
@@ -1031,27 +1219,57 @@ mod tests {
         fields.insert("old_field".into(), FieldValue::Text("legacy value".into()));
 
         let note = Note {
-            id: "id4".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
+            id: "id4".into(),
+            title: "T".into(),
+            schema: "T".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields,
+            is_expanded: false,
+            tags: vec![],
+            schema_version: 1,
+            is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
             fields: vec![FieldDefinition {
-                name: "known".into(), field_type: "text".into(),
-                required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                name: "known".into(),
+                field_type: "text".into(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_schema: None,
+                show_on_hover: false,
+                allowed_types: vec![],
+                validate: None,
             }],
-            title_can_view: true, title_can_edit: true,
+            title_can_view: true,
+            title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
             allow_attachments: false,
-            attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
+            attachment_types: vec![],
+            field_groups: vec![],
+            ast: None,
+            version: 1,
+            migrations: std::collections::BTreeMap::new(),
+            is_leaf: false,
+            show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
         assert!(html.contains("legacy value"), "legacy fields must be shown");
-        assert!(html.contains("Legacy Fields"), "legacy section header must appear");
+        assert!(
+            html.contains("Legacy Fields"),
+            "legacy section header must appear"
+        );
     }
 
     #[test]
@@ -1136,7 +1354,10 @@ mod tests {
     fn test_resolve_by_field() {
         let attachments = vec![make_meta("uuid-2", "cover.jpg")];
         let mut fields = BTreeMap::new();
-        fields.insert("cover".to_string(), FieldValue::File(Some("uuid-2".to_string())));
+        fields.insert(
+            "cover".to_string(),
+            FieldValue::File(Some("uuid-2".to_string())),
+        );
         let result = resolve_attachment_source("field:cover", &fields, &attachments);
         assert_eq!(result.map(|a| a.id.as_str()), Some("uuid-2"));
     }
@@ -1165,7 +1386,10 @@ mod tests {
             &fields,
             &attachments,
         );
-        assert!(result.contains("data-kn-attach-id=\"uuid-1\""), "got: {result}");
+        assert!(
+            result.contains("data-kn-attach-id=\"uuid-1\""),
+            "got: {result}"
+        );
         assert!(result.contains("Before"));
         assert!(result.contains("After"));
     }
@@ -1194,9 +1418,13 @@ mod tests {
     #[test]
     fn test_preprocess_field_source() {
         let mut fields = BTreeMap::new();
-        fields.insert("cover".to_string(), FieldValue::File(Some("uuid-3".to_string())));
+        fields.insert(
+            "cover".to_string(),
+            FieldValue::File(Some("uuid-3".to_string())),
+        );
         let attachments = vec![make_meta("uuid-3", "cover.jpg")];
-        let result = preprocess_image_blocks("{{image: field:cover, width: 200}}", &fields, &attachments);
+        let result =
+            preprocess_image_blocks("{{image: field:cover, width: 200}}", &fields, &attachments);
         assert!(result.contains("data-kn-attach-id=\"uuid-3\""));
         assert!(result.contains("data-kn-width=\"200\""));
     }
@@ -1243,48 +1471,80 @@ mod tests {
     #[test]
     fn test_embed_youtube_watch_url() {
         let html = make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        assert!(html.contains("data-kn-embed-type=\"youtube\""), "got: {html}");
-        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        assert!(
+            html.contains("data-kn-embed-type=\"youtube\""),
+            "got: {html}"
+        );
+        assert!(
+            html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {html}"
+        );
         assert!(html.contains("kn-media-embed"), "got: {html}");
     }
 
     #[test]
     fn test_embed_youtube_short_url() {
         let html = make_media_embed_html("https://youtu.be/dQw4w9WgXcQ");
-        assert!(html.contains("data-kn-embed-type=\"youtube\""), "got: {html}");
-        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        assert!(
+            html.contains("data-kn-embed-type=\"youtube\""),
+            "got: {html}"
+        );
+        assert!(
+            html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {html}"
+        );
     }
 
     #[test]
     fn test_embed_youtu_be_with_timestamp_extracts_id() {
         let html = make_media_embed_html("https://youtu.be/dQw4w9WgXcQ?t=42");
-        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        assert!(
+            html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {html}"
+        );
     }
 
     #[test]
     fn test_embed_youtube_watch_with_extra_params() {
-        let html = make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&list=PL123");
-        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        let html =
+            make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&list=PL123");
+        assert!(
+            html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {html}"
+        );
     }
 
     #[test]
     fn test_embed_youtube_watch_v_not_first_param() {
         // Real-world share URLs often put v= after other params
-        let html = make_media_embed_html("https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ");
-        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        let html =
+            make_media_embed_html("https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ");
+        assert!(
+            html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {html}"
+        );
     }
 
     #[test]
     fn test_embed_instagram_post_url() {
         let html = make_media_embed_html("https://www.instagram.com/p/ABC123def/");
-        assert!(html.contains("data-kn-embed-type=\"instagram\""), "got: {html}");
-        assert!(html.contains("data-kn-embed-id=\"ABC123def\""), "got: {html}");
+        assert!(
+            html.contains("data-kn-embed-type=\"instagram\""),
+            "got: {html}"
+        );
+        assert!(
+            html.contains("data-kn-embed-id=\"ABC123def\""),
+            "got: {html}"
+        );
     }
 
     #[test]
     fn test_embed_instagram_reel_url() {
         let html = make_media_embed_html("https://www.instagram.com/reel/XYZ789/");
-        assert!(html.contains("data-kn-embed-type=\"instagram\""), "got: {html}");
+        assert!(
+            html.contains("data-kn-embed-type=\"instagram\""),
+            "got: {html}"
+        );
         assert!(html.contains("data-kn-embed-id=\"XYZ789\""), "got: {html}");
     }
 
@@ -1304,7 +1564,10 @@ mod tests {
     fn test_embed_url_is_html_escaped_in_output() {
         // URL with & must be escaped in attribute value
         let html = make_media_embed_html("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42");
-        assert!(!html.contains("watch?v=dQw4w9WgXcQ&t=42"), "raw & must be escaped");
+        assert!(
+            !html.contains("watch?v=dQw4w9WgXcQ&t=42"),
+            "raw & must be escaped"
+        );
         assert!(html.contains("&amp;"), "got: {html}");
     }
 
@@ -1314,8 +1577,14 @@ mod tests {
     fn test_preprocess_youtube_bare_line_replaced() {
         let input = "Check this out:\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nMore text.";
         let output = preprocess_media_embeds(input);
-        assert!(output.contains("data-kn-embed-type=\"youtube\""), "got: {output}");
-        assert!(output.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {output}");
+        assert!(
+            output.contains("data-kn-embed-type=\"youtube\""),
+            "got: {output}"
+        );
+        assert!(
+            output.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {output}"
+        );
         assert!(output.contains("Check this out:"), "surrounding text lost");
         assert!(output.contains("More text."), "surrounding text lost");
     }
@@ -1324,7 +1593,10 @@ mod tests {
     fn test_preprocess_youtu_be_bare_line_replaced() {
         let input = "https://youtu.be/dQw4w9WgXcQ";
         let output = preprocess_media_embeds(input);
-        assert!(output.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {output}");
+        assert!(
+            output.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {output}"
+        );
     }
 
     #[test]
@@ -1338,22 +1610,34 @@ mod tests {
     fn test_preprocess_instagram_post_bare_line_replaced() {
         let input = "https://www.instagram.com/p/ABC123/";
         let output = preprocess_media_embeds(input);
-        assert!(output.contains("data-kn-embed-type=\"instagram\""), "got: {output}");
+        assert!(
+            output.contains("data-kn-embed-type=\"instagram\""),
+            "got: {output}"
+        );
     }
 
     #[test]
     fn test_preprocess_instagram_reel_bare_line_replaced() {
         let input = "https://www.instagram.com/reel/XYZ789/";
         let output = preprocess_media_embeds(input);
-        assert!(output.contains("data-kn-embed-type=\"instagram\""), "got: {output}");
+        assert!(
+            output.contains("data-kn-embed-type=\"instagram\""),
+            "got: {output}"
+        );
     }
 
     #[test]
     fn test_preprocess_url_inline_in_sentence_not_replaced() {
         let input = "Watch https://www.youtube.com/watch?v=dQw4w9WgXcQ for fun.";
         let output = preprocess_media_embeds(input);
-        assert!(!output.contains("kn-media-embed"), "inline URL must not embed");
-        assert!(output.contains("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "URL must be preserved");
+        assert!(
+            !output.contains("kn-media-embed"),
+            "inline URL must not embed"
+        );
+        assert!(
+            output.contains("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+            "URL must be preserved"
+        );
     }
 
     #[test]
@@ -1372,43 +1656,86 @@ mod tests {
 
     #[test]
     fn test_preprocess_multiple_embeds_in_text() {
-        let input = "https://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nhttps://www.instagram.com/p/ABC123/";
+        let input =
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nhttps://www.instagram.com/p/ABC123/";
         let output = preprocess_media_embeds(input);
-        assert!(output.contains("data-kn-embed-type=\"youtube\""), "got: {output}");
-        assert!(output.contains("data-kn-embed-type=\"instagram\""), "got: {output}");
+        assert!(
+            output.contains("data-kn-embed-type=\"youtube\""),
+            "got: {output}"
+        );
+        assert!(
+            output.contains("data-kn-embed-type=\"instagram\""),
+            "got: {output}"
+        );
     }
 
     #[test]
     fn test_render_default_view_textarea_bare_url_becomes_sentinel() {
-        use crate::{FieldValue, FieldDefinition, Note, Schema};
+        use crate::{FieldDefinition, FieldValue, Note, Schema};
         use std::collections::{BTreeMap, HashMap};
 
         let mut fields = BTreeMap::new();
         fields.insert(
             "body".into(),
-            FieldValue::Text("Watch this:\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nDone.".into()),
+            FieldValue::Text(
+                "Watch this:\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\n\nDone.".into(),
+            ),
         );
         let note = Note {
-            id: "id-embed".into(), title: "T".into(), schema: "T".into(),
-            parent_id: None, position: 0.0, created_at: UnixSecs::ZERO, modified_at: UnixSecs::ZERO,
-            created_by: String::new(), modified_by: String::new(), fields, is_expanded: false, tags: vec![], schema_version: 1, is_checked: false,
+            id: "id-embed".into(),
+            title: "T".into(),
+            schema: "T".into(),
+            parent_id: None,
+            position: 0.0,
+            created_at: UnixSecs::ZERO,
+            modified_at: UnixSecs::ZERO,
+            created_by: String::new(),
+            modified_by: String::new(),
+            fields,
+            is_expanded: false,
+            tags: vec![],
+            schema_version: 1,
+            is_checked: false,
         };
         let schema = Schema {
             name: "T".into(),
             fields: vec![FieldDefinition {
-                name: "body".into(), field_type: "textarea".into(),
-                required: false, can_view: true, can_edit: true,
-                options: vec![], max: 0, target_schema: None, show_on_hover: false, allowed_types: vec![], validate: None,
+                name: "body".into(),
+                field_type: "textarea".into(),
+                required: false,
+                can_view: true,
+                can_edit: true,
+                options: vec![],
+                max: 0,
+                target_schema: None,
+                show_on_hover: false,
+                allowed_types: vec![],
+                validate: None,
             }],
-            title_can_view: true, title_can_edit: true,
+            title_can_view: true,
+            title_can_edit: true,
             children_sort: "none".into(),
-            allowed_parent_schemas: vec![], allowed_children_schemas: vec![],
-            allow_attachments: false, attachment_types: vec![], field_groups: vec![], ast: None, version: 1, migrations: std::collections::BTreeMap::new(), is_leaf: false, show_checkbox: false,
+            allowed_parent_schemas: vec![],
+            allowed_children_schemas: vec![],
+            allow_attachments: false,
+            attachment_types: vec![],
+            field_groups: vec![],
+            ast: None,
+            version: 1,
+            migrations: std::collections::BTreeMap::new(),
+            is_leaf: false,
+            show_checkbox: false,
         };
 
         let html = render_default_view(&note, Some(&schema), &HashMap::new(), &[]);
-        assert!(html.contains("data-kn-embed-type=\"youtube\""), "sentinel must appear, got: {html}");
-        assert!(html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""), "got: {html}");
+        assert!(
+            html.contains("data-kn-embed-type=\"youtube\""),
+            "sentinel must appear, got: {html}"
+        );
+        assert!(
+            html.contains("data-kn-embed-id=\"dQw4w9WgXcQ\""),
+            "got: {html}"
+        );
         assert!(html.contains("Watch this:"), "surrounding text lost");
     }
 }

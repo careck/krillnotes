@@ -117,7 +117,10 @@ impl Storage {
             |row| row.get::<_, i64>(0).map(|c| c > 0),
         )?;
         if !column_exists {
-            conn.execute("ALTER TABLE notes ADD COLUMN is_expanded INTEGER DEFAULT 1", [])?;
+            conn.execute(
+                "ALTER TABLE notes ADD COLUMN is_expanded INTEGER DEFAULT 1",
+                [],
+            )?;
         }
 
         // Migration: add user_scripts table if absent.
@@ -154,7 +157,7 @@ impl Storage {
                     tag     TEXT NOT NULL,
                     PRIMARY KEY (note_id, tag)
                 );
-                CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);"
+                CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);",
             )?;
         }
 
@@ -420,9 +423,7 @@ impl Storage {
             |row| row.get::<_, i64>(0).map(|c| c > 0),
         )?;
         if node_type_exists {
-            conn.execute_batch(
-                "ALTER TABLE notes RENAME COLUMN node_type TO schema;",
-            )?;
+            conn.execute_batch("ALTER TABLE notes RENAME COLUMN node_type TO schema;")?;
         }
 
         // Migration: add HLC covering index for operations_since queries.
@@ -474,7 +475,7 @@ impl Storage {
                 peer_pubkey TEXT NOT NULL,
                 event_type TEXT NOT NULL,
                 detail TEXT
-            )"
+            )",
         )?;
 
         Ok(())

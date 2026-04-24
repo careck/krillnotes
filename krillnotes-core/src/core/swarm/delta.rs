@@ -116,10 +116,8 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
         .collect::<Result<Vec<_>>>()?;
 
     // Build manifest over header + payload + all sidecar ciphertexts.
-    let mut files: Vec<(&str, &[u8])> = vec![
-        ("header.json", &header_bytes),
-        ("payload.enc", &ciphertext),
-    ];
+    let mut files: Vec<(&str, &[u8])> =
+        vec![("header.json", &header_bytes), ("payload.enc", &ciphertext)];
     let sidecar_names: Vec<String> = encrypted_sidecars
         .iter()
         .map(|(id, _)| format!("attachments/{id}.enc"))
@@ -156,8 +154,8 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
 /// Operations are returned as-is for the caller to apply.
 pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<ParsedDelta> {
     let cursor = Cursor::new(data);
-    let mut zip = ZipArchive::new(cursor)
-        .map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
+    let mut zip =
+        ZipArchive::new(cursor).map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
 
     let header_bytes = read_zip_file(&mut zip, "header.json")?;
     let ciphertext = read_zip_file(&mut zip, "payload.enc")?;
@@ -166,7 +164,8 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
     // Read sidecar ciphertext BEFORE verification so we can include it in the manifest.
     let mut sidecar_entries: Vec<(String, Vec<u8>)> = Vec::new();
     for i in 0..zip.len() {
-        let mut file = zip.by_index(i)
+        let mut file = zip
+            .by_index(i)
             .map_err(|e| KrillnotesError::Swarm(format!("zip index {i}: {e}")))?;
         let name = file.name().to_string();
         if let Some(att_id) = name
@@ -184,16 +183,16 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
     header.validate()?;
 
     // Verify bundle signature (includes sidecar ciphertext in manifest).
-    let vk_bytes = BASE64.decode(&header.source_identity)
+    let vk_bytes = BASE64
+        .decode(&header.source_identity)
         .map_err(|e| KrillnotesError::Swarm(format!("bad source_identity: {e}")))?;
-    let vk_arr: [u8; 32] = vk_bytes.try_into()
+    let vk_arr: [u8; 32] = vk_bytes
+        .try_into()
         .map_err(|_| KrillnotesError::Swarm("source_identity wrong length".to_string()))?;
     let vk = VerifyingKey::from_bytes(&vk_arr)
         .map_err(|e| KrillnotesError::Swarm(format!("invalid sender key: {e}")))?;
-    let mut files: Vec<(&str, &[u8])> = vec![
-        ("header.json", &header_bytes),
-        ("payload.enc", &ciphertext),
-    ];
+    let mut files: Vec<(&str, &[u8])> =
+        vec![("header.json", &header_bytes), ("payload.enc", &ciphertext)];
     let sidecar_names: Vec<String> = sidecar_entries
         .iter()
         .map(|(id, _)| format!("attachments/{id}.enc"))
@@ -204,7 +203,8 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
     verify_manifest(&files, &sig_bytes, &vk)?;
 
     // Decrypt.
-    let recipients = header.recipients
+    let recipients = header
+        .recipients
         .ok_or_else(|| KrillnotesError::Swarm("no recipients in delta".to_string()))?;
     let mut plaintext = None;
     let mut sym_key_found: Option<[u8; 32]> = None;
@@ -247,16 +247,22 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::SigningKey;
     use crate::core::hlc::HlcTimestamp;
     use crate::core::operation::Operation;
+    use ed25519_dalek::SigningKey;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
+    fn make_key() -> SigningKey {
+        SigningKey::generate(&mut rand_core::OsRng)
+    }
 
     fn dummy_op(id: &str) -> Operation {
         Operation::UpdateNote {
             operation_id: id.to_string(),
-            timestamp: HlcTimestamp { wall_ms: 1, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 1,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: "dev-1".to_string(),
             note_id: "note-1".to_string(),
             title: "Updated".to_string(),
@@ -286,7 +292,8 @@ mod tests {
             owner_pubkey: "owner-pk".to_string(),
             ack_operation_id: None,
             attachment_blobs: vec![],
-        }).unwrap();
+        })
+        .unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.sender_device_id, "dev-1");
@@ -315,7 +322,8 @@ mod tests {
             owner_pubkey: "owner-pk".to_string(),
             ack_operation_id: None,
             attachment_blobs: vec![],
-        }).unwrap();
+        })
+        .unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.operations.len(), 0);
@@ -331,7 +339,11 @@ mod tests {
 
         let mut op = Operation::AddAttachment {
             operation_id: "op-att-delta-1".to_string(),
-            timestamp: crate::core::hlc::HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            timestamp: crate::core::hlc::HlcTimestamp {
+                wall_ms: 1000,
+                counter: 0,
+                node_id: 1,
+            },
             device_id: "dev-1".to_string(),
             attachment_id: "att-uuid-1".to_string(),
             note_id: "note-1".to_string(),
@@ -404,7 +416,11 @@ mod tests {
 
         let mut op = Operation::AddAttachment {
             operation_id: "op-att-strip-1".to_string(),
-            timestamp: HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            timestamp: HlcTimestamp {
+                wall_ms: 1000,
+                counter: 0,
+                node_id: 1,
+            },
             device_id: "dev-1".to_string(),
             attachment_id: "att-strip-1".to_string(),
             note_id: "note-1".to_string(),
@@ -433,7 +449,8 @@ mod tests {
             owner_pubkey: "owner-key".to_string(),
             ack_operation_id: None,
             attachment_blobs: vec![("att-strip-1".to_string(), blob_data)],
-        }).unwrap();
+        })
+        .unwrap();
 
         // Tamper: strip the sidecar from the bundle
         let tampered = strip_sidecar_from_bundle(&bundle);
@@ -462,7 +479,11 @@ mod tests {
 
         let mut op = Operation::UpdateNote {
             operation_id: "op-un-1".to_string(),
-            timestamp: crate::core::hlc::HlcTimestamp { wall_ms: 1000, counter: 0, node_id: 1 },
+            timestamp: crate::core::hlc::HlcTimestamp {
+                wall_ms: 1000,
+                counter: 0,
+                node_id: 1,
+            },
             device_id: "dev-1".to_string(),
             note_id: "note-1".to_string(),
             title: "Updated".to_string(),

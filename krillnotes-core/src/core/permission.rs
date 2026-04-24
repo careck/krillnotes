@@ -100,7 +100,9 @@ pub struct AllowAllGate {
 
 impl AllowAllGate {
     pub fn new(protocol_id: &'static str) -> Self {
-        Self { protocol: protocol_id }
+        Self {
+            protocol: protocol_id,
+        }
     }
 }
 

@@ -6,9 +6,7 @@
 
 //! High-level workspace operations over a Krillnotes SQLite database.
 
-use crate::core::attachment::{
-    decrypt_attachment, encrypt_attachment, AttachmentMeta,
-};
+use crate::core::attachment::{decrypt_attachment, encrypt_attachment, AttachmentMeta};
 use crate::core::contact::{generate_fingerprint, TrustLevel};
 use crate::core::export::WorkspaceMetadata;
 use crate::core::hlc::{HlcClock, HlcTimestamp};
@@ -16,9 +14,9 @@ use crate::core::peer_registry::{PeerInfo, PeerRegistry};
 use crate::core::user_script;
 #[allow(unused_imports)]
 use crate::{
-    DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note,
-    Operation, OperationLog, PurgeStrategy, QueryContext, Result, RetractInverse, SaveResult,
-    ScriptError, ScriptRegistry, Storage, UndoResult, UnixSecs, UserScript,
+    DeleteResult, DeleteStrategy, FieldValue, KrillnotesError, Note, Operation, OperationLog,
+    PurgeStrategy, QueryContext, Result, RetractInverse, SaveResult, ScriptError, ScriptRegistry,
+    Storage, UndoResult, UnixSecs, UserScript,
 };
 use rhai::Dynamic;
 use rusqlite::{Connection, OptionalExtension};
@@ -150,7 +148,9 @@ impl Workspace {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let purge_limit = Self::read_purge_limit_from_meta(storage.connection());
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: purge_limit });
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly {
+            keep_last: purge_limit,
+        });
 
         let device_id = if let Some(dir) = identity_dir {
             let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
@@ -168,13 +168,15 @@ impl Workspace {
             ["identity_uuid", identity_uuid],
         )?;
 
-        let workspace_root = path.as_ref()
+        let workspace_root = path
+            .as_ref()
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf();
         let _ = std::fs::create_dir_all(workspace_root.join("attachments"));
 
-        let workspace_id = config.workspace_id
+        let workspace_id = config
+            .workspace_id
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         storage.connection().execute(
             "INSERT OR IGNORE INTO workspace_meta (key, value) VALUES (?, ?)",
@@ -182,7 +184,10 @@ impl Workspace {
         )?;
 
         let attachment_key = if !password.is_empty() {
-            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+            Some(crate::core::attachment::derive_attachment_key(
+                password,
+                &workspace_id,
+            ))
         } else {
             None
         };
@@ -227,18 +232,25 @@ impl Workspace {
                         enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                         created_at: row.get(6)?,
                         modified_at: row.get(7)?,
-                        category: row.get::<_, String>(8)
+                        category: row
+                            .get::<_, String>(8)
                             .unwrap_or_else(|_| "library".to_string()),
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
-            for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
+            for script in scripts
+                .iter()
+                .filter(|s| s.enabled && s.category == "library")
+            {
                 script_registry.set_loading_category(Some("library".to_string()));
                 if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
                     log::warn!("Failed to load starter script '{}': {}", script.name, e);
                 }
             }
-            for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
+            for script in scripts
+                .iter()
+                .filter(|s| s.enabled && s.category == "schema")
+            {
                 script_registry.set_loading_category(Some("schema".to_string()));
                 if let Err(e) = script_registry.load_script(&script.source_code, &script.name) {
                     log::warn!("Failed to load starter script '{}': {}", script.name, e);
@@ -260,13 +272,12 @@ impl Workspace {
 
         if config.insert_root_note {
             let filename = {
-                let parent_name = path.as_ref()
+                let parent_name = path
+                    .as_ref()
                     .parent()
                     .and_then(|p| p.file_name())
                     .and_then(|s| s.to_str());
-                let db_stem = path.as_ref()
-                    .file_stem()
-                    .and_then(|s| s.to_str());
+                let db_stem = path.as_ref().file_stem().and_then(|s| s.to_str());
                 match parent_name {
                     Some(name) if !name.is_empty() && name != "." => name,
                     _ => db_stem.unwrap_or("Untitled"),
@@ -314,8 +325,7 @@ impl Workspace {
 
         let device_uuid_str = crate::core::identity::device_part_from_device_id(&device_id);
         let node_id = crate::core::hlc::node_id_from_device(
-            &uuid::Uuid::parse_str(device_uuid_str)
-                .unwrap_or_else(|_| uuid::Uuid::new_v4()),
+            &uuid::Uuid::parse_str(device_uuid_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
         );
         let hlc = HlcClock::new(node_id);
 
@@ -356,7 +366,14 @@ impl Workspace {
     ///
     /// Returns [`crate::KrillnotesError::Database`] for any SQLite failure, or
     /// [`crate::KrillnotesError::InvalidWorkspace`] if the device ID cannot be obtained.
-    pub fn create<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
+    pub fn create<P: AsRef<Path>>(
+        path: P,
+        password: &str,
+        identity_uuid: &str,
+        signing_key: ed25519_dalek::SigningKey,
+        permission_gate: Box<dyn crate::core::permission::PermissionGate>,
+        identity_dir: Option<&Path>,
+    ) -> Result<Self> {
         Self::init_core(
             WorkspaceConfig {
                 workspace_id: None,
@@ -404,7 +421,14 @@ impl Workspace {
     /// Use this when the workspace content will immediately be populated from an
     /// external source (e.g. a snapshot import), so the seed note would only create
     /// unwanted noise alongside the imported tree.
-    pub fn create_empty<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
+    pub fn create_empty<P: AsRef<Path>>(
+        path: P,
+        password: &str,
+        identity_uuid: &str,
+        signing_key: ed25519_dalek::SigningKey,
+        permission_gate: Box<dyn crate::core::permission::PermissionGate>,
+        identity_dir: Option<&Path>,
+    ) -> Result<Self> {
         Self::init_core(
             WorkspaceConfig {
                 workspace_id: None,
@@ -456,19 +480,27 @@ impl Workspace {
     /// incorrect, [`crate::KrillnotesError::UnencryptedWorkspace`] if the file
     /// is a plain unencrypted SQLite database, or
     /// [`crate::KrillnotesError::Database`] for any SQLite failure.
-    pub fn open<P: AsRef<Path>>(path: P, password: &str, identity_uuid: &str, signing_key: ed25519_dalek::SigningKey, mut permission_gate: Box<dyn crate::core::permission::PermissionGate>, identity_dir: Option<&Path>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(
+        path: P,
+        password: &str,
+        identity_uuid: &str,
+        signing_key: ed25519_dalek::SigningKey,
+        mut permission_gate: Box<dyn crate::core::permission::PermissionGate>,
+        identity_dir: Option<&Path>,
+    ) -> Result<Self> {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let purge_limit = Self::read_purge_limit_from_meta(storage.connection());
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: purge_limit });
+        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly {
+            keep_last: purge_limit,
+        });
 
         // Read metadata from database
-        let mut device_id: String = storage.connection()
-            .query_row(
-                "SELECT value FROM workspace_meta WHERE key = 'device_id'",
-                [],
-                |row| row.get::<_, String>(0)
-            )?;
+        let mut device_id: String = storage.connection().query_row(
+            "SELECT value FROM workspace_meta WHERE key = 'device_id'",
+            [],
+            |row| row.get::<_, String>(0),
+        )?;
 
         // If an identity directory is provided, always recompute composite device_id
         // so the format is {identity_uuid}:{device_uuid} regardless of what is stored.
@@ -493,7 +525,8 @@ impl Workspace {
             base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
         };
 
-        let workspace_root = path.as_ref()
+        let workspace_root = path
+            .as_ref()
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf();
@@ -501,11 +534,12 @@ impl Workspace {
 
         // Read workspace_id for key derivation; generate one if absent (older workspaces)
         let workspace_id: String = {
-            let existing: std::result::Result<String, rusqlite::Error> = storage.connection().query_row(
-                "SELECT value FROM workspace_meta WHERE key = 'workspace_id'",
-                [],
-                |row| row.get(0),
-            );
+            let existing: std::result::Result<String, rusqlite::Error> =
+                storage.connection().query_row(
+                    "SELECT value FROM workspace_meta WHERE key = 'workspace_id'",
+                    [],
+                    |row| row.get(0),
+                );
             match existing {
                 Ok(id) => id,
                 Err(_) => {
@@ -521,7 +555,10 @@ impl Workspace {
         };
 
         let attachment_key = if !password.is_empty() {
-            Some(crate::core::attachment::derive_attachment_key(password, &workspace_id))
+            Some(crate::core::attachment::derive_attachment_key(
+                password,
+                &workspace_id,
+            ))
         } else {
             None
         };
@@ -555,11 +592,12 @@ impl Workspace {
         // Read owner_pubkey from workspace_meta. If absent (pre-existing workspace),
         // the current opener becomes the owner.
         let owner_pubkey: String = {
-            let existing: std::result::Result<String, rusqlite::Error> = storage.connection().query_row(
-                "SELECT value FROM workspace_meta WHERE key = 'owner_pubkey'",
-                [],
-                |row| row.get(0),
-            );
+            let existing: std::result::Result<String, rusqlite::Error> =
+                storage.connection().query_row(
+                    "SELECT value FROM workspace_meta WHERE key = 'owner_pubkey'",
+                    [],
+                    |row| row.get(0),
+                );
             match existing {
                 Ok(pk) => pk,
                 Err(_) => {
@@ -607,15 +645,29 @@ impl Workspace {
 
         // Two-phase script loading: library first, then schema, then resolve.
         let scripts = ws.list_user_scripts()?;
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
-            ws.script_registry.set_loading_category(Some("library".to_string()));
-            if let Err(e) = ws.script_registry.load_script(&script.source_code, &script.name) {
+        for script in scripts
+            .iter()
+            .filter(|s| s.enabled && s.category == "library")
+        {
+            ws.script_registry
+                .set_loading_category(Some("library".to_string()));
+            if let Err(e) = ws
+                .script_registry
+                .load_script(&script.source_code, &script.name)
+            {
                 log::warn!("Failed to load script '{}': {}", script.name, e);
             }
         }
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
-            ws.script_registry.set_loading_category(Some("schema".to_string()));
-            if let Err(e) = ws.script_registry.load_script(&script.source_code, &script.name) {
+        for script in scripts
+            .iter()
+            .filter(|s| s.enabled && s.category == "schema")
+        {
+            ws.script_registry
+                .set_loading_category(Some("schema".to_string()));
+            if let Err(e) = ws
+                .script_registry
+                .load_script(&script.source_code, &script.name)
+            {
                 log::warn!("Failed to load script '{}': {}", script.name, e);
             }
         }
@@ -701,25 +753,20 @@ impl Workspace {
     /// Called on open, create, and window close so the workspace manager
     /// can display counts without opening the encrypted database.
     pub fn write_info_json(&self) -> Result<()> {
-        let note_count: i64 = self.connection()
-            .query_row(
-                "SELECT COUNT(*) FROM notes",
-                [],
-                |row| row.get(0),
-            )
+        let note_count: i64 = self
+            .connection()
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
             .unwrap_or(0);
 
-        let attachment_count: i64 = self.connection()
+        let attachment_count: i64 = self
+            .connection()
             .query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))
             .unwrap_or(0);
 
         // created_at = oldest note's created_at (best proxy for workspace age)
-        let created_at: i64 = self.connection()
-            .query_row(
-                "SELECT MIN(created_at) FROM notes",
-                [],
-                |row| row.get(0),
-            )
+        let created_at: i64 = self
+            .connection()
+            .query_row("SELECT MIN(created_at) FROM notes", [], |row| row.get(0))
             .unwrap_or_else(|_| UnixSecs::now().as_i64());
 
         let info = serde_json::json!({
@@ -845,15 +892,16 @@ impl Workspace {
                     "SELECT id, title, fields_json, schema_version \
                      FROM notes WHERE schema = ?1 AND schema_version < ?2",
                 )?;
-                let rows = stmt.query_map(
-                    rusqlite::params![&schema_name, schema_version],
-                    |row| Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, u32>(3)?,
-                    )),
-                )?.collect::<rusqlite::Result<Vec<_>>>()?;
+                let rows = stmt
+                    .query_map(rusqlite::params![&schema_name, schema_version], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, u32>(3)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
                 rows
             };
 
@@ -869,7 +917,10 @@ impl Workspace {
                 None => {
                     self.script_registry.add_warning(
                         &schema_name,
-                        &format!("Schema '{}' has migrations but no AST — skipping Phase D", schema_name),
+                        &format!(
+                            "Schema '{}' has migrations but no AST — skipping Phase D",
+                            schema_name
+                        ),
                     );
                     continue;
                 }
@@ -885,10 +936,13 @@ impl Workspace {
                 // Build note map for the migration closure.
                 let mut fields_map = rhai::Map::new();
                 for (k, v) in &fields {
-                    fields_map.insert(k.as_str().into(), crate::core::scripting::field_value_to_dynamic(v));
+                    fields_map.insert(
+                        k.as_str().into(),
+                        crate::core::scripting::field_value_to_dynamic(v),
+                    );
                 }
                 let mut note_map = rhai::Map::new();
-                note_map.insert("title".into(),  rhai::Dynamic::from(title.clone()));
+                note_map.insert("title".into(), rhai::Dynamic::from(title.clone()));
                 note_map.insert("fields".into(), rhai::Dynamic::from(fields_map));
 
                 // Chain migration closures from note_version+1 to schema_version.
@@ -927,10 +981,12 @@ impl Workspace {
                 }
 
                 // Extract new title and fields from the migrated map.
-                let new_title = note_map.get("title")
+                let new_title = note_map
+                    .get("title")
                     .and_then(|v| v.clone().try_cast::<String>())
                     .unwrap_or_else(|| title.clone());
-                let new_fields_json = if let Some(fm) = note_map.get("fields")
+                let new_fields_json = if let Some(fm) = note_map
+                    .get("fields")
                     .and_then(|v| v.clone().try_cast::<rhai::Map>())
                 {
                     let converted = self.script_registry.rhai_map_to_fields(&fm, &schema_name)?;
@@ -980,7 +1036,8 @@ impl Workspace {
     /// in the operations log. If not, creates and logs one. This is idempotent across
     /// multiple opens of the same workspace on the same device.
     pub(crate) fn emit_register_device_if_needed(&mut self) -> Result<()> {
-        let device_uuid = crate::core::identity::device_part_from_device_id(&self.device_id).to_string();
+        let device_uuid =
+            crate::core::identity::device_part_from_device_id(&self.device_id).to_string();
 
         // Determine a human-readable device name from the hostname (outside the
         // transaction so we don't hold the lock while calling OS APIs).
@@ -1049,13 +1106,13 @@ impl Workspace {
 
 // ── Domain sub-modules (split from this file for readability) ──────
 
-mod undo;
-mod notes;
-mod hooks;
-mod scripts;
 mod attachments;
+mod hooks;
+mod notes;
+mod scripts;
 mod sync;
 mod sync_events;
+mod undo;
 pub use sync_events::SyncEventRecord;
 pub mod permissions;
 
@@ -1069,7 +1126,11 @@ pub mod permissions;
 ///
 /// Must be called inside an open transaction so that the link update is
 /// atomic with the note write that precedes it.
-fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<String, FieldValue>) -> Result<()> {
+fn sync_note_links(
+    tx: &rusqlite::Transaction,
+    note_id: &str,
+    fields: &BTreeMap<String, FieldValue>,
+) -> Result<()> {
     // Clear all existing note_links rows for this source note (replace strategy).
     tx.execute("DELETE FROM note_links WHERE source_id = ?1", [note_id])?;
     // Re-insert for any non-null NoteLink fields. No duplicates possible after
@@ -1089,7 +1150,22 @@ fn sync_note_links(tx: &rusqlite::Transaction, note_id: &str, fields: &BTreeMap<
 ///
 /// `position` is stored as REAL in the DB (to support fractional positions for future
 /// CRDT ordering) but the Rust API still uses `i32`; we read it as `f64` and truncate.
-type NoteRow = (String, String, String, Option<String>, f64, UnixSecs, UnixSecs, String, String, String, i64, u32, bool, Option<String>);
+type NoteRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    f64,
+    UnixSecs,
+    UnixSecs,
+    String,
+    String,
+    String,
+    i64,
+    u32,
+    bool,
+    Option<String>,
+);
 
 /// Row-mapping closure for `rusqlite::Row` → raw tuple.
 ///
@@ -1097,26 +1173,41 @@ type NoteRow = (String, String, String, Option<String>, f64, UnixSecs, UnixSecs,
 /// Extracted to avoid duplicating column-index logic across every query.
 fn map_note_row(row: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
     Ok((
-        row.get::<_, String>(0)?,           // id
-        row.get::<_, String>(1)?,           // title
-        row.get::<_, String>(2)?,           // schema
-        row.get::<_, Option<String>>(3)?,   // parent_id
-        row.get::<_, f64>(4)?,              // position
-        row.get::<_, UnixSecs>(5)?,         // created_at
-        row.get::<_, UnixSecs>(6)?,         // modified_at
-        row.get::<_, String>(7).unwrap_or_default(),  // created_by
-        row.get::<_, String>(8).unwrap_or_default(),  // modified_by
-        row.get::<_, String>(9)?,           // fields_json
-        row.get::<_, i64>(10)?,             // is_expanded
-        row.get::<_, u32>(11)?,             // schema_version
-        row.get::<_, bool>(12)?,            // is_checked
-        row.get::<_, Option<String>>(13)?,  // tags_csv
+        row.get::<_, String>(0)?,                    // id
+        row.get::<_, String>(1)?,                    // title
+        row.get::<_, String>(2)?,                    // schema
+        row.get::<_, Option<String>>(3)?,            // parent_id
+        row.get::<_, f64>(4)?,                       // position
+        row.get::<_, UnixSecs>(5)?,                  // created_at
+        row.get::<_, UnixSecs>(6)?,                  // modified_at
+        row.get::<_, String>(7).unwrap_or_default(), // created_by
+        row.get::<_, String>(8).unwrap_or_default(), // modified_by
+        row.get::<_, String>(9)?,                    // fields_json
+        row.get::<_, i64>(10)?,                      // is_expanded
+        row.get::<_, u32>(11)?,                      // schema_version
+        row.get::<_, bool>(12)?,                     // is_checked
+        row.get::<_, Option<String>>(13)?,           // tags_csv
     ))
 }
 
 /// Converts a raw 14-column tuple into a [`Note`], parsing `fields_json` and `tags_csv`.
 fn note_from_row_tuple(
-    (id, title, schema, parent_id, position, created_at, modified_at, created_by, modified_by, fields_json, is_expanded_int, schema_version, is_checked, tags_csv): NoteRow,
+    (
+        id,
+        title,
+        schema,
+        parent_id,
+        position,
+        created_at,
+        modified_at,
+        created_by,
+        modified_by,
+        fields_json,
+        is_expanded_int,
+        schema_version,
+        is_checked,
+        tags_csv,
+    ): NoteRow,
 ) -> Result<Note> {
     let mut tags: Vec<String> = tags_csv
         .unwrap_or_default()
@@ -1154,9 +1245,7 @@ fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
     for (k, v) in &note.fields {
         fields_map.insert(k.as_str().into(), field_value_to_dynamic(v));
     }
-    let tags_array: rhai::Array = note.tags.iter()
-        .map(|t| Dynamic::from(t.clone()))
-        .collect();
+    let tags_array: rhai::Array = note.tags.iter().map(|t| Dynamic::from(t.clone())).collect();
     let mut note_map = rhai::Map::new();
     note_map.insert("id".into(), Dynamic::from(note.id.clone()));
     note_map.insert("schema".into(), Dynamic::from(note.schema.clone()));

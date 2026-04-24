@@ -28,7 +28,9 @@ impl Workspace {
                     enabled: row.get::<_, i64>(5).map(|v| v != 0)?,
                     created_at: row.get(6)?,
                     modified_at: row.get(7)?,
-                    category: row.get::<_, String>(8).unwrap_or_else(|_| "library".to_string()),
+                    category: row
+                        .get::<_, String>(8)
+                        .unwrap_or_else(|_| "library".to_string()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -63,9 +65,16 @@ impl Workspace {
     ///
     /// Returns an error if `@name` is missing from the front matter, or if Rhai
     /// compilation fails. On failure nothing is written to the database.
-    pub fn create_user_script(&mut self, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
+    pub fn create_user_script(
+        &mut self,
+        source_code: &str,
+    ) -> Result<(UserScript, Vec<ScriptError>)> {
         // Auto-detect category: if the source calls schema(), it's a schema script.
-        let category = if source_code.contains("schema(") { "schema" } else { "library" };
+        let category = if source_code.contains("schema(") {
+            "schema"
+        } else {
+            "library"
+        };
         self.create_user_script_with_category(source_code, category)
     }
 
@@ -82,7 +91,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::CreateUserScript {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             script_id: String::new(),
             name: String::new(),
@@ -106,7 +119,8 @@ impl Workspace {
         let id = Uuid::new_v4().to_string();
 
         // Pre-validation
-        self.script_registry.set_loading_category(Some(category.to_string()));
+        self.script_registry
+            .set_loading_category(Some(category.to_string()));
         if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
             let _ = self.reload_scripts();
             return Err(e);
@@ -118,7 +132,11 @@ impl Workspace {
         let tx = self.storage.connection_mut().transaction()?;
 
         let max_order: i32 = tx
-            .query_row("SELECT COALESCE(MAX(load_order), -1) FROM user_scripts", [], |row| row.get(0))
+            .query_row(
+                "SELECT COALESCE(MAX(load_order), -1) FROM user_scripts",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(-1);
         let load_order = max_order + 1;
 
@@ -151,7 +169,9 @@ impl Workspace {
         let op_id = op.operation_id().to_string();
         self.push_script_undo(UndoEntry {
             retracted_ids: vec![op_id],
-            inverse: RetractInverse::DeleteScript { script_id: id.clone() },
+            inverse: RetractInverse::DeleteScript {
+                script_id: id.clone(),
+            },
             propagate: true,
         });
 
@@ -164,7 +184,11 @@ impl Workspace {
     ///
     /// Returns an error if `@name` is missing from the front matter, or if Rhai
     /// compilation fails. On failure nothing is written to the database.
-    pub fn update_user_script(&mut self, script_id: &str, source_code: &str) -> Result<(UserScript, Vec<ScriptError>)> {
+    pub fn update_user_script(
+        &mut self,
+        script_id: &str,
+        source_code: &str,
+    ) -> Result<(UserScript, Vec<ScriptError>)> {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
@@ -172,7 +196,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::UpdateUserScript {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             name: String::new(),
@@ -200,7 +228,8 @@ impl Workspace {
             .get_user_script(script_id)
             .map(|s| s.category)
             .unwrap_or_else(|_| "library".to_string());
-        self.script_registry.set_loading_category(Some(existing_category));
+        self.script_registry
+            .set_loading_category(Some(existing_category));
         if let Err(e) = self.script_registry.load_script(source_code, &fm.name) {
             let _ = self.reload_scripts(); // restore registry; ignore restoration errors
             return Err(e);
@@ -221,7 +250,9 @@ impl Workspace {
         )?;
 
         if changes == 0 {
-            return Err(KrillnotesError::NoteNotFound(format!("User script {script_id} not found")));
+            return Err(KrillnotesError::NoteNotFound(format!(
+                "User script {script_id} not found"
+            )));
         }
 
         // Read current full state for the operation log
@@ -282,7 +313,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::DeleteUserScript {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             deleted_by: self.current_identity_pubkey.clone(),
@@ -335,7 +370,11 @@ impl Workspace {
     }
 
     /// Toggles the enabled state of a user script and reloads.
-    pub fn toggle_user_script(&mut self, script_id: &str, enabled: bool) -> Result<Vec<ScriptError>> {
+    pub fn toggle_user_script(
+        &mut self,
+        script_id: &str,
+        enabled: bool,
+    ) -> Result<Vec<ScriptError>> {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
@@ -343,7 +382,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::UpdateUserScript {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             name: String::new(),
@@ -366,11 +409,12 @@ impl Workspace {
         )?;
 
         // Read full current state for the operation log
-        let (name, description, source_code, load_order): (String, String, String, i32) = tx.query_row(
-            "SELECT name, description, source_code, load_order FROM user_scripts WHERE id = ?",
-            [script_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )?;
+        let (name, description, source_code, load_order): (String, String, String, i32) = tx
+            .query_row(
+                "SELECT name, description, source_code, load_order FROM user_scripts WHERE id = ?",
+                [script_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
 
         // Log operation
         Self::save_hlc(&ts, &tx)?;
@@ -397,7 +441,11 @@ impl Workspace {
     }
 
     /// Changes the load order of a user script and reloads.
-    pub fn reorder_user_script(&mut self, script_id: &str, new_load_order: i32) -> Result<Vec<ScriptError>> {
+    pub fn reorder_user_script(
+        &mut self,
+        script_id: &str,
+        new_load_order: i32,
+    ) -> Result<Vec<ScriptError>> {
         if !self.is_owner() {
             return Err(KrillnotesError::NotOwner);
         }
@@ -405,7 +453,11 @@ impl Workspace {
         // Authorize before opening any transaction.
         let auth_op = Operation::UpdateUserScript {
             operation_id: String::new(),
-            timestamp: HlcTimestamp { wall_ms: 0, counter: 0, node_id: 0 },
+            timestamp: HlcTimestamp {
+                wall_ms: 0,
+                counter: 0,
+                node_id: 0,
+            },
             device_id: self.device_id.clone(),
             script_id: script_id.to_string(),
             name: String::new(),
@@ -428,11 +480,19 @@ impl Workspace {
         )?;
 
         // Read full current state for the operation log
-        let (name, description, source_code, enabled): (String, String, String, bool) = tx.query_row(
-            "SELECT name, description, source_code, enabled FROM user_scripts WHERE id = ?",
-            [script_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3).map(|v| v != 0)?)),
-        )?;
+        let (name, description, source_code, enabled): (String, String, String, bool) = tx
+            .query_row(
+                "SELECT name, description, source_code, enabled FROM user_scripts WHERE id = ?",
+                [script_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get::<_, i64>(3).map(|v| v != 0)?,
+                    ))
+                },
+            )?;
 
         // Log operation
         Self::save_hlc(&ts, &tx)?;
@@ -487,12 +547,14 @@ impl Workspace {
         since: Option<i64>,
         until: Option<i64>,
     ) -> Result<Vec<crate::OperationSummary>> {
-        self.operation_log.list(self.connection(), type_filter, since, until)
+        self.operation_log
+            .list(self.connection(), type_filter, since, until)
     }
 
     /// Returns the full JSON detail for a single operation by ID.
     pub fn get_operation_detail(&self, operation_id: &str) -> Result<serde_json::Value> {
-        self.operation_log.get_detail(self.connection(), operation_id)
+        self.operation_log
+            .get_detail(self.connection(), operation_id)
     }
 
     /// Deletes all operations from the log. Returns the number deleted.
@@ -520,9 +582,16 @@ impl Workspace {
         let mut errors = Vec::new();
 
         // Phase A: load library scripts first
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "library") {
-            self.script_registry.set_loading_category(Some("library".to_string()));
-            if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
+        for script in scripts
+            .iter()
+            .filter(|s| s.enabled && s.category == "library")
+        {
+            self.script_registry
+                .set_loading_category(Some("library".to_string()));
+            if let Err(e) = self
+                .script_registry
+                .load_script(&script.source_code, &script.name)
+            {
                 errors.push(ScriptError {
                     script_name: script.name.clone(),
                     message: e.to_string(),
@@ -531,9 +600,16 @@ impl Workspace {
         }
 
         // Phase B: load schema scripts
-        for script in scripts.iter().filter(|s| s.enabled && s.category == "schema") {
-            self.script_registry.set_loading_category(Some("schema".to_string()));
-            if let Err(e) = self.script_registry.load_script(&script.source_code, &script.name) {
+        for script in scripts
+            .iter()
+            .filter(|s| s.enabled && s.category == "schema")
+        {
+            self.script_registry
+                .set_loading_category(Some("schema".to_string()));
+            if let Err(e) = self
+                .script_registry
+                .load_script(&script.source_code, &script.name)
+            {
                 errors.push(ScriptError {
                     script_name: script.name.clone(),
                     message: e.to_string(),
@@ -551,5 +627,4 @@ impl Workspace {
     pub fn reload_all_scripts(&mut self) -> Result<Vec<ScriptError>> {
         self.reload_scripts()
     }
-
 }

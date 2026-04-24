@@ -5,10 +5,10 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
-use tauri::State;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::path::PathBuf;
+use tauri::State;
+use uuid::Uuid;
 
 /// Information about a workspace bound to an identity, returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +33,10 @@ pub fn list_identities(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<crate::IdentityRef>, String> {
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.list_identities().map_err(|e| { log::error!("list_identities failed: {e}"); e.to_string() })
+    mgr.list_identities().map_err(|e| {
+        log::error!("list_identities failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Resolves a public key to a display name.
@@ -41,10 +44,7 @@ pub fn list_identities(
 /// Returns a truncated fingerprint (first 8 chars) if the key is unknown but non-empty,
 /// or None if the key is empty.
 #[tauri::command]
-pub fn resolve_identity_name(
-    state: State<'_, AppState>,
-    public_key: String,
-) -> Option<String> {
+pub fn resolve_identity_name(state: State<'_, AppState>, public_key: String) -> Option<String> {
     if public_key.is_empty() {
         return None;
     }
@@ -74,23 +74,35 @@ pub fn create_identity(
     passphrase: String,
 ) -> std::result::Result<crate::IdentityRef, String> {
     let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    let file = mgr.create_identity(&display_name, &passphrase)
-        .map_err(|e| { log::error!("create_identity failed: {e}"); e.to_string() })?;
+    let file = mgr
+        .create_identity(&display_name, &passphrase)
+        .map_err(|e| {
+            log::error!("create_identity failed: {e}");
+            e.to_string()
+        })?;
     let uuid = file.identity_uuid;
 
     // Auto-unlock after creation
-    let unlocked = mgr.unlock_identity(&uuid, &passphrase)
+    let unlocked = mgr
+        .unlock_identity(&uuid, &passphrase)
         .map_err(|e| e.to_string())?;
     let identity_dir = mgr.identity_dir(&uuid);
     drop(mgr); // Release the lock before acquiring unlocked_identities
-    // Derive contacts key before consuming `unlocked` via insert
+               // Derive contacts key before consuming `unlocked` via insert
     let contacts_key = unlocked.contacts_key();
-    state.unlocked_identities.lock().expect("Mutex poisoned")
+    state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
         .insert(uuid, unlocked);
     let contacts_dir = identity_dir.join("contacts");
     match krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
         Ok(cm) => {
-            state.contact_managers.lock().expect("Mutex poisoned").insert(uuid, cm);
+            state
+                .contact_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, cm);
         }
         Err(e) => {
             // Non-fatal: log but don't fail creation
@@ -99,8 +111,16 @@ pub fn create_identity(
     }
     let invites_dir = identity_dir.join("invites");
     match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
-        Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
-        Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
+        Ok(im) => {
+            state
+                .invite_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, im);
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize invite manager for {uuid}: {e}");
+        }
     }
 
     // Initialize per-identity RelayAccountManager (no migration needed for fresh identity)
@@ -110,9 +130,15 @@ pub fn create_identity(
     };
     if let Some(relay_key) = relay_key {
         let relays_dir = identity_dir.join("relays");
-        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
+        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(
+            relays_dir, relay_key,
+        ) {
             Ok(relay_mgr) => {
-                state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
+                state
+                    .relay_account_managers
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .insert(uuid, relay_mgr);
             }
             Err(e) => {
                 log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
@@ -122,20 +148,38 @@ pub fn create_identity(
 
     let accepted_dir = identity_dir.join("accepted_invites");
     match krillnotes_core::core::accepted_invite::AcceptedInviteManager::new(accepted_dir) {
-        Ok(mgr) => { state.accepted_invite_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
-        Err(e) => { log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}"); }
+        Ok(mgr) => {
+            state
+                .accepted_invite_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, mgr);
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}");
+        }
     }
 
     let responses_dir = identity_dir.join("invite_responses");
     match krillnotes_core::core::received_response::ReceivedResponseManager::new(responses_dir) {
-        Ok(mgr) => { state.received_response_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
-        Err(e) => { log::warn!("Failed to initialize received response manager for {uuid}: {e}"); }
+        Ok(mgr) => {
+            state
+                .received_response_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, mgr);
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize received response manager for {uuid}: {e}");
+        }
     }
 
     // Return the IdentityRef
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
     let identities = mgr.list_identities().map_err(|e| e.to_string())?;
-    identities.into_iter().find(|i| i.uuid == uuid)
+    identities
+        .into_iter()
+        .find(|i| i.uuid == uuid)
         .ok_or_else(|| "Identity created but not found in registry".to_string())
 }
 
@@ -148,7 +192,8 @@ pub fn unlock_identity(
 ) -> std::result::Result<(), String> {
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    let unlocked = mgr.unlock_identity(&uuid, &passphrase)
+    let unlocked = mgr
+        .unlock_identity(&uuid, &passphrase)
         .map_err(|e| match e {
             crate::KrillnotesError::IdentityWrongPassphrase => "WRONG_PASSPHRASE".to_string(),
             other => {
@@ -160,13 +205,20 @@ pub fn unlock_identity(
     drop(mgr);
     // Derive contacts key before consuming `unlocked` via insert
     let contacts_key = unlocked.contacts_key();
-    state.unlocked_identities.lock().expect("Mutex poisoned")
+    state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
         .insert(uuid, unlocked);
     // Create per-identity ContactManager (decrypts contacts into memory)
     let contacts_dir = identity_dir.join("contacts");
     match krillnotes_core::core::contact::ContactManager::for_identity(contacts_dir, contacts_key) {
         Ok(cm) => {
-            state.contact_managers.lock().expect("Mutex poisoned").insert(uuid, cm);
+            state
+                .contact_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, cm);
         }
         Err(e) => {
             // Non-fatal: log but don't fail unlock
@@ -175,8 +227,16 @@ pub fn unlock_identity(
     }
     let invites_dir = identity_dir.join("invites");
     match krillnotes_core::core::invite::InviteManager::new(invites_dir) {
-        Ok(im) => { state.invite_managers.lock().expect("Mutex poisoned").insert(uuid, im); }
-        Err(e) => { log::warn!("Failed to initialize invite manager for {uuid}: {e}"); }
+        Ok(im) => {
+            state
+                .invite_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, im);
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize invite manager for {uuid}: {e}");
+        }
     }
 
     // Initialize per-identity RelayAccountManager (encrypted relay accounts)
@@ -186,9 +246,15 @@ pub fn unlock_identity(
     };
     if let Some(relay_key) = relay_key {
         let relays_dir = identity_dir.join("relays");
-        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(relays_dir, relay_key) {
+        match krillnotes_core::core::sync::relay::RelayAccountManager::for_identity(
+            relays_dir, relay_key,
+        ) {
             Ok(relay_mgr) => {
-                state.relay_account_managers.lock().expect("Mutex poisoned").insert(uuid, relay_mgr);
+                state
+                    .relay_account_managers
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .insert(uuid, relay_mgr);
             }
             Err(e) => {
                 log::warn!("Failed to initialize relay account manager for {uuid}: {e}");
@@ -202,7 +268,10 @@ pub fn unlock_identity(
     // the current device's key with the relay.
     let current_dpk = {
         let ids = state.unlocked_identities.lock().expect("Mutex poisoned");
-        if let (Some(id), Ok(device_id)) = (ids.get(&uuid), krillnotes_core::core::device::get_device_id()) {
+        if let (Some(id), Ok(device_id)) = (
+            ids.get(&uuid),
+            krillnotes_core::core::device::get_device_id(),
+        ) {
             let device_sk = id.device_signing_key(&device_id);
             let dpk_hex = hex::encode(device_sk.verifying_key().to_bytes());
             let composite = format!("{}:identity:{}", device_id, uuid);
@@ -214,10 +283,18 @@ pub fn unlock_identity(
         }
     };
 
-    if let Some((device_sk, current_dpk_hex, composite_device_id, identity_signing_key, identity_pubkey_hex)) = current_dpk {
+    if let Some((
+        device_sk,
+        current_dpk_hex,
+        composite_device_id,
+        identity_signing_key,
+        identity_pubkey_hex,
+    )) = current_dpk
+    {
         let stale_accounts = {
             let managers = state.relay_account_managers.lock().expect("Mutex poisoned");
-            managers.get(&uuid)
+            managers
+                .get(&uuid)
                 .and_then(|mgr| mgr.list_relay_accounts().ok())
                 .unwrap_or_default()
                 .into_iter()
@@ -227,7 +304,10 @@ pub fn unlock_identity(
         // All locks released here — safe to do blocking network I/O.
 
         for mut account in stale_accounts {
-            log::info!("Relay account {} has stale device key — re-authenticating", account.relay_url);
+            log::info!(
+                "Relay account {} has stale device key — re-authenticating",
+                account.relay_url
+            );
             let client = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
             match client.login(&account.email, &account.password, &current_dpk_hex) {
                 Ok(session) => {
@@ -239,30 +319,53 @@ pub fn unlock_identity(
                         ) {
                             Ok(nonce_bytes) => {
                                 let nonce_hex = hex::encode(&nonce_bytes);
-                                let mut authed = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
+                                let mut authed =
+                                    krillnotes_core::core::sync::relay::RelayClient::new(
+                                        &account.relay_url,
+                                    );
                                 authed.set_session_token(&session.session_token);
-                                if let Err(e) = authed.verify_device(&current_dpk_hex, &nonce_hex, Some(&composite_device_id)) {
-                                    log::warn!("Device verify failed for {}: {e}", account.relay_url);
+                                if let Err(e) = authed.verify_device(
+                                    &current_dpk_hex,
+                                    &nonce_hex,
+                                    Some(&composite_device_id),
+                                ) {
+                                    log::warn!(
+                                        "Device verify failed for {}: {e}",
+                                        account.relay_url
+                                    );
                                 } else {
                                     log::info!("Device verified on {}", account.relay_url);
                                 }
                             }
-                            Err(e) => log::warn!("PoP decryption failed for {}: {e}", account.relay_url),
+                            Err(e) => {
+                                log::warn!("PoP decryption failed for {}: {e}", account.relay_url)
+                            }
                         }
                     }
                     // Also register the identity's main public key for peer routing (best-effort).
                     if identity_pubkey_hex != current_dpk_hex {
-                        let mut id_client = krillnotes_core::core::sync::relay::RelayClient::new(&account.relay_url);
+                        let mut id_client = krillnotes_core::core::sync::relay::RelayClient::new(
+                            &account.relay_url,
+                        );
                         id_client.set_session_token(&session.session_token);
                         match id_client.add_device(&identity_pubkey_hex) {
                             Ok(result) => {
-                                if let Ok(nonce) = krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge(
-                                    &identity_signing_key,
-                                    &result.challenge.encrypted_nonce,
-                                    &result.challenge.server_public_key,
-                                ) {
-                                    let _ = id_client.verify_device(&identity_pubkey_hex, &hex::encode(&nonce), None);
-                                    log::info!("Registered identity public key on {}", account.relay_url);
+                                if let Ok(nonce) =
+                                    krillnotes_core::core::sync::relay::auth::decrypt_pop_challenge(
+                                        &identity_signing_key,
+                                        &result.challenge.encrypted_nonce,
+                                        &result.challenge.server_public_key,
+                                    )
+                                {
+                                    let _ = id_client.verify_device(
+                                        &identity_pubkey_hex,
+                                        &hex::encode(&nonce),
+                                        None,
+                                    );
+                                    log::info!(
+                                        "Registered identity public key on {}",
+                                        account.relay_url
+                                    );
                                 }
                             }
                             Err(_) => {} // 409 KEY_EXISTS expected
@@ -287,14 +390,30 @@ pub fn unlock_identity(
 
     let accepted_dir = identity_dir.join("accepted_invites");
     match krillnotes_core::core::accepted_invite::AcceptedInviteManager::new(accepted_dir) {
-        Ok(mgr) => { state.accepted_invite_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
-        Err(e) => { log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}"); }
+        Ok(mgr) => {
+            state
+                .accepted_invite_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, mgr);
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize accepted invite manager for {uuid}: {e}");
+        }
     }
 
     let responses_dir = identity_dir.join("invite_responses");
     match krillnotes_core::core::received_response::ReceivedResponseManager::new(responses_dir) {
-        Ok(mgr) => { state.received_response_managers.lock().expect("Mutex poisoned").insert(uuid, mgr); }
-        Err(e) => { log::warn!("Failed to initialize received response manager for {uuid}: {e}"); }
+        Ok(mgr) => {
+            state
+                .received_response_managers
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(uuid, mgr);
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize received response manager for {uuid}: {e}");
+        }
     }
 
     // Fire-and-forget: auto-login expired relay sessions on a background thread.
@@ -336,7 +455,8 @@ pub fn unlock_identity(
                     match result {
                         Ok(session) => {
                             updated.session_token = session.session_token;
-                            updated.session_expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+                            updated.session_expires_at =
+                                chrono::Utc::now() + chrono::Duration::days(30);
                             let _ = mgr.save_relay_account(&updated);
                             log::info!("Auto-login succeeded for relay {url}");
                         }
@@ -366,15 +486,17 @@ pub fn lock_identity(
 
     // Find and close all workspace windows belonging to this identity
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    let bound_folders: std::collections::HashSet<PathBuf> =
-        mgr.get_workspaces_for_identity(&uuid)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|(folder, _)| folder)
-            .collect();
+    let bound_folders: std::collections::HashSet<PathBuf> = mgr
+        .get_workspaces_for_identity(&uuid)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|(folder, _)| folder)
+        .collect();
     drop(mgr);
 
-    let labels_to_close: Vec<String> = state.workspace_paths.lock()
+    let labels_to_close: Vec<String> = state
+        .workspace_paths
+        .lock()
         .expect("Mutex poisoned")
         .iter()
         .filter(|(_, path)| bound_folders.contains(*path))
@@ -383,24 +505,64 @@ pub fn lock_identity(
 
     use tauri::Manager;
     for label in &labels_to_close {
-        state.closing_windows.lock().expect("Mutex poisoned").insert(label.clone());
+        state
+            .closing_windows
+            .lock()
+            .expect("Mutex poisoned")
+            .insert(label.clone());
         if let Some(win) = app.get_webview_window(label) {
             let _ = win.destroy();
         }
-        state.workspaces.lock().expect("Mutex poisoned").remove(label);
-        state.workspace_paths.lock().expect("Mutex poisoned").remove(label);
-        state.workspace_identities.lock().expect("Mutex poisoned").remove(label);
+        state
+            .workspaces
+            .lock()
+            .expect("Mutex poisoned")
+            .remove(label);
+        state
+            .workspace_paths
+            .lock()
+            .expect("Mutex poisoned")
+            .remove(label);
+        state
+            .workspace_identities
+            .lock()
+            .expect("Mutex poisoned")
+            .remove(label);
     }
 
     // Wipe identity from memory.
     // Remove per-identity managers first so there is no window where
     // the identity is "locked" but its managers are still live.
-    state.contact_managers.lock().expect("Mutex poisoned").remove(&uuid);
-    state.invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
-    state.relay_account_managers.lock().expect("Mutex poisoned").remove(&uuid);
-    state.accepted_invite_managers.lock().expect("Mutex poisoned").remove(&uuid);
-    state.received_response_managers.lock().expect("Mutex poisoned").remove(&uuid);
-    state.unlocked_identities.lock().expect("Mutex poisoned").remove(&uuid);
+    state
+        .contact_managers
+        .lock()
+        .expect("Mutex poisoned")
+        .remove(&uuid);
+    state
+        .invite_managers
+        .lock()
+        .expect("Mutex poisoned")
+        .remove(&uuid);
+    state
+        .relay_account_managers
+        .lock()
+        .expect("Mutex poisoned")
+        .remove(&uuid);
+    state
+        .accepted_invite_managers
+        .lock()
+        .expect("Mutex poisoned")
+        .remove(&uuid);
+    state
+        .received_response_managers
+        .lock()
+        .expect("Mutex poisoned")
+        .remove(&uuid);
+    state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
+        .remove(&uuid);
     Ok(())
 }
 
@@ -413,13 +575,20 @@ pub fn delete_identity(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     // Must be unlocked (proves ownership via passphrase)
-    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    let is_unlocked = state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
+        .contains_key(&uuid);
     if !is_unlocked {
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
     let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.delete_identity(&uuid).map_err(|e| { log::error!("delete_identity(identity={identity_uuid}) failed: {e}"); e.to_string() })
+    mgr.delete_identity(&uuid).map_err(|e| {
+        log::error!("delete_identity(identity={identity_uuid}) failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Renames an identity.
@@ -432,13 +601,20 @@ pub fn rename_identity(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     // Must be unlocked
-    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    let is_unlocked = state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
+        .contains_key(&uuid);
     if !is_unlocked {
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
     let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.rename_identity(&uuid, &new_name).map_err(|e| { log::error!("rename_identity(identity={identity_uuid}) failed: {e}"); e.to_string() })
+    mgr.rename_identity(&uuid, &new_name).map_err(|e| {
+        log::error!("rename_identity(identity={identity_uuid}) failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Changes an identity's passphrase.
@@ -452,7 +628,11 @@ pub fn change_identity_passphrase(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     // Must be unlocked
-    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    let is_unlocked = state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
+        .contains_key(&uuid);
     if !is_unlocked {
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
@@ -470,10 +650,11 @@ pub fn change_identity_passphrase(
 
 /// Returns the UUIDs of all currently unlocked identities.
 #[tauri::command]
-pub fn get_unlocked_identities(
-    state: State<'_, AppState>,
-) -> Vec<String> {
-    state.unlocked_identities.lock().expect("Mutex poisoned")
+pub fn get_unlocked_identities(state: State<'_, AppState>) -> Vec<String> {
+    state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
         .keys()
         .map(|uuid| uuid.to_string())
         .collect()
@@ -481,12 +662,15 @@ pub fn get_unlocked_identities(
 
 /// Returns true if the given identity is currently unlocked.
 #[tauri::command]
-pub fn is_identity_unlocked(
-    state: State<'_, AppState>,
-    identity_uuid: String,
-) -> bool {
+pub fn is_identity_unlocked(state: State<'_, AppState>, identity_uuid: String) -> bool {
     Uuid::parse_str(&identity_uuid)
-        .map(|uuid| state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid))
+        .map(|uuid| {
+            state
+                .unlocked_identities
+                .lock()
+                .expect("Mutex poisoned")
+                .contains_key(&uuid)
+        })
         .unwrap_or(false)
 }
 
@@ -522,13 +706,19 @@ pub fn export_swarmid_cmd(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
     // Must be unlocked (proves ownership)
-    let is_unlocked = state.unlocked_identities.lock().expect("Mutex poisoned").contains_key(&uuid);
+    let is_unlocked = state
+        .unlocked_identities
+        .lock()
+        .expect("Mutex poisoned")
+        .contains_key(&uuid);
     if !is_unlocked {
         return Err(format!("IDENTITY_LOCKED:{}", identity_uuid));
     }
 
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    let swarmid = mgr.export_swarmid_no_verify(&uuid).map_err(|e| e.to_string())?;
+    let swarmid = mgr
+        .export_swarmid_no_verify(&uuid)
+        .map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(&swarmid).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
@@ -555,7 +745,10 @@ pub fn get_identity_public_key(
         serde_json::from_str(&data).map_err(|e| format!("Invalid identity file: {e}"))?;
     let fingerprint = krillnotes_core::core::contact::generate_fingerprint(&file.public_key)
         .map_err(|e| format!("Cannot generate fingerprint: {e}"))?;
-    Ok(IdentityKeyInfo { public_key: file.public_key, fingerprint })
+    Ok(IdentityKeyInfo {
+        public_key: file.public_key,
+        fingerprint,
+    })
 }
 
 /// Import a `.swarmid` file from the given path.
@@ -568,16 +761,14 @@ pub fn import_swarmid_cmd(
     path: String,
 ) -> std::result::Result<crate::IdentityRef, String> {
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let file: crate::SwarmIdFile = serde_json::from_str(&data)
-        .map_err(|e| format!("Invalid .swarmid file: {e}"))?;
+    let file: crate::SwarmIdFile =
+        serde_json::from_str(&data).map_err(|e| format!("Invalid .swarmid file: {e}"))?;
     let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.import_swarmid(file).map_err(|e| {
-        match e {
-            crate::KrillnotesError::IdentityAlreadyExists(uuid) => format!("IDENTITY_EXISTS:{uuid}"),
-            other => {
-                log::error!("import_swarmid failed: {other}");
-                other.to_string()
-            }
+    mgr.import_swarmid(file).map_err(|e| match e {
+        crate::KrillnotesError::IdentityAlreadyExists(uuid) => format!("IDENTITY_EXISTS:{uuid}"),
+        other => {
+            log::error!("import_swarmid failed: {other}");
+            other.to_string()
         }
     })
 }
@@ -589,8 +780,11 @@ pub fn import_swarmid_overwrite_cmd(
     path: String,
 ) -> std::result::Result<crate::IdentityRef, String> {
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let file: crate::SwarmIdFile = serde_json::from_str(&data)
-        .map_err(|e| format!("Invalid .swarmid file: {e}"))?;
+    let file: crate::SwarmIdFile =
+        serde_json::from_str(&data).map_err(|e| format!("Invalid .swarmid file: {e}"))?;
     let mut mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.import_swarmid_overwrite(file).map_err(|e| { log::error!("import_swarmid_overwrite failed: {e}"); e.to_string() })
+    mgr.import_swarmid_overwrite(file).map_err(|e| {
+        log::error!("import_swarmid_overwrite failed: {e}");
+        e.to_string()
+    })
 }

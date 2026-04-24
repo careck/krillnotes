@@ -261,8 +261,13 @@ impl RelayClient {
         let status = resp.status().as_u16();
         let body = resp.text().unwrap_or_default();
         // Extract human-readable message from {"error":{"message":"..."}} envelope.
-        let message = Self::extract_error_message(&body)
-            .unwrap_or_else(|| if body.is_empty() { format!("HTTP {status}") } else { body.clone() });
+        let message = Self::extract_error_message(&body).unwrap_or_else(|| {
+            if body.is_empty() {
+                format!("HTTP {status}")
+            } else {
+                body.clone()
+            }
+        });
         match status {
             401 => KrillnotesError::RelayAuthExpired(message),
             404 | 410 => KrillnotesError::RelayNotFound(message),
@@ -285,9 +290,9 @@ impl RelayClient {
         let status = resp.status();
         if status.is_success() {
             log::debug!(target: "krillnotes::relay", "response {status}");
-            let wrapper: RelayResponse<T> = resp
-                .json()
-                .map_err(|e| KrillnotesError::RelayUnavailable(format!("invalid response JSON: {e}")))?;
+            let wrapper: RelayResponse<T> = resp.json().map_err(|e| {
+                KrillnotesError::RelayUnavailable(format!("invalid response JSON: {e}"))
+            })?;
             Ok(wrapper.data)
         } else {
             log::debug!(target: "krillnotes::relay", "error response {status}");
@@ -362,10 +367,19 @@ impl RelayClient {
     }
 
     /// Log in with email, password, and device key. Returns a session token.
-    pub fn login(&self, email: &str, password: &str, device_public_key: &str) -> Result<SessionResponse, KrillnotesError> {
+    pub fn login(
+        &self,
+        email: &str,
+        password: &str,
+        device_public_key: &str,
+    ) -> Result<SessionResponse, KrillnotesError> {
         log::info!(target: "krillnotes::relay", "logging in as {email}");
         log::debug!(target: "krillnotes::relay", "POST {}/auth/login", self.base_url);
-        let body = LoginRequest { email, password, device_public_key };
+        let body = LoginRequest {
+            email,
+            password,
+            device_public_key,
+        };
         let resp = self
             .http
             .post(self.url("/auth/login"))
@@ -417,7 +431,10 @@ impl RelayClient {
         new_password: &str,
     ) -> Result<(), KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/auth/reset-password/confirm", self.base_url);
-        let body = ResetPasswordConfirmRequest { token, new_password };
+        let body = ResetPasswordConfirmRequest {
+            token,
+            new_password,
+        };
         let resp = self
             .http
             .post(self.url("/auth/reset-password/confirm"))
@@ -469,10 +486,19 @@ impl RelayClient {
     /// Verify a newly added device by proving knowledge of the challenge nonce.
     /// `device_id` is the composite device ID (`{hash}:identity:{uuid}`) sent so
     /// the relay can store it in `device_keys` for per-device bundle routing.
-    pub fn verify_device(&self, device_public_key: &str, nonce: &str, device_id: Option<&str>) -> Result<(), KrillnotesError> {
+    pub fn verify_device(
+        &self,
+        device_public_key: &str,
+        nonce: &str,
+        device_id: Option<&str>,
+    ) -> Result<(), KrillnotesError> {
         log::debug!(target: "krillnotes::relay", "POST {}/account/devices/verify", self.base_url);
         let auth = self.auth_header()?;
-        let body = VerifyDeviceRequest { device_public_key, nonce, device_id };
+        let body = VerifyDeviceRequest {
+            device_public_key,
+            nonce,
+            device_id,
+        };
         let resp = self
             .http
             .post(self.url("/account/devices/verify"))
@@ -545,7 +571,10 @@ impl RelayClient {
         let header_json = serde_json::to_string(header).map_err(|e| {
             KrillnotesError::RelayUnavailable(format!("failed to serialize bundle header: {e}"))
         })?;
-        let body = UploadBundleRequest { header: header_json, payload };
+        let body = UploadBundleRequest {
+            header: header_json,
+            payload,
+        };
         let resp = self
             .http
             .post(self.url("/bundles"))
@@ -746,8 +775,7 @@ mod tests {
 
     #[test]
     fn test_relay_client_with_token() {
-        let client = RelayClient::new("https://relay.example.com")
-            .with_session_token("tok_abc123");
+        let client = RelayClient::new("https://relay.example.com").with_session_token("tok_abc123");
         assert_eq!(client.session_token.as_deref(), Some("tok_abc123"));
     }
 
@@ -766,14 +794,16 @@ mod tests {
 
     #[test]
     fn test_relay_client_auth_header_with_token() {
-        let client = RelayClient::new("https://relay.example.com")
-            .with_session_token("tok_abc123");
+        let client = RelayClient::new("https://relay.example.com").with_session_token("tok_abc123");
         assert_eq!(client.auth_header().unwrap(), "Bearer tok_abc123");
     }
 
     #[test]
     fn test_relay_client_url_construction() {
         let client = RelayClient::new("https://relay.example.com");
-        assert_eq!(client.url("/auth/login"), "https://relay.example.com/auth/login");
+        assert_eq!(
+            client.url("/auth/login"),
+            "https://relay.example.com/auth/login"
+        );
     }
 }

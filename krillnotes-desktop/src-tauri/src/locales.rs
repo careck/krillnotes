@@ -35,7 +35,10 @@ pub fn menu_strings(lang: &str) -> Value {
             base.insert(k, v);
         }
     } else {
-        log::warn!("locales: 'menu' section for '{}' is not a JSON object; using English", lang);
+        log::warn!(
+            "locales: 'menu' section for '{}' is not a JSON object; using English",
+            lang
+        );
     }
     result
 }

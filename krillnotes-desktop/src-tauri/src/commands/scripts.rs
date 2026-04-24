@@ -4,9 +4,9 @@
 //
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
+use crate::commands::scripting::ScriptMutationResult;
 use crate::AppState;
 use tauri::State;
-use crate::commands::scripting::ScriptMutationResult;
 
 #[tauri::command]
 pub fn list_user_scripts(
@@ -14,7 +14,9 @@ pub fn list_user_scripts(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<crate::UserScript>, String> {
     let label = window.label();
-    state.workspaces.lock()
+    state
+        .workspaces
+        .lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
@@ -30,7 +32,9 @@ pub fn get_user_script(
     script_id: String,
 ) -> std::result::Result<crate::UserScript, String> {
     let label = window.label();
-    state.workspaces.lock()
+    state
+        .workspaces
+        .lock()
         .expect("Mutex poisoned")
         .get(label)
         .ok_or("No workspace open")?
@@ -47,14 +51,16 @@ pub fn create_user_script(
     category: Option<String>,
 ) -> std::result::Result<ScriptMutationResult<crate::UserScript>, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
     let (data, load_errors) = match category {
         Some(cat) => workspace.create_user_script_with_category(&source_code, &cat),
         None => workspace.create_user_script(&source_code),
-    }.map_err(|e| { log::error!("create_user_script failed: {e}"); e.to_string() })?;
+    }
+    .map_err(|e| {
+        log::error!("create_user_script failed: {e}");
+        e.to_string()
+    })?;
     Ok(ScriptMutationResult { data, load_errors })
 }
 
@@ -67,12 +73,14 @@ pub fn update_user_script(
     source_code: String,
 ) -> std::result::Result<ScriptMutationResult<crate::UserScript>, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    let (data, load_errors) = workspace.update_user_script(&script_id, &source_code)
-        .map_err(|e| { log::error!("update_user_script failed: {e}"); e.to_string() })?;
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    let (data, load_errors) = workspace
+        .update_user_script(&script_id, &source_code)
+        .map_err(|e| {
+            log::error!("update_user_script failed: {e}");
+            e.to_string()
+        })?;
     Ok(ScriptMutationResult { data, load_errors })
 }
 
@@ -84,12 +92,12 @@ pub fn delete_user_script(
     script_id: String,
 ) -> std::result::Result<Vec<crate::ScriptError>, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    workspace.delete_user_script(&script_id)
-        .map_err(|e| { log::error!("delete_user_script failed: {e}"); e.to_string() })
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.delete_user_script(&script_id).map_err(|e| {
+        log::error!("delete_user_script failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Toggles the enabled state of a user script.
@@ -101,11 +109,10 @@ pub fn toggle_user_script(
     enabled: bool,
 ) -> std::result::Result<Vec<crate::ScriptError>, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    workspace.toggle_user_script(&script_id, enabled)
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .toggle_user_script(&script_id, enabled)
         .map_err(|e| e.to_string())
 }
 
@@ -118,11 +125,10 @@ pub fn reorder_user_script(
     new_load_order: i32,
 ) -> std::result::Result<Vec<crate::ScriptError>, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    workspace.reorder_user_script(&script_id, new_load_order)
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .reorder_user_script(&script_id, new_load_order)
         .map_err(|e| e.to_string())
 }
 
@@ -134,10 +140,9 @@ pub fn reorder_all_user_scripts(
     script_ids: Vec<String>,
 ) -> std::result::Result<Vec<crate::ScriptError>, String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    workspace.reorder_all_user_scripts(&script_ids)
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace
+        .reorder_all_user_scripts(&script_ids)
         .map_err(|e| e.to_string())
 }

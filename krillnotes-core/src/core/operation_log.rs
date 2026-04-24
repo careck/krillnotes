@@ -196,11 +196,7 @@ impl OperationLog {
     /// Returns [`crate::KrillnotesError::Database`] if the query fails or the
     /// operation is not found, and [`crate::KrillnotesError::Json`] if the
     /// stored data cannot be parsed.
-    pub fn get_detail(
-        &self,
-        conn: &Connection,
-        operation_id: &str,
-    ) -> Result<serde_json::Value> {
+    pub fn get_detail(&self, conn: &Connection, operation_id: &str) -> Result<serde_json::Value> {
         let raw: String = conn.query_row(
             "SELECT operation_data FROM operations WHERE operation_id = ?",
             [operation_id],
@@ -310,7 +306,11 @@ mod tests {
     use tempfile::NamedTempFile;
 
     fn ts(wall_ms: u64) -> HlcTimestamp {
-        HlcTimestamp { wall_ms, counter: 0, node_id: 0 }
+        HlcTimestamp {
+            wall_ms,
+            counter: 0,
+            node_id: 0,
+        }
     }
 
     #[test]

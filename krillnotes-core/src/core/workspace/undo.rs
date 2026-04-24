@@ -34,7 +34,9 @@ impl Workspace {
     /// Script undo is separate from note undo to prevent script saves from
     /// interleaving with note edits in the workspace undo stack.
     pub fn script_undo(&mut self) -> Result<UndoResult> {
-        let entry = self.script_undo_stack.pop()
+        let entry = self
+            .script_undo_stack
+            .pop()
             .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to undo".into()))?;
 
         let redo_inverse = self.build_redo_inverse(&entry)?;
@@ -60,12 +62,16 @@ impl Workspace {
             inverse: redo_inverse,
             propagate: entry.propagate,
         });
-        Ok(UndoResult { affected_note_id: None })
+        Ok(UndoResult {
+            affected_note_id: None,
+        })
     }
 
     /// Re-applies the most recently undone script mutation.
     pub fn script_redo(&mut self) -> Result<UndoResult> {
-        let entry = self.script_redo_stack.pop()
+        let entry = self
+            .script_redo_stack
+            .pop()
             .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to redo".into()))?;
 
         let new_undo_inverse = self.build_redo_inverse(&entry)?;
@@ -95,7 +101,9 @@ impl Workspace {
         if self.script_undo_stack.len() > self.undo_limit {
             self.script_undo_stack.drain(0..1);
         }
-        Ok(UndoResult { affected_note_id: None })
+        Ok(UndoResult {
+            affected_note_id: None,
+        })
     }
 
     /// Returns the current undo stack depth limit.
@@ -170,10 +178,15 @@ impl Workspace {
     /// Closes the undo group and pushes a single batched `UndoEntry`.
     /// If the buffer is empty or no group is open, this is a no-op.
     pub fn end_undo_group(&mut self) {
-        let Some(mut buf) = self.undo_group_buffer.take() else { return };
-        if buf.is_empty() { return; }
+        let Some(mut buf) = self.undo_group_buffer.take() else {
+            return;
+        };
+        if buf.is_empty() {
+            return;
+        }
 
-        let retracted_ids: Vec<String> = buf.iter()
+        let retracted_ids: Vec<String> = buf
+            .iter()
             .flat_map(|e| e.retracted_ids.iter().cloned())
             .collect();
         let propagate = buf.iter().any(|e| e.propagate);
@@ -201,7 +214,9 @@ impl Workspace {
     /// Returns an error if the undo stack is empty or if applying the inverse
     /// operation fails.
     pub fn undo(&mut self) -> Result<UndoResult> {
-        let entry = self.undo_stack.pop()
+        let entry = self
+            .undo_stack
+            .pop()
             .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to undo".into()))?;
 
         // Build the redo inverse BEFORE applying the undo so that the current
@@ -261,7 +276,9 @@ impl Workspace {
     /// Returns an error if the redo stack is empty or if re-applying the
     /// operation fails.
     pub fn redo(&mut self) -> Result<UndoResult> {
-        let entry = self.redo_stack.pop()
+        let entry = self
+            .redo_stack
+            .pop()
             .ok_or_else(|| KrillnotesError::ValidationFailed("Nothing to redo".into()))?;
 
         // Build the new undo inverse BEFORE applying so that the current DB state
@@ -334,8 +351,9 @@ impl Workspace {
             }
             RetractInverse::SubtreeRestore { notes, .. } => {
                 // Undo was SubtreeRestore (undoing DeleteNote). Redo = re-delete root.
-                let root_id = notes.first().map(|n| n.id.clone())
-                    .ok_or_else(|| KrillnotesError::ValidationFailed("empty subtree in redo inverse".into()))?;
+                let root_id = notes.first().map(|n| n.id.clone()).ok_or_else(|| {
+                    KrillnotesError::ValidationFailed("empty subtree in redo inverse".into())
+                })?;
                 Ok(RetractInverse::DeleteNote { note_id: root_id })
             }
             RetractInverse::NoteRestore { note_id, .. } => {
@@ -399,14 +417,18 @@ impl Workspace {
                         category: current.category,
                     })
                 } else {
-                    Ok(RetractInverse::DeleteScript { script_id: script_id.clone() })
+                    Ok(RetractInverse::DeleteScript {
+                        script_id: script_id.clone(),
+                    })
                 }
             }
             RetractInverse::AttachmentRestore { meta } => {
                 // Undo was AttachmentRestore (undoing a DeleteAttachment).
                 // build_redo_inverse is called BEFORE undo is applied, so the .enc.trash
                 // file exists and the DB row is absent. Redo should soft-delete again.
-                Ok(RetractInverse::AttachmentSoftDelete { attachment_id: meta.id.clone() })
+                Ok(RetractInverse::AttachmentSoftDelete {
+                    attachment_id: meta.id.clone(),
+                })
             }
             RetractInverse::AttachmentSoftDelete { attachment_id } => {
                 // Undo was AttachmentSoftDelete (redoing a DeleteAttachment).
@@ -458,8 +480,8 @@ impl Workspace {
                 let conn = self.storage.connection_mut();
                 let tx = conn.transaction()?;
                 for note in notes {
-                    let fields_json = serde_json::to_string(&note.fields)
-                        .map_err(KrillnotesError::Json)?;
+                    let fields_json =
+                        serde_json::to_string(&note.fields).map_err(KrillnotesError::Json)?;
                     tx.execute(
                         "INSERT OR IGNORE INTO notes
                          (id, title, schema, parent_id, position,
@@ -467,10 +489,18 @@ impl Workspace {
                           fields_json, is_expanded, schema_version)
                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         rusqlite::params![
-                            note.id, note.title, note.schema, note.parent_id,
-                            note.position, note.created_at, note.modified_at,
-                            note.created_by, note.modified_by, fields_json,
-                            note.is_expanded as i32, note.schema_version,
+                            note.id,
+                            note.title,
+                            note.schema,
+                            note.parent_id,
+                            note.position,
+                            note.created_at,
+                            note.modified_at,
+                            note.created_by,
+                            note.modified_by,
+                            fields_json,
+                            note.is_expanded as i32,
+                            note.schema_version,
                         ],
                     )?;
                     for tag in &note.tags {
@@ -482,8 +512,8 @@ impl Workspace {
                 }
                 for att in attachments {
                     // salt is hex-encoded in AttachmentMeta; DB stores raw bytes.
-                    let salt_bytes = hex::decode(&att.salt)
-                        .unwrap_or_else(|_| att.salt.as_bytes().to_vec());
+                    let salt_bytes =
+                        hex::decode(&att.salt).unwrap_or_else(|_| att.salt.as_bytes().to_vec());
                     tx.execute(
                         "INSERT OR IGNORE INTO attachments
                          (id, note_id, filename, mime_type, size_bytes, hash_sha256, salt, created_at)
@@ -499,10 +529,16 @@ impl Workspace {
                 Ok(root_id)
             }
 
-            RetractInverse::NoteRestore { note_id, old_title, old_fields, old_tags, old_is_checked } => {
+            RetractInverse::NoteRestore {
+                note_id,
+                old_title,
+                old_fields,
+                old_tags,
+                old_is_checked,
+            } => {
                 // Restore title + fields + tags + is_checked atomically.
-                let fields_json = serde_json::to_string(old_fields)
-                    .map_err(KrillnotesError::Json)?;
+                let fields_json =
+                    serde_json::to_string(old_fields).map_err(KrillnotesError::Json)?;
                 let now = UnixSecs::now();
                 let conn = self.storage.connection_mut();
                 let tx = conn.transaction()?;
@@ -521,23 +557,31 @@ impl Workspace {
                 Ok(Some(note_id.clone()))
             }
 
-            RetractInverse::PositionRestore { note_id, old_parent_id, old_position } => {
+            RetractInverse::PositionRestore {
+                note_id,
+                old_parent_id,
+                old_position,
+            } => {
                 self.move_note(note_id, old_parent_id.as_deref(), *old_position)?;
                 Ok(Some(note_id.clone()))
             }
 
             RetractInverse::DeleteScript { script_id } => {
-                self.storage.connection().execute(
-                    "DELETE FROM user_scripts WHERE id=?",
-                    [script_id],
-                )?;
+                self.storage
+                    .connection()
+                    .execute("DELETE FROM user_scripts WHERE id=?", [script_id])?;
                 self.reload_scripts()?;
                 Ok(None)
             }
 
             RetractInverse::ScriptRestore {
-                script_id, name, description,
-                source_code, load_order, enabled, category,
+                script_id,
+                name,
+                description,
+                source_code,
+                load_order,
+                enabled,
+                category,
             } => {
                 let now = UnixSecs::now();
                 self.storage.connection().execute(
@@ -546,8 +590,15 @@ impl Workspace {
                       created_at, modified_at, category)
                      VALUES (?,?,?,?,?,?,?,?,?)",
                     rusqlite::params![
-                        script_id, name, description, source_code,
-                        load_order, enabled, now, now, category,
+                        script_id,
+                        name,
+                        description,
+                        source_code,
+                        load_order,
+                        enabled,
+                        now,
+                        now,
+                        category,
                     ],
                 )?;
                 self.reload_scripts()?;
@@ -562,24 +613,29 @@ impl Workspace {
 
             RetractInverse::AttachmentSoftDelete { attachment_id } => {
                 // Redo of DeleteAttachment: rename .enc → .enc.trash, delete DB row.
-                let note_id: Option<String> = self.storage.connection()
+                let note_id: Option<String> = self
+                    .storage
+                    .connection()
                     .query_row(
                         "SELECT note_id FROM attachments WHERE id = ?",
                         [attachment_id],
                         |row| row.get(0),
                     )
                     .ok();
-                let enc_path = self.workspace_root.join("attachments")
+                let enc_path = self
+                    .workspace_root
+                    .join("attachments")
                     .join(format!("{attachment_id}.enc"));
-                let trash_path = self.workspace_root.join("attachments")
+                let trash_path = self
+                    .workspace_root
+                    .join("attachments")
                     .join(format!("{attachment_id}.enc.trash"));
                 if enc_path.exists() {
                     std::fs::rename(&enc_path, &trash_path)?;
                 }
-                self.storage.connection().execute(
-                    "DELETE FROM attachments WHERE id = ?",
-                    [attachment_id],
-                )?;
+                self.storage
+                    .connection()
+                    .execute("DELETE FROM attachments WHERE id = ?", [attachment_id])?;
                 Ok(note_id)
             }
 

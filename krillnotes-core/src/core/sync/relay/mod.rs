@@ -33,8 +33,18 @@ pub struct RelayChannel {
 
 #[cfg(feature = "relay")]
 impl RelayChannel {
-    pub fn new(client: RelayClient, workspace_id: String, sender_device_key: String, sender_device_id: String) -> Self {
-        Self { client, workspace_id, sender_device_key, sender_device_id }
+    pub fn new(
+        client: RelayClient,
+        workspace_id: String,
+        sender_device_key: String,
+        sender_device_id: String,
+    ) -> Self {
+        Self {
+            client,
+            workspace_id,
+            sender_device_key,
+            sender_device_id,
+        }
     }
 
     pub fn client(&self) -> &RelayClient {
@@ -48,7 +58,11 @@ impl RelayChannel {
 
 #[cfg(feature = "relay")]
 impl SyncChannel for RelayChannel {
-    fn send_bundle(&self, peer: &PeerSyncInfo, bundle_bytes: &[u8]) -> Result<SendResult, KrillnotesError> {
+    fn send_bundle(
+        &self,
+        peer: &PeerSyncInfo,
+        bundle_bytes: &[u8],
+    ) -> Result<SendResult, KrillnotesError> {
         use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
         log::debug!(target: "krillnotes::relay", "sending bundle to peer {} via relay ({} bytes)", peer.peer_device_id, bundle_bytes.len());
         // The relay stores device keys as hex-encoded Ed25519 public keys.
@@ -76,7 +90,8 @@ impl SyncChannel for RelayChannel {
         } else {
             log::warn!(target: "krillnotes::relay", "bundle not delivered to peer {} — relay skipped all recipients", peer.peer_device_id);
             Ok(SendResult::NotDelivered {
-                reason: "relay skipped all recipients (unknown or unverified device key)".to_string(),
+                reason: "relay skipped all recipients (unknown or unverified device key)"
+                    .to_string(),
             })
         }
     }
@@ -89,7 +104,10 @@ impl SyncChannel for RelayChannel {
         // sender_device_id is this device's own composite ID.
         // The relay uses it to filter to bundles addressed to us specifically.
         let metas = self.client.list_bundles(&self.sender_device_id)?;
-        let metas: Vec<_> = metas.into_iter().filter(|m| m.workspace_id == workspace_id).collect();
+        let metas: Vec<_> = metas
+            .into_iter()
+            .filter(|m| m.workspace_id == workspace_id)
+            .collect();
         log::debug!(target: "krillnotes::relay", "{} bundles pending for workspace {workspace_id}", metas.len());
         let mut bundles = Vec::new();
         for meta in &metas {
@@ -131,9 +149,13 @@ mod tests {
 
     #[test]
     fn test_relay_channel_construction() {
-        let client = RelayClient::new("https://relay.example.com")
-            .with_session_token("tok_test");
-        let channel = RelayChannel::new(client, "ws-test".to_string(), "sender-key".to_string(), "sender-device-id".to_string());
+        let client = RelayClient::new("https://relay.example.com").with_session_token("tok_test");
+        let channel = RelayChannel::new(
+            client,
+            "ws-test".to_string(),
+            "sender-key".to_string(),
+            "sender-device-id".to_string(),
+        );
         assert_eq!(channel.channel_type(), ChannelType::Relay);
     }
 }

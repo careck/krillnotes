@@ -6,9 +6,9 @@
 
 //! `.swarm` bundle header — always `header.json`, always unencrypted.
 
-use serde::{Deserialize, Serialize};
-use crate::Result;
 use crate::KrillnotesError;
+use crate::Result;
+use serde::{Deserialize, Serialize};
 
 /// The four bundle modes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,14 +93,26 @@ impl SwarmHeader {
             }
             SwarmMode::Accept => {
                 require_field(self.pairing_token.as_ref(), "pairing_token", "accept")?;
-                require_field(self.accepted_identity.as_ref(), "accepted_identity", "accept")?;
+                require_field(
+                    self.accepted_identity.as_ref(),
+                    "accepted_identity",
+                    "accept",
+                )?;
             }
             SwarmMode::Snapshot => {
-                require_field(self.as_of_operation_id.as_ref(), "as_of_operation_id", "snapshot")?;
+                require_field(
+                    self.as_of_operation_id.as_ref(),
+                    "as_of_operation_id",
+                    "snapshot",
+                )?;
                 require_field(self.recipients.as_ref(), "recipients", "snapshot")?;
             }
             SwarmMode::Delta => {
-                require_field(self.since_operation_id.as_ref(), "since_operation_id", "delta")?;
+                require_field(
+                    self.since_operation_id.as_ref(),
+                    "since_operation_id",
+                    "delta",
+                )?;
             }
         }
         Ok(())
@@ -126,9 +138,8 @@ fn require_field<T>(val: Option<&T>, name: &str, mode: &str) -> Result<()> {
 pub fn read_header(data: &[u8]) -> Result<SwarmHeader> {
     use std::io::Cursor;
     let cursor = Cursor::new(data);
-    let mut zip = zip::ZipArchive::new(cursor).map_err(|e| {
-        KrillnotesError::Swarm(format!("invalid .swarm zip archive: {e}"))
-    })?;
+    let mut zip = zip::ZipArchive::new(cursor)
+        .map_err(|e| KrillnotesError::Swarm(format!("invalid .swarm zip archive: {e}")))?;
 
     if zip.by_name("invite.json").is_ok() {
         return Err(KrillnotesError::Swarm(
@@ -144,9 +155,8 @@ pub fn read_header(data: &[u8]) -> Result<SwarmHeader> {
     let mut header_file = zip.by_name("header.json").map_err(|e| {
         KrillnotesError::Swarm(format!("missing header.json in .swarm bundle: {e}"))
     })?;
-    let header: SwarmHeader = serde_json::from_reader(&mut header_file).map_err(|e| {
-        KrillnotesError::Swarm(format!("invalid header.json: {e}"))
-    })?;
+    let header: SwarmHeader = serde_json::from_reader(&mut header_file)
+        .map_err(|e| KrillnotesError::Swarm(format!("invalid header.json: {e}")))?;
     Ok(header)
 }
 
@@ -319,6 +329,9 @@ mod tests {
         }
         let err = read_header(&buf).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("response"), "expected response error, got: {msg}");
+        assert!(
+            msg.contains("response"),
+            "expected response error, got: {msg}"
+        );
     }
 }

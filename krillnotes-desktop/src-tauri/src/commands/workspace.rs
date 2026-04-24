@@ -5,19 +5,23 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
-use tauri::{AppHandle, Emitter, Manager, State};
+use krillnotes_core::{Ed25519SigningKey, KrillnotesError, Workspace};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
-use krillnotes_core::{Ed25519SigningKey, KrillnotesError, Workspace};
 #[cfg(feature = "rbac")]
-pub(crate) fn create_permission_gate(owner_pubkey: String) -> Box<dyn krillnotes_core::PermissionGate> {
+pub(crate) fn create_permission_gate(
+    owner_pubkey: String,
+) -> Box<dyn krillnotes_core::PermissionGate> {
     Box::new(krillnotes_rbac::RbacGate::new(owner_pubkey))
 }
 
 #[cfg(not(feature = "rbac"))]
-pub(crate) fn create_permission_gate(_owner_pubkey: String) -> Box<dyn krillnotes_core::PermissionGate> {
+pub(crate) fn create_permission_gate(
+    _owner_pubkey: String,
+) -> Box<dyn krillnotes_core::PermissionGate> {
     Box::new(krillnotes_core::AllowAllGate::new("krillnotes/1"))
 }
 
@@ -50,12 +54,12 @@ pub struct WorkspaceInfo {
 /// Appends a numeric suffix (`-2`, `-3`, …) until the label is absent
 /// from the currently open workspace labels in `state`.
 pub fn generate_unique_label(state: &AppState, path: &Path) -> String {
-    let filename = path.file_stem()
+    let filename = path
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("untitled");
 
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
 
     let mut label = filename.to_string();
     let mut counter = 2;
@@ -70,7 +74,9 @@ pub fn generate_unique_label(state: &AppState, path: &Path) -> String {
 
 /// Returns the window label for a workspace already open at `path`, if any.
 fn find_window_for_path(state: &AppState, path: &Path) -> Option<String> {
-    state.workspace_paths.lock()
+    state
+        .workspace_paths
+        .lock()
         .expect("Mutex poisoned")
         .iter()
         .find(|(_, p)| *p == path)
@@ -86,7 +92,8 @@ fn focus_window(app: &AppHandle, label: &str) -> std::result::Result<(), String>
     app.get_webview_window(label)
         .ok_or_else(|| "Window not found".to_string())
         .and_then(|window| {
-            window.set_focus()
+            window
+                .set_focus()
                 .map_err(|e| format!("Failed to focus: {e}"))
         })
 }
@@ -109,14 +116,18 @@ pub fn handle_file_opened(app: &AppHandle, state: &AppState, path: PathBuf) {
 /// `consume_pending_file_open` on mount.
 fn handle_krillnotes_open(app: &AppHandle, state: &AppState, path: PathBuf) {
     {
-        let mut pending = state.pending_krillnotes_open.lock().expect("Mutex poisoned");
+        let mut pending = state
+            .pending_krillnotes_open
+            .lock()
+            .expect("Mutex poisoned");
         *pending = Some(path.clone());
     }
 
     if let Some(win) = app.get_webview_window("main") {
         // App is warm-started and the launcher window is open — JS is listening.
         // Emit the event; the listener calls consume_pending_file_open to dequeue.
-        win.emit("file-opened", path.to_string_lossy().to_string()).ok();
+        win.emit("file-opened", path.to_string_lossy().to_string())
+            .ok();
     } else {
         // No launcher window — create one. Its mount effect will call
         // consume_pending_file_open and start the import flow.
@@ -144,7 +155,8 @@ fn handle_swarm_open(app: &AppHandle, state: &AppState, path: PathBuf) {
         .unwrap_or_else(|| "main".to_string());
 
     if let Some(win) = app.get_webview_window(&target_label) {
-        win.emit("swarm-file-opened", path.to_string_lossy().to_string()).ok();
+        win.emit("swarm-file-opened", path.to_string_lossy().to_string())
+            .ok();
     }
 }
 
@@ -186,8 +198,8 @@ pub fn create_workspace_window(
 ) -> std::result::Result<tauri::WebviewWindow, String> {
     let lang = crate::settings::load_settings().language;
     let strings = crate::locales::menu_strings(&lang);
-    let menu_result = crate::menu::build_menu(app, &strings)
-        .map_err(|e| format!("Failed to build menu: {e}"))?;
+    let menu_result =
+        crate::menu::build_menu(app, &strings).map_err(|e| format!("Failed to build menu: {e}"))?;
 
     // Enable workspace-specific menu items for this new workspace window.
     // On macOS the menu bar is global, so we update the shared handles stored
@@ -199,7 +211,8 @@ pub fn create_workspace_window(
         let items = state.workspace_menu_items.lock().expect("Mutex poisoned");
         if let Some(ws_items) = items.get("macos") {
             for item in ws_items {
-                item.set_enabled(true).map_err(|e| format!("Failed to enable menu item: {e}"))?;
+                item.set_enabled(true)
+                    .map_err(|e| format!("Failed to enable menu item: {e}"))?;
             }
         }
     }
@@ -207,23 +220,27 @@ pub fn create_workspace_window(
     {
         // Enable workspace items in this window's private menu before attaching it.
         for item in &menu_result.workspace_items {
-            item.set_enabled(true).map_err(|e| format!("Failed to enable menu item: {e}"))?;
+            item.set_enabled(true)
+                .map_err(|e| format!("Failed to enable menu item: {e}"))?;
         }
         // Store the paste handles per window label so set_paste_menu_enabled can find them.
         let state = app.state::<AppState>();
-        state.paste_menu_items.lock().expect("Mutex poisoned")
-            .insert(label.to_string(), (menu_result.paste_as_child, menu_result.paste_as_sibling));
+        state
+            .paste_menu_items
+            .lock()
+            .expect("Mutex poisoned")
+            .insert(
+                label.to_string(),
+                (menu_result.paste_as_child, menu_result.paste_as_sibling),
+            );
     }
 
-    let mut builder = tauri::WebviewWindowBuilder::new(
-        app,
-        label,
-        tauri::WebviewUrl::App("index.html".into())
-    )
-    .title(format!("Krillnotes - {label}"))
-    .inner_size(1024.0, 768.0)
-    .disable_drag_drop_handler()
-    .menu(menu_result.menu);
+    let mut builder =
+        tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
+            .title(format!("Krillnotes - {label}"))
+            .inner_size(1024.0, 768.0)
+            .disable_drag_drop_handler()
+            .menu(menu_result.menu);
 
     // Cascade new windows when opening from an existing workspace window.
     if caller.label() != "main" {
@@ -232,7 +249,8 @@ pub fn create_workspace_window(
         }
     }
 
-    builder.build()
+    builder
+        .build()
         .map_err(|e| format!("Failed to create window: {e}"))
 }
 
@@ -242,7 +260,11 @@ pub fn create_workspace_window(
 /// paste/workspace handles in AppState are updated.
 /// On Windows each window owns its own menu bar: every open window gets a freshly
 /// built menu, with workspace items pre-enabled for workspace windows.
-pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::result::Result<(), String> {
+pub fn rebuild_menus(
+    app: &AppHandle,
+    state: &AppState,
+    lang: &str,
+) -> std::result::Result<(), String> {
     let strings = crate::locales::menu_strings(lang);
 
     #[cfg(target_os = "macos")]
@@ -251,16 +273,31 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
             .map_err(|e| format!("Failed to build menu: {e}"))?;
         app.set_menu(result.menu)
             .map_err(|e| format!("Failed to set menu: {e}"))?;
-        state.paste_menu_items.lock().expect("Mutex poisoned")
-            .insert("macos".to_string(), (result.paste_as_child, result.paste_as_sibling));
-        state.workspace_menu_items.lock().expect("Mutex poisoned")
+        state
+            .paste_menu_items
+            .lock()
+            .expect("Mutex poisoned")
+            .insert(
+                "macos".to_string(),
+                (result.paste_as_child, result.paste_as_sibling),
+            );
+        state
+            .workspace_menu_items
+            .lock()
+            .expect("Mutex poisoned")
             .insert("macos".to_string(), result.workspace_items);
         *state.export_menu_item.lock().expect("Mutex poisoned") = Some(result.export_item);
 
         // Re-enable workspace items if any workspace is currently open.
-        let any_open = !state.workspace_paths.lock().expect("Mutex poisoned").is_empty();
+        let any_open = !state
+            .workspace_paths
+            .lock()
+            .expect("Mutex poisoned")
+            .is_empty();
         if any_open {
-            if let Some(items) = state.workspace_menu_items.lock()
+            if let Some(items) = state
+                .workspace_menu_items
+                .lock()
                 .expect("Mutex poisoned")
                 .get("macos")
             {
@@ -270,11 +307,22 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
             }
             // Toggle export based on focused workspace's ownership.
             let focused = state.focused_window.lock().expect("Mutex poisoned").clone();
-            let is_owner = focused.and_then(|l| {
-                state.workspaces.lock().expect("Mutex poisoned")
-                    .get(&l).map(|ws| ws.is_owner())
-            }).unwrap_or(false);
-            if let Some(item) = state.export_menu_item.lock().expect("Mutex poisoned").as_ref() {
+            let is_owner = focused
+                .and_then(|l| {
+                    state
+                        .workspaces
+                        .lock()
+                        .expect("Mutex poisoned")
+                        .get(&l)
+                        .map(|ws| ws.is_owner())
+                })
+                .unwrap_or(false);
+            if let Some(item) = state
+                .export_menu_item
+                .lock()
+                .expect("Mutex poisoned")
+                .as_ref()
+            {
                 let _ = item.set_enabled(is_owner);
             }
         }
@@ -300,8 +348,13 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
                     item.set_enabled(true)
                         .map_err(|e| format!("Failed to enable menu item: {e}"))?;
                 }
-                let is_owner = state.workspaces.lock().expect("Mutex poisoned")
-                    .get(&label).map(|ws| ws.is_owner()).unwrap_or(false);
+                let is_owner = state
+                    .workspaces
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get(&label)
+                    .map(|ws| ws.is_owner())
+                    .unwrap_or(false);
                 let _ = result.export_item.set_enabled(is_owner);
             }
 
@@ -309,9 +362,18 @@ pub fn rebuild_menus(app: &AppHandle, state: &AppState, lang: &str) -> std::resu
                 .set_menu(result.menu)
                 .map_err(|e| format!("Failed to set window menu: {e}"))?;
 
-            state.paste_menu_items.lock().expect("Mutex poisoned")
-                .insert(label.clone(), (result.paste_as_child, result.paste_as_sibling));
-            state.workspace_menu_items.lock().expect("Mutex poisoned")
+            state
+                .paste_menu_items
+                .lock()
+                .expect("Mutex poisoned")
+                .insert(
+                    label.clone(),
+                    (result.paste_as_child, result.paste_as_sibling),
+                );
+            state
+                .workspace_menu_items
+                .lock()
+                .expect("Mutex poisoned")
                 .insert(label, result.workspace_items);
         }
     }
@@ -327,12 +389,9 @@ pub fn store_workspace(
     path: PathBuf,
     identity_uuid: Uuid,
 ) {
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let mut paths = state.workspace_paths.lock()
-        .expect("Mutex poisoned");
-    let mut identities = state.workspace_identities.lock()
-        .expect("Mutex poisoned");
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let mut paths = state.workspace_paths.lock().expect("Mutex poisoned");
+    let mut identities = state.workspace_identities.lock().expect("Mutex poisoned");
 
     workspaces.insert(label.clone(), workspace);
     paths.insert(label.clone(), path);
@@ -346,32 +405,31 @@ pub fn store_workspace(
 /// Returns an error string if no workspace or path is registered for `label`.
 pub fn get_workspace_info_internal(
     state: &AppState,
-    label: &str
+    label: &str,
 ) -> std::result::Result<WorkspaceInfo, String> {
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let paths = state.workspace_paths.lock()
-        .expect("Mutex poisoned");
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let paths = state.workspace_paths.lock().expect("Mutex poisoned");
 
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace found")?;
-    let path = paths.get(label)
-        .ok_or("No path found")?;
+    let workspace = workspaces.get(label).ok_or("No workspace found")?;
+    let path = paths.get(label).ok_or("No path found")?;
 
-    let note_count = workspace.list_all_notes()
+    let note_count = workspace
+        .list_all_notes()
         .map(|notes| notes.len())
         .unwrap_or(0);
 
-    let filename = path.file_stem()
+    let filename = path
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Untitled")
         .to_string();
 
-    let selected_note_id = workspace.get_selected_note()
-        .ok()
-        .flatten();
+    let selected_note_id = workspace.get_selected_note().ok().flatten();
 
-    let identity_uuid = state.identity_manager.lock().expect("Mutex poisoned")
+    let identity_uuid = state
+        .identity_manager
+        .lock()
+        .expect("Mutex poisoned")
         .get_workspace_binding(path.as_path())
         .ok()
         .flatten()
@@ -436,7 +494,8 @@ pub async fn create_workspace(
             // Get the signing key from the unlocked identity before creating the workspace.
             let signing_key = {
                 let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-                let unlocked = identities.get(&uuid)
+                let unlocked = identities
+                    .get(&uuid)
                     .ok_or_else(|| "Identity is not unlocked".to_string())?;
                 Ed25519SigningKey::from_bytes(&unlocked.signing_key.to_bytes())
             };
@@ -447,12 +506,24 @@ pub async fn create_workspace(
             let db_path = folder.join("notes.db");
             let owner_pubkey = {
                 use base64::Engine;
-                base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
+                base64::engine::general_purpose::STANDARD
+                    .encode(signing_key.verifying_key().as_bytes())
             };
             let gate = create_permission_gate(owner_pubkey);
-            let identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&uuid);
-            let workspace = Workspace::create(&db_path, &password, &uuid.to_string(), signing_key, gate, Some(&identity_dir))
-                .map_err(|e| format!("Failed to create: {e}"))?;
+            let identity_dir = state
+                .identity_manager
+                .lock()
+                .expect("Mutex poisoned")
+                .identity_dir(&uuid);
+            let workspace = Workspace::create(
+                &db_path,
+                &password,
+                &uuid.to_string(),
+                signing_key,
+                gate,
+                Some(&identity_dir),
+            )
+            .map_err(|e| format!("Failed to create: {e}"))?;
 
             // Read the workspace_id from the newly created workspace
             let workspace_uuid = workspace.workspace_id().to_string();
@@ -460,23 +531,20 @@ pub async fn create_workspace(
             // Bind workspace to identity (encrypt DB password with identity seed)
             {
                 let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-                let unlocked = identities.get(&uuid)
+                let unlocked = identities
+                    .get(&uuid)
                     .ok_or_else(|| "Identity is not unlocked".to_string())?;
                 let seed = unlocked.signing_key.to_bytes();
                 let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-                mgr.bind_workspace(
-                    &uuid,
-                    &workspace_uuid,
-                    &folder,
-                    &password,
-                    &seed,
-                ).map_err(|e| format!("Failed to bind workspace to identity: {e}"))?;
+                mgr.bind_workspace(&uuid, &workspace_uuid, &folder, &password, &seed)
+                    .map_err(|e| format!("Failed to bind workspace to identity: {e}"))?;
             }
 
             let new_window = create_workspace_window(&app, &label, &window)?;
             store_workspace(&state, label.clone(), workspace, folder.clone(), uuid);
 
-            new_window.set_title(&format!("Krillnotes - {label}"))
+            new_window
+                .set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
 
             if window.label() == "main" {
@@ -530,7 +598,8 @@ pub async fn open_workspace(
             // Step 1: Get identity_uuid from identity_manager (drop lock after)
             let identity_uuid = {
                 let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-                let binding = mgr.get_workspace_binding(&folder)
+                let binding = mgr
+                    .get_workspace_binding(&folder)
                     .map_err(|e: KrillnotesError| e.to_string())?
                     .ok_or_else(|| "IDENTITY_REQUIRED".to_string())?;
                 binding.identity_uuid
@@ -540,7 +609,8 @@ pub async fn open_workspace(
             // Step 2: Get signing key from unlocked_identities (drop lock after)
             let seed = {
                 let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-                let unlocked = identities.get(&identity_uuid)
+                let unlocked = identities
+                    .get(&identity_uuid)
                     .ok_or_else(|| format!("IDENTITY_LOCKED:{}", identity_uuid))?;
                 unlocked.signing_key.to_bytes()
                 // identities drops here
@@ -556,16 +626,28 @@ pub async fn open_workspace(
             let signing_key = Ed25519SigningKey::from_bytes(&seed);
             let owner_pubkey = {
                 use base64::Engine;
-                base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes())
+                base64::engine::general_purpose::STANDARD
+                    .encode(signing_key.verifying_key().as_bytes())
             };
             let gate = create_permission_gate(owner_pubkey);
-            let identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&identity_uuid);
-            let mut workspace = Workspace::open(&db_path, &db_password, &identity_uuid.to_string(), signing_key, gate, Some(&identity_dir))
-                .map_err(|e| match e {
-                    KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
-                    KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
-                    other => format!("Failed to open: {other}"),
-                })?;
+            let identity_dir = state
+                .identity_manager
+                .lock()
+                .expect("Mutex poisoned")
+                .identity_dir(&identity_uuid);
+            let mut workspace = Workspace::open(
+                &db_path,
+                &db_password,
+                &identity_uuid.to_string(),
+                signing_key,
+                gate,
+                Some(&identity_dir),
+            )
+            .map_err(|e| match e {
+                KrillnotesError::WrongPassword => "WRONG_PASSWORD".to_string(),
+                KrillnotesError::UnencryptedWorkspace => "UNENCRYPTED_WORKSPACE".to_string(),
+                other => format!("Failed to open: {other}"),
+            })?;
 
             // Apply global undo limit from settings
             let global_undo_limit = crate::settings::load_settings().undo_history_limit;
@@ -573,19 +655,29 @@ pub async fn open_workspace(
 
             let migration_results = std::mem::take(&mut workspace.pending_migration_results);
             let new_window = create_workspace_window(&app, &label, &window)?;
-            store_workspace(&state, label.clone(), workspace, folder.clone(), identity_uuid);
+            store_workspace(
+                &state,
+                label.clone(),
+                workspace,
+                folder.clone(),
+                identity_uuid,
+            );
 
             // Emit one event per migrated schema type so the frontend can show a toast.
             for (schema_name, from_version, to_version, notes_migrated) in &migration_results {
-                let _ = new_window.emit("schema-migrated", serde_json::json!({
-                    "schemaName": schema_name,
-                    "fromVersion": from_version,
-                    "toVersion": to_version,
-                    "notesMigrated": notes_migrated,
-                }));
+                let _ = new_window.emit(
+                    "schema-migrated",
+                    serde_json::json!({
+                        "schemaName": schema_name,
+                        "fromVersion": from_version,
+                        "toVersion": to_version,
+                        "notesMigrated": notes_migrated,
+                    }),
+                );
             }
 
-            new_window.set_title(&format!("Krillnotes - {label}"))
+            new_window
+                .set_title(&format!("Krillnotes - {label}"))
                 .map_err(|e| e.to_string())?;
 
             if window.label() == "main" {
@@ -612,12 +704,12 @@ pub fn get_workspace_metadata(
     state: State<'_, AppState>,
 ) -> std::result::Result<krillnotes_core::WorkspaceMetadata, String> {
     let label = window.label();
-    let workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get(label)
-        .ok_or("No workspace open")?;
-    workspace.get_workspace_metadata()
-        .map_err(|e| { log::error!("get_workspace_metadata failed: {e}"); e.to_string() })
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get(label).ok_or("No workspace open")?;
+    workspace.get_workspace_metadata().map_err(|e| {
+        log::error!("get_workspace_metadata failed: {e}");
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -627,14 +719,13 @@ pub fn set_workspace_metadata(
     metadata: krillnotes_core::WorkspaceMetadata,
 ) -> std::result::Result<(), String> {
     let label = window.label();
-    let mut workspaces = state.workspaces.lock()
-        .expect("Mutex poisoned");
-    let workspace = workspaces.get_mut(label)
-        .ok_or("No workspace open")?;
-    workspace.set_workspace_metadata(&metadata)
-        .map_err(|e| { log::error!("set_workspace_metadata failed: {e}"); e.to_string() })
+    let mut workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let workspace = workspaces.get_mut(label).ok_or("No workspace open")?;
+    workspace.set_workspace_metadata(&metadata).map_err(|e| {
+        log::error!("set_workspace_metadata failed: {e}");
+        e.to_string()
+    })
 }
-
 
 // ── Export / Import commands ──────────────────────────────────────
 
@@ -655,7 +746,10 @@ pub fn export_workspace_cmd(
     }
 
     let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-    krillnotes_core::export_workspace(workspace, file, password.as_deref()).map_err(|e| { log::error!("export_workspace failed: {e}"); e.to_string() })
+    krillnotes_core::export_workspace(workspace, file, password.as_deref()).map_err(|e| {
+        log::error!("export_workspace failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Reads metadata from an export archive without creating a workspace.
@@ -714,15 +808,23 @@ pub async fn execute_import(
     };
     let import_seed = {
         let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid)
+        let unlocked = identities
+            .get(&uuid)
             .ok_or_else(|| "Identity is not unlocked".to_string())?;
         unlocked.signing_key.to_bytes()
     };
 
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let reader = std::io::BufReader::new(file);
-    krillnotes_core::import_workspace(reader, &db_path_buf, password.as_deref(), &workspace_password, &uuid.to_string(), Ed25519SigningKey::from_bytes(&import_seed))
-        .map_err(|e| e.to_string())?;
+    krillnotes_core::import_workspace(
+        reader,
+        &db_path_buf,
+        password.as_deref(),
+        &workspace_password,
+        &uuid.to_string(),
+        Ed25519SigningKey::from_bytes(&import_seed),
+    )
+    .map_err(|e| e.to_string())?;
 
     // Ensure the attachments directory exists after import
     let _ = std::fs::create_dir_all(folder.join("attachments"));
@@ -730,28 +832,36 @@ pub async fn execute_import(
     let import_signing_key = Ed25519SigningKey::from_bytes(&import_seed);
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode(import_signing_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD
+            .encode(import_signing_key.verifying_key().as_bytes())
     };
     let gate = create_permission_gate(owner_pubkey);
-    let identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&uuid);
-    let workspace = Workspace::open(&db_path_buf, &workspace_password, &uuid.to_string(), import_signing_key, gate, Some(&identity_dir))
-        .map_err(|e| e.to_string())?;
+    let identity_dir = state
+        .identity_manager
+        .lock()
+        .expect("Mutex poisoned")
+        .identity_dir(&uuid);
+    let workspace = Workspace::open(
+        &db_path_buf,
+        &workspace_password,
+        &uuid.to_string(),
+        import_signing_key,
+        gate,
+        Some(&identity_dir),
+    )
+    .map_err(|e| e.to_string())?;
 
     // Bind the imported workspace to the chosen identity so it can be opened later.
     let workspace_uuid = workspace.workspace_id().to_string();
     {
         let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
-        let unlocked = identities.get(&uuid)
+        let unlocked = identities
+            .get(&uuid)
             .ok_or_else(|| "Identity is not unlocked".to_string())?;
         let seed = unlocked.signing_key.to_bytes();
         let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-        mgr.bind_workspace(
-            &uuid,
-            &workspace_uuid,
-            &folder,
-            &workspace_password,
-            &seed,
-        ).map_err(|e| format!("Failed to bind workspace to identity: {e}"))?;
+        mgr.bind_workspace(&uuid, &workspace_uuid, &folder, &workspace_password, &seed)
+            .map_err(|e| format!("Failed to bind workspace to identity: {e}"))?;
     }
 
     let label = generate_unique_label(&state, &folder);
@@ -759,7 +869,8 @@ pub async fn execute_import(
     let new_window = create_workspace_window(&app, &label, &window)?;
     store_workspace(&state, label.clone(), workspace, folder, uuid);
 
-    new_window.set_title(&format!("Krillnotes - {label}"))
+    new_window
+        .set_title(&format!("Krillnotes - {label}"))
         .map_err(|e| e.to_string())?;
 
     if window.label() == "main" {
@@ -839,7 +950,9 @@ pub fn delete_theme(filename: String) -> std::result::Result<(), String> {
 pub(crate) fn read_file_content_impl(path: &str) -> std::result::Result<String, String> {
     let allowed = path.ends_with(".rhai") || path.ends_with(".krilltheme");
     if !allowed {
-        return Err(format!("Only .rhai and .krilltheme files may be imported: {path}"));
+        return Err(format!(
+            "Only .rhai and .krilltheme files may be imported: {path}"
+        ));
     }
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
@@ -873,8 +986,8 @@ pub fn update_settings(
     let current = crate::settings::load_settings();
     let old_lang = current.language.clone();
 
-    let mut current_value = serde_json::to_value(&current)
-        .map_err(|e| format!("Failed to serialize settings: {e}"))?;
+    let mut current_value =
+        serde_json::to_value(&current).map_err(|e| format!("Failed to serialize settings: {e}"))?;
     if let (serde_json::Value::Object(curr), serde_json::Value::Object(p)) =
         (&mut current_value, patch)
     {
@@ -953,7 +1066,15 @@ fn dir_size_bytes(dir: &Path) -> u64 {
 
 /// Reads `info.json` from `workspace_dir` and returns all stored fields.
 /// Returns `(None, None, None, None, None)` if the file is missing or malformed.
-pub fn read_info_json_full(workspace_dir: &Path) -> (Option<String>, Option<i64>, Option<usize>, Option<usize>, Option<bool>) {
+pub fn read_info_json_full(
+    workspace_dir: &Path,
+) -> (
+    Option<String>,
+    Option<i64>,
+    Option<usize>,
+    Option<usize>,
+    Option<bool>,
+) {
     let path = workspace_dir.join("info.json");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
@@ -968,7 +1089,13 @@ pub fn read_info_json_full(workspace_dir: &Path) -> (Option<String>, Option<i64>
     let note_count = v["note_count"].as_u64().map(|n| n as usize);
     let attachment_count = v["attachment_count"].as_u64().map(|n| n as usize);
     let is_owner = v["is_owner"].as_bool();
-    (workspace_id, created_at, note_count, attachment_count, is_owner)
+    (
+        workspace_id,
+        created_at,
+        note_count,
+        attachment_count,
+        is_owner,
+    )
 }
 
 /// Lists all workspace folders (subdirectories containing `notes.db`) in the
@@ -1009,10 +1136,20 @@ pub fn list_workspace_files(
 
         for entry in read_dir.flatten() {
             let folder = entry.path();
-            if !folder.is_dir() { continue; }
-            if folder.file_name().map(|n| n == ".identity").unwrap_or(false) { continue; }
+            if !folder.is_dir() {
+                continue;
+            }
+            if folder
+                .file_name()
+                .map(|n| n == ".identity")
+                .unwrap_or(false)
+            {
+                continue;
+            }
             let db_file = folder.join("notes.db");
-            if !db_file.exists() { continue; }
+            if !db_file.exists() {
+                continue;
+            }
 
             if let Some(name) = folder.file_name().and_then(|s| s.to_str()) {
                 let is_open = open_labels.contains_key(&folder);
@@ -1027,7 +1164,11 @@ pub fn list_workspace_files(
 
                 let last_modified = std::fs::metadata(&folder)
                     .and_then(|m| m.modified())
-                    .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                    })
                     .unwrap_or(0);
                 let size_bytes = dir_size_bytes(&folder);
                 let (workspace_id, created_at, note_count, attachment_count, is_owner) =
@@ -1078,8 +1219,7 @@ pub fn delete_workspace(
         return Err("Close the workspace before deleting it.".to_string());
     }
 
-    std::fs::remove_dir_all(&folder)
-        .map_err(|e| format!("Failed to delete workspace: {e}"))
+    std::fs::remove_dir_all(&folder).map_err(|e| format!("Failed to delete workspace: {e}"))
 }
 
 /// Duplicates a workspace by exporting it to a temp file and importing it
@@ -1174,15 +1314,27 @@ pub fn duplicate_workspace(
     let source_signing_key = Ed25519SigningKey::from_bytes(&copy_seed);
     let owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode(source_signing_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD
+            .encode(source_signing_key.verifying_key().as_bytes())
     };
     let gate = create_permission_gate(owner_pubkey);
-    let copy_identity_dir = state.identity_manager.lock().expect("Mutex poisoned").identity_dir(&copy_uuid);
-    let workspace = Workspace::open(&source_db, &source_password, &identity_uuid, source_signing_key, gate, Some(&copy_identity_dir))
-        .map_err(|e| e.to_string())?;
+    let copy_identity_dir = state
+        .identity_manager
+        .lock()
+        .expect("Mutex poisoned")
+        .identity_dir(&copy_uuid);
+    let workspace = Workspace::open(
+        &source_db,
+        &source_password,
+        &identity_uuid,
+        source_signing_key,
+        gate,
+        Some(&copy_identity_dir),
+    )
+    .map_err(|e| e.to_string())?;
 
-    let mut tmp_file = tempfile::tempfile()
-        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    let mut tmp_file =
+        tempfile::tempfile().map_err(|e| format!("Failed to create temp file: {e}"))?;
     krillnotes_core::export_workspace(&workspace, &mut tmp_file, Some(&source_password))
         .map_err(|e| e.to_string())?;
 
@@ -1195,18 +1347,33 @@ pub fn duplicate_workspace(
     tmp_file
         .seek(std::io::SeekFrom::Start(0))
         .map_err(|e| format!("Seek failed: {e}"))?;
-    krillnotes_core::import_workspace(tmp_file, &dest_db, Some(&source_password), &new_password, &identity_uuid, Ed25519SigningKey::from_bytes(&copy_seed))
-        .map_err(|e| e.to_string())?;
+    krillnotes_core::import_workspace(
+        tmp_file,
+        &dest_db,
+        Some(&source_password),
+        &new_password,
+        &identity_uuid,
+        Ed25519SigningKey::from_bytes(&copy_seed),
+    )
+    .map_err(|e| e.to_string())?;
 
     // Write info.json for the new workspace so we can read its UUID.
     let dest_signing_key = Ed25519SigningKey::from_bytes(&copy_seed);
     let dest_owner_pubkey = {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode(dest_signing_key.verifying_key().as_bytes())
+        base64::engine::general_purpose::STANDARD
+            .encode(dest_signing_key.verifying_key().as_bytes())
     };
     let dest_gate = create_permission_gate(dest_owner_pubkey);
-    let new_ws = Workspace::open(&dest_db, &new_password, &identity_uuid, dest_signing_key, dest_gate, Some(&copy_identity_dir))
-        .map_err(|e| format!("Failed to open new workspace: {e}"))?;
+    let new_ws = Workspace::open(
+        &dest_db,
+        &new_password,
+        &identity_uuid,
+        dest_signing_key,
+        dest_gate,
+        Some(&copy_identity_dir),
+    )
+    .map_err(|e| format!("Failed to open new workspace: {e}"))?;
     let _ = new_ws.write_info_json();
     let new_ws_uuid = new_ws.workspace_id().to_string();
     drop(new_ws);
@@ -1221,14 +1388,8 @@ pub fn duplicate_workspace(
     drop(identities);
 
     let mgr = state.identity_manager.lock().expect("Mutex poisoned");
-    mgr.bind_workspace(
-        &uuid,
-        &new_ws_uuid,
-        &dest_folder,
-        &new_password,
-        &seed,
-    )
-    .map_err(|e| format!("Failed to bind new workspace to identity: {e}"))?;
+    mgr.bind_workspace(&uuid, &new_ws_uuid, &dest_folder, &new_password, &seed)
+        .map_err(|e| format!("Failed to bind new workspace to identity: {e}"))?;
 
     Ok(())
 }
@@ -1250,8 +1411,14 @@ pub fn close_window(
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
     let label = window.label().to_string();
-    state.closing_windows.lock().expect("Mutex poisoned").insert(label);
-    window.destroy().map_err(|e| format!("Failed to close window: {e}"))
+    state
+        .closing_windows
+        .lock()
+        .expect("Mutex poisoned")
+        .insert(label);
+    window
+        .destroy()
+        .map_err(|e| format!("Failed to close window: {e}"))
 }
 
 #[cfg(test)]

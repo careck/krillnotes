@@ -71,7 +71,9 @@ pub fn create_snapshot_bundle(params: SnapshotParams<'_>) -> Result<Vec<u8>> {
     // Validate attachment IDs are safe ZIP path segments (UUID-shaped).
     for (att_id, _) in &params.attachment_blobs {
         debug_assert!(
-            att_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+            att_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-'),
             "attachment ID must be alphanumeric+hyphens only (UUID-shaped), got: {att_id}"
         );
     }
@@ -113,10 +115,8 @@ pub fn create_snapshot_bundle(params: SnapshotParams<'_>) -> Result<Vec<u8>> {
     header.validate()?;
 
     let header_bytes = serde_json::to_vec(&header)?;
-    let files: Vec<(&str, &[u8])> = vec![
-        ("header.json", &header_bytes),
-        ("payload.enc", &ciphertext),
-    ];
+    let files: Vec<(&str, &[u8])> =
+        vec![("header.json", &header_bytes), ("payload.enc", &ciphertext)];
     // Attachment blobs are authenticated by their individual AES-GCM tags (using the
     // same symmetric key as the payload), so they do not need to be included in the
     // Ed25519 manifest signature.
@@ -145,8 +145,8 @@ pub fn create_snapshot_bundle(params: SnapshotParams<'_>) -> Result<Vec<u8>> {
 /// Parse and decrypt a snapshot.swarm bundle.
 pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<ParsedSnapshot> {
     let cursor = Cursor::new(data);
-    let mut zip = ZipArchive::new(cursor)
-        .map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
+    let mut zip =
+        ZipArchive::new(cursor).map_err(|e| KrillnotesError::Swarm(format!("zip open: {e}")))?;
 
     let header_bytes = read_zip_file(&mut zip, "header.json")?;
     let ciphertext = read_zip_file(&mut zip, "payload.enc")?;
@@ -156,20 +156,21 @@ pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<
     header.validate()?;
 
     // Verify bundle signature.
-    let vk_bytes = BASE64.decode(&header.source_identity)
+    let vk_bytes = BASE64
+        .decode(&header.source_identity)
         .map_err(|e| KrillnotesError::Swarm(format!("bad source_identity: {e}")))?;
-    let vk_arr: [u8; 32] = vk_bytes.try_into()
+    let vk_arr: [u8; 32] = vk_bytes
+        .try_into()
         .map_err(|_| KrillnotesError::Swarm("source_identity key wrong length".to_string()))?;
     let vk = VerifyingKey::from_bytes(&vk_arr)
         .map_err(|e| KrillnotesError::Swarm(format!("invalid sender key: {e}")))?;
-    let files: Vec<(&str, &[u8])> = vec![
-        ("header.json", &header_bytes),
-        ("payload.enc", &ciphertext),
-    ];
+    let files: Vec<(&str, &[u8])> =
+        vec![("header.json", &header_bytes), ("payload.enc", &ciphertext)];
     verify_manifest(&files, &sig_bytes, &vk)?;
 
     // Find our entry in recipients.
-    let recipients = header.recipients
+    let recipients = header
+        .recipients
         .ok_or_else(|| KrillnotesError::Swarm("no recipients in snapshot".to_string()))?;
 
     // Try each entry (we don't know our peer_id from the outside).
@@ -192,7 +193,8 @@ pub fn parse_snapshot_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<
     // Decrypt attachment blobs — entries named "attachments/<id>.enc"
     let mut attachment_blobs = Vec::new();
     for i in 0..zip.len() {
-        let mut file = zip.by_index(i)
+        let mut file = zip
+            .by_index(i)
             .map_err(|e| KrillnotesError::Swarm(format!("zip index {i}: {e}")))?;
         let name = file.name().to_string();
         if let Some(att_id) = name
@@ -226,7 +228,9 @@ mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
+    fn make_key() -> SigningKey {
+        SigningKey::generate(&mut rand_core::OsRng)
+    }
 
     #[test]
     fn test_snapshot_encrypt_decrypt_roundtrip() {
@@ -248,7 +252,8 @@ mod tests {
             recipient_peer_ids: vec!["dev-2".to_string()],
             attachment_blobs: vec![],
             owner_pubkey: "owner-pk".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
 
         let result = parse_snapshot_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(result.workspace_json, payload);
@@ -276,7 +281,8 @@ mod tests {
             recipient_peer_ids: vec!["dev-2".to_string()],
             attachment_blobs: vec![],
             owner_pubkey: "owner-pk".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
 
         assert!(parse_snapshot_bundle(&bundle, &wrong_key).is_err());
     }
@@ -302,7 +308,8 @@ mod tests {
             recipient_peer_ids: vec!["peer-pub-key".to_string()],
             attachment_blobs: vec![(att_id.to_string(), att_blob.to_vec())],
             owner_pubkey: "owner-pk".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
 
         let parsed = parse_snapshot_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.workspace_json, payload.to_vec());
@@ -329,7 +336,8 @@ mod tests {
             recipient_peer_ids: vec!["p1".to_string()],
             attachment_blobs: vec![],
             owner_pubkey: "owner-pk".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         let parsed = parse_snapshot_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.attachment_blobs.len(), 0);
         assert_eq!(parsed.workspace_name, "Test");
@@ -357,7 +365,8 @@ mod tests {
             recipient_peer_ids: vec!["p1".to_string()],
             attachment_blobs: blobs.clone(),
             owner_pubkey: "owner-pk".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         let parsed = parse_snapshot_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.attachment_blobs.len(), 3);
         // All IDs and blobs must be present (order may differ)

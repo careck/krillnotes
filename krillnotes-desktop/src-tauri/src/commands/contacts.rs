@@ -5,8 +5,8 @@
 // Copyright (c) 2024-2026 TripleACS Pty Ltd t/a 2pi Software
 
 use crate::AppState;
-use tauri::State;
 use serde::Serialize;
+use tauri::State;
 use uuid::Uuid;
 
 /// Serialisable contact record returned to the frontend.
@@ -38,7 +38,9 @@ impl ContactInfo {
     }
 }
 
-pub(crate) fn parse_trust_level(s: &str) -> std::result::Result<krillnotes_core::core::contact::TrustLevel, String> {
+pub(crate) fn parse_trust_level(
+    s: &str,
+) -> std::result::Result<krillnotes_core::core::contact::TrustLevel, String> {
     use krillnotes_core::core::contact::TrustLevel;
     match s {
         "Tofu" => Ok(TrustLevel::Tofu),
@@ -68,8 +70,14 @@ pub fn list_contacts(
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
     let cms = state.contact_managers.lock().expect("Mutex poisoned");
     let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
-    let contacts = cm.list_contacts().map_err(|e| { log::error!("list_contacts failed: {e}"); e.to_string() })?;
-    Ok(contacts.into_iter().map(ContactInfo::from_contact).collect())
+    let contacts = cm.list_contacts().map_err(|e| {
+        log::error!("list_contacts failed: {e}");
+        e.to_string()
+    })?;
+    Ok(contacts
+        .into_iter()
+        .map(ContactInfo::from_contact)
+        .collect())
 }
 
 #[tauri::command]
@@ -82,7 +90,10 @@ pub fn get_contact(
     let cid = Uuid::parse_str(&contact_id).map_err(|e| e.to_string())?;
     let cms = state.contact_managers.lock().expect("Mutex poisoned");
     let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
-    let contact = cm.get_contact(cid).map_err(|e| { log::error!("get_contact failed: {e}"); e.to_string() })?;
+    let contact = cm.get_contact(cid).map_err(|e| {
+        log::error!("get_contact failed: {e}");
+        e.to_string()
+    })?;
     Ok(contact.map(ContactInfo::from_contact))
 }
 
@@ -98,8 +109,12 @@ pub fn create_contact(
     let tl = parse_trust_level(&trust_level)?;
     let cms = state.contact_managers.lock().expect("Mutex poisoned");
     let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
-    let contact = cm.create_contact(&declared_name, &public_key, tl)
-        .map_err(|e| { log::error!("create_contact failed: {e}"); e.to_string() })?;
+    let contact = cm
+        .create_contact(&declared_name, &public_key, tl)
+        .map_err(|e| {
+            log::error!("create_contact failed: {e}");
+            e.to_string()
+        })?;
     Ok(ContactInfo::from_contact(contact))
 }
 
@@ -117,7 +132,8 @@ pub fn update_contact(
     let tl = parse_trust_level(&trust_level)?;
     let cms = state.contact_managers.lock().expect("Mutex poisoned");
     let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
-    let mut contact = cm.get_contact(cid)
+    let mut contact = cm
+        .get_contact(cid)
         .map_err(|e| e.to_string())?
         .ok_or("Contact not found")?;
     contact.local_name = local_name;
@@ -137,13 +153,15 @@ pub fn delete_contact(
     let cid = Uuid::parse_str(&contact_id).map_err(|e| e.to_string())?;
     let cms = state.contact_managers.lock().expect("Mutex poisoned");
     let cm = cms.get(&uuid).ok_or("Identity not unlocked")?;
-    cm.delete_contact(cid).map_err(|e| { log::error!("delete_contact failed: {e}"); e.to_string() })
+    cm.delete_contact(cid).map_err(|e| {
+        log::error!("delete_contact failed: {e}");
+        e.to_string()
+    })
 }
 
 #[tauri::command]
 pub fn get_fingerprint(public_key: String) -> std::result::Result<String, String> {
-    krillnotes_core::core::contact::generate_fingerprint(&public_key)
-        .map_err(|e| e.to_string())
+    krillnotes_core::core::contact::generate_fingerprint(&public_key).map_err(|e| e.to_string())
 }
 
 // ── Peer commands ─────────────────────────────────────────────────
@@ -160,7 +178,10 @@ pub fn list_workspace_peers(
     // Resolve identity UUID from workspace binding.
     let identity_uuid = {
         let paths = state.workspace_paths.lock().expect("Mutex poisoned");
-        let folder = paths.get(&window_label).ok_or("Workspace path not found")?.clone();
+        let folder = paths
+            .get(&window_label)
+            .ok_or("Workspace path not found")?
+            .clone();
         drop(paths);
         let (ws_uuid_opt, _, _, _, _) = crate::read_info_json_full(&folder);
         // Guard: workspace must have a UUID in info.json to be valid
@@ -178,7 +199,10 @@ pub fn list_workspace_peers(
     let cm = contact_managers
         .get(&identity_uuid)
         .ok_or("Contact manager not found — identity must be unlocked")?;
-    workspace.list_peers_info(cm).map_err(|e| { log::error!("list_workspace_peers failed: {e}"); e.to_string() })
+    workspace.list_peers_info(cm).map_err(|e| {
+        log::error!("list_workspace_peers failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Returns resolved peer info for the current workspace's sync_peers.
@@ -195,7 +219,9 @@ pub fn get_workspace_peers(
     };
     let identity_uuid = Uuid::parse_str(&identity_uuid_str).map_err(|e| e.to_string())?;
     let cm_guard = state.contact_managers.lock().expect("Mutex poisoned");
-    let cm = cm_guard.get(&identity_uuid).ok_or("Contact manager not available")?;
+    let cm = cm_guard
+        .get(&identity_uuid)
+        .ok_or("Contact manager not available")?;
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let ws = workspaces.get(window.label()).ok_or("Workspace not open")?;
     ws.list_peers_info(cm).map_err(|e| e.to_string())
@@ -211,7 +237,10 @@ pub fn remove_workspace_peer(
     let window_label = window.label().to_string();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let workspace = workspaces.get(&window_label).ok_or("Workspace not found")?;
-    workspace.remove_peer(&peer_device_id).map_err(|e| { log::error!("remove_workspace_peer failed: {e}"); e.to_string() })
+    workspace.remove_peer(&peer_device_id).map_err(|e| {
+        log::error!("remove_workspace_peer failed: {e}");
+        e.to_string()
+    })
 }
 
 /// Pre-authorises a contact as a sync peer for the calling window's workspace.
@@ -244,7 +273,9 @@ pub fn add_contact_as_peer(
     {
         let workspaces = state.workspaces.lock().expect("Mutex poisoned");
         let workspace = workspaces.get(&window_label).ok_or("Workspace not found")?;
-        workspace.add_contact_as_peer(&peer_identity_id).map_err(|e| e.to_string())?;
+        workspace
+            .add_contact_as_peer(&peer_identity_id)
+            .map_err(|e| e.to_string())?;
     }
 
     // Step 3: Build PeerInfo for the caller — re-acquire both locks.

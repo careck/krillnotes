@@ -7,11 +7,14 @@
 //! Attachment crypto primitives and metadata types.
 
 use crate::{KrillnotesError, Result};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use hkdf::Hkdf;
-use sha2::Sha256;
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, aead::{Aead, KeyInit}};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 use super::timestamp::UnixSecs;
 
@@ -33,10 +36,7 @@ pub struct AttachmentMeta {
 /// Derives a 32-byte workspace attachment key from the master password and a
 /// workspace-unique UUID string (used as the HKDF salt).
 pub fn derive_attachment_key(password: &str, workspace_id: &str) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(
-        Some(workspace_id.as_bytes()),
-        password.as_bytes(),
-    );
+    let hk = Hkdf::<Sha256>::new(Some(workspace_id.as_bytes()), password.as_bytes());
     let mut key = [0u8; 32];
     hk.expand(b"krillnotes-attachment-v1", &mut key)
         .expect("HKDF expand cannot fail for 32-byte output");

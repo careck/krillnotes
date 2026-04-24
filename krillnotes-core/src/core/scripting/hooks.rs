@@ -16,7 +16,7 @@ use crate::core::save_transaction::SaveTransaction;
 #[derive(Debug, Default)]
 pub struct TreeActionResult {
     /// If the closure returned an array of IDs, they are placed here (reorder path).
-    pub reorder:     Option<Vec<String>>,
+    pub reorder: Option<Vec<String>>,
     /// Gated notes queued via `create_child` / `set_title` / `set_field` / `commit()`.
     pub transaction: SaveTransaction,
 }
