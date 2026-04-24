@@ -429,7 +429,7 @@ pub async fn create_workspace(
                 use base64::Engine;
                 use rand::RngCore;
                 let mut bytes = [0u8; 32];
-                rand::thread_rng().fill_bytes(&mut bytes);
+                rand::rng().fill_bytes(&mut bytes);
                 base64::engine::general_purpose::STANDARD.encode(&bytes)
             };
 
@@ -709,7 +709,7 @@ pub async fn execute_import(
         use base64::Engine;
         use rand::RngCore;
         let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     };
     let import_seed = {
@@ -1156,7 +1156,7 @@ pub fn duplicate_workspace(
         use base64::Engine;
         use rand::RngCore;
         let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     };
 

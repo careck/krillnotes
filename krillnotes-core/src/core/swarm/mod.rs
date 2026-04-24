@@ -17,7 +17,6 @@ pub mod sync;
 #[cfg(test)]
 mod integration_tests {
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
     use crate::core::swarm::delta::{create_delta_bundle, parse_delta_bundle, DeltaParams};
     use crate::core::swarm::invite::*;
@@ -25,7 +24,7 @@ mod integration_tests {
     use crate::core::operation::Operation;
     use crate::core::hlc::HlcTimestamp;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut OsRng) }
+    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
 
     fn dummy_op(id: &str, note_id: &str) -> Operation {
         Operation::UpdateNote {

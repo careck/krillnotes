@@ -66,8 +66,8 @@ pub fn encrypt_attachment(plaintext: &[u8], key: Option<&[u8; 32]>) -> Result<(V
 
     let mut nonce_bytes = [0u8; 12];
     let mut file_salt = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    rand::thread_rng().fill_bytes(&mut file_salt);
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut file_salt);
 
     let file_key = derive_file_key(attachment_key, &file_salt);
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&file_key));

@@ -541,7 +541,7 @@ fn identity_file_path_returns_identity_json_inside_folder() {
 #[test]
 fn test_relay_key_differs_from_contacts_key() {
     // All imports (SigningKey, Uuid, UnlockedIdentity) are in scope via super::*
-    let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+    let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = signing_key.verifying_key();
     let unlocked = UnlockedIdentity {
         identity_uuid: Uuid::new_v4(),

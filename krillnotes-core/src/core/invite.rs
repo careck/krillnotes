@@ -587,8 +587,8 @@ mod manager_tests {
     fn build_response_returns_signed_response() {
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
-        let inviter_key = SigningKey::generate(&mut rand::rngs::OsRng);
-        let invitee_key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let inviter_key = SigningKey::generate(&mut rand_core::OsRng);
+        let invitee_key = SigningKey::generate(&mut rand_core::OsRng);
 
         let (_record, invite_file) = mgr.create_invite(
             "ws-1", "Test", Some(7), &inviter_key, "Alice",
@@ -606,7 +606,7 @@ mod manager_tests {
     fn serialize_and_parse_invite_bytes_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
-        let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let signing_key = SigningKey::generate(&mut rand_core::OsRng);
 
         let (_record, invite_file) = mgr.create_invite(
             "ws-1", "Test Workspace", Some(7),
@@ -640,7 +640,7 @@ mod manager_tests {
     fn set_relay_url_persists() {
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = InviteManager::new(dir.path().to_path_buf()).unwrap();
-        let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let signing_key = SigningKey::generate(&mut rand_core::OsRng);
 
         let (record, _invite_file) = mgr.create_invite(
             "ws-1", "Test", Some(7), &signing_key, "Alice",

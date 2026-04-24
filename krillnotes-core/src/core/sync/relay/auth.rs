@@ -54,7 +54,7 @@ pub fn save_relay_credentials(
     let cipher = Aes256Gcm::new(key);
 
     let mut nonce_bytes = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
@@ -267,7 +267,6 @@ mod tests {
 mod pop_tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
 
     /// Simulate what the relay server does to create a PoP challenge.
     /// Returns (encrypted_nonce_hex, server_public_key_hex).
@@ -276,19 +275,18 @@ mod pop_tests {
         nonce_plaintext: &[u8],
     ) -> (String, String) {
         use crypto_box::{aead::{Aead, AeadCore}, PublicKey, SalsaBox, SecretKey};
-        use rand::rngs::OsRng;
 
         // 1. Convert client's Ed25519 verifying key to X25519 public key.
         let client_x25519_pk_bytes = ed25519_vk_to_x25519_pk_bytes(client_ed25519_vk);
         let client_pk = PublicKey::from(client_x25519_pk_bytes);
 
         // 2. Generate server ephemeral keypair.
-        let server_sk = SecretKey::generate(&mut OsRng);
+        let server_sk = SecretKey::generate(&mut rand_core::OsRng);
         let server_pk = server_sk.public_key();
 
         // 3. Encrypt nonce using SalsaBox (NaCl crypto_box).
         let salsa_box = SalsaBox::new(&client_pk, &server_sk);
-        let nonce = SalsaBox::generate_nonce(&mut OsRng);
+        let nonce = SalsaBox::generate_nonce(&mut rand_core::OsRng);
         let ciphertext = salsa_box.encrypt(&nonce, nonce_plaintext).unwrap();
 
         // 4. Return 24-byte nonce prefix + ciphertext as hex, server pubkey as hex.
@@ -304,7 +302,7 @@ mod pop_tests {
 
     #[test]
     fn test_pop_challenge_decrypt() {
-        let client_signing_key = SigningKey::generate(&mut OsRng);
+        let client_signing_key = SigningKey::generate(&mut rand_core::OsRng);
         let client_verifying_key = client_signing_key.verifying_key();
 
         let nonce_plaintext = b"test-challenge-nonce-1234567890ab";

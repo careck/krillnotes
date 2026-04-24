@@ -248,11 +248,10 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
     use crate::core::hlc::HlcTimestamp;
     use crate::core::operation::Operation;
 
-    fn make_key() -> SigningKey { SigningKey::generate(&mut OsRng) }
+    fn make_key() -> SigningKey { SigningKey::generate(&mut rand_core::OsRng) }
 
     fn dummy_op(id: &str) -> Operation {
         Operation::UpdateNote {
@@ -325,10 +324,9 @@ mod tests {
     #[test]
     fn test_delta_with_attachments_roundtrip() {
         use ed25519_dalek::SigningKey;
-        use rand::rngs::OsRng;
 
-        let sender_key = SigningKey::generate(&mut OsRng);
-        let recipient_key = SigningKey::generate(&mut OsRng);
+        let sender_key = SigningKey::generate(&mut rand_core::OsRng);
+        let recipient_key = SigningKey::generate(&mut rand_core::OsRng);
         let recipient_vk = recipient_key.verifying_key();
 
         let mut op = Operation::AddAttachment {
@@ -457,10 +455,9 @@ mod tests {
     #[test]
     fn test_delta_without_attachments_roundtrip() {
         use ed25519_dalek::SigningKey;
-        use rand::rngs::OsRng;
 
-        let sender_key = SigningKey::generate(&mut OsRng);
-        let recipient_key = SigningKey::generate(&mut OsRng);
+        let sender_key = SigningKey::generate(&mut rand_core::OsRng);
+        let recipient_key = SigningKey::generate(&mut rand_core::OsRng);
         let recipient_vk = recipient_key.verifying_key();
 
         let mut op = Operation::UpdateNote {

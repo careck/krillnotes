@@ -408,7 +408,7 @@ pub async fn apply_swarm_snapshot(
     // 3. Generate a fresh DB encryption password (never leaves this device).
     let workspace_password: String = {
         let mut bytes = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::STANDARD.encode(bytes)
     };
 
