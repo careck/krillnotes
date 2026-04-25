@@ -74,16 +74,37 @@ pub fn generate_delta(
         KrillnotesError::Swarm(format!("peer {peer_device_id} not found in registry"))
     })?;
 
-    // 2. Collect operations since watermark, excluding this peer's own ops.
-    //    When last_sent_op is None (force-resync), operations_since(None) returns all ops.
-    let ops = workspace.operations_since(peer.last_sent_op.as_deref(), &peer.peer_device_id)?;
+    // 2. Collect operations since watermark with verified_by metadata,
+    //    excluding this peer's own ops.
+    let ops_with_vb = workspace.operations_since_with_verified_by(
+        peer.last_sent_op.as_deref(),
+        &peer.peer_device_id,
+    )?;
 
-    // 2b. Wrap each operation in a DeltaOperation (verified_by populated by Task 6).
-    let delta_operations: Vec<DeltaOperation> = ops
+    // 2b. Wrap each operation in a DeltaOperation with appropriate vouching.
+    let my_pubkey = workspace.identity_pubkey().to_string();
+
+    let delta_operations: Vec<DeltaOperation> = ops_with_vb
         .into_iter()
-        .map(|op| DeltaOperation {
-            op,
-            verified_by: None,
+        .filter_map(|(op, verified_by)| {
+            if op.author_key() == my_pubkey {
+                // Self-authored: receiver verifies my sig directly
+                Some(DeltaOperation {
+                    op,
+                    verified_by: None,
+                })
+            } else if !verified_by.is_empty() {
+                // Previously verified/vouched: I re-vouch
+                Some(DeltaOperation {
+                    op,
+                    verified_by: Some(my_pubkey.clone()),
+                })
+            } else {
+                // Unverified op — do not include in delta
+                log::warn!(target: "krillnotes::sync",
+                    "skipping unverified op {} in delta", op.operation_id());
+                None
+            }
         })
         .collect();
 
@@ -1171,6 +1192,188 @@ mod tests {
         assert!(
             !bob_enc_path.exists(),
             "Bob's .enc file must be deleted after remove sync"
+        );
+    }
+
+    /// operations_since_with_verified_by returns (op, verified_by) tuples
+    /// where verified_by matches the workspace's identity pubkey for self-authored ops.
+    #[test]
+    fn test_operations_since_with_verified_by_returns_column() {
+        let alice_key = make_key();
+        let alice_pubkey = b64(&alice_key);
+
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let mut ws = crate::core::workspace::Workspace::create(
+            temp.path(),
+            "",
+            "alice-dev",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            test_gate(),
+            None,
+        )
+        .unwrap();
+
+        // Create a note — this generates self-authored operations.
+        ws.create_note_root("TextNote").unwrap();
+
+        let results = ws
+            .operations_since_with_verified_by(None, "other-dev")
+            .unwrap();
+
+        assert!(!results.is_empty(), "should have at least one op");
+        for (op, verified_by) in &results {
+            // Self-authored ops should have verified_by = the workspace identity pubkey.
+            assert_eq!(
+                verified_by, &alice_pubkey,
+                "verified_by should match workspace identity pubkey for op {}",
+                op.operation_id()
+            );
+        }
+    }
+
+    /// generate_delta sets verified_by = None for self-authored ops and
+    /// verified_by = Some(sender_pubkey) for re-vouched ops from other authors.
+    #[test]
+    fn test_generate_delta_vouching_logic() {
+        let alice_key = make_key();
+        let bob_key = make_key();
+        let carol_key = make_key();
+        let alice_pubkey = b64(&alice_key);
+        let bob_pubkey = b64(&bob_key);
+        let carol_pubkey = b64(&carol_key);
+
+        // ── Alice workspace ──
+        let alice_dir = tempfile::tempdir().unwrap();
+        let alice_db = alice_dir.path().join("alice.db");
+        let mut alice_ws = crate::core::workspace::Workspace::create(
+            &alice_db,
+            "",
+            "alice-dev",
+            SigningKey::from_bytes(&alice_key.to_bytes()),
+            test_gate(),
+            None,
+        )
+        .unwrap();
+
+        // Alice creates a note (self-authored).
+        alice_ws.create_note_root("TextNote").unwrap();
+
+        // Record watermark, then register Bob as peer.
+        let snap_op = alice_ws
+            .get_latest_operation_id()
+            .unwrap()
+            .unwrap_or_default();
+        alice_ws
+            .upsert_sync_peer("dev-bob", &bob_pubkey, Some(&snap_op), None)
+            .unwrap();
+
+        // Alice creates another note after the watermark — this will be in the delta.
+        alice_ws.create_note_root("TextNote").unwrap();
+
+        // Set up contact manager with Bob.
+        let cm_dir = tempfile::tempdir().unwrap();
+        let alice_cm = crate::core::contact::ContactManager::for_identity(
+            cm_dir.path().to_path_buf(),
+            [50u8; 32],
+        )
+        .unwrap();
+        alice_cm
+            .find_or_create_by_public_key(
+                "Bob",
+                &bob_pubkey,
+                crate::core::contact::TrustLevel::Tofu,
+            )
+            .unwrap();
+
+        // Generate delta #1: should contain only self-authored ops with verified_by = None.
+        let bundle1 = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "TestWorkspace",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
+        assert!(bundle1.op_count > 0, "delta should have ops");
+
+        let parsed1 =
+            crate::core::swarm::delta::parse_delta_bundle(&bundle1.bundle_bytes, &bob_key).unwrap();
+        for d_op in &parsed1.delta_operations {
+            assert_eq!(
+                d_op.verified_by, None,
+                "self-authored ops should have verified_by = None, op={}",
+                d_op.op.operation_id()
+            );
+        }
+
+        // ── Now simulate receiving a Carol op via apply_incoming_operation ──
+        // Build a signed op from Carol.
+        let carol_op = {
+            let mut op = crate::core::operation::Operation::UpdateNote {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                timestamp: crate::core::hlc::HlcTimestamp {
+                    wall_ms: chrono::Utc::now().timestamp_millis() as u64 + 10000,
+                    counter: 0,
+                    node_id: 999,
+                },
+                device_id: "carol-dev".to_string(),
+                note_id: alice_ws.list_all_notes().unwrap()[0].id.clone(),
+                title: "Carol's update".to_string(),
+                modified_by: carol_pubkey.clone(),
+                signature: String::new(),
+            };
+            op.sign(&carol_key);
+            op
+        };
+
+        // Apply Carol's op as incoming — Alice verifies sig and stores with verified_by.
+        let applied = alice_ws
+            .apply_incoming_operation(
+                carol_op.clone(),
+                "carol-dev",
+                &[],
+                None, // sender-authored path: no explicit vouch needed
+                &carol_pubkey,
+            )
+            .unwrap();
+        assert!(applied, "Carol's op should be applied");
+
+        // Advance watermark to include Alice's ops from delta #1.
+        alice_ws
+            .upsert_sync_peer(
+                "dev-bob",
+                &bob_pubkey,
+                bundle1.last_included_op.as_deref(),
+                None,
+            )
+            .unwrap();
+
+        // Generate delta #2: should contain Carol's op re-vouched by Alice.
+        let bundle2 = super::generate_delta(
+            &mut alice_ws,
+            "dev-bob",
+            "TestWorkspace",
+            &alice_key,
+            "Alice",
+            &alice_cm,
+        )
+        .unwrap();
+        assert!(bundle2.op_count > 0, "delta #2 should have Carol's op");
+
+        let parsed2 =
+            crate::core::swarm::delta::parse_delta_bundle(&bundle2.bundle_bytes, &bob_key).unwrap();
+
+        // Find Carol's op in the delta and verify Alice re-vouched it.
+        let carol_delta = parsed2
+            .delta_operations
+            .iter()
+            .find(|d| d.op.operation_id() == carol_op.operation_id())
+            .expect("Carol's op should be in the delta");
+        assert_eq!(
+            carol_delta.verified_by,
+            Some(alice_pubkey.clone()),
+            "Carol's op should be re-vouched by Alice"
         );
     }
 }

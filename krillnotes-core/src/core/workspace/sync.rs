@@ -196,6 +196,110 @@ impl Workspace {
         Ok(ops)
     }
 
+    /// Like [`operations_since`], but also returns the `verified_by` column for each op.
+    ///
+    /// Used by `generate_delta` to decide per-operation vouching:
+    /// - Self-authored ops → `verified_by: None` (receiver verifies signature directly)
+    /// - Previously verified/vouched ops → re-vouch with sender's identity
+    /// - Unverified ops → filtered out (not included in delta)
+    pub fn operations_since_with_verified_by(
+        &self,
+        since_op_id: Option<&str>,
+        exclude_device_id: &str,
+    ) -> Result<Vec<(Operation, String)>> {
+        let conn = self.storage.connection();
+
+        let rows: Vec<(String, String)> = if let Some(op_id) = since_op_id {
+            let hlc_row: Option<(i64, i64, i64)> = conn
+                .query_row(
+                    "SELECT timestamp_wall_ms, timestamp_counter, timestamp_node_id \
+                     FROM operations WHERE operation_id = ?1",
+                    [op_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(KrillnotesError::Database)?;
+
+            if let Some((wall_ms, counter, node_id)) = hlc_row {
+                let mut stmt = conn.prepare(
+                    "SELECT operation_data, COALESCE(verified_by, '') FROM operations \
+                     WHERE ((timestamp_wall_ms > ?1) \
+                        OR  (timestamp_wall_ms = ?1 AND timestamp_counter > ?2) \
+                        OR  (timestamp_wall_ms = ?1 AND timestamp_counter = ?2 \
+                             AND timestamp_node_id > ?3)) \
+                     AND device_id != ?4 \
+                     AND (received_from_peer IS NULL OR received_from_peer != ?5) \
+                     ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
+                              timestamp_node_id ASC",
+                )?;
+                let rows = stmt
+                    .query_map(
+                        rusqlite::params![
+                            wall_ms,
+                            counter,
+                            node_id,
+                            exclude_device_id,
+                            exclude_device_id
+                        ],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(KrillnotesError::Database)?;
+                rows
+            } else {
+                let mut stmt = conn.prepare(
+                    "SELECT operation_data, COALESCE(verified_by, '') FROM operations \
+                     WHERE device_id != ?1 \
+                     AND (received_from_peer IS NULL OR received_from_peer != ?2) \
+                     ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
+                              timestamp_node_id ASC",
+                )?;
+                let rows = stmt
+                    .query_map(
+                        rusqlite::params![exclude_device_id, exclude_device_id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(KrillnotesError::Database)?;
+                rows
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT operation_data, COALESCE(verified_by, '') FROM operations \
+                 WHERE device_id != ?1 \
+                 AND (received_from_peer IS NULL OR received_from_peer != ?2) \
+                 ORDER BY timestamp_wall_ms ASC, timestamp_counter ASC, \
+                          timestamp_node_id ASC",
+            )?;
+            let rows = stmt
+                .query_map(
+                    rusqlite::params![exclude_device_id, exclude_device_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(KrillnotesError::Database)?;
+            rows
+        };
+
+        let mut ops: Vec<(Operation, String)> = rows
+            .into_iter()
+            .filter_map(|(json, vb)| serde_json::from_str(&json).ok().map(|op| (op, vb)))
+            .collect();
+
+        // Filter local-only retracts (propagate = false)
+        ops.retain(|(op, _)| {
+            !matches!(
+                op,
+                Operation::RetractOperation {
+                    propagate: false,
+                    ..
+                }
+            )
+        });
+
+        Ok(ops)
+    }
+
     /// Apply a single operation received from a remote peer.
     ///
     /// Returns `Ok(true)` if the operation was inserted and applied to the working tables,
