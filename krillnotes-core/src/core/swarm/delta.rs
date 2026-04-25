@@ -296,8 +296,14 @@ mod tests {
             source_display_name: "Alice".to_string(),
             since_operation_id: "op-0".to_string(),
             delta_operations: vec![
-                DeltaOperation { op: dummy_op("op-1"), verified_by: None },
-                DeltaOperation { op: dummy_op("op-2"), verified_by: Some("voucher-pk".to_string()) },
+                DeltaOperation {
+                    op: dummy_op("op-1"),
+                    verified_by: None,
+                },
+                DeltaOperation {
+                    op: dummy_op("op-2"),
+                    verified_by: Some("voucher-pk".to_string()),
+                },
             ],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_key.verifying_key()],
@@ -315,7 +321,10 @@ mod tests {
         assert_eq!(parsed.delta_operations[0].op.operation_id(), "op-1");
         assert_eq!(parsed.delta_operations[0].verified_by, None);
         assert_eq!(parsed.delta_operations[1].op.operation_id(), "op-2");
-        assert_eq!(parsed.delta_operations[1].verified_by, Some("voucher-pk".to_string()));
+        assert_eq!(
+            parsed.delta_operations[1].verified_by,
+            Some("voucher-pk".to_string())
+        );
         assert_eq!(parsed.since_operation_id, "op-0");
     }
 
@@ -381,7 +390,10 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: String::new(),
-            delta_operations: vec![DeltaOperation { op, verified_by: None }],
+            delta_operations: vec![DeltaOperation {
+                op,
+                verified_by: None,
+            }],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_vk],
             recipient_peer_ids: vec!["peer-1".to_string()],
@@ -458,7 +470,10 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: String::new(),
-            delta_operations: vec![DeltaOperation { op, verified_by: None }],
+            delta_operations: vec![DeltaOperation {
+                op,
+                verified_by: None,
+            }],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_vk],
             recipient_peer_ids: vec!["peer-1".to_string()],
@@ -516,7 +531,10 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: String::new(),
-            delta_operations: vec![DeltaOperation { op, verified_by: None }],
+            delta_operations: vec![DeltaOperation {
+                op,
+                verified_by: None,
+            }],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_vk],
             recipient_peer_ids: vec!["peer-1".to_string()],

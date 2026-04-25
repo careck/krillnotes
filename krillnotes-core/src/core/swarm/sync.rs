@@ -259,6 +259,8 @@ pub fn apply_delta(
             op.clone(),
             &parsed.sender_device_id,
             &parsed.attachment_blobs,
+            delta_op.verified_by.as_deref(),
+            &parsed.sender_public_key,
         )? {
             applied += 1;
         } else {

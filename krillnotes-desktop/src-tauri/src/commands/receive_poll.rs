@@ -568,6 +568,8 @@ pub async fn poll_receive_workspace(
         struct OpEntry {
             op: krillnotes_core::core::operation::Operation,
             sender_device_id: String,
+            sender_public_key: String,
+            verified_by: Option<String>,
             attachment_blobs: Arc<Vec<(String, Vec<u8>)>>,
         }
 
@@ -575,10 +577,13 @@ pub async fn poll_receive_workspace(
             .iter()
             .flat_map(|dd| {
                 let sender = dd.parsed.sender_device_id.clone();
+                let sender_pk = dd.parsed.sender_public_key.clone();
                 let blobs = Arc::new(dd.parsed.attachment_blobs.clone());
                 dd.parsed.delta_operations.iter().map(move |delta_op| OpEntry {
                     op: delta_op.op.clone(),
                     sender_device_id: sender.clone(),
+                    sender_public_key: sender_pk.clone(),
+                    verified_by: delta_op.verified_by.clone(),
                     attachment_blobs: Arc::clone(&blobs),
                 })
             })
@@ -633,7 +638,7 @@ pub async fn poll_receive_workspace(
                     .map_err(|e| e.to_string())?;
             }
 
-            match workspace.apply_incoming_operation(entry.op.clone(), &entry.sender_device_id, &entry.attachment_blobs) {
+            match workspace.apply_incoming_operation(entry.op.clone(), &entry.sender_device_id, &entry.attachment_blobs, entry.verified_by.as_deref(), &entry.sender_public_key) {
                 Ok(true) => {
                     log::debug!(
                         "poll_receive_workspace: applied op {} from {}",

@@ -9,6 +9,7 @@
 use super::*;
 use crate::core::peer_registry::SyncPeer;
 use crate::core::sync::channel::{ChannelType, PeerSyncInfo};
+use base64::Engine as _;
 
 impl Workspace {
     // ── Snapshot (peer sync) ───────────────────────────────────────
@@ -207,6 +208,8 @@ impl Workspace {
         op: Operation,
         received_from_peer: &str,
         attachment_blobs: &[(String, Vec<u8>)],
+        verified_by: Option<&str>,
+        sender_identity: &str,
     ) -> Result<bool> {
         // 1. Skip local-only retracts — they must never cross device boundaries.
         if matches!(
@@ -229,7 +232,55 @@ impl Workspace {
         // 2. Advance the local HLC by observing the incoming timestamp.
         self.hlc.observe(op.timestamp());
 
-        // 3. Insert into the operations log with synced = 1.
+        // 3. Per-op verification — reject ops that fail signature or vouch checks.
+        let author_key = op.author_key();
+        let resolved_verified_by: String = if author_key.is_empty() {
+            // Ops with no author key (RetractOperation) — accept only if vouched
+            match verified_by {
+                Some(vb) if vb == sender_identity => sender_identity.to_string(),
+                _ => {
+                    log::warn!(target: "krillnotes::sync",
+                        "rejecting op {} — no author key and not vouched by sender",
+                        op.operation_id());
+                    return Ok(false);
+                }
+            }
+        } else if author_key == sender_identity {
+            // Sender-authored: verify the original Ed25519 signature
+            let vk_bytes = base64::engine::general_purpose::STANDARD
+                .decode(sender_identity)
+                .map_err(|e| KrillnotesError::Swarm(format!("bad sender identity: {e}")))?;
+            let vk_arr: [u8; 32] = vk_bytes
+                .try_into()
+                .map_err(|_| KrillnotesError::Swarm("sender identity wrong length".into()))?;
+            let vk = ed25519_dalek::VerifyingKey::from_bytes(&vk_arr)
+                .map_err(|e| KrillnotesError::Swarm(format!("invalid sender key: {e}")))?;
+
+            if !op.verify(&vk) {
+                log::warn!(target: "krillnotes::sync",
+                    "rejecting op {} — sender-authored but signature invalid",
+                    op.operation_id());
+                return Ok(false);
+            }
+            sender_identity.to_string()
+        } else if let Some(vb) = verified_by {
+            // Relayed op with vouch — sender must be the voucher
+            if vb != sender_identity {
+                log::warn!(target: "krillnotes::sync",
+                    "rejecting op {} — verified_by doesn't match sender",
+                    op.operation_id());
+                return Ok(false);
+            }
+            sender_identity.to_string()
+        } else {
+            // Relayed op with no vouch — reject
+            log::warn!(target: "krillnotes::sync",
+                "rejecting op {} — relayed without vouching",
+                op.operation_id());
+            return Ok(false);
+        };
+
+        // 4. Insert into the operations log with synced = 1.
         //    INSERT OR IGNORE gives 0 changed rows if the operation_id already exists.
         let op_json = serde_json::to_string(&op)?;
         let ts = op.timestamp();
@@ -240,8 +291,8 @@ impl Workspace {
             let rows = tx.execute(
                 "INSERT OR IGNORE INTO operations \
                  (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, \
-                  device_id, operation_type, operation_data, synced, received_from_peer) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                  device_id, operation_type, operation_data, synced, received_from_peer, verified_by) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
                 rusqlite::params![
                     op.operation_id(),
                     ts.wall_ms as i64,
@@ -251,19 +302,20 @@ impl Workspace {
                     op_type,
                     op_json,
                     received_from_peer,
+                    &resolved_verified_by,
                 ],
             )?;
             tx.commit()?;
             rows
         };
 
-        // 4. Duplicate — already applied.
+        // 5. Duplicate — already applied.
         if rows == 0 {
             log::debug!(target: "krillnotes::sync", "duplicate operation {}, skipping", op.operation_id());
             return Ok(false);
         }
 
-        // 5. Apply the state change to working tables.
+        // 6. Apply the state change to working tables.
         let mut scripts_changed = false;
         // (attachment_id, note_id, filename, mime_type, blob)
         let mut pending_attachment: Option<(String, String, String, Option<String>, Vec<u8>)> =
