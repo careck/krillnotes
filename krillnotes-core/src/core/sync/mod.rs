@@ -336,6 +336,8 @@ impl SyncEngine {
         struct OpEntry {
             op: Operation,
             sender_device_id: String,
+            sender_public_key: String,
+            verified_by: Option<String>,
             bundle_ack: Option<String>,
             attachment_blobs: Arc<Vec<(String, Vec<u8>)>>, // shared ref to parent delta's blobs
         }
@@ -344,14 +346,20 @@ impl SyncEngine {
             .iter()
             .flat_map(|pd| {
                 let sender = pd.parsed.sender_device_id.clone();
+                let sender_pk = pd.parsed.sender_public_key.clone();
                 let ack = pd.parsed.ack_operation_id.clone();
                 let blobs = Arc::new(pd.parsed.attachment_blobs.clone());
-                pd.parsed.operations.iter().map(move |op| OpEntry {
-                    op: op.clone(),
-                    sender_device_id: sender.clone(),
-                    bundle_ack: ack.clone(),
-                    attachment_blobs: Arc::clone(&blobs),
-                })
+                pd.parsed
+                    .delta_operations
+                    .iter()
+                    .map(move |delta_op| OpEntry {
+                        op: delta_op.op.clone(),
+                        sender_device_id: sender.clone(),
+                        sender_public_key: sender_pk.clone(),
+                        verified_by: delta_op.verified_by.clone(),
+                        bundle_ack: ack.clone(),
+                        attachment_blobs: Arc::clone(&blobs),
+                    })
             })
             .collect();
 
@@ -388,6 +396,8 @@ impl SyncEngine {
                 entry.op.clone(),
                 &entry.sender_device_id,
                 &entry.attachment_blobs,
+                entry.verified_by.as_deref(),
+                &entry.sender_public_key,
             ) {
                 Ok(true) => {
                     log::debug!(target: "krillnotes::sync",
@@ -512,7 +522,7 @@ impl SyncEngine {
         // Also check senders who only sent 0-op ack bundles (not in sender_last_op).
         for pd in &pending_deltas {
             let sender = &pd.parsed.sender_device_id;
-            if pd.parsed.operations.is_empty() && ack_checked.insert(sender.clone()) {
+            if pd.parsed.delta_operations.is_empty() && ack_checked.insert(sender.clone()) {
                 run_ack_check(
                     sender,
                     &pd.parsed.ack_operation_id,

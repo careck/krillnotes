@@ -304,7 +304,8 @@
     "syncCount_other": "{{count}} events",
     "syncBundleRejected": "Bundle Rejected",
     "syncSignatureInvalid": "Signature Invalid",
-    "syncSidecarMismatch": "Sidecar Mismatch"
+    "syncSidecarMismatch": "Sidecar Mismatch",
+    "verifiedBy": "Verified by"
   },
   "empty": {
     "getStarted": "Use File > New Workspace or File > Open Workspace to get started"
@@ -718,7 +719,8 @@
     "accessFromParent": "Access from parent grants",
     "shareSubtree": "Share this subtree...",
     "revoke": "Revoke",
-    "via": "via"
+    "via": "via",
+    "verifiedBy": "Verified by"
   },
   "share": {
     "title": "Share subtree",

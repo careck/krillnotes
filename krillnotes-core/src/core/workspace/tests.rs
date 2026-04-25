@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::core::contact::{ContactManager, TrustLevel};
 use crate::core::permission::{AllowAllGate, PermissionGate};
@@ -5011,10 +5010,22 @@ fn test_operations_since_filters_local_retract() {
 
 // ── apply_incoming_operation tests ──────────────────────────────────────
 
-/// Helper: build a minimal CreateNote operation for testing.
+/// A test signing key used by `make_create_note_op` and related helpers.
+fn test_signing_key() -> ed25519_dalek::SigningKey {
+    ed25519_dalek::SigningKey::from_bytes(&[42u8; 32])
+}
+
+/// Base64 public key corresponding to `test_signing_key()`.
+fn test_sender_identity() -> String {
+    use base64::Engine as _;
+    let vk = ed25519_dalek::VerifyingKey::from(&test_signing_key());
+    base64::engine::general_purpose::STANDARD.encode(vk.as_bytes())
+}
+
+/// Helper: build a minimal CreateNote operation for testing, signed with `test_signing_key()`.
 fn make_create_note_op(op_id: &str, note_id: &str, device_id: &str, wall_ms: u64) -> Operation {
     use crate::core::hlc::HlcTimestamp;
-    Operation::CreateNote {
+    let mut op = Operation::CreateNote {
         operation_id: op_id.to_string(),
         timestamp: HlcTimestamp {
             wall_ms,
@@ -5030,7 +5041,9 @@ fn make_create_note_op(op_id: &str, note_id: &str, device_id: &str, wall_ms: u64
         fields: BTreeMap::new(),
         created_by: String::new(),
         signature: String::new(),
-    }
+    };
+    op.sign(&test_signing_key());
+    op
 }
 
 #[test]
@@ -5048,7 +5061,9 @@ fn test_apply_incoming_create_note() {
 
     let op = make_create_note_op("op-remote-1", "note-remote-1", "remote-device", 1_000_000);
 
-    let applied = ws.apply_incoming_operation(op, "test-peer", &[]).unwrap();
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &test_sender_identity())
+        .unwrap();
     assert!(applied, "first application must return true");
 
     // The note must exist in the working table.
@@ -5089,12 +5104,15 @@ fn test_apply_incoming_duplicate_is_idempotent() {
 
     let op = make_create_note_op("op-dup-1", "note-dup-1", "remote-device", 2_000_000);
 
+    let sender_id = test_sender_identity();
     let first = ws
-        .apply_incoming_operation(op.clone(), "test-peer", &[])
+        .apply_incoming_operation(op.clone(), "test-peer", &[], None, &sender_id)
         .unwrap();
     assert!(first, "first call must return true");
 
-    let second = ws.apply_incoming_operation(op, "test-peer", &[]).unwrap();
+    let second = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &sender_id)
+        .unwrap();
     assert!(!second, "duplicate must return false");
 
     // Only one row must exist.
@@ -5139,7 +5157,9 @@ fn test_apply_incoming_retract_propagate_false_skipped() {
         propagate: false,
     };
 
-    let applied = ws.apply_incoming_operation(op, "test-peer", &[]).unwrap();
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &test_sender_identity())
+        .unwrap();
     assert!(!applied, "local-only retract must be skipped");
 
     // Nothing must have been inserted into operations.
@@ -5175,7 +5195,9 @@ fn test_apply_incoming_hlc_advances() {
         "remote-device",
         far_future_ms,
     );
-    ws.apply_incoming_operation(op, "test-peer", &[]).unwrap();
+    let sender_id = test_sender_identity();
+    ws.apply_incoming_operation(op, "test-peer", &[], None, &sender_id)
+        .unwrap();
 
     // Now create a local note — its HLC timestamp must be >= far_future_ms.
     let _root = ws.list_all_notes().unwrap()[0].clone();
@@ -5202,7 +5224,8 @@ fn test_apply_incoming_hlc_advances() {
         "remote-device",
         far_future_ms + 1,
     );
-    ws.apply_incoming_operation(op2, "test-peer", &[]).unwrap();
+    ws.apply_incoming_operation(op2, "test-peer", &[], None, &sender_id)
+        .unwrap();
 
     let stored2: i64 = ws
         .connection()
@@ -5440,8 +5463,9 @@ fn test_apply_incoming_script_op_from_owner_applied() {
     };
     op.sign(&key);
 
+    let sender_id = workspace.identity_pubkey().to_string();
     let applied = workspace
-        .apply_incoming_operation(op, "test-peer", &[])
+        .apply_incoming_operation(op, "test-peer", &[], None, &sender_id)
         .unwrap();
     assert!(applied);
 }
@@ -5476,20 +5500,249 @@ fn test_apply_incoming_script_op_from_non_owner_skipped() {
         source_code: "// @name: Evil Script\n".to_string(),
         load_order: 99,
         enabled: true,
-        created_by: pubkey_b,
+        created_by: pubkey_b.clone(),
         signature: String::new(),
     };
     op.sign(&key_b);
 
     // Op is logged (returns true) but script should NOT appear in user_scripts
     let result = workspace
-        .apply_incoming_operation(op, "test-peer", &[])
+        .apply_incoming_operation(op, "test-peer", &[], None, &pubkey_b)
         .unwrap();
     assert!(result); // Logged to operations table
 
     // Verify the script was NOT applied to the working table
     let scripts = workspace.list_user_scripts().unwrap();
     assert!(!scripts.iter().any(|s| s.id == script_id));
+}
+
+// ── Per-op verification tests ─────────────────────────────────────────
+
+#[test]
+fn test_verify_sender_authored_op_valid_signature() {
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    // Create and sign an op with a known key
+    let sender_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+    let sender_pubkey = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(sender_key.verifying_key().as_bytes())
+    };
+
+    let mut op = make_create_note_op("verify-ok-1", "note-verify-1", "remote-dev", 5_000_000);
+    op.sign(&sender_key);
+
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &sender_pubkey)
+        .unwrap();
+    assert!(
+        applied,
+        "sender-authored op with valid signature must be accepted"
+    );
+}
+
+#[test]
+fn test_verify_sender_authored_op_tampered_rejected() {
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    let sender_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+    let sender_pubkey = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(sender_key.verifying_key().as_bytes())
+    };
+
+    // Sign the op, then tamper with the title
+    let mut op = Operation::CreateNote {
+        operation_id: "verify-tamper-1".to_string(),
+        timestamp: crate::core::hlc::HlcTimestamp {
+            wall_ms: 6_000_000,
+            counter: 0,
+            node_id: 42,
+        },
+        device_id: "remote-dev".to_string(),
+        note_id: "note-tamper-1".to_string(),
+        parent_id: None,
+        position: 0.0,
+        schema: "TextNote".to_string(),
+        title: "Original Title".to_string(),
+        fields: BTreeMap::new(),
+        created_by: String::new(),
+        signature: String::new(),
+    };
+    op.sign(&sender_key);
+
+    // Tamper: change the title after signing
+    if let Operation::CreateNote { ref mut title, .. } = op {
+        *title = "Tampered Title".to_string();
+    }
+
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &sender_pubkey)
+        .unwrap();
+    assert!(!applied, "tampered op must be rejected (signature invalid)");
+}
+
+#[test]
+fn test_verify_vouched_relayed_op_accepted() {
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    // Op authored by key_a, relayed (vouched) by key_b
+    let key_a = ed25519_dalek::SigningKey::from_bytes(&[10u8; 32]);
+    let key_b = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+    let pubkey_b = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(key_b.verifying_key().as_bytes())
+    };
+
+    let mut op = make_create_note_op("relay-vouch-1", "note-relay-1", "dev-a", 7_000_000);
+    op.sign(&key_a); // author is key_a
+
+    // Sender is key_b, vouching for the op
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], Some(&pubkey_b), &pubkey_b)
+        .unwrap();
+    assert!(applied, "relayed op with valid vouch must be accepted");
+}
+
+#[test]
+fn test_verify_unvouched_relayed_op_rejected() {
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    // Op authored by key_a, sent by key_b without vouch
+    let key_a = ed25519_dalek::SigningKey::from_bytes(&[10u8; 32]);
+    let key_b = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+    let pubkey_b = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(key_b.verifying_key().as_bytes())
+    };
+
+    let mut op = make_create_note_op("relay-novouch-1", "note-relay-2", "dev-a", 8_000_000);
+    op.sign(&key_a); // author is key_a
+
+    // Sender is key_b, but no vouch
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &pubkey_b)
+        .unwrap();
+    assert!(!applied, "relayed op without vouch must be rejected");
+}
+
+#[test]
+fn test_verify_vouch_mismatch_rejected() {
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    let key_a = ed25519_dalek::SigningKey::from_bytes(&[10u8; 32]);
+    let key_b = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+    let key_c = ed25519_dalek::SigningKey::from_bytes(&[12u8; 32]);
+    let pubkey_b = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(key_b.verifying_key().as_bytes())
+    };
+    let pubkey_c = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(key_c.verifying_key().as_bytes())
+    };
+
+    let mut op = make_create_note_op("relay-mismatch-1", "note-mismatch", "dev-a", 9_000_000);
+    op.sign(&key_a);
+
+    // verified_by claims key_b but sender is key_c — mismatch
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], Some(&pubkey_b), &pubkey_c)
+        .unwrap();
+    assert!(!applied, "vouch from non-sender must be rejected");
+}
+
+#[test]
+fn test_verify_retract_op_vouched_accepted() {
+    use crate::core::hlc::HlcTimestamp;
+    use crate::RetractInverse;
+
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    let sender_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+    let sender_pubkey = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(sender_key.verifying_key().as_bytes())
+    };
+
+    // RetractOperation (propagate: true) has empty author_key — must be vouched
+    let op = Operation::RetractOperation {
+        operation_id: "retract-vouch-1".to_string(),
+        timestamp: HlcTimestamp {
+            wall_ms: 10_000_000,
+            counter: 0,
+            node_id: 99,
+        },
+        device_id: "remote-device".to_string(),
+        retracted_ids: vec!["some-op".to_string()],
+        inverse: RetractInverse::DeleteNote {
+            note_id: "fake-note".to_string(),
+        },
+        propagate: true,
+    };
+
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], Some(&sender_pubkey), &sender_pubkey)
+        .unwrap();
+    assert!(applied, "propagating retract with vouch must be accepted");
+}
+
+#[test]
+fn test_verify_retract_op_unvouched_rejected() {
+    use crate::core::hlc::HlcTimestamp;
+    use crate::RetractInverse;
+
+    let temp = NamedTempFile::new().unwrap();
+    let ws_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws =
+        Workspace::create(temp.path(), "", "ws-device", ws_key, test_gate(), None).unwrap();
+
+    let sender_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+    let sender_pubkey = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(sender_key.verifying_key().as_bytes())
+    };
+
+    let op = Operation::RetractOperation {
+        operation_id: "retract-novouch-1".to_string(),
+        timestamp: HlcTimestamp {
+            wall_ms: 11_000_000,
+            counter: 0,
+            node_id: 99,
+        },
+        device_id: "remote-device".to_string(),
+        retracted_ids: vec!["some-op".to_string()],
+        inverse: RetractInverse::DeleteNote {
+            note_id: "fake-note".to_string(),
+        },
+        propagate: true,
+    };
+
+    let applied = ws
+        .apply_incoming_operation(op, "test-peer", &[], None, &sender_pubkey)
+        .unwrap();
+    assert!(
+        !applied,
+        "propagating retract without vouch must be rejected"
+    );
 }
 
 #[test]
@@ -5943,7 +6196,9 @@ fn test_apply_incoming_create_note_stores_seconds_timestamp() {
     let known_wall_ms: u64 = 1_714_000_000_000; // 2024-04-25 in milliseconds
     let expected_secs = (known_wall_ms / 1000) as i64;
 
-    let op = Operation::CreateNote {
+    let remote_key = test_signing_key();
+    let remote_id = test_sender_identity();
+    let mut op = Operation::CreateNote {
         operation_id: "sync-test-op-1".to_string(),
         timestamp: HlcTimestamp {
             wall_ms: known_wall_ms,
@@ -5957,11 +6212,13 @@ fn test_apply_incoming_create_note_stores_seconds_timestamp() {
         schema: "TextNote".to_string(),
         title: "Synced Note".to_string(),
         fields: BTreeMap::new(),
-        created_by: "remote-pubkey".to_string(),
+        created_by: String::new(),
         signature: String::new(),
     };
+    op.sign(&remote_key);
 
-    ws.apply_incoming_operation(op, "remote-peer", &[]).unwrap();
+    ws.apply_incoming_operation(op, "remote-peer", &[], None, &remote_id)
+        .unwrap();
 
     let row: (i64, i64) = ws
         .connection()
@@ -6012,5 +6269,47 @@ fn test_m6_set_note_checked_stores_seconds_timestamp() {
         note.modified_at < UnixSecs::from_secs(10_000_000_000),
         "modified_at should be seconds, not milliseconds: got {}",
         note.modified_at
+    );
+}
+
+#[test]
+fn test_self_authored_ops_have_verified_by() {
+    let temp = NamedTempFile::new().unwrap();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let expected_pubkey = {
+        use base64::Engine as _;
+        let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+        base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+    };
+
+    let mut ws = Workspace::create(
+        temp.path(),
+        "",
+        "test-identity",
+        signing_key,
+        test_gate(),
+        None,
+    )
+    .unwrap();
+
+    // Create a child note to generate an explicit CreateNote op.
+    let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+    let child_id = ws
+        .create_note(&root_id, AddPosition::AsChild, "TextNote")
+        .unwrap();
+
+    // Query the operations table for the child's CreateNote op.
+    let verified_by: String = ws
+        .connection()
+        .query_row(
+            "SELECT verified_by FROM operations WHERE operation_type = 'CreateNote' AND operation_data LIKE ?",
+            [format!("%{}%", child_id)],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(
+        verified_by, expected_pubkey,
+        "Self-authored operations should have verified_by = identity pubkey"
     );
 }

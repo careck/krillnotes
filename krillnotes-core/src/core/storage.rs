@@ -467,6 +467,19 @@ impl Storage {
             )?;
         }
 
+        // Migration: add verified_by column to operations table.
+        let verified_by_exists: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='verified_by'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )?;
+        if !verified_by_exists {
+            conn.execute(
+                "ALTER TABLE operations ADD COLUMN verified_by TEXT NOT NULL DEFAULT ''",
+                [],
+            )?;
+        }
+
         // Migration: create sync_events table for persistent audit trail.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS sync_events (

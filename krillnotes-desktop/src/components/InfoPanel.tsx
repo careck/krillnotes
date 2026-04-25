@@ -39,6 +39,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
   const { t } = useTranslation();
   const [recentlyDeleted, setRecentlyDeleted] = useState<AttachmentMeta[]>([]);
   const [authorNames, setAuthorNames] = useState<{ createdBy: string | null; modifiedBy: string | null }>({ createdBy: null, modifiedBy: null });
+  const [verifiedBy, setVerifiedBy] = useState<string>('');
   const [roleInfo, setRoleInfo] = useState<EffectiveRoleInfo | null>(null);
   const [anchoredGrants, setAnchoredGrants] = useState<PermissionGrantRow[]>([]);
   const [inheritedGrants, setInheritedGrants] = useState<InheritedGrant[]>([]);
@@ -206,6 +207,13 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
       modifiedBy ? invoke<string | null>('resolve_identity_name', { publicKey: modifiedBy }) : Promise.resolve(null),
     ]).then(([cb, mb]) => setAuthorNames({ createdBy: cb, modifiedBy: mb }));
   }, [selectedNote?.createdBy, selectedNote?.modifiedBy]);
+
+  useEffect(() => {
+    if (!selectedNote) { setVerifiedBy(''); return; }
+    invoke<string>('get_note_verified_by', { noteId: selectedNote.id })
+      .then(setVerifiedBy)
+      .catch(() => setVerifiedBy(''));
+  }, [selectedNote?.id, selectedNote?.modifiedAt]);
 
   useEffect(() => {
     if (!selectedNote) { setRoleInfo(null); return; }
@@ -713,6 +721,13 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
             {formatTimestamp(selectedNote.modifiedAt)}
             {authorNames.modifiedBy && <span className="text-muted-foreground"> · {authorNames.modifiedBy}</span>}
           </dd>
+
+          {verifiedBy && (
+            <>
+              <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('info.verifiedBy')}</dt>
+              <dd className="m-0 text-foreground text-sm">{verifiedBy}</dd>
+            </>
+          )}
 
           <dt className="text-sm font-medium text-muted-foreground self-start pt-0.5 whitespace-nowrap">{t('notes.id')}</dt>
           <dd className="m-0 text-foreground text-xs font-mono break-all">{selectedNote.id}</dd>

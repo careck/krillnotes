@@ -430,6 +430,7 @@ pub fn run() {
             list_operations,
             get_operation_detail,
             purge_operations,
+            get_note_verified_by,
             export_workspace_cmd,
             peek_import_cmd,
             execute_import,

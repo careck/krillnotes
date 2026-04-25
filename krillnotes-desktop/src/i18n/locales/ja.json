@@ -304,7 +304,8 @@
     "syncCount_other": "{{count}} 件のイベント",
     "syncBundleRejected": "バンドル拒否",
     "syncSignatureInvalid": "署名無効",
-    "syncSidecarMismatch": "サイドカー不一致"
+    "syncSidecarMismatch": "サイドカー不一致",
+    "verifiedBy": "検証者"
   },
   "empty": {
     "getStarted": "ファイル > 新しいワークスペース または ファイル > ワークスペースを開く から始めてください"
@@ -718,7 +719,8 @@
     "accessFromParent": "親からのアクセス権限",
     "shareSubtree": "このサブツリーを共有…",
     "revoke": "取り消す",
-    "via": "経由"
+    "via": "経由",
+    "verifiedBy": "検証者"
   },
   "share": {
     "title": "サブツリーを共有",

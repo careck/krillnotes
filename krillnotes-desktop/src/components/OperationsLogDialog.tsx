@@ -34,7 +34,7 @@ function formatKey(key: string): string {
 }
 
 // Fields shown in the "metadata" section at the top of the detail panel.
-const METADATA_KEYS = new Set(['type', 'operation_id', 'device_id', 'timestamp']);
+const METADATA_KEYS = new Set(['type', 'operation_id', 'device_id', 'timestamp', 'verified_by']);
 
 // Operation fields that hold a public key identifying the author.
 const AUTHOR_KEY_FIELDS = new Set(['created_by', 'modified_by', 'deleted_by', 'moved_by', 'updated_by']);
@@ -91,10 +91,12 @@ function DetailValue({ fieldKey, value }: { fieldKey: string; value: unknown }) 
 function OperationDetailPanel({
   detail,
   resolvedAuthor,
+  resolvedVerifiedBy,
   onClose,
 }: {
   detail: Record<string, unknown>;
   resolvedAuthor: string;
+  resolvedVerifiedBy: string;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -123,13 +125,21 @@ function OperationDetailPanel({
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">{t('log.metadata')}</p>
           <dl className="space-y-1.5">
             {metaEntries.map(([k, v]) => (
-              k === 'type' ? null : (
+              k === 'type' || k === 'verified_by' ? null : (
                 <div key={k}>
                   <dt className="text-xs text-muted-foreground">{formatKey(k)}</dt>
                   <dd className="mt-0.5"><DetailValue fieldKey={k} value={v} /></dd>
                 </div>
               )
             ))}
+            <div>
+              <dt className="text-xs text-muted-foreground">{t('log.verifiedBy')}</dt>
+              <dd className="mt-0.5">
+                <span className="font-mono text-xs break-all">
+                  {resolvedVerifiedBy || '—'}
+                </span>
+              </dd>
+            </div>
           </dl>
         </section>
 
@@ -360,6 +370,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
                       <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.dateTime')}</th>
                       <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.target')}</th>
                       <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.author')}</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">{t('log.verifiedBy')}</th>
                       <th className="text-right px-4 py-2 font-medium text-muted-foreground">{t('log.type')}</th>
                     </tr>
                   </thead>
@@ -385,6 +396,11 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
                             {op.authorKey || '—'}
                           </span>
                         </td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <span className="text-xs font-mono text-muted-foreground">
+                            {op.verifiedBy || '—'}
+                          </span>
+                        </td>
                         <td className="px-4 py-2 text-right">
                           <span className="inline-block bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs font-mono">
                             {op.operationType}
@@ -402,6 +418,7 @@ function OperationsLogDialog({ isOpen, onClose }: OperationsLogDialogProps) {
               <OperationDetailPanel
                 detail={opDetail}
                 resolvedAuthor={operations.find((op) => op.operationId === selectedOpId)?.authorKey ?? ''}
+                resolvedVerifiedBy={operations.find((op) => op.operationId === selectedOpId)?.verifiedBy ?? ''}
                 onClose={() => { setSelectedOpId(null); setOpDetail(null); }}
               />
             )}

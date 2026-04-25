@@ -304,7 +304,8 @@
     "syncCount_other": "{{count}} eventos",
     "syncBundleRejected": "Paquete rechazado",
     "syncSignatureInvalid": "Firma inválida",
-    "syncSidecarMismatch": "Discrepancia de sidecar"
+    "syncSidecarMismatch": "Discrepancia de sidecar",
+    "verifiedBy": "Verificado por"
   },
   "empty": {
     "getStarted": "Usa Archivo > Nuevo espacio de trabajo o Archivo > Abrir espacio de trabajo para empezar"
@@ -718,7 +719,8 @@
     "accessFromParent": "El acceso del padre otorga",
     "shareSubtree": "Compartir este subárbol…",
     "revoke": "Revocar",
-    "via": "vía"
+    "via": "vía",
+    "verifiedBy": "Verificado por"
   },
   "share": {
     "title": "Compartir subárbol",

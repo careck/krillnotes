@@ -344,6 +344,74 @@ fn test_attachments_table_migration_on_existing_workspace() {
 }
 
 #[test]
+fn test_verified_by_column_exists_on_new_workspace() {
+    let temp = NamedTempFile::new().unwrap();
+    let storage = Storage::create(temp.path(), "").unwrap();
+    let exists: bool = storage
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='verified_by'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )
+        .unwrap();
+    assert!(exists, "verified_by column should exist on new workspace");
+}
+
+#[test]
+fn test_verified_by_column_migration_on_existing_workspace() {
+    let temp = NamedTempFile::new().unwrap();
+    // Create a workspace, then verify the migration adds verified_by on open.
+    {
+        let conn = Connection::open(temp.path()).unwrap();
+        conn.execute_batch(include_str!("schema.sql")).unwrap();
+        // Remove the verified_by column by recreating operations without it.
+        conn.execute_batch(
+            "CREATE TABLE operations_tmp (
+                operation_id TEXT NOT NULL PRIMARY KEY,
+                timestamp_wall_ms INTEGER NOT NULL DEFAULT 0,
+                timestamp_counter INTEGER NOT NULL DEFAULT 0,
+                timestamp_node_id INTEGER NOT NULL DEFAULT 0,
+                device_id TEXT NOT NULL,
+                operation_type TEXT NOT NULL,
+                operation_data TEXT NOT NULL,
+                synced INTEGER NOT NULL DEFAULT 0,
+                received_from_peer TEXT
+            );
+            INSERT INTO operations_tmp SELECT operation_id, timestamp_wall_ms,
+                timestamp_counter, timestamp_node_id, device_id, operation_type,
+                operation_data, synced, received_from_peer FROM operations;
+            DROP TABLE operations;
+            ALTER TABLE operations_tmp RENAME TO operations;",
+        )
+        .unwrap();
+        // Confirm verified_by is gone
+        let gone: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='verified_by'",
+                [],
+                |row| row.get::<_, i64>(0).map(|c| c > 0),
+            )
+            .unwrap();
+        assert!(!gone, "verified_by should not exist before migration");
+    }
+    // Open via Storage — migration should add verified_by
+    let storage = Storage::open(temp.path(), "").unwrap();
+    let exists: bool = storage
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='verified_by'",
+            [],
+            |row| row.get::<_, i64>(0).map(|c| c > 0),
+        )
+        .unwrap();
+    assert!(
+        exists,
+        "verified_by column should exist after migration on open"
+    );
+}
+
+#[test]
 fn test_hlc_index_exists_after_migration() {
     let f = tempfile::NamedTempFile::new().unwrap();
     let s = Storage::create(f.path(), "").unwrap();

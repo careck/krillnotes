@@ -304,7 +304,8 @@
     "syncCount_other": "{{count}} 个事件",
     "syncBundleRejected": "包已拒绝",
     "syncSignatureInvalid": "签名无效",
-    "syncSidecarMismatch": "附件不匹配"
+    "syncSidecarMismatch": "附件不匹配",
+    "verifiedBy": "验证者"
   },
   "empty": {
     "getStarted": "使用文件 > 新建工作区 或 文件 > 打开工作区 开始使用"
@@ -718,7 +719,8 @@
     "accessFromParent": "来自父级的访问权限授予",
     "shareSubtree": "共享此子树…",
     "revoke": "撤销",
-    "via": "通过"
+    "via": "通过",
+    "verifiedBy": "验证者"
   },
   "share": {
     "title": "共享子树",
