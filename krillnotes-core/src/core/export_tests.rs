@@ -375,6 +375,10 @@ fn test_export_includes_workspace_json() {
     let ws_file = archive.by_name("workspace.json").unwrap();
     let ws_meta: WorkspaceMetadata = serde_json::from_reader(ws_file).unwrap();
     assert_eq!(ws_meta.version, 1);
+    assert!(
+        ws_meta.owner_pubkey.is_none(),
+        "exported workspace.json must not contain owner_pubkey"
+    );
 }
 
 #[test]
