@@ -567,6 +567,25 @@ impl Workspace {
         self.operation_log.purge_all(self.connection())
     }
 
+    /// Returns the `verified_by` value for the most recent operation that
+    /// modified the given note, or an empty string if none found.
+    pub fn get_note_verified_by(&self, note_id: &str) -> Result<String> {
+        use rusqlite::OptionalExtension;
+        let conn = self.connection();
+        let result: Option<String> = conn
+            .query_row(
+                "SELECT COALESCE(verified_by, '') FROM operations \
+                 WHERE operation_data LIKE '%\"note_id\":\"' || ?1 || '\"%' \
+                 ORDER BY timestamp_wall_ms DESC, timestamp_counter DESC, timestamp_node_id DESC \
+                 LIMIT 1",
+                [note_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(KrillnotesError::Database)?;
+        Ok(result.unwrap_or_default())
+    }
+
     /// Clears all registered schemas/hooks and re-executes enabled scripts from the DB in order.
     ///
     /// Returns any errors that occurred during loading (e.g. schema collisions, Rhai errors).

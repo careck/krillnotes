@@ -304,7 +304,8 @@
     "syncCount_other": "{{count}}개 이벤트",
     "syncBundleRejected": "번들 거부됨",
     "syncSignatureInvalid": "서명 무효",
-    "syncSidecarMismatch": "사이드카 불일치"
+    "syncSidecarMismatch": "사이드카 불일치",
+    "verifiedBy": "검증자"
   },
   "empty": {
     "getStarted": "파일 > 새 작업 공간 또는 파일 > 작업 공간 열기를 사용하여 시작하세요"
@@ -718,7 +719,8 @@
     "accessFromParent": "상위에서 상속된 접근 권한",
     "shareSubtree": "이 하위 트리 공유...",
     "revoke": "철회",
-    "via": "경유"
+    "via": "경유",
+    "verifiedBy": "검증자"
   },
   "share": {
     "title": "하위 트리 공유",

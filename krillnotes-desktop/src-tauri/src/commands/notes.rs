@@ -407,7 +407,8 @@ pub fn list_operations(
         })?;
 
     // Resolve raw base64 public keys to display names where possible.
-    let mut resolved_indices = vec![false; summaries.len()];
+    let mut resolved_author = vec![false; summaries.len()];
+    let mut resolved_vb = vec![false; summaries.len()];
 
     // Pass 1: resolve via identity_manager, then drop the lock.
     {
@@ -416,7 +417,13 @@ pub fn list_operations(
             if !summary.author_key.is_empty() {
                 if let Some(name) = identity_manager.lookup_display_name(&summary.author_key) {
                     summary.author_key = name;
-                    resolved_indices[i] = true;
+                    resolved_author[i] = true;
+                }
+            }
+            if !summary.verified_by.is_empty() {
+                if let Some(name) = identity_manager.lookup_display_name(&summary.verified_by) {
+                    summary.verified_by = name;
+                    resolved_vb[i] = true;
                 }
             }
         }
@@ -426,19 +433,31 @@ pub fn list_operations(
     {
         let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
         for (i, summary) in summaries.iter_mut().enumerate() {
-            if resolved_indices[i] || summary.author_key.is_empty() {
-                continue;
-            }
-            let mut resolved = false;
-            for cm in contact_managers.values() {
-                if let Ok(Some(contact)) = cm.find_by_public_key(&summary.author_key) {
-                    summary.author_key = contact.display_name().to_string();
-                    resolved = true;
-                    break;
+            if !resolved_author[i] && !summary.author_key.is_empty() {
+                let mut resolved = false;
+                for cm in contact_managers.values() {
+                    if let Ok(Some(contact)) = cm.find_by_public_key(&summary.author_key) {
+                        summary.author_key = contact.display_name().to_string();
+                        resolved = true;
+                        break;
+                    }
+                }
+                if !resolved {
+                    summary.author_key = summary.author_key.chars().take(8).collect();
                 }
             }
-            if !resolved {
-                summary.author_key = summary.author_key.chars().take(8).collect();
+            if !resolved_vb[i] && !summary.verified_by.is_empty() {
+                let mut resolved = false;
+                for cm in contact_managers.values() {
+                    if let Ok(Some(contact)) = cm.find_by_public_key(&summary.verified_by) {
+                        summary.verified_by = contact.display_name().to_string();
+                        resolved = true;
+                        break;
+                    }
+                }
+                if !resolved {
+                    summary.verified_by = summary.verified_by.chars().take(8).collect();
+                }
             }
         }
     }
@@ -485,6 +504,43 @@ pub fn purge_operations(
             log::error!("purge_operations failed: {e}");
             e.to_string()
         })
+}
+
+/// Returns the resolved display name of the identity that verified the most
+/// recent operation targeting `note_id`.  Empty string if no match.
+#[tauri::command]
+pub fn get_note_verified_by(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    note_id: String,
+) -> std::result::Result<String, String> {
+    let label = window.label();
+    let workspaces = state.workspaces.lock().expect("Mutex poisoned");
+    let ws = workspaces.get(label).ok_or("No workspace open")?;
+    let raw_key = ws.get_note_verified_by(&note_id).map_err(|e| e.to_string())?;
+
+    if raw_key.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Resolve to display name
+    if let Some(name) = state
+        .identity_manager
+        .lock()
+        .expect("Mutex poisoned")
+        .lookup_display_name(&raw_key)
+    {
+        return Ok(name);
+    }
+
+    let contact_managers = state.contact_managers.lock().expect("Mutex poisoned");
+    for cm in contact_managers.values() {
+        if let Ok(Some(contact)) = cm.find_by_public_key(&raw_key) {
+            return Ok(contact.display_name().to_string());
+        }
+    }
+
+    Ok(raw_key.chars().take(8).collect())
 }
 
 // ── Undo / Redo commands ──────────────────────────────────────────

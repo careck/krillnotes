@@ -39,6 +39,9 @@ pub struct OperationSummary {
     /// First 8 characters of the base64 public key of the operation author,
     /// or an empty string if the operation has no author (e.g. `RetractOperation`).
     pub author_key: String,
+    /// Base64 public key of the identity that verified (vouched for) this
+    /// operation, or an empty string if not yet verified.
+    pub verified_by: String,
 }
 
 /// Records document mutations to the `operations` table and purges stale entries.
@@ -139,7 +142,7 @@ impl OperationLog {
         until: Option<i64>,
     ) -> Result<Vec<OperationSummary>> {
         let mut sql = String::from(
-            "SELECT operation_id, timestamp_wall_ms, device_id, operation_type, operation_data FROM operations",
+            "SELECT operation_id, timestamp_wall_ms, device_id, operation_type, operation_data, COALESCE(verified_by, '') FROM operations",
         );
         let mut conditions: Vec<String> = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -175,6 +178,7 @@ impl OperationLog {
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
             let wall_ms_raw: i64 = row.get(1)?;
             let operation_data: String = row.get(4)?;
+            let verified_by: String = row.get(5)?;
             let target_name = Self::extract_target_name(&operation_data);
             let author_key = Self::extract_author_key(&operation_data);
             Ok(OperationSummary {
@@ -184,6 +188,7 @@ impl OperationLog {
                 operation_type: row.get(3)?,
                 target_name,
                 author_key,
+                verified_by,
             })
         })?;
 
@@ -205,12 +210,18 @@ impl OperationLog {
     /// operation is not found, and [`crate::KrillnotesError::Json`] if the
     /// stored data cannot be parsed.
     pub fn get_detail(&self, conn: &Connection, operation_id: &str) -> Result<serde_json::Value> {
-        let raw: String = conn.query_row(
-            "SELECT operation_data FROM operations WHERE operation_id = ?",
+        let (raw, verified_by): (String, String) = conn.query_row(
+            "SELECT operation_data, COALESCE(verified_by, '') FROM operations WHERE operation_id = ?",
             [operation_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
-        let value: serde_json::Value = serde_json::from_str(&raw)?;
+        let mut value: serde_json::Value = serde_json::from_str(&raw)?;
+        if let serde_json::Value::Object(ref mut map) = value {
+            map.insert(
+                "verified_by".to_string(),
+                serde_json::Value::String(verified_by),
+            );
+        }
         Ok(value)
     }
 

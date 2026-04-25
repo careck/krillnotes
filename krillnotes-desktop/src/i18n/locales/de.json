@@ -304,7 +304,8 @@
     "syncCount_other": "{{count}} Ereignisse",
     "syncBundleRejected": "Paket abgelehnt",
     "syncSignatureInvalid": "Signatur ungültig",
-    "syncSidecarMismatch": "Sidecar-Abweichung"
+    "syncSidecarMismatch": "Sidecar-Abweichung",
+    "verifiedBy": "Bestätigt von"
   },
   "empty": {
     "getStarted": "Verwende Datei > Neuer Arbeitsbereich oder Datei > Arbeitsbereich öffnen, um zu beginnen"
@@ -718,7 +719,8 @@
     "accessFromParent": "Zugriff vom übergeordneten Element gewährt",
     "shareSubtree": "Diesen Teilbaum teilen…",
     "revoke": "Widerrufen",
-    "via": "über"
+    "via": "über",
+    "verifiedBy": "Bestätigt von"
   },
   "share": {
     "title": "Teilbaum teilen",

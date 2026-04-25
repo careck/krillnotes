@@ -161,6 +161,7 @@ export interface OperationSummary {
   operationType: string;
   targetName: string;
   authorKey: string;        // first 8 chars of base64 key, or ""
+  verifiedBy: string;       // resolved display name of verifier, or ""
 }
 
 export interface AppSettings {
