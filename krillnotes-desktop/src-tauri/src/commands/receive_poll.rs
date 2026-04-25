@@ -576,8 +576,8 @@ pub async fn poll_receive_workspace(
             .flat_map(|dd| {
                 let sender = dd.parsed.sender_device_id.clone();
                 let blobs = Arc::new(dd.parsed.attachment_blobs.clone());
-                dd.parsed.operations.iter().map(move |op| OpEntry {
-                    op: op.clone(),
+                dd.parsed.delta_operations.iter().map(move |delta_op| OpEntry {
+                    op: delta_op.op.clone(),
                     sender_device_id: sender.clone(),
                     attachment_blobs: Arc::clone(&blobs),
                 })

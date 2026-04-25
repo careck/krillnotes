@@ -346,8 +346,8 @@ impl SyncEngine {
                 let sender = pd.parsed.sender_device_id.clone();
                 let ack = pd.parsed.ack_operation_id.clone();
                 let blobs = Arc::new(pd.parsed.attachment_blobs.clone());
-                pd.parsed.operations.iter().map(move |op| OpEntry {
-                    op: op.clone(),
+                pd.parsed.delta_operations.iter().map(move |delta_op| OpEntry {
+                    op: delta_op.op.clone(),
                     sender_device_id: sender.clone(),
                     bundle_ack: ack.clone(),
                     attachment_blobs: Arc::clone(&blobs),
@@ -512,7 +512,7 @@ impl SyncEngine {
         // Also check senders who only sent 0-op ack bundles (not in sender_last_op).
         for pd in &pending_deltas {
             let sender = &pd.parsed.sender_device_id;
-            if pd.parsed.operations.is_empty() && ack_checked.insert(sender.clone()) {
+            if pd.parsed.delta_operations.is_empty() && ack_checked.insert(sender.clone()) {
                 run_ack_check(
                     sender,
                     &pd.parsed.ack_operation_id,

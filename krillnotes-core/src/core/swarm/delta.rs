@@ -24,6 +24,18 @@ use crate::core::swarm::invite::read_zip_file;
 use crate::core::swarm::signature::{sign_manifest, verify_manifest};
 use crate::{KrillnotesError, Result};
 
+/// Wraps an [`Operation`] with optional per-operation verification metadata.
+///
+/// When `verified_by` is `Some`, it contains the base64-encoded public key of
+/// the peer who vouched for this operation (e.g. the workspace owner countersigning
+/// a contributor's op). When `None`, the field is omitted from serialized JSON.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeltaOperation {
+    pub op: Operation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_by: Option<String>,
+}
+
 pub struct DeltaParams<'a> {
     pub protocol: String,
     pub workspace_id: String,
@@ -32,7 +44,7 @@ pub struct DeltaParams<'a> {
     pub source_display_name: String,
     /// operation_id of the last operation the recipient has seen from us.
     pub since_operation_id: String,
-    pub operations: Vec<Operation>,
+    pub delta_operations: Vec<DeltaOperation>,
     pub sender_key: &'a SigningKey,
     pub recipient_keys: Vec<&'a VerifyingKey>,
     pub recipient_peer_ids: Vec<String>,
@@ -55,7 +67,7 @@ pub struct ParsedDelta {
     pub since_operation_id: String,
     pub sender_public_key: String,
     pub sender_device_id: String,
-    pub operations: Vec<Operation>,
+    pub delta_operations: Vec<DeltaOperation>,
     pub owner_pubkey: Option<String>,
     /// ACK from the sender: the last operation they received FROM us.
     pub ack_operation_id: Option<String>,
@@ -68,7 +80,7 @@ pub fn create_delta_bundle(params: DeltaParams<'_>) -> Result<Vec<u8>> {
     let vk = params.sender_key.verifying_key();
     let pubkey_b64 = BASE64.encode(vk.as_bytes());
 
-    let ops_json = serde_json::to_vec(&params.operations)?;
+    let ops_json = serde_json::to_vec(&params.delta_operations)?;
     let prefixed = super::header::prefix_protocol(&params.protocol, &ops_json);
     let (ciphertext, sym_key, mut entries) =
         encrypt_for_recipients_with_key(&prefixed, &params.recipient_keys)?;
@@ -222,7 +234,7 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
     // Strip the protocol tag embedded before encryption.
     let (protocol, ops_json) = super::header::strip_protocol(&decrypted)?;
 
-    let operations: Vec<Operation> = serde_json::from_slice(&ops_json)?;
+    let delta_operations: Vec<DeltaOperation> = serde_json::from_slice(&ops_json)?;
 
     // Decrypt sidecar blobs from the already-read ciphertext.
     let mut attachment_blobs = Vec::new();
@@ -237,7 +249,7 @@ pub fn parse_delta_bundle(data: &[u8], recipient_key: &SigningKey) -> Result<Par
         since_operation_id: header.since_operation_id.unwrap_or_default(),
         sender_public_key: header.source_identity,
         sender_device_id: header.source_device_id,
-        operations,
+        delta_operations,
         owner_pubkey: header.owner_pubkey,
         ack_operation_id: header.ack_operation_id,
         attachment_blobs,
@@ -275,7 +287,6 @@ mod tests {
     fn test_delta_roundtrip() {
         let sender_key = make_key();
         let recipient_key = make_key();
-        let ops = vec![dummy_op("op-1"), dummy_op("op-2")];
 
         let bundle = create_delta_bundle(DeltaParams {
             protocol: "test".to_string(),
@@ -284,7 +295,10 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: "op-0".to_string(),
-            operations: ops.clone(),
+            delta_operations: vec![
+                DeltaOperation { op: dummy_op("op-1"), verified_by: None },
+                DeltaOperation { op: dummy_op("op-2"), verified_by: Some("voucher-pk".to_string()) },
+            ],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_key.verifying_key()],
             recipient_peer_ids: vec!["dev-2".to_string()],
@@ -297,8 +311,11 @@ mod tests {
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
         assert_eq!(parsed.sender_device_id, "dev-1");
-        assert_eq!(parsed.operations.len(), 2);
-        assert_eq!(parsed.operations[0].operation_id(), "op-1");
+        assert_eq!(parsed.delta_operations.len(), 2);
+        assert_eq!(parsed.delta_operations[0].op.operation_id(), "op-1");
+        assert_eq!(parsed.delta_operations[0].verified_by, None);
+        assert_eq!(parsed.delta_operations[1].op.operation_id(), "op-2");
+        assert_eq!(parsed.delta_operations[1].verified_by, Some("voucher-pk".to_string()));
         assert_eq!(parsed.since_operation_id, "op-0");
     }
 
@@ -314,7 +331,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: "op-0".to_string(),
-            operations: vec![],
+            delta_operations: vec![],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_key.verifying_key()],
             recipient_peer_ids: vec!["dev-2".to_string()],
@@ -326,7 +343,7 @@ mod tests {
         .unwrap();
 
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
-        assert_eq!(parsed.operations.len(), 0);
+        assert_eq!(parsed.delta_operations.len(), 0);
     }
 
     #[test]
@@ -364,7 +381,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: String::new(),
-            operations: vec![op],
+            delta_operations: vec![DeltaOperation { op, verified_by: None }],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_vk],
             recipient_peer_ids: vec!["peer-1".to_string()],
@@ -377,7 +394,7 @@ mod tests {
         let bundle = create_delta_bundle(params).unwrap();
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
 
-        assert_eq!(parsed.operations.len(), 1);
+        assert_eq!(parsed.delta_operations.len(), 1);
         assert_eq!(parsed.attachment_blobs.len(), 1);
         assert_eq!(parsed.attachment_blobs[0].0, "att-uuid-1");
         assert_eq!(parsed.attachment_blobs[0].1, blob_data);
@@ -441,7 +458,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: String::new(),
-            operations: vec![op],
+            delta_operations: vec![DeltaOperation { op, verified_by: None }],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_vk],
             recipient_peer_ids: vec!["peer-1".to_string()],
@@ -499,7 +516,7 @@ mod tests {
             source_device_id: "dev-1".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: String::new(),
-            operations: vec![op],
+            delta_operations: vec![DeltaOperation { op, verified_by: None }],
             sender_key: &sender_key,
             recipient_keys: vec![&recipient_vk],
             recipient_peer_ids: vec!["peer-1".to_string()],
@@ -512,7 +529,49 @@ mod tests {
         let bundle = create_delta_bundle(params).unwrap();
         let parsed = parse_delta_bundle(&bundle, &recipient_key).unwrap();
 
-        assert_eq!(parsed.operations.len(), 1);
+        assert_eq!(parsed.delta_operations.len(), 1);
         assert!(parsed.attachment_blobs.is_empty());
+    }
+
+    #[test]
+    fn test_delta_operation_serde_roundtrip() {
+        // With verified_by = Some → field present in JSON
+        let with_voucher = DeltaOperation {
+            op: dummy_op("op-v1"),
+            verified_by: Some("voucher-pk-base64".to_string()),
+        };
+        let json_with = serde_json::to_string(&with_voucher).unwrap();
+        assert!(
+            json_with.contains("\"verified_by\""),
+            "verified_by should be present when Some: {json_with}"
+        );
+        let deser_with: DeltaOperation = serde_json::from_str(&json_with).unwrap();
+        assert_eq!(deser_with.op.operation_id(), "op-v1");
+        assert_eq!(
+            deser_with.verified_by,
+            Some("voucher-pk-base64".to_string())
+        );
+
+        // With verified_by = None → field omitted from JSON
+        let without_voucher = DeltaOperation {
+            op: dummy_op("op-v2"),
+            verified_by: None,
+        };
+        let json_without = serde_json::to_string(&without_voucher).unwrap();
+        assert!(
+            !json_without.contains("verified_by"),
+            "verified_by should be omitted when None: {json_without}"
+        );
+        let deser_without: DeltaOperation = serde_json::from_str(&json_without).unwrap();
+        assert_eq!(deser_without.op.operation_id(), "op-v2");
+        assert_eq!(deser_without.verified_by, None);
+
+        // Deserialization from JSON without verified_by field → defaults to None.
+        // Build the JSON dynamically from a real Operation to match the actual serde shape.
+        let op_json = serde_json::to_string(&dummy_op("op-v3")).unwrap();
+        let bare_json = format!(r#"{{"op":{op_json}}}"#);
+        let deser_bare: DeltaOperation = serde_json::from_str(&bare_json).unwrap();
+        assert_eq!(deser_bare.op.operation_id(), "op-v3");
+        assert_eq!(deser_bare.verified_by, None);
     }
 }

@@ -20,7 +20,9 @@ mod integration_tests {
 
     use crate::core::hlc::HlcTimestamp;
     use crate::core::operation::Operation;
-    use crate::core::swarm::delta::{create_delta_bundle, parse_delta_bundle, DeltaParams};
+    use crate::core::swarm::delta::{
+        create_delta_bundle, parse_delta_bundle, DeltaOperation, DeltaParams,
+    };
     use crate::core::swarm::invite::*;
     use crate::core::swarm::snapshot::{
         create_snapshot_bundle, parse_snapshot_bundle, SnapshotParams,
@@ -124,6 +126,13 @@ mod integration_tests {
 
         // === Step 7: Alice sends delta to Bob ===
         let alice_ops = vec![dummy_op("op-1", "note-abc"), dummy_op("op-2", "note-abc")];
+        let alice_delta_ops: Vec<DeltaOperation> = alice_ops
+            .iter()
+            .map(|op| DeltaOperation {
+                op: op.clone(),
+                verified_by: None,
+            })
+            .collect();
         let delta_bundle = create_delta_bundle(DeltaParams {
             protocol: "test".to_string(),
             workspace_id: "ws-alpha".to_string(),
@@ -131,7 +140,7 @@ mod integration_tests {
             source_device_id: "dev-alice".to_string(),
             source_display_name: "Alice".to_string(),
             since_operation_id: "op-baseline".to_string(),
-            operations: alice_ops.clone(),
+            delta_operations: alice_delta_ops,
             sender_key: &alice_key,
             recipient_keys: vec![&bob_key.verifying_key()],
             recipient_peer_ids: vec!["dev-bob".to_string()],
@@ -144,8 +153,8 @@ mod integration_tests {
 
         // === Step 8: Bob applies delta ===
         let parsed_delta = parse_delta_bundle(&delta_bundle, &bob_key).unwrap();
-        assert_eq!(parsed_delta.operations.len(), 2);
-        assert_eq!(parsed_delta.operations[0].operation_id(), "op-1");
+        assert_eq!(parsed_delta.delta_operations.len(), 2);
+        assert_eq!(parsed_delta.delta_operations[0].op.operation_id(), "op-1");
         assert_eq!(parsed_delta.since_operation_id, "op-baseline");
     }
 }

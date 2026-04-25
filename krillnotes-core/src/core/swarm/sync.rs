@@ -21,7 +21,9 @@ use serde::Serialize;
 
 use crate::core::contact::{ContactManager, TrustLevel};
 use crate::core::operation::Operation;
-use crate::core::swarm::delta::{create_delta_bundle, parse_delta_bundle, DeltaParams};
+use crate::core::swarm::delta::{
+    create_delta_bundle, parse_delta_bundle, DeltaOperation, DeltaParams,
+};
 use crate::core::workspace::Workspace;
 use crate::{KrillnotesError, Result};
 
@@ -76,10 +78,19 @@ pub fn generate_delta(
     //    When last_sent_op is None (force-resync), operations_since(None) returns all ops.
     let ops = workspace.operations_since(peer.last_sent_op.as_deref(), &peer.peer_device_id)?;
 
+    // 2b. Wrap each operation in a DeltaOperation (verified_by populated by Task 6).
+    let delta_operations: Vec<DeltaOperation> = ops
+        .into_iter()
+        .map(|op| DeltaOperation {
+            op,
+            verified_by: None,
+        })
+        .collect();
+
     // 3. Collect plaintext attachment blobs for any AddAttachment ops in the batch.
     let mut attachment_blobs: Vec<(String, Vec<u8>)> = Vec::new();
-    for op in &ops {
-        if let Operation::AddAttachment { attachment_id, .. } = op {
+    for delta_op in &delta_operations {
+        if let Operation::AddAttachment { attachment_id, .. } = &delta_op.op {
             match workspace.get_attachment_bytes(attachment_id) {
                 Ok(bytes) => attachment_blobs.push((attachment_id.clone(), bytes)),
                 Err(e) => {
@@ -123,8 +134,10 @@ pub fn generate_delta(
     // so that multiple identities on the same machine have distinct source IDs.
     let source_device_id = workspace.device_id().to_string();
 
-    let op_count = ops.len();
-    let last_included_op = ops.last().map(|op| op.operation_id().to_string());
+    let op_count = delta_operations.len();
+    let last_included_op = delta_operations
+        .last()
+        .map(|d| d.op.operation_id().to_string());
 
     let bundle_bytes = create_delta_bundle(DeltaParams {
         protocol: workspace.protocol_id().to_string(),
@@ -133,7 +146,7 @@ pub fn generate_delta(
         source_device_id,
         source_display_name: sender_display_name.to_string(),
         since_operation_id: peer.last_sent_op.clone().unwrap_or_default(),
-        operations: ops,
+        delta_operations,
         sender_key: signing_key,
         recipient_keys: vec![&recipient_vk],
         recipient_peer_ids: vec![peer_device_id.to_string()],
@@ -227,7 +240,8 @@ pub fn apply_delta(
     let mut new_tofu_contacts: Vec<String> = Vec::new();
 
     // 3. Apply each operation in chronological order.
-    for op in &parsed.operations {
+    for delta_op in &parsed.delta_operations {
+        let op = &delta_op.op;
         // TOFU: auto-register unknown authors.
         let author_key = op.author_key();
         if !author_key.is_empty() && contact_manager.find_by_public_key(author_key)?.is_none() {
@@ -258,9 +272,9 @@ pub fn apply_delta(
     //    bundle are duplicates, tracking only applied ops makes the ACK lag behind
     //    the sender's watermark, triggering an infinite full-resend loop.
     let last_bundle_op_id = parsed
-        .operations
+        .delta_operations
         .last()
-        .map(|op| op.operation_id().to_string());
+        .map(|d| d.op.operation_id().to_string());
     let last_received = last_bundle_op_id.as_deref();
     workspace.upsert_peer_from_delta(
         &parsed.sender_device_id,
