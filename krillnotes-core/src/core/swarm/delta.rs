@@ -592,4 +592,91 @@ mod tests {
         assert_eq!(deser_bare.op.operation_id(), "op-v3");
         assert_eq!(deser_bare.verified_by, None);
     }
+
+    #[test]
+    fn test_full_chain_a_to_b_to_c() {
+        // Three identities
+        let key_a = make_key();
+        let key_b = make_key();
+        let key_c = make_key();
+        let pubkey_a = BASE64.encode(key_a.verifying_key().as_bytes());
+        let pubkey_b = BASE64.encode(key_b.verifying_key().as_bytes());
+        let pubkey_c = BASE64.encode(key_c.verifying_key().as_bytes());
+
+        // A creates and signs an operation
+        let mut op = dummy_op("chain-1");
+        op.sign(&key_a);
+
+        // === A sends delta to B (self-authored, no verified_by) ===
+        let bundle_a_to_b = create_delta_bundle(DeltaParams {
+            protocol: "krillnotes/1".into(),
+            workspace_id: "ws-chain".into(),
+            workspace_name: "Chain WS".into(),
+            source_device_id: "dev-a".into(),
+            source_display_name: "Alice".into(),
+            since_operation_id: String::new(),
+            delta_operations: vec![DeltaOperation {
+                op: op.clone(),
+                verified_by: None,
+            }],
+            sender_key: &key_a,
+            recipient_keys: vec![&key_b.verifying_key()],
+            recipient_peer_ids: vec!["dev-b".to_string()],
+            recipient_identity_id: pubkey_b.clone(),
+            owner_pubkey: pubkey_a.clone(),
+            ack_operation_id: None,
+            attachment_blobs: vec![],
+        })
+        .unwrap();
+
+        // B parses — verified_by should be None (A authored it)
+        let parsed_at_b = parse_delta_bundle(&bundle_a_to_b, &key_b).unwrap();
+        assert_eq!(parsed_at_b.delta_operations.len(), 1);
+        assert_eq!(parsed_at_b.delta_operations[0].verified_by, None);
+
+        // B verifies A's signature (A is B's direct peer)
+        assert!(parsed_at_b.delta_operations[0]
+            .op
+            .verify(&key_a.verifying_key()));
+
+        // === B sends to C, vouching for A's op ===
+        let bundle_b_to_c = create_delta_bundle(DeltaParams {
+            protocol: "krillnotes/1".into(),
+            workspace_id: "ws-chain".into(),
+            workspace_name: "Chain WS".into(),
+            source_device_id: "dev-b".into(),
+            source_display_name: "Bob".into(),
+            since_operation_id: String::new(),
+            delta_operations: vec![DeltaOperation {
+                op: op.clone(),
+                verified_by: Some(pubkey_b.clone()), // B vouches
+            }],
+            sender_key: &key_b,
+            recipient_keys: vec![&key_c.verifying_key()],
+            recipient_peer_ids: vec!["dev-c".to_string()],
+            recipient_identity_id: pubkey_c.clone(),
+            owner_pubkey: pubkey_a.clone(),
+            ack_operation_id: None,
+            attachment_blobs: vec![],
+        })
+        .unwrap();
+
+        // C parses — sees B's vouch
+        let parsed_at_c = parse_delta_bundle(&bundle_b_to_c, &key_c).unwrap();
+        assert_eq!(parsed_at_c.delta_operations.len(), 1);
+        assert_eq!(
+            parsed_at_c.delta_operations[0].verified_by,
+            Some(pubkey_b.clone())
+        );
+        assert_eq!(parsed_at_c.sender_public_key, pubkey_b);
+
+        // C can accept: verified_by matches sender_public_key
+        assert_eq!(
+            parsed_at_c.delta_operations[0]
+                .verified_by
+                .as_ref()
+                .unwrap(),
+            &parsed_at_c.sender_public_key,
+        );
+    }
 }

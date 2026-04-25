@@ -76,10 +76,8 @@ pub fn generate_delta(
 
     // 2. Collect operations since watermark with verified_by metadata,
     //    excluding this peer's own ops.
-    let ops_with_vb = workspace.operations_since_with_verified_by(
-        peer.last_sent_op.as_deref(),
-        &peer.peer_device_id,
-    )?;
+    let ops_with_vb = workspace
+        .operations_since_with_verified_by(peer.last_sent_op.as_deref(), &peer.peer_device_id)?;
 
     // 2b. Wrap each operation in a DeltaOperation with appropriate vouching.
     let my_pubkey = workspace.identity_pubkey().to_string();
@@ -1224,7 +1222,8 @@ mod tests {
         for (op, verified_by) in &results {
             // Self-authored ops should have verified_by = the workspace identity pubkey.
             assert_eq!(
-                verified_by, &alice_pubkey,
+                verified_by,
+                &alice_pubkey,
                 "verified_by should match workspace identity pubkey for op {}",
                 op.operation_id()
             );
@@ -1301,7 +1300,8 @@ mod tests {
             crate::core::swarm::delta::parse_delta_bundle(&bundle1.bundle_bytes, &bob_key).unwrap();
         for d_op in &parsed1.delta_operations {
             assert_eq!(
-                d_op.verified_by, None,
+                d_op.verified_by,
+                None,
                 "self-authored ops should have verified_by = None, op={}",
                 d_op.op.operation_id()
             );
