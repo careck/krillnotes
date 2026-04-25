@@ -214,7 +214,15 @@ pub fn export_workspace<W: Write + Seek>(
         None => SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
     };
 
-    // Write notes.json
+    // Write notes.json — strip identity fields so the archive is identity-neutral
+    let notes = notes
+        .into_iter()
+        .map(|mut n| {
+            n.created_by = String::new();
+            n.modified_by = String::new();
+            n
+        })
+        .collect();
     let export_notes = ExportNotes {
         version: 1,
         app_version: APP_VERSION.to_string(),
@@ -262,7 +270,7 @@ pub fn export_workspace<W: Write + Seek>(
         .get_workspace_metadata()
         .map_err(|e| ExportError::Database(e.to_string()))?;
     ws_meta.version = 1;
-    ws_meta.owner_pubkey = Some(workspace.owner_pubkey().to_string());
+    ws_meta.owner_pubkey = None;
     zip.start_file("workspace.json", options)?;
     serde_json::to_writer_pretty(&mut zip, &ws_meta)?;
 
@@ -571,15 +579,14 @@ pub fn import_workspace<R: Read + Seek>(
             .map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
-    // Restore the original owner_pubkey from the archive, overriding the
-    // importer's key that Workspace::open() inserted.
-    if let Some(ref meta) = workspace_metadata {
-        if let Some(ref original_owner) = meta.owner_pubkey {
-            workspace
-                .set_owner_pubkey(original_owner)
-                .map_err(|e| ExportError::Database(e.to_string()))?;
-        }
-    }
+    // Stamp the importer's identity as author of all imported notes.
+    workspace
+        .connection()
+        .execute(
+            "UPDATE notes SET created_by = ?, modified_by = ?",
+            [workspace.identity_pubkey(), workspace.identity_pubkey()],
+        )
+        .map_err(|e| ExportError::Database(e.to_string()))?;
 
     Ok(ImportResult {
         app_version: export_notes.app_version,
