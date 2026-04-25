@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Wider script & theme editors** — The script and theme editor dialogs now expand to 90% of the window width when editing, instead of being fixed at 700px. The list view retains its compact size.
 
 ### Fixed
+- **Identity-neutral export** — Exporting a shared workspace no longer embeds the owner's identity. Archives are now fully identity-neutral: `owner_pubkey` is omitted from `workspace.json` and `created_by`/`modified_by` are cleared from notes. On import, the importer becomes root owner and author of all notes (PR #164).
 - **Sync timestamp corruption** — Synced notes displayed dates like year 56000+ because the sync replay path stored HLC milliseconds in `created_at`/`modified_at` columns where the frontend expects Unix seconds. Introduced a `UnixSecs(i64)` newtype that makes this mismatch a compile error — `HlcTimestamp::to_unix_secs()` is the only conversion path, and no `From<i64>` impl forces callers to use named constructors. `serde(transparent)` preserves JSON format (PR #160).
 - **lock_identity stale state** — `lock_identity` now inserts labels into `closing_windows` and calls `destroy()` (matching `close_window`), eagerly removing workspace entries to prevent stale state between destroy and the Destroyed event handler (PR #154).
 - **Rapid file-open clobber** — Split shared `pending_file_open` into `pending_krillnotes_open` and `pending_swarm_open` so rapid `.krillnotes` + `.swarm` opens no longer overwrite each other (PR #154).
