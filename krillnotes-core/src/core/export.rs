@@ -579,15 +579,14 @@ pub fn import_workspace<R: Read + Seek>(
             .map_err(|e| ExportError::Database(e.to_string()))?;
     }
 
-    // Restore the original owner_pubkey from the archive, overriding the
-    // importer's key that Workspace::open() inserted.
-    if let Some(ref meta) = workspace_metadata {
-        if let Some(ref original_owner) = meta.owner_pubkey {
-            workspace
-                .set_owner_pubkey(original_owner)
-                .map_err(|e| ExportError::Database(e.to_string()))?;
-        }
-    }
+    // Stamp the importer's identity as author of all imported notes.
+    workspace
+        .connection()
+        .execute(
+            "UPDATE notes SET created_by = ?, modified_by = ?",
+            [workspace.identity_pubkey(), workspace.identity_pubkey()],
+        )
+        .map_err(|e| ExportError::Database(e.to_string()))?;
 
     Ok(ImportResult {
         app_version: export_notes.app_version,

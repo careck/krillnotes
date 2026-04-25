@@ -598,6 +598,70 @@ fn test_peek_import_with_wrong_password_returns_invalid_password() {
 }
 
 #[test]
+fn test_import_stamps_importer_identity_on_notes() {
+    // Export from identity A
+    let temp_src = NamedTempFile::new().unwrap();
+    let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let mut ws_a = Workspace::create(
+        temp_src.path(),
+        "",
+        "identity-a",
+        key_a.clone(),
+        test_gate(),
+        None,
+    )
+    .unwrap();
+
+    let root = ws_a.list_all_notes().unwrap()[0].clone();
+    ws_a.create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
+
+    let mut buf = Vec::new();
+    export_workspace(&ws_a, Cursor::new(&mut buf), None).unwrap();
+
+    // Import as identity B (different key)
+    let temp_dst = NamedTempFile::new().unwrap();
+    let key_b = ed25519_dalek::SigningKey::from_bytes(&[2u8; 32]);
+    import_workspace(
+        Cursor::new(&buf),
+        temp_dst.path(),
+        None,
+        "",
+        "identity-b",
+        key_b.clone(),
+    )
+    .unwrap();
+
+    let ws_b = Workspace::open(
+        temp_dst.path(),
+        "",
+        "identity-b",
+        key_b,
+        test_gate(),
+        None,
+    )
+    .unwrap();
+
+    // Importer is owner
+    assert!(ws_b.is_owner(), "importer should be workspace owner");
+
+    // All notes have importer's pubkey as created_by and modified_by
+    let importer_pubkey = ws_b.identity_pubkey().to_string();
+    for note in ws_b.list_all_notes().unwrap() {
+        assert_eq!(
+            note.created_by, importer_pubkey,
+            "note '{}' created_by should be importer's pubkey",
+            note.title
+        );
+        assert_eq!(
+            note.modified_by, importer_pubkey,
+            "note '{}' modified_by should be importer's pubkey",
+            note.title
+        );
+    }
+}
+
+#[test]
 fn test_encrypted_round_trip_import() {
     let temp_src = NamedTempFile::new().unwrap();
     let mut ws = Workspace::create(
@@ -1038,14 +1102,9 @@ fn test_peek_import_returns_none_metadata_for_old_archives() {
 }
 
 #[test]
-fn test_m7_import_preserves_original_owner_pubkey() {
+fn test_import_makes_importer_the_owner() {
     // Create original workspace with key A
     let key_a = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
-    let pubkey_a = {
-        use base64::Engine as _;
-        let vk = ed25519_dalek::VerifyingKey::from(&key_a);
-        base64::engine::general_purpose::STANDARD.encode(vk.as_bytes())
-    };
     let temp_src = NamedTempFile::new().unwrap();
     let ws = Workspace::create(
         temp_src.path(),
@@ -1056,9 +1115,8 @@ fn test_m7_import_preserves_original_owner_pubkey() {
         None,
     )
     .unwrap();
-    assert_eq!(ws.owner_pubkey(), pubkey_a);
 
-    // Export
+    // Export (Task 1 strips owner_pubkey from archive)
     let mut buf = Vec::new();
     export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
 
@@ -1080,13 +1138,13 @@ fn test_m7_import_preserves_original_owner_pubkey() {
     )
     .unwrap();
 
-    // Re-open and verify that owner is still key A, NOT key B
+    // Re-open and verify that importer (key B) is now the owner
     let imported_ws =
         Workspace::open(temp_dst.path(), "", "identity-b", key_b, test_gate(), None).unwrap();
     assert_eq!(
         imported_ws.owner_pubkey(),
-        pubkey_a,
-        "imported workspace must preserve original owner, not importer"
+        pubkey_b,
+        "importer should become workspace owner after import"
     );
-    assert_ne!(imported_ws.owner_pubkey(), pubkey_b);
+    assert!(imported_ws.is_owner(), "importer should be recognized as owner");
 }
