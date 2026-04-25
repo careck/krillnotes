@@ -44,12 +44,19 @@ pub struct OperationSummary {
 /// Records document mutations to the `operations` table and purges stale entries.
 pub struct OperationLog {
     strategy: PurgeStrategy,
+    /// Base64-encoded Ed25519 public key of the local identity.
+    /// Stamped into `verified_by` on every INSERT so self-authored ops
+    /// are immediately marked as verified.
+    identity_pubkey: String,
 }
 
 impl OperationLog {
-    /// Creates a new `OperationLog` with the given purge strategy.
-    pub fn new(strategy: PurgeStrategy) -> Self {
-        Self { strategy }
+    /// Creates a new `OperationLog` with the given purge strategy and identity public key.
+    pub fn new(strategy: PurgeStrategy, identity_pubkey: String) -> Self {
+        Self {
+            strategy,
+            identity_pubkey,
+        }
     }
 
     pub fn purge_strategy(&self) -> &PurgeStrategy {
@@ -67,8 +74,8 @@ impl OperationLog {
         let ts = op.timestamp();
 
         tx.execute(
-            "INSERT INTO operations (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, device_id, operation_type, operation_data, synced)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+            "INSERT INTO operations (operation_id, timestamp_wall_ms, timestamp_counter, timestamp_node_id, device_id, operation_type, operation_data, synced, verified_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
             rusqlite::params![
                 op.operation_id(),
                 ts.wall_ms as i64,
@@ -77,6 +84,7 @@ impl OperationLog {
                 op.device_id(),
                 self.operation_type_name(op),
                 op_json,
+                &self.identity_pubkey,
             ],
         )?;
 
@@ -317,7 +325,7 @@ mod tests {
     fn test_log_and_purge() {
         let temp = NamedTempFile::new().unwrap();
         let mut storage = Storage::create(temp.path(), "").unwrap();
-        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 5 });
+        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 5 }, String::new());
 
         let tx = storage.connection_mut().transaction().unwrap();
 
@@ -353,7 +361,7 @@ mod tests {
     fn test_list_operations() {
         let temp = NamedTempFile::new().unwrap();
         let mut storage = Storage::create(temp.path(), "").unwrap();
-        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 }, String::new());
 
         // Insert two operations with different types and timestamps.
         {
@@ -422,7 +430,7 @@ mod tests {
     fn test_purge_all() {
         let temp = NamedTempFile::new().unwrap();
         let mut storage = Storage::create(temp.path(), "").unwrap();
-        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 });
+        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 }, String::new());
 
         {
             let tx = storage.connection_mut().transaction().unwrap();
@@ -450,5 +458,77 @@ mod tests {
 
         let remaining = log.list(storage.connection(), None, None, None).unwrap();
         assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn test_log_populates_verified_by() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut storage = Storage::create(temp.path(), "").unwrap();
+        let pubkey = "dGVzdC1wdWJrZXktYjY0"; // test pubkey
+        let log = OperationLog::new(
+            PurgeStrategy::LocalOnly { keep_last: 100 },
+            pubkey.to_string(),
+        );
+
+        let tx = storage.connection_mut().transaction().unwrap();
+        let op = Operation::CreateNote {
+            operation_id: "op-verified".to_string(),
+            timestamp: ts(5_000_000),
+            device_id: "dev-1".to_string(),
+            note_id: "note-v".to_string(),
+            parent_id: None,
+            position: 0.0,
+            schema: "TextNote".to_string(),
+            title: "Verified Note".to_string(),
+            fields: BTreeMap::new(),
+            created_by: String::new(),
+            signature: String::new(),
+        };
+        log.log(&tx, &op).unwrap();
+        tx.commit().unwrap();
+
+        let stored: String = storage
+            .connection()
+            .query_row(
+                "SELECT verified_by FROM operations WHERE operation_id = ?",
+                ["op-verified"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, pubkey);
+    }
+
+    #[test]
+    fn test_log_verified_by_empty_when_no_identity() {
+        let temp = NamedTempFile::new().unwrap();
+        let mut storage = Storage::create(temp.path(), "").unwrap();
+        let log = OperationLog::new(PurgeStrategy::LocalOnly { keep_last: 100 }, String::new());
+
+        let tx = storage.connection_mut().transaction().unwrap();
+        let op = Operation::CreateNote {
+            operation_id: "op-empty".to_string(),
+            timestamp: ts(6_000_000),
+            device_id: "dev-1".to_string(),
+            note_id: "note-e".to_string(),
+            parent_id: None,
+            position: 0.0,
+            schema: "TextNote".to_string(),
+            title: "Empty Identity Note".to_string(),
+            fields: BTreeMap::new(),
+            created_by: String::new(),
+            signature: String::new(),
+        };
+        log.log(&tx, &op).unwrap();
+        tx.commit().unwrap();
+
+        let stored: String = storage
+            .connection()
+            .query_row(
+                "SELECT verified_by FROM operations WHERE operation_id = ?",
+                ["op-empty"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "");
     }
 }

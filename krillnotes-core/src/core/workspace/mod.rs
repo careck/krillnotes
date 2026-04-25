@@ -148,9 +148,19 @@ impl Workspace {
         let mut storage = Storage::create(&path, password)?;
         let mut script_registry = ScriptRegistry::new()?;
         let purge_limit = Self::read_purge_limit_from_meta(storage.connection());
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly {
-            keep_last: purge_limit,
-        });
+
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
+
+        let operation_log = OperationLog::new(
+            PurgeStrategy::LocalOnly {
+                keep_last: purge_limit,
+            },
+            identity_pubkey_b64.clone(),
+        );
 
         let device_id = if let Some(dir) = identity_dir {
             let device_uuid = crate::core::identity::ensure_device_uuid(dir)?;
@@ -258,12 +268,6 @@ impl Workspace {
             }
             script_registry.resolve_bindings();
         }
-
-        let identity_pubkey_b64 = {
-            use base64::Engine as _;
-            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
-            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
-        };
 
         storage.connection().execute(
             "INSERT INTO workspace_meta (key, value) VALUES (?, ?)",
@@ -491,9 +495,20 @@ impl Workspace {
         let storage = Storage::open(&path, password)?;
         let script_registry = ScriptRegistry::new()?;
         let purge_limit = Self::read_purge_limit_from_meta(storage.connection());
-        let operation_log = OperationLog::new(PurgeStrategy::LocalOnly {
-            keep_last: purge_limit,
-        });
+
+        // Derive the base64-encoded public key from the signing key.
+        let identity_pubkey_b64 = {
+            use base64::Engine as _;
+            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+        };
+
+        let operation_log = OperationLog::new(
+            PurgeStrategy::LocalOnly {
+                keep_last: purge_limit,
+            },
+            identity_pubkey_b64.clone(),
+        );
 
         // Read metadata from database
         let mut device_id: String = storage.connection().query_row(
@@ -517,13 +532,6 @@ impl Workspace {
                 device_id = composite;
             }
         }
-
-        // Derive the base64-encoded public key from the signing key.
-        let identity_pubkey_b64 = {
-            use base64::Engine as _;
-            let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
-            base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
-        };
 
         let workspace_root = path
             .as_ref()

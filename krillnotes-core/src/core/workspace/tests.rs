@@ -6014,3 +6014,45 @@ fn test_m6_set_note_checked_stores_seconds_timestamp() {
         note.modified_at
     );
 }
+
+#[test]
+fn test_self_authored_ops_have_verified_by() {
+    let temp = NamedTempFile::new().unwrap();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+    let expected_pubkey = {
+        use base64::Engine as _;
+        let pubkey = ed25519_dalek::VerifyingKey::from(&signing_key);
+        base64::engine::general_purpose::STANDARD.encode(pubkey.as_bytes())
+    };
+
+    let mut ws = Workspace::create(
+        temp.path(),
+        "",
+        "test-identity",
+        signing_key,
+        test_gate(),
+        None,
+    )
+    .unwrap();
+
+    // Create a child note to generate an explicit CreateNote op.
+    let root_id = ws.list_all_notes().unwrap()[0].id.clone();
+    let child_id = ws
+        .create_note(&root_id, AddPosition::AsChild, "TextNote")
+        .unwrap();
+
+    // Query the operations table for the child's CreateNote op.
+    let verified_by: String = ws
+        .connection()
+        .query_row(
+            "SELECT verified_by FROM operations WHERE operation_type = 'CreateNote' AND operation_data LIKE ?",
+            [format!("%{}%", child_id)],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(
+        verified_by, expected_pubkey,
+        "Self-authored operations should have verified_by = identity pubkey"
+    );
+}
