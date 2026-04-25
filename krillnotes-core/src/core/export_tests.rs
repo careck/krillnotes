@@ -244,6 +244,55 @@ fn test_round_trip_export_import() {
 }
 
 #[test]
+fn test_export_archive_is_identity_neutral() {
+    let temp = NamedTempFile::new().unwrap();
+    let mut ws = Workspace::create(
+        temp.path(),
+        "",
+        "test-identity",
+        ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
+        test_gate(),
+        None,
+    )
+    .unwrap();
+
+    let root = ws.list_all_notes().unwrap()[0].clone();
+    ws.create_note(&root.id, AddPosition::AsChild, "TextNote")
+        .unwrap();
+
+    let mut buf = Vec::new();
+    export_workspace(&ws, Cursor::new(&mut buf), None).unwrap();
+
+    let mut archive = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+
+    // workspace.json must not contain owner_pubkey
+    let ws_file = archive.by_name("workspace.json").unwrap();
+    let ws_meta: WorkspaceMetadata = serde_json::from_reader(ws_file).unwrap();
+    assert!(
+        ws_meta.owner_pubkey.is_none(),
+        "exported workspace.json must not contain owner_pubkey"
+    );
+
+    // notes.json must have empty created_by / modified_by
+    let notes_file = archive.by_name("notes.json").unwrap();
+    let export_notes: ExportNotes = serde_json::from_reader(notes_file).unwrap();
+    for note in &export_notes.notes {
+        assert!(
+            note.created_by.is_empty(),
+            "note '{}' created_by should be empty, got '{}'",
+            note.title,
+            note.created_by
+        );
+        assert!(
+            note.modified_by.is_empty(),
+            "note '{}' modified_by should be empty, got '{}'",
+            note.title,
+            note.modified_by
+        );
+    }
+}
+
+#[test]
 fn test_round_trip_preserves_script_category() {
     // Regression test: imported scripts must retain their original category.
     // Previously all scripts were hardcoded to "library" on import, which
