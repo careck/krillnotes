@@ -5,9 +5,12 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] — 2026-04-28
+
+> **First stable release.** Krillnotes 1.0 ships a production-ready, local-first note-taking app with end-to-end encrypted multi-device sync, role-based access control, cryptographic identity management, and a fully scriptable schema engine. Every mutation is HLC-timestamped, Ed25519-signed, and verified on receipt — forming a tamper-evident CRDT log that syncs across devices via relay server, shared folder, or manual file exchange. This release also delivers a comprehensive security hardening pass (resource limits, path traversal fixes, zeroized secrets, transactional migrations) and dozens of bug fixes accumulated since the 0.9.x release candidates.
 
 ### Added
+- **Per-operation verification** — Incoming sync operations are now verified individually. Sender-authored ops are checked against their Ed25519 signature; relayed third-party ops require a co-signature ("vouch") from the forwarding peer. Ops that fail verification are rejected and logged to the sync events audit trail. The `verified_by` field is surfaced in the Operations Log detail panel and the note Info panel metadata, with display names resolved from the identity/contact book. Full A→B→C transitive trust chain tested end-to-end.
 - **Import metadata preview** — When importing a `.krillnotes` archive, the import dialog now shows a collapsible "Workspace Properties" section displaying the author, description, license, homepage, and tags embedded in the archive — matching the same display shown in the invite acceptance workflow (PR #137).
 - **Sync on close** — When closing a workspace with unsynchronized changes, the app prompts to sync with relay/folder peers before closing. A new "Sync on Close" setting in Settings → General offers three modes: Always sync, Ask before closing (default), Never sync. Includes a spinner overlay during sync and error recovery if sync fails (PR #135).
 - **Note checkbox support** — Schemas can set `show_checkbox: true` to render an interactive checkbox in the tree view. Checked notes display with a strikethrough title. The `is_checked` state is a first-class field on the `Note` struct (like `title`), tracked by a dedicated `SetChecked` CRDT operation with full sync, export/import, and undo support. Rhai scripts can read `note.is_checked` in views/hooks and write via `set_checked(note_id, checked)` in `on_save` hooks (PR #134).
@@ -32,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stale view tab on note switch** — Switching between note types with different view names no longer produces `render_view` errors. The view rendering effect now uses a ref-based guard to prevent firing with stale state from the previous note.
 
 ### Security
+- **Per-operation signature verification on receive** — Every incoming operation is now individually verified: sender-authored ops must pass Ed25519 signature check; relayed ops must carry a valid co-signature (vouch) from the forwarding peer. Unverifiable ops are rejected and logged to the sync events table. This closes the relay trust gap — a compromised relay cannot inject or tamper with operations.
 - **Sidecar hashes in bundle manifest** — Attachment sidecar ciphertext is now included in the BLAKE3 manifest hash before Ed25519 signing. Sidecars stripped from a bundle in transit now invalidate the bundle signature (PR #149).
 - **Relay password zeroized on drop** — `RelayAccount.password` and `session_token` are zeroized from memory when the struct is dropped via the `zeroize` crate. `Debug` output redacts both fields as `[REDACTED]` (PR #149).
 - **Rhai engine resource limits** — Script execution capped at 200K operations, 64 call levels, 1M string size, and 100K array size to prevent infinite loops from hanging the app (PR #148).
@@ -477,6 +481,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-aware menus: macOS app menu, Edit menu with standard shortcuts; Tools menu for Operations Log and Script Manager.
 - Cross-platform release workflow via GitHub Actions (macOS, Windows, Linux).
 
+[1.0.0]: https://github.com/2pisoftware/krillnotes/compare/v0.9.2...v1.0.0
+[0.9.2]: https://github.com/2pisoftware/krillnotes/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/2pisoftware/krillnotes/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/2pisoftware/krillnotes/compare/v0.4.1...v0.9.0
 [0.4.1]: https://github.com/2pisoftware/krillnotes/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/2pisoftware/krillnotes/compare/v0.3.0...v0.4.0

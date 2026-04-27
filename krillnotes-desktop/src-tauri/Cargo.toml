@@ -1,6 +1,6 @@
 [package]
 name = "krillnotes-desktop"
-version = "0.9.2"
+version = "1.0.0"
 description = "Krill Notes desktop application (Tauri)"
 authors = ["TripleACS Pty Ltd t/a 2pi Software <info@2pisoftware.com>"]
 edition = "2021"
