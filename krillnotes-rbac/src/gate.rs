@@ -72,10 +72,8 @@ impl RbacGate {
             | Operation::SetTags { .. } => {
                 require_at_least(role, Role::Writer)?;
             }
-            Operation::DeleteNote { note_id, .. } => {
-                if role < Role::Owner {
-                    self.require_authorship(conn, actor, note_id, role)?;
-                }
+            Operation::DeleteNote { note_id, .. } if role < Role::Owner => {
+                self.require_authorship(conn, actor, note_id, role)?;
             }
             Operation::MoveNote {
                 note_id,
