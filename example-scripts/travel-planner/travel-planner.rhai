@@ -110,14 +110,17 @@ register_view("Location", "Details", #{ display_first: true }, |note| {
     let photo = note.fields["photo"] ?? ();
     if photo != () { parts += [display_image(photo, 480, note.fields["name"] ?? "")]; }
 
+    let rows = [];
     let category = note.fields["category"] ?? "";
-    if category != "" { parts += [field("Category", category)]; }
+    if category != "" { rows += [["Category", category]]; }
 
     let address = note.fields["address"] ?? "";
-    if address != "" { parts += [field("Address", address)]; }
+    if address != "" { rows += [["Address", address]]; }
 
     let rating = note.fields["rating"] ?? 0;
-    if rating > 0 { parts += [field("Rating", stars(rating))]; }
+    if rating > 0 { rows += [["Rating", stars(rating)]]; }
+
+    if rows.len() > 0 { parts += [table(["", ""], rows)]; }
 
     let notes = note.fields["notes"] ?? "";
     if notes != "" { parts += [divider(), markdown(notes)]; }
@@ -140,22 +143,25 @@ register_view("Stay", "Booking", #{ display_first: true }, |note| {
         }
     }
 
+    let rows = [];
     let ci = note.fields["check_in"]  ?? ();
     let co = note.fields["check_out"] ?? ();
     if type_of(ci) == "string" && ci != "" {
         let dates = if type_of(co) == "string" && co != "" { ci + " → " + co } else { ci };
-        parts += [field("Dates", dates)];
+        rows += [["Dates", dates]];
     }
 
     let ppn = note.fields["price_per_night"] ?? 0;
     let cur = note.fields["currency"] ?? "";
     if ppn > 0 {
         let price_str = ppn.to_string() + if cur != "" { " " + cur } else { "" } + " / night";
-        parts += [field("Price", price_str)];
+        rows += [["Price", price_str]];
     }
 
     let ref_val = note.fields["booking_ref"] ?? "";
-    if ref_val != "" { parts += [field("Booking Ref", ref_val)]; }
+    if ref_val != "" { rows += [["Booking Ref", ref_val]]; }
+
+    if rows.len() > 0 { parts += [table(["", ""], rows)]; }
 
     let notes = note.fields["notes"] ?? "";
     if notes != "" { parts += [divider(), markdown(notes)]; }
@@ -166,18 +172,18 @@ register_view("Stay", "Booking", #{ display_first: true }, |note| {
 
 // --- Transport — Details ---
 register_view("Transport", "Details", #{ display_first: true }, |note| {
-    let parts = [];
+    let rows = [];
 
     let t    = note.fields["type"]      ?? "";
     let from = note.fields["from_city"] ?? "";
     let to   = note.fields["to_city"]   ?? "";
-    if t != "" { parts += [field("Type", t)]; }
+    if t != "" { rows += [["Type", t]]; }
     if from != "" && to != "" {
-        parts += [field("Route", from + " → " + to)];
+        rows += [["Route", from + " → " + to]];
     } else if to != "" {
-        parts += [field("To", to)];
+        rows += [["To", to]];
     } else if from != "" {
-        parts += [field("From", from)];
+        rows += [["From", from]];
     }
 
     let dep_d = note.fields["departure_date"] ?? ();
@@ -186,24 +192,27 @@ register_view("Transport", "Details", #{ display_first: true }, |note| {
     let arr_t = note.fields["arrival_time"]   ?? "";
     if type_of(dep_d) == "string" && dep_d != "" {
         let dep = dep_d + if dep_t != "" { " " + dep_t } else { "" };
-        parts += [field("Departure", dep)];
+        rows += [["Departure", dep]];
     }
     if type_of(arr_d) == "string" && arr_d != "" {
         let arr = arr_d + if arr_t != "" { " " + arr_t } else { "" };
-        parts += [field("Arrival", arr)];
+        rows += [["Arrival", arr]];
     }
 
     let carrier = note.fields["carrier"] ?? "";
-    if carrier != "" { parts += [field("Carrier", carrier)]; }
+    if carrier != "" { rows += [["Carrier", carrier]]; }
 
     let ref_val = note.fields["booking_ref"] ?? "";
-    if ref_val != "" { parts += [field("Booking Ref", ref_val)]; }
+    if ref_val != "" { rows += [["Booking Ref", ref_val]]; }
 
     let price = note.fields["price"]    ?? 0;
     let cur   = note.fields["currency"] ?? "";
     if price > 0 {
-        parts += [field("Price", price.to_string() + if cur != "" { " " + cur } else { "" })];
+        rows += [["Price", price.to_string() + if cur != "" { " " + cur } else { "" }]];
     }
+
+    let parts = [];
+    if rows.len() > 0 { parts += [table(["", ""], rows)]; }
 
     let notes = note.fields["notes"] ?? "";
     if notes != "" { parts += [divider(), markdown(notes)]; }
