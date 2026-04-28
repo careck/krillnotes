@@ -280,6 +280,14 @@ impl ScriptRegistry {
     ///
     /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error
     /// or returns a malformed map.
+    pub fn set_query_context(&self, context: QueryContext) {
+        *self.query_context.lock().unwrap() = Some(context);
+    }
+
+    pub fn clear_query_context(&self) {
+        *self.query_context.lock().unwrap() = None;
+    }
+
     pub fn run_on_save_hook(
         &self,
         schema_name: &str,
