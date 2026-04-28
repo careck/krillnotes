@@ -222,8 +222,16 @@ cd krillnotes-desktop && npm update && npm run tauri build
 - **Cross-platform** — all features must work on Windows, Linux, macOS
 - **krillnotes-core must be reusable** — no Tauri deps; future targets include mobile, web, headless
 
+## Branching Strategy
+
+- **`master`** — stable 1.x release branch. Only bugfixes and releases land here.
+- **`development`** — active development branch for new features.
+- **Feature branches** (`feat/`) → PR targets `development`
+- **Fix branches** (`fix/`) → PR targets `master` (unless fixing something only on `development`)
+
 ## How to work
 - Always start each implementation in a new worktree
 - Always commit and push a pull request to github
+- New features target `development`; bugfixes target `master`
 - Always update `CHANGELOG.md` with the changes you made after the PR has been merged
 - Use terse, functional language to preserve context tokens!
