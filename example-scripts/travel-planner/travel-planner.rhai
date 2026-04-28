@@ -136,7 +136,7 @@ register_view("Stay", "Booking", #{ display_first: true }, |note| {
         if h != () {
             let photo = h.fields["photo"] ?? ();
             if photo != () { parts += [display_image(photo, 400, h.fields["name"] ?? "")]; }
-            parts += [field("Hotel", link_to(h))];
+            parts += [table(["Hotel"], [[link_to(h)]])];
         }
     }
 
