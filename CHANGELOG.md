@@ -5,7 +5,7 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] — 2026-04-29
 
 ### Added
 - **Travel planner example script** — New example demonstrating `note_link` fields, multi-schema hierarchies, `show_checkbox`, `is_leaf`, `file` fields with `allowed_types`, tags, and rich views that resolve linked notes. Includes 8 schemas (Folder, Location, Stay, Transport, Trip, DayPlan, Activity, Task), 6 views, 7 hovers, 2 context menus, and a sample Japan trip archive with 33 notes.
