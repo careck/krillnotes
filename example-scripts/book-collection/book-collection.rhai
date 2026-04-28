@@ -88,7 +88,9 @@ register_hover("Book", |note| {
     let author = note.fields["author"] ?? "";
     let status = note.fields["status"] ?? "";
     let rating = note.fields["rating"] ?? 0;
+    let cover  = note.fields["cover"]  ?? ();
     let parts = [];
+    if cover != ()  { parts += [display_image(cover, 120, "Cover")]; }
     if author != "" { parts += [field("Author", author)]; }
     if status != "" { parts += [field("Status", status)]; }
     if rating > 0   { parts += [field("Rating", stars(rating))]; }

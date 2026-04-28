@@ -14,6 +14,8 @@ schema("Book", #{
     title_can_edit: false,
     allowed_parent_schemas: ["Library"],
     fields: [
+        #{ name: "cover",         type: "file",     required: false,
+           allowed_types: ["image/jpeg", "image/png", "image/webp"]                  },
         #{ name: "book_title",    type: "text",     required: true                   },
         #{ name: "author",        type: "text",     required: true                   },
         #{ name: "genre",         type: "text",     required: false                  },

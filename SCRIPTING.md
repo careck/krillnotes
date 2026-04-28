@@ -111,6 +111,8 @@ schema("TypeName", #{
     allowed_children_schemas: ["Item"],      // default: [] (any child allowed)
     is_leaf:                  false,         // default: false — true blocks all child notes
     show_checkbox:            false,         // default: false — true shows checkbox in tree
+    allow_attachments:        false,         // default: false — true shows attachments panel
+    attachment_types:          [],            // default: [] (all MIME types); ignored when allow_attachments is false
 
     // --- required ---
     fields: [
@@ -313,6 +315,51 @@ and drag-drop onto leaf notes is blocked.
 Leaf notes can still be moved, copied, or deleted. Existing children (if any
 were created before `is_leaf` was set) are unaffected — the constraint is
 forward-only.
+
+### `allow_attachments: true`
+
+Enables the **attachments panel** on notes of this schema. When enabled, users can
+drag-and-drop or pick files to attach directly to a note. Defaults to `false` (opt-in).
+
+This is separate from `"file"` fields — a `"file"` field holds a single attachment
+reference as a field value, whereas `allow_attachments` gives the note an open-ended
+attachments panel for any number of files.
+
+```rhai
+schema("TextNote", #{
+    version: 1,
+    allow_attachments: true,
+    fields: [
+        #{ name: "body", type: "textarea", required: false },
+    ]
+});
+```
+
+### `attachment_types: [...]`
+
+Restricts which MIME types the attachments panel accepts. An empty array (the default)
+means all file types are allowed. Ignored when `allow_attachments` is `false`.
+
+```rhai
+schema("PhotoNote", #{
+    version: 1,
+    allow_attachments: true,
+    attachment_types: ["image/jpeg", "image/png", "image/webp"],
+    fields: [
+        #{ name: "caption", type: "text", required: false },
+    ]
+});
+```
+
+Attached files can be referenced in `textarea` markdown using the `attach:` prefix
+(see [Inline images in `textarea` markdown](#inline-images-in-textarea-markdown)):
+
+```
+{{image: attach:photo.png, width: 600}}
+```
+
+In scripts, use `get_attachments(note_id)` to query a note's attachments — see
+[Query functions](#14-query-functions).
 
 ### `field_groups: [...]`
 
