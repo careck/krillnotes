@@ -1260,6 +1260,7 @@ fn note_to_rhai_dynamic(note: &Note) -> Dynamic {
     note_map.insert("title".into(), Dynamic::from(note.title.clone()));
     note_map.insert("fields".into(), Dynamic::from(fields_map));
     note_map.insert("tags".into(), Dynamic::from(tags_array));
+    note_map.insert("is_checked".into(), Dynamic::from(note.is_checked));
     Dynamic::from(note_map)
 }
 
