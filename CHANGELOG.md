@@ -5,6 +5,18 @@ All notable changes to Krillnotes will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Travel planner example script** — New example demonstrating `note_link` fields, multi-schema hierarchies, `show_checkbox`, `is_leaf`, `file` fields with `allowed_types`, tags, and rich views that resolve linked notes. Includes 8 schemas (Folder, Location, Stay, Transport, Trip, DayPlan, Activity, Task), 6 views, 7 hovers, 2 context menus, and a sample Japan trip archive with 33 notes.
+- **SCRIPTING.md: `allow_attachments` / `attachment_types`** — Documented the note-level attachment schema options that were implemented but undocumented.
+- **Book-collection cover field** — Added a `cover` file field (image only) to the Book schema with a thumbnail in the hover tooltip.
+
+### Fixed
+- **`is_checked` missing from query context** — `note_to_rhai_dynamic` did not include `is_checked`, so `get_children()`/`get_note()` results always had it undefined. Views filtering by checkbox state (e.g. task progress counters) got zero matches (PR #167).
+- **`on_save` hooks could not resolve linked notes** — `on_save` hooks had no query context, so `get_note()` returned unit. Hooks that derive titles from linked notes (e.g. Activity resolving a Location name) always fell through to fallback titles (PR #168).
+- **Note link clicks in Fields tab** — Clicking a `note_link` field in the default Fields tab did nothing. The delegated click handler only existed on the custom view HTML div, not the React-rendered fields section (PR #169).
+
 ## [1.0.0] — 2026-04-28
 
 > **First stable release.** Krillnotes 1.0 ships a production-ready, local-first note-taking app with end-to-end encrypted multi-device sync, role-based access control, cryptographic identity management, and a fully scriptable schema engine. Every mutation is HLC-timestamped, Ed25519-signed, and verified on receipt — forming a tamper-evident CRDT log that syncs across devices via relay server, shared folder, or manual file exchange. This release also delivers a comprehensive security hardening pass (resource limits, path traversal fixes, zeroized secrets, transactional migrations) and dozens of bug fixes accumulated since the 0.9.x release candidates.
