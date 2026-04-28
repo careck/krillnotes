@@ -626,6 +626,7 @@ impl SchemaRegistry {
 
     /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
     /// Used by the Phase D migration pipeline to detect and migrate stale notes.
+    #[allow(clippy::type_complexity)]
     pub(super) fn get_versioned_schemas(
         &self,
     ) -> Vec<(
@@ -1022,6 +1023,7 @@ impl SchemaRegistry {
     ///
     /// The hook must use the gated SaveTransaction API (`set_field`, `set_title`, `commit`).
     /// Hooks that return a map (old-style direct mutation) are rejected with a migration error.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn run_on_add_child_hook(
         &self,
         engine: &Engine,

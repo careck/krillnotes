@@ -33,7 +33,7 @@ use std::sync::{Arc, Mutex};
 // ── Thread-local SaveTransaction for Rhai write-path hooks ────────────────────
 
 thread_local! {
-    static SAVE_TX: RefCell<Option<SaveTransaction>> = RefCell::new(None);
+    static SAVE_TX: RefCell<Option<SaveTransaction>> = const { RefCell::new(None) };
 }
 
 /// Sets the active [`SaveTransaction`] for the current thread.
@@ -308,6 +308,7 @@ impl ScriptRegistry {
     ///
     /// Returns [`KrillnotesError::Scripting`] if the hook throws a Rhai error
     /// or returns a malformed map.
+    #[allow(clippy::too_many_arguments)]
     pub fn run_on_add_child_hook(
         &self,
         parent_schema_name: &str,
@@ -368,6 +369,7 @@ impl ScriptRegistry {
     }
 
     /// Returns `(schema_name, schema_version, migrations, ast)` for every registered schema.
+    #[allow(clippy::type_complexity)]
     pub fn get_versioned_schemas(
         &self,
     ) -> Vec<(

@@ -36,6 +36,7 @@ use tauri::{AppHandle, Manager};
 /// Each window label maps to its open [`Workspace`] and the filesystem path
 /// of its database file. Both maps are protected by a [`Mutex`] since Tauri
 /// may call commands from multiple threads.
+#[allow(clippy::type_complexity)]
 pub struct AppState {
     /// Map from window label to the open [`Workspace`] for that window.
     pub workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
@@ -552,19 +553,19 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, event| {
             // macOS warm-start and cold-start: the OS delivers file-open events via the
             // NSApplicationDelegate applicationOpenURLs: callback, which Tauri surfaces
             // here as RunEvent::Opened. On Windows and Linux the OS spawns a fresh
             // process instead, so files arrive via std::env::args() in setup().
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
-                let state = app_handle.state::<AppState>();
+                let state = _app_handle.state::<AppState>();
                 for url in urls {
                     if url.scheme() == "file" {
                         let path = PathBuf::from(url.path());
                         if path.exists() {
-                            commands::workspace::handle_file_opened(app_handle, &state, path);
+                            commands::workspace::handle_file_opened(_app_handle, &state, path);
                         }
                     }
                 }

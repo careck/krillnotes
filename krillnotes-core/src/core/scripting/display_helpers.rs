@@ -221,10 +221,7 @@ pub fn table(headers: Array, rows: Array) -> String {
         out.push_str("<tr class=\"kn-view-tr\">");
         if let Ok(cells) = row.clone().try_cast::<Array>().ok_or(()) {
             for cell in &cells {
-                out.push_str(&format!(
-                    "<td class=\"kn-view-td\">{}</td>",
-                    cell.to_string()
-                ));
+                out.push_str(&format!("<td class=\"kn-view-td\">{cell}</td>",));
             }
         }
         out.push_str("</tr>");
@@ -316,7 +313,7 @@ pub fn view_text(content: String) -> String {
 pub fn list(items: Array) -> String {
     let mut out = String::from("<ul class=\"kn-view-list\">");
     for item in &items {
-        out.push_str(&format!("<li>{}</li>", item.to_string()));
+        out.push_str(&format!("<li>{item}</li>"));
     }
     out.push_str("</ul>");
     out

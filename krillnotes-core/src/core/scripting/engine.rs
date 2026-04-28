@@ -556,7 +556,7 @@ impl ScriptRegistry {
         // argument means Rhai will dispatch any value type to this function.
         engine.register_raw_fn(
             "set_field",
-            &[
+            [
                 std::any::TypeId::of::<rhai::ImmutableString>(),
                 std::any::TypeId::of::<rhai::ImmutableString>(),
                 std::any::TypeId::of::<Dynamic>(),

@@ -112,7 +112,7 @@ impl AcceptedInviteManager {
                 }
             }
         }
-        records.sort_by(|a, b| b.accepted_at.cmp(&a.accepted_at));
+        records.sort_by_key(|r| std::cmp::Reverse(r.accepted_at));
         Ok(records)
     }
 

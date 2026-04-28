@@ -296,7 +296,7 @@ impl InviteManager {
             let record: InviteRecord = serde_json::from_str(&json)?;
             records.push(record);
         }
-        records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        records.sort_by_key(|r| std::cmp::Reverse(r.created_at));
         Ok(records)
     }
 

@@ -517,7 +517,9 @@ pub fn get_note_verified_by(
     let label = window.label();
     let workspaces = state.workspaces.lock().expect("Mutex poisoned");
     let ws = workspaces.get(label).ok_or("No workspace open")?;
-    let raw_key = ws.get_note_verified_by(&note_id).map_err(|e| e.to_string())?;
+    let raw_key = ws
+        .get_note_verified_by(&note_id)
+        .map_err(|e| e.to_string())?;
 
     if raw_key.is_empty() {
         return Ok(String::new());

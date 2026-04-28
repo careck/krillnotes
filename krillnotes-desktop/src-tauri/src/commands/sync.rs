@@ -251,6 +251,7 @@ pub async fn poll_sync(
 
 /// One-click command: create an invite + upload it to the relay + return the
 /// shareable URL. The invite record is persisted with `relay_url` set.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn share_invite_link(
     window: Window,

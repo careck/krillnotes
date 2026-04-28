@@ -79,7 +79,7 @@ impl FolderChannel {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(true, |ext| ext != "swarm") {
+            if path.extension().is_none_or(|ext| ext != "swarm") {
                 continue;
             }
 

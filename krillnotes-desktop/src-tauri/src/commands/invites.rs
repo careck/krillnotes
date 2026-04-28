@@ -97,6 +97,7 @@ pub fn list_invites(
     Ok(records.into_iter().map(InviteInfo::from).collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn create_invite(
     window: tauri::Window,

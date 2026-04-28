@@ -70,6 +70,7 @@ pub fn list_accepted_invites(
     Ok(records.into_iter().map(AcceptedInviteInfo::from).collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn save_accepted_invite(
     state: State<'_, AppState>,

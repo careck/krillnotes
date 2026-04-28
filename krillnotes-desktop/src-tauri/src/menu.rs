@@ -43,6 +43,7 @@ struct WorkspaceMenuResult<R: Runtime> {
 ///
 /// On macOS: App menu (Krillnotes), File, Edit, Workspace, View.
 /// On other platforms: File, Edit, Workspace, View, Help.
+#[allow(clippy::needless_return)]
 pub fn build_menu<R: Runtime>(
     app: &AppHandle<R>,
     strings: &Value,
