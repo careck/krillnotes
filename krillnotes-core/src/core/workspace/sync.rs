@@ -422,8 +422,14 @@ impl Workspace {
         // 6. Apply the state change to working tables.
         let mut scripts_changed = false;
         // (attachment_id, note_id, filename, mime_type, blob)
-        let mut pending_attachment: Option<(String, String, String, Option<String>, Vec<u8>)> =
-            None;
+        #[allow(clippy::type_complexity)]
+        let mut pending_attachment: Option<(
+            String,
+            String,
+            String,
+            Option<String>,
+            Vec<u8>,
+        )> = None;
         let mut pending_attachment_delete: Option<String> = None;
         let tx = self.storage.connection_mut().transaction()?;
         match &op {
@@ -738,7 +744,7 @@ impl Workspace {
     pub fn import_snapshot_json(&mut self, data: &[u8]) -> Result<usize> {
         log::info!(target: "krillnotes::sync", "importing snapshot ({} bytes)", data.len());
         let snapshot: WorkspaceSnapshot =
-            serde_json::from_slice(data).map_err(|e| KrillnotesError::Json(e))?;
+            serde_json::from_slice(data).map_err(KrillnotesError::Json)?;
 
         let note_count = snapshot.notes.len();
         log::debug!(target: "krillnotes::sync", "snapshot contains {} notes, {} scripts", note_count, snapshot.user_scripts.len());

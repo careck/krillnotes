@@ -358,7 +358,7 @@ impl Workspace {
             iters += 1;
             if iters > new_creates.len() * new_creates.len() + 1 {
                 // Cycle guard — should never happen in practice; break to avoid infinite loop.
-                ordered_creates.extend(new_creates.drain(..));
+                ordered_creates.append(&mut new_creates);
                 break;
             }
             let mut next = Vec::with_capacity(new_creates.len());
@@ -386,7 +386,7 @@ impl Workspace {
             new_creates = next;
             if new_creates.len() == remaining {
                 // No progress — break to avoid infinite loop.
-                ordered_creates.extend(new_creates.drain(..));
+                ordered_creates.append(&mut new_creates);
                 break;
             }
             remaining = new_creates.len();

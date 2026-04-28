@@ -460,7 +460,7 @@ impl IdentityManager {
     /// Reads each identity file until a match is found. Returns `None` if
     /// no local identity has that public key.
     pub fn lookup_display_name(&self, public_key: &str) -> Option<String> {
-        for (_uuid, folder_name) in &self.folder_cache {
+        for folder_name in self.folder_cache.values() {
             let identity_json = self
                 .home_dir
                 .join(folder_name)

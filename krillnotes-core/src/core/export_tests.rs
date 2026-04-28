@@ -636,15 +636,8 @@ fn test_import_stamps_importer_identity_on_notes() {
     )
     .unwrap();
 
-    let ws_b = Workspace::open(
-        temp_dst.path(),
-        "",
-        "identity-b",
-        key_b,
-        test_gate(),
-        None,
-    )
-    .unwrap();
+    let ws_b =
+        Workspace::open(temp_dst.path(), "", "identity-b", key_b, test_gate(), None).unwrap();
 
     // Importer is owner
     assert!(ws_b.is_owner(), "importer should be workspace owner");
@@ -1150,5 +1143,8 @@ fn test_import_makes_importer_the_owner() {
         pubkey_b,
         "importer should become workspace owner after import"
     );
-    assert!(imported_ws.is_owner(), "importer should be recognized as owner");
+    assert!(
+        imported_ws.is_owner(),
+        "importer should be recognized as owner"
+    );
 }

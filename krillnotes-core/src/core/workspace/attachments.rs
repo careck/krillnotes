@@ -431,7 +431,7 @@ impl Workspace {
                 meta.note_id,
                 meta.filename,
                 meta.mime_type,
-                meta.size_bytes as i64,
+                meta.size_bytes,
                 meta.hash_sha256,
                 salt_bytes.as_slice(),
                 meta.created_at,

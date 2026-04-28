@@ -17,18 +17,13 @@ pub enum SendResult {
     NotDelivered { reason: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
     Relay,
     Folder,
+    #[default]
     Manual,
-}
-
-impl Default for ChannelType {
-    fn default() -> Self {
-        ChannelType::Manual
-    }
 }
 
 impl std::fmt::Display for ChannelType {

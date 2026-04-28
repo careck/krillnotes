@@ -36,6 +36,7 @@ use tauri::{AppHandle, Manager};
 /// Each window label maps to its open [`Workspace`] and the filesystem path
 /// of its database file. Both maps are protected by a [`Mutex`] since Tauri
 /// may call commands from multiple threads.
+#[allow(clippy::type_complexity)]
 pub struct AppState {
     /// Map from window label to the open [`Workspace`] for that window.
     pub workspaces: Arc<Mutex<HashMap<String, Workspace>>>,

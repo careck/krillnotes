@@ -435,7 +435,7 @@ impl Workspace {
                 device_id: self.device_id.clone(),
                 note_id: new_id.clone(),
                 parent_id: new_parent,
-                position: this_position as f64,
+                position: this_position,
                 schema: note.schema.clone(),
                 title: note.title.clone(),
                 fields: note.fields.clone(),
@@ -913,8 +913,6 @@ impl Workspace {
     /// HTML view when no hook is registered.
     ///
     /// The default view auto-renders `textarea` fields as CommonMark markdown.
-    ///
-
     pub fn toggle_note_expansion(&mut self, note_id: &str) -> Result<()> {
         let tx = self.storage.connection_mut().transaction()?;
 
@@ -1695,7 +1693,7 @@ impl Workspace {
     /// 1. Evaluate group visibility
     /// 2. Run field `validate` closures (only on visible fields)
     /// 3. Check required constraints (only on visible fields)
-    /// 4-7. Delegate to `update_note` (on_save hook + DB write)
+    ///    4-7. Delegate to `update_note` (on_save hook + DB write)
     ///
     /// Returns `SaveResult::ValidationErrors` when any step produces errors.
     /// Returns `SaveResult::Ok(note)` on success.

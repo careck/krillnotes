@@ -116,7 +116,7 @@ impl Workspace {
     /// The value is clamped to `[1, 500]`. If the new limit is smaller than
     /// the current stack depth, the oldest entries are dropped.
     pub fn set_undo_limit(&mut self, limit: usize) -> Result<()> {
-        let limit = limit.max(1).min(500);
+        let limit = limit.clamp(1, 500);
         self.storage.connection().execute(
             "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES ('undo_limit', ?)",
             [limit.to_string()],
@@ -331,13 +331,13 @@ impl Workspace {
     /// would require:
     ///
     /// - `DeleteNote`     (undo was: un-do a CreateNote) → redo re-deletes.
-    ///                    Build `SubtreeRestore` from current state.
+    ///   Build `SubtreeRestore` from current state.
     /// - `SubtreeRestore` (undo was: un-do a DeleteNote) → redo re-deletes root.
-    ///                    Build `DeleteNote`.
+    ///   Build `DeleteNote`.
     /// - `NoteRestore`    → redo re-updates. Capture current state as `NoteRestore`.
     /// - `PositionRestore`→ redo re-moves. Capture current position as `PositionRestore`.
     /// - `DeleteScript`   → redo re-deletes. Script no longer exists post-undo;
-    ///                    use a stub `ScriptRestore` (deletion needs no data).
+    ///   use a stub `ScriptRestore` (deletion needs no data).
     /// - `ScriptRestore`  → redo re-restores. Build `DeleteScript`.
     /// - `Batch`          → recurse in reverse LIFO order.
     fn build_redo_inverse(&self, undo_entry: &UndoEntry) -> Result<RetractInverse> {
@@ -520,7 +520,7 @@ impl Workspace {
                          VALUES (?,?,?,?,?,?,?,?)",
                         rusqlite::params![
                             att.id, att.note_id, att.filename, att.mime_type,
-                            att.size_bytes as i64, att.hash_sha256,
+                            att.size_bytes, att.hash_sha256,
                             salt_bytes.as_slice(), att.created_at,
                         ],
                     )?;

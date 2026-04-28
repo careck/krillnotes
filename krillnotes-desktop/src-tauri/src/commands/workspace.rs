@@ -488,7 +488,7 @@ pub async fn create_workspace(
                 use rand::RngCore;
                 let mut bytes = [0u8; 32];
                 rand::rng().fill_bytes(&mut bytes);
-                base64::engine::general_purpose::STANDARD.encode(&bytes)
+                base64::engine::general_purpose::STANDARD.encode(bytes)
             };
 
             // Get the signing key from the unlocked identity before creating the workspace.
@@ -804,7 +804,7 @@ pub async fn execute_import(
         use rand::RngCore;
         let mut bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut bytes);
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
+        base64::engine::general_purpose::STANDARD.encode(bytes)
     };
     let import_seed = {
         let identities = state.unlocked_identities.lock().expect("Mutex poisoned");
@@ -1066,6 +1066,7 @@ fn dir_size_bytes(dir: &Path) -> u64 {
 
 /// Reads `info.json` from `workspace_dir` and returns all stored fields.
 /// Returns `(None, None, None, None, None)` if the file is missing or malformed.
+#[allow(clippy::type_complexity)]
 pub fn read_info_json_full(
     workspace_dir: &Path,
 ) -> (
@@ -1297,7 +1298,7 @@ pub fn duplicate_workspace(
         use rand::RngCore;
         let mut bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut bytes);
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
+        base64::engine::general_purpose::STANDARD.encode(bytes)
     };
 
     // Derive the signing key for the copy operation (identity_uuid is the function parameter).
