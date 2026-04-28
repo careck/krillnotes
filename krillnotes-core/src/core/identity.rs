@@ -452,7 +452,7 @@ impl IdentityManager {
                 }
             }
         }
-        refs.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+        refs.sort_by_key(|r| std::cmp::Reverse(r.last_used));
         Ok(refs)
     }
 

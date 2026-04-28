@@ -814,10 +814,10 @@ impl Workspace {
                 }
                 for value in n.fields.values() {
                     match value {
-                        FieldValue::Text(s) | FieldValue::Email(s) => {
-                            if s.to_lowercase().contains(&query_lower) {
-                                return true;
-                            }
+                        FieldValue::Text(s) | FieldValue::Email(s)
+                            if s.to_lowercase().contains(&query_lower) =>
+                        {
+                            return true;
                         }
                         _ => {}
                     }

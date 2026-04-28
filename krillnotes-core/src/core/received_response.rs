@@ -119,7 +119,7 @@ impl ReceivedResponseManager {
                 }
             }
         }
-        records.sort_by(|a, b| b.received_at.cmp(&a.received_at));
+        records.sort_by_key(|r| std::cmp::Reverse(r.received_at));
         Ok(records)
     }
 
