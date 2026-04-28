@@ -1837,13 +1837,17 @@ impl Workspace {
         // - hook called commit()        → apply effective_title / effective_fields
         // - hook called reject(…)       → return ValidationFailed error
         // - hook returned Map (old API) → hard Scripting error with migration message
-        let (title, fields) = match self.script_registry.run_on_save_hook(
+        let context = self.build_query_context()?;
+        self.script_registry.set_query_context(context);
+        let hook_result = self.script_registry.run_on_save_hook(
             &note_schema,
             note_id,
             &note_schema,
             &title,
             &fields,
-        )? {
+        );
+        self.script_registry.clear_query_context();
+        let (title, fields) = match hook_result? {
             None => (title, fields),
             Some(tx) if tx.committed => {
                 let pn = tx.pending_notes.get(note_id).ok_or_else(|| {

@@ -9,7 +9,7 @@
 use super::*;
 
 impl Workspace {
-    fn build_query_context(&self) -> Result<QueryContext> {
+    pub(crate) fn build_query_context(&self) -> Result<QueryContext> {
         let all_notes = self.list_all_notes()?;
         let mut notes_by_id: HashMap<String, Dynamic> = HashMap::new();
         let mut children_by_id: HashMap<String, Vec<Dynamic>> = HashMap::new();
