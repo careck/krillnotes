@@ -575,7 +575,14 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
 
           if (visibleTopFields.length === 0 && visibleGroups.length === 0) return null;
           return (
-            <>
+            <div onClick={(e) => {
+              const noteLink = (e.target as Element).closest('.kn-view-link');
+              if (noteLink) {
+                e.preventDefault();
+                const id = noteLink.getAttribute('data-note-id');
+                if (id) onLinkNavigate(id);
+              }
+            }}>
               {visibleTopFields.length > 0 && (
                 <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
                   {visibleTopFields.map(field => (
@@ -623,7 +630,7 @@ function InfoPanel({ selectedNote, onNoteUpdated, onDeleteRequest, requestEditMo
                   </div>
                 );
               })}
-            </>
+            </div>
           );
         })())}
 
