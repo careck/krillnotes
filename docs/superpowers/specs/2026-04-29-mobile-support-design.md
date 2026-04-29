@@ -113,9 +113,9 @@ npm run tauri ios dev       # iPad simulator
 npm run tauri android dev   # Android emulator or USB device
 ```
 
-### Known Risk
+### Known Risk (mitigated)
 
-SQLCipher on Android x86_64 emulator has a known crash (`__extenddftf2` symbol). Real ARM devices work fine. Mitigation: test on real devices or ARM64 emulator images.
+SQLCipher on Android x86_64 emulator has a known crash (`__extenddftf2` symbol). Not a concern here — development machine is Apple M2, so Android emulator runs ARM64 images natively. Real Android device is also ARM.
 
 ## Adaptive Layout
 
