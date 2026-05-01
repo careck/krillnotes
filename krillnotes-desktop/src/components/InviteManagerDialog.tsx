@@ -78,12 +78,20 @@ export function InviteManagerDialog({ identityUuid, workspaceName, onClose }: Pr
       setError(t('invite.invalidRelayUrl'));
       return;
     }
+    let relayBaseUrl: string;
+    try {
+      relayBaseUrl = new URL(responseUrl.trim()).origin;
+    } catch {
+      setError(t('invite.invalidRelayUrl'));
+      return;
+    }
     setFetchingResponse(true);
     setError(null);
     try {
       await invoke('fetch_relay_invite_response', {
         identityUuid,
         token,
+        relayBaseUrl,
       });
       setResponseUrl('');
       load();

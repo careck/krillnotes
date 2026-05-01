@@ -64,7 +64,7 @@ export function AcceptInviteWorkflow({ identityUuid, identityName, onResponded, 
       const pathParts = url.pathname.split('/');
       const token = pathParts[pathParts.length - 1];
 
-      const result = await invoke<FetchedRelayInvite>('fetch_relay_invite', { token });
+      const result = await invoke<FetchedRelayInvite>('fetch_relay_invite', { token, relayBaseUrl: url.origin });
       setInviteData(result.invite);
       setInviteTempPath(result.tempPath);
       setInviteRelayServer(url.host);

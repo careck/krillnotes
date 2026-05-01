@@ -569,13 +569,13 @@ pub async fn fetch_relay_invite(
     _window: Window,
     _state: State<'_, AppState>,
     token: String,
-    relay_base_url: Option<String>,
+    relay_base_url: String,
 ) -> Result<crate::commands::invites::FetchedRelayInvite, String> {
     log::debug!("fetch_relay_invite(token={token})");
     use krillnotes_core::core::contact::generate_fingerprint;
     use krillnotes_core::core::invite::InviteManager;
 
-    let base_url = relay_base_url.unwrap_or_else(|| "https://swarm.krillnotes.org".to_string());
+    let base_url = relay_base_url;
 
     let (invite, bytes) = tokio::task::spawn_blocking(
         move || -> Result<(krillnotes_core::core::invite::InviteFile, Vec<u8>), String> {
@@ -783,7 +783,7 @@ pub async fn fetch_relay_invite_response(
     state: State<'_, AppState>,
     identity_uuid: String,
     token: String,
-    relay_base_url: Option<String>,
+    relay_base_url: String,
 ) -> Result<crate::commands::invites::PendingPeer, String> {
     log::debug!("fetch_relay_invite_response(identity={identity_uuid}, token={token})");
     use krillnotes_core::core::contact::generate_fingerprint;
@@ -791,7 +791,7 @@ pub async fn fetch_relay_invite_response(
 
     let uuid = Uuid::parse_str(&identity_uuid).map_err(|e| e.to_string())?;
 
-    let base_url = relay_base_url.unwrap_or_else(|| "https://swarm.krillnotes.org".to_string());
+    let base_url = relay_base_url;
     let base_url_for_lookup = base_url.clone();
 
     // Fetch + parse response from relay (unauthenticated GET).
